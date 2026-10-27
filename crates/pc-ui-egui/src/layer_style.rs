@@ -703,7 +703,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                         egui::Align2::LEFT_CENTER,
                         tl!(label),
                         egui::FontId::proportional(12.5),
-                        t.text_faint,
+                        if resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
                     );
                     if resp.clicked() {
                         add_instance(f, kind);
@@ -729,7 +729,12 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                         ui.painter().line_segment([cb.left_center() + vec2(3.0, 0.5), cb.center_bottom() + vec2(-1.0, -3.5)], Stroke::new(1.8, Color32::WHITE));
                         ui.painter().line_segment([cb.center_bottom() + vec2(-1.0, -3.5), cb.right_top() + vec2(-3.0, 3.5)], Stroke::new(1.8, Color32::WHITE));
                     } else {
-                        ui.painter().rect_stroke(cb, 2.0, Stroke::new(1.5, t.text_faint), StrokeKind::Inside);
+                        ui.painter().rect_stroke(
+                            cb,
+                            2.0,
+                            Stroke::new(1.5, if is_sel || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint }),
+                            StrokeKind::Inside,
+                        );
                     }
                     ui.painter().text(
                         rect.left_center() + vec2(28.0, 0.0),
@@ -743,7 +748,13 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                         let btn = |ui: &egui::Ui, at: egui::Pos2, glyph: &str, tag: &str| {
                             let r = egui::Rect::from_center_size(at, vec2(18.0, 18.0));
                             let hresp = ui.interact(r, ui.id().with(("fxbtn", tag, id)), Sense::click());
-                            let col = if hresp.hovered() { t.accent } else { t.text_faint };
+                            let col = if hresp.hovered() {
+                                t.accent
+                            } else if is_sel || resp.hovered() {
+                                t.text_secondary_on_fill
+                            } else {
+                                t.text_faint
+                            };
                             ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(13.0), col);
                             hresp.clicked()
                         };

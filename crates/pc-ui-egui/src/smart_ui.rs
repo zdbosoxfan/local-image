@@ -75,7 +75,19 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
             ui.painter().rect_filled(sw, 1.0, if sm.filter_mask.as_ref().is_some_and(|m| m.enabled) { Color32::from_gray(200) } else { Color32::WHITE });
             ui.painter().rect_stroke(sw, 1.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
         }
-        ui.painter().text(pos2(x, rect.center().y), Align2::LEFT_CENTER, name, egui::FontId::proportional(11.5), if on { t.text_dim } else { t.text_faint });
+        ui.painter().text(
+            pos2(x, rect.center().y),
+            Align2::LEFT_CENTER,
+            name,
+            egui::FontId::proportional(11.5),
+            if on {
+                t.text_dim
+            } else if resp.hovered() {
+                t.text_secondary_on_fill
+            } else {
+                t.text_faint
+            },
+        );
         if let Some(i) = index
             && resp.double_clicked()
         {

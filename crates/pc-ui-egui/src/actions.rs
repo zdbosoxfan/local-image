@@ -104,7 +104,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 Align2::RIGHT_CENTER,
                 format!("{nsteps} steps"),
                 egui::FontId::proportional(11.0),
-                t.text_faint,
+                if sel || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
             );
             if recording_this {
                 ui.painter().circle_filled(pos2(rect.right() - 64.0, rect.center().y), 4.0, Color32::from_rgb(230, 60, 60));

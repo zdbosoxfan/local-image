@@ -653,7 +653,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         let at = pos2(img_rect.left() + 6.0, img_rect.bottom() - 30.0 - 16.0);
         let br = Rect::from_min_size(at, vec2(g.size().x + 24.0, 16.0));
         p.rect_filled(br, 8.0, Color32::from_black_alpha(170));
-        paint(p, Rect::from_center_size(pos2(br.left() + 9.0, br.center().y), vec2(12.0, 12.0)), Icon::Info, t.caution);
+        paint(p, Rect::from_center_size(pos2(br.left() + 9.0, br.center().y), vec2(12.0, 12.0)), Icon::Info, t.overlay_caution);
         p.galley(pos2(br.left() + 17.0, br.center().y - g.size().y / 2.0), g, Color32::WHITE);
         register(ui.ctx(), format!("badge:previewOnly:{}", id.0), br);
         ui.interact(br, egui::Id::new(("preview-only-badge", id.0)), Sense::hover())

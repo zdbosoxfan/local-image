@@ -150,7 +150,7 @@ fn list_row(ui: &mut egui::Ui, p: &BrushPreset, current: bool, presets: &[BrushP
         egui::Align2::CENTER_BOTTOM,
         format!("{}", pb.size.round() as i64),
         egui::FontId::proportional(9.0),
-        t.text_faint,
+        if current || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
     );
     let stroke = brush_preview::stroke_texture(ui.ctx(), &format!("brushes-stroke:{}", p.name), pb, 170, 36, t.text);
     let sr = egui::Rect::from_min_size(pos2(cell.right() + 8.0, r.top() + 4.0), vec2(170.0, 36.0));
@@ -210,7 +210,13 @@ fn group_header(ui: &mut egui::Ui, label: &str, key: &str, open: bool, count: us
         t.icon,
     );
     ui.painter().text(pos2(x + 40.0, r.center().y), egui::Align2::LEFT_CENTER, label, theme::semibold(12.0), t.text);
-    ui.painter().text(pos2(r.right() - 8.0, r.center().y), egui::Align2::RIGHT_CENTER, count.to_string(), theme::medium(11.0), t.text_faint);
+    ui.painter().text(
+        pos2(r.right() - 8.0, r.center().y),
+        egui::Align2::RIGHT_CENTER,
+        count.to_string(),
+        theme::medium(11.0),
+        if resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
+    );
     resp.dnd_set_drag_payload(BrushDrag::Group(key.to_string()));
     if let Some(d) = resp.dnd_hover_payload::<BrushDrag>() {
         match &*d {

@@ -51,6 +51,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 - Library and Develop: Cmd+L / Ctrl+L switches filtering off and restores the same filter.
   Find Similar enables filtering, and filters put aside follow keyword and folder changes.
+- Pro and Studio Light secondary text is more readable on neutral panels and filled controls;
+  Studio Light status colors are darker while image preview badges retain their existing amber.
+
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
   removes false colour and zipper along slanted and fine high-contrast edges (window mullions,
   railings, roof lines, brick), most visibly under tungsten light. 1:1 views and full-size exports

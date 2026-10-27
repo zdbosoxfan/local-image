@@ -42,7 +42,12 @@ pub fn nav_row(ui: &mut Ui, icon: &str, icon_tint: Option<Color32>, label: &str,
     }
     ui.painter().galley(pos2(x + icon_width, rect.center().y - galley.size().y / 2.0), galley, ink);
     if !trailing.is_empty() {
-        ui.painter().galley(pos2(rect.right() - NAV_INSET - tail.size().x, rect.center().y - tail.size().y / 2.0), tail, t.text_faint);
+        let tail_ink = if selected || response.hovered() || response.has_focus() { t.text_secondary_on_fill } else { t.text_faint };
+        ui.painter().galley_with_override_text_color(
+            pos2(rect.right() - NAV_INSET - tail.size().x, rect.center().y - tail.size().y / 2.0),
+            tail,
+            tail_ink,
+        );
     }
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, label));
     if elided { response.on_hover_text(label) } else { response }

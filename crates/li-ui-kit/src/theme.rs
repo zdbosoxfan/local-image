@@ -87,6 +87,8 @@ pub struct Tokens {
     pub text: Color32,
     pub text_dim: Color32,
     pub text_faint: Color32,
+    /// Secondary content on selected, hovered and pressed fills, including tabs.
+    pub text_secondary_on_fill: Color32,
     pub icon: Color32,
     pub accent: Color32,
     pub accent_soft: Color32,
@@ -136,6 +138,7 @@ impl Tokens {
                 text: Color32::from_rgb(238, 238, 238),
                 text_dim: Color32::from_rgb(212, 212, 212),
                 text_faint: Color32::from_rgb(160, 160, 160),
+                text_secondary_on_fill: Color32::from_rgb(160, 160, 160),
                 icon: Color32::from_rgb(226, 226, 226),
                 accent_soft: Color32::from_rgb(110, 110, 110),
                 separator: Color32::from_rgb(62, 62, 62),
@@ -158,7 +161,8 @@ impl Tokens {
                 pressed: Color32::from_rgb(78, 78, 78),
                 text: Color32::from_rgb(222, 222, 222),
                 text_dim: Color32::from_rgb(178, 178, 178),
-                text_faint: Color32::from_rgb(128, 128, 128),
+                text_faint: Color32::from_rgb(153, 153, 153),
+                text_secondary_on_fill: Color32::from_rgb(197, 197, 197),
                 icon: Color32::from_rgb(200, 200, 200),
                 accent: Color32::from_rgb(55, 142, 240),
                 accent_soft: Color32::from_rgb(78, 78, 78),
@@ -198,6 +202,7 @@ impl Tokens {
                 text: Color32::from_rgb(236, 236, 240),
                 text_dim: Color32::from_rgb(150, 150, 158),
                 text_faint: Color32::from_rgb(96, 96, 104),
+                text_secondary_on_fill: Color32::from_rgb(96, 96, 104),
                 icon: Color32::from_rgb(196, 196, 204),
                 accent: Color32::from_rgb(139, 124, 246),
                 accent_soft: Color32::from_rgba_unmultiplied(139, 124, 246, 46),
@@ -236,9 +241,10 @@ impl Tokens {
                 pressed: Color32::from_rgb(220, 220, 226),
                 text: Color32::from_rgb(24, 24, 28),
                 text_dim: Color32::from_rgb(96, 96, 106),
-                text_faint: Color32::from_rgb(150, 150, 160),
+                text_faint: Color32::from_rgb(110, 110, 120),
+                text_secondary_on_fill: Color32::from_rgb(96, 96, 106),
                 icon: Color32::from_rgb(60, 60, 68),
-                accent: Color32::from_rgb(108, 92, 231),
+                accent: Color32::from_rgb(93, 79, 199),
                 accent_soft: Color32::from_rgba_unmultiplied(108, 92, 231, 36),
                 accent_border: Color32::from_rgba_unmultiplied(108, 92, 231, 120),
                 accent_text: Color32::from_rgb(80, 64, 200),
@@ -246,8 +252,8 @@ impl Tokens {
                 shadow: Color32::from_black_alpha(50),
                 primary_bg: Color32::from_rgb(20, 20, 24),
                 primary_text: Color32::from_rgb(250, 250, 252),
-                danger: Color32::from_rgb(210, 60, 60),
-                warning: Color32::from_rgb(190, 130, 20),
+                danger: Color32::from_rgb(178, 51, 51),
+                warning: Color32::from_rgb(130, 89, 14),
                 radius_sm: 6.0,
                 radius: 8.0,
                 radius_lg: 12.0,
@@ -276,6 +282,7 @@ impl Tokens {
                 text: Color32::BLACK,
                 text_dim: Color32::from_rgb(64, 64, 64),
                 text_faint: Color32::from_rgb(128, 128, 128),
+                text_secondary_on_fill: Color32::from_rgb(128, 128, 128),
                 icon: Color32::BLACK,
                 accent: Color32::from_rgb(10, 36, 106),
                 accent_soft: Color32::from_rgb(10, 36, 106),
@@ -442,6 +449,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn secondary_and_status_text_meet_neutral_surface_contrast() {
+        let luminance = |color: Color32| {
+            li_color::luminance_709_f64([color.r(), color.g(), color.b()].map(|v| li_color::transfer::srgb_to_linear_f64(f64::from(v) / 255.0)))
+        };
+        let mut failures = Vec::new();
+        for kind in [ThemeKind::Pro, ThemeKind::StudioLight] {
+            let t = Tokens::for_kind(kind);
+            let filled = t.text_secondary_on_fill;
+            let mut pairs = vec![
+                ("faint", "chrome", t.text_faint, t.chrome),
+                ("secondary", "canvas", if t.dark() { t.text_faint } else { filled }, t.canvas),
+                ("secondary", "dock", if t.dark() { t.text_faint } else { filled }, t.dock),
+                ("faint", "card", t.text_faint, t.card),
+                ("faint", "field", t.text_faint, t.field),
+                ("secondary", "hover", filled, t.hover),
+                ("secondary", "pressed", filled, t.pressed),
+            ];
+            if kind == ThemeKind::Pro {
+                pairs.extend([("secondary", "tab_strip", filled, t.tab_strip), ("secondary", "row_selected", filled, t.row_selected)]);
+            } else {
+                for (role, foreground) in [("accent", t.accent), ("warning", t.warning), ("danger", t.danger)] {
+                    for (surface, background) in [
+                        ("chrome", t.chrome),
+                        ("canvas", t.canvas),
+                        ("dock", t.dock),
+                        ("card", t.card),
+                        ("field", t.field),
+                        ("hover", t.hover),
+                        ("pressed", t.pressed),
+                    ] {
+                        pairs.push((role, surface, foreground, background));
+                    }
+                }
+            }
+            for (role, surface, foreground, background) in pairs {
+                let a = luminance(foreground);
+                let b = luminance(background);
+                let ratio = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+                if ratio < 4.5 {
+                    failures.push(format!("{kind:?} {role}/{surface}: {ratio}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "contrast below 4.5:1:\n{}", failures.join("\n"));
+    }
+
+    #[test]
     fn theme_names_parse() {
         assert_eq!(ThemeKind::from_name("Classic"), Some(ThemeKind::Classic));
         assert_eq!(ThemeKind::from_name("studio (light)"), Some(ThemeKind::StudioLight));
@@ -565,6 +619,7 @@ pub mod live {
                 text,
                 text_dim,
                 text_faint,
+                text_secondary_on_fill,
                 icon,
                 accent,
                 accent_soft,
@@ -635,6 +690,8 @@ pub struct LibraryRoles {
     pub overlay_reject: Color32,
     /// Unselected Upright guides, paired with an overlay_bg outline over photo pixels.
     pub overlay_guide: Color32,
+    /// Preview warning glyphs over imagery retain their pre-chrome-adjustment foreground.
+    pub overlay_caution: Color32,
     pub metrics: Metrics,
 }
 /// Inherited Library/Develop layout in points, independent of the active palette.
@@ -693,6 +750,7 @@ impl Default for LibraryRoles {
             overlay_fg: Color32::from_gray(235),
             overlay_reject: Color32::from_rgb(255, 120, 120),
             overlay_guide: Color32::from_rgb(255, 196, 40),
+            overlay_caution: Color32::from_rgb(0xe3, 0xa8, 0x3c),
             metrics: Metrics::default(),
         }
     }

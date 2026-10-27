@@ -1075,7 +1075,7 @@ pub fn preferences_tab(ui: &mut egui::Ui, title: &str, selected: bool, empty: bo
     let color = if selected {
         t.text
     } else if empty {
-        t.text_faint
+        if response.hovered() || response.has_focus() { t.text_secondary_on_fill } else { t.text_faint }
     } else {
         t.text_dim
     };

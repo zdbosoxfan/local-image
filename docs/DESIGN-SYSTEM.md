@@ -83,6 +83,24 @@ Check overlays against both light and dark photo areas, not just the canvas surr
 and dark photo areas. At 1.0 pixel per point, antialiasing reduces the amber core's contrast: on mid-grey
 (about RGB 92, 92, 92), both core and outline reach only about 2.6:1, below that bar.
 
+**Secondary text by surface.** In Pro, ordinary `text_faint` is `#999999`; in Studio Light it
+is `#6e6e78`. Keep it on cards, fields and chrome so `text` / `text_dim` / `text_faint`
+remain distinct. `text_secondary_on_fill` is `#c5c5c5` in Pro and `#60606a` in Studio Light:
+use it for secondary metadata on selected rows, hover and pressed fills, and tabs. Studio Light
+also needs it on the darker canvas and dock surfaces. Choose the foreground when choosing the
+surface; changing only a galley's fallback colour does not replace its baked text colour.
+Other themes retain their existing faint values for this role. Disabled controls retain their
+separate semantics; neither opacity reductions nor arbitrary image pixels belong to this envelope.
+
+Studio Light status foregrounds are `accent #5d4fc7`, `warning #82590e`, `danger #b23333`.
+The 37-pair neutral envelope in `theme::tests::secondary_and_status_text_meet_neutral_surface_contrast`
+checks the assigned secondary foreground over Pro's nine and Studio Light's seven surfaces,
+plus each of the three light status roles over seven surfaces, at an unrounded 4.5:1 minimum.
+This is a foreground/surface contract, not a claim that every widget state is accessible.
+Image preview glyphs use `LibraryRoles::overlay_caution` (exposed by the Library facade),
+which preserves their existing foreground independently of the darker neutral `caution` mapping.
+The existing translucent image-badge backings and text remain unchanged.
+
 **Shape.** Radii: `radius_sm` / `radius` / `radius_lg` = Pro 3/4/6, Studio 6/8/12, Classic 0/0/0
 (`pc theme.rs:100`). Library: buttons and rows 4, windows and menus 6, swatch tile 3 (`SWATCH_RADIUS`),
 badge 6 (`BADGE_RADIUS`). Chrome strokes use the existing shared metrics, typically 1 pt;

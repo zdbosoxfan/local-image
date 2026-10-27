@@ -352,7 +352,13 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                         } else {
                             format!("{} x {} px @ {} ppi", p.1, p.2, p.3)
                         };
-                        ui.painter().text(pos2(r.center().x, r.top() + 90.0), Align2::CENTER_CENTER, size, egui::FontId::proportional(10.5), t.text_faint);
+                        ui.painter().text(
+                            pos2(r.center().x, r.top() + 90.0),
+                            Align2::CENTER_CENTER,
+                            size,
+                            egui::FontId::proportional(10.5),
+                            if on || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
+                        );
                         if resp.clicked() {
                             apply_preset(f, p);
                         }

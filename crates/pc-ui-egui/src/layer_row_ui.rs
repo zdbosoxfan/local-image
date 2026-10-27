@@ -105,21 +105,22 @@ pub fn truncated(painter: &Painter, text: &str, font: FontId, color: egui::Color
 /// the row doesn't also treat the click as a selection).
 pub fn indicators(
     ui: &egui::Ui,
-    painter: &Painter,
     row: Rect,
     name_left: f32,
     l: &Layer,
     fx_open: bool,
+    secondary: egui::Color32,
     actions: &mut Vec<(String, Value)>,
 ) -> (f32, Vec<(Indicator, Rect)>, bool) {
     let t = Tokens::get(ui.ctx());
+    let painter = ui.painter_at(row.expand(1.0));
     let locked = l.locks.transparency || l.locks.position || l.locks.all;
     let fx_font = theme::semibold(11.0);
     let blend_font = FontId::proportional(10.5);
     let has_fx = !l.effects.items.is_empty();
     let show_blend = l.blend != BlendMode::Normal && l.blend != BlendMode::PassThrough;
     let fx_galley = has_fx.then(|| painter.layout_no_wrap("fx".into(), fx_font, t.text_dim));
-    let blend_galley = show_blend.then(|| painter.layout_no_wrap(tl!(l.blend.label()).into(), blend_font, t.text_faint));
+    let blend_galley = show_blend.then(|| painter.layout_no_wrap(tl!(l.blend.label()).into(), blend_font, secondary));
     let mut items = Vec::new();
     if locked {
         items.push((Indicator::Lock, ICON_W));
@@ -139,8 +140,8 @@ pub fn indicators(
     let cy = row.center().y;
     for &(kind, r) in &rects {
         match kind {
-            Indicator::Lock => icons::paint(ui, Rect::from_center_size(r.center(), vec2(ICON_W, ICON_W)), "lock", 12.0, t.text_faint),
-            Indicator::Link => icons::paint(ui, Rect::from_center_size(r.center(), vec2(ICON_W, ICON_W)), "link", 12.0, t.text_faint),
+            Indicator::Lock => icons::paint(ui, Rect::from_center_size(r.center(), vec2(ICON_W, ICON_W)), "lock", 12.0, secondary),
+            Indicator::Link => icons::paint(ui, Rect::from_center_size(r.center(), vec2(ICON_W, ICON_W)), "link", 12.0, secondary),
             Indicator::Fx => {
                 if let Some(g) = fx_galley.clone() {
                     painter.galley(pos2(r.left(), cy - g.size().y / 2.0), g, t.text_dim);
@@ -148,12 +149,12 @@ pub fn indicators(
             }
             Indicator::Blend => {
                 if let Some(g) = blend_galley.clone() {
-                    painter.galley(pos2(r.left(), cy - g.size().y / 2.0), g, t.text_faint);
+                    painter.galley(pos2(r.left(), cy - g.size().y / 2.0), g, secondary);
                 }
             }
             Indicator::FxTriangle => {
                 let resp = ui.interact(r, ui.id().with(("fx-disclosure", l.id.0)), Sense::click());
-                paint_triangle(painter, r.center(), fx_open, if resp.hovered() { t.text } else { t.icon });
+                paint_triangle(&painter, r.center(), fx_open, if resp.hovered() { t.text } else { t.icon });
                 if resp.clicked() {
                     clicked = true;
                     let all = ui.input(|i| i.modifiers.alt);

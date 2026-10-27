@@ -138,7 +138,13 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         let color = if *enabled { t.text } else { t.text_faint };
                         ui.painter().text(rect.left_center() + vec2(12.0, 0.0), Align2::LEFT_CENTER, label, theme::medium(13.0), color);
                         if let Some(d) = detail {
-                            ui.painter().text(rect.right_center() - vec2(12.0, 0.0), Align2::RIGHT_CENTER, d, egui::FontId::proportional(11.5), t.text_faint);
+                            ui.painter().text(
+                                rect.right_center() - vec2(12.0, 0.0),
+                                Align2::RIGHT_CENTER,
+                                d,
+                                egui::FontId::proportional(11.5),
+                                if i == sel || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
+                            );
                         }
                         if resp.clicked() && *enabled {
                             run = Some(id.clone());
