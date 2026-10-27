@@ -174,3 +174,49 @@ fn relocated_settings_links_remain_writable() {
     drop(session);
     std::fs::remove_dir_all(lib).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn linked_read_errors_warn_with_target_and_refuse_saving() {
+    for name in ["catalog.log", "catalog.snap", "prefs.json"] {
+        let lib = temp_dir(&format!("read-error-{name}"));
+        let mut session = Session::new().with_fs();
+        session.open_library(&lib, false).unwrap();
+        session.close_library().unwrap();
+        drop(session);
+        let snapshot = std::fs::read(lib.join("catalog.snap")).unwrap();
+        let log = std::fs::read(lib.join("catalog.log")).unwrap();
+        let target = lib.join("target-directory");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("notes.txt"), b"keep these notes").unwrap();
+        let link = lib.join(name);
+        if link.exists() {
+            std::fs::remove_file(&link).unwrap();
+        }
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let mut session = Session::new().with_fs();
+        session.open_library(&lib, false).unwrap();
+        let warnings = session.take_library_warnings();
+        assert!(
+            warnings.iter().any(|w| w.contains(&link.display().to_string()) && w.contains(&target.display().to_string())),
+            "{name}: {warnings:?}"
+        );
+        let error = if name == "prefs.json" {
+            session.save_prefs().unwrap_err()
+        } else {
+            assert!(session.execute("album.create", &json!({"name": "Unsaved"})).is_err());
+            session.close_library().unwrap_err()
+        };
+        assert!(error.to_string().contains(&target.display().to_string()), "{name}: {error}");
+        if name != "catalog.snap" {
+            assert_eq!(std::fs::read(lib.join("catalog.snap")).unwrap(), snapshot);
+        }
+        if name != "catalog.log" {
+            assert_eq!(std::fs::read(lib.join("catalog.log")).unwrap(), log);
+        }
+        assert_eq!(std::fs::read_link(&link).unwrap(), target);
+        assert_eq!(std::fs::read(target.join("notes.txt")).unwrap(), b"keep these notes");
+        drop(session);
+        std::fs::remove_dir_all(lib).unwrap();
+    }
+}

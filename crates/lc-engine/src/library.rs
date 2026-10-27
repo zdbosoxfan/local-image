@@ -274,9 +274,13 @@ impl SettingsLoad {
                 return None;
             }
             Err(e) => {
-                log::error!("library: {name}: {e}");
+                let location = match &target {
+                    Some(target) => format!("{} -> {}", Path::new(&store.describe()).join(name).display(), target.display()),
+                    None => name.to_string(),
+                };
+                log::error!("library: {location}: {e}");
                 self.block(name, format!(
-                    "{name} couldn't be read ({e}). Local Image uses the defaults for now and won't overwrite the file; reopen the library to try again."
+                    "{location} couldn't be read ({e}). Local Image uses the defaults for now and won't overwrite the file; reopen the library to try again."
                 ));
                 return None;
             }

@@ -343,8 +343,20 @@ impl Journal {
                 )
             })
             .unwrap_or_default();
-        let snap = store.read(SNAPSHOT).map_err(io)?;
-        let log = store.read(LOG).map_err(io)?;
+        let mut read = |name: &str, target: Option<&std::path::PathBuf>| match store.read(name) {
+            Ok(bytes) => Ok(bytes),
+            Err(e) => {
+                let Some(target) = target else { return Err(io(e)) };
+                report.write_refusal = Some(format!(
+                    "refusing catalog writes: {} -> {} couldn't be read ({e})",
+                    std::path::Path::new(&store.describe()).join(name).display(),
+                    target.display()
+                ));
+                Ok(None)
+            }
+        };
+        let snap = read(SNAPSHOT, snapshot_target.as_ref())?;
+        let log = read(LOG, log_target.as_ref())?;
         report.created = snap.is_none() && log.is_none() && snapshot_target.is_none() && log_target.is_none();
         // no snapshot: a new library (or one whose log holds nothing yet)
         let fresh = snap.is_none();
@@ -361,7 +373,7 @@ impl Journal {
                 }
             }
             None if snapshot_target.is_some() => {
-                report.write_refusal = Some(snapshot_refusal);
+                report.write_refusal.get_or_insert(snapshot_refusal);
                 (Catalog::new(), 0)
             }
             // the earliest builds kept a log without a snapshot; this build always writes one first
@@ -463,14 +475,19 @@ impl Journal {
             needs_newline = !has_nl;
         }
 
-        if invalid_log_link && let Some(target) = log_target {
+        if invalid_log_link
+            && j.write_refusal.is_none()
+            && let Some(target) = log_target
+        {
             j.write_refusal = Some(format!(
                 "refusing catalog writes: {} -> {} is not a valid catalog log",
                 std::path::Path::new(&j.store.describe()).join(LOG).display(),
                 target.display()
             ));
         }
-        if let Some(at) = damaged_at {
+        if let Some(at) = damaged_at
+            && j.write_refusal.is_none()
+        {
             let name = format!("{LOG}.damaged-{}", j.seq);
             if let Some(target) = j.store.link_target(&name).map_err(io)? {
                 j.write_refusal = Some(format!(
