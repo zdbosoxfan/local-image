@@ -1,7 +1,7 @@
 //! Affinity Open/Place: guarded, detached previews and one atomic publication.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use photocraft_doc::{
-    Affine, ColorMode, Document, Layer, LayerContent, LayerId, SampleType,
+    Affine, Document, Layer, LayerContent, LayerId,
     vector_design::exchange::{ImportLimits, ImportOptions, ImportedScene, VectorWarning},
 };
 use serde::{Deserialize, Serialize};
@@ -432,15 +432,7 @@ fn default_dpi() -> f32 {
 fn default_name() -> String {
     "Affinity".into()
 }
-/// File adapters all return the shared scene; Open wraps it as a new native document.
-pub fn document(scene: ImportedScene, name: &str) -> (Document, Vec<VectorWarning>) {
-    let mut doc = Document::new(name, scene.size, ColorMode::Rgb, SampleType::F32);
-    doc.resolution_dpi = scene.resolution_dpi;
-    doc.design_units = scene.units;
-    doc.layers = scene.layers;
-    doc.symbols = scene.symbols;
-    (doc, scene.warnings)
-}
+pub use super::import_scene::document;
 /// Byte Open boundary used by file jobs/UI without expanding binary data into JSON arrays.
 pub fn open_bytes(session: &mut Session, bytes: &[u8], dpi: f32, name: &str) -> Result<Vec<VectorWarning>> {
     if name.len() > 4096 {

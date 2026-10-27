@@ -1,8 +1,8 @@
 //! PDF Open/Place: guarded, detached previews and one atomic publication.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use photocraft_doc::{
-    Affine, ColorMode, Document, Layer, LayerContent, LayerId, SampleType,
-    vector_design::exchange::{ImportOptions, ImportedScene, VectorWarning},
+    Affine, Document, Layer, LayerContent, LayerId,
+    vector_design::exchange::{ImportOptions, ImportedScene},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -182,15 +182,7 @@ fn default_dpi() -> f32 {
 fn default_name() -> String {
     "PDF".into()
 }
-/// File adapters all return the shared scene; Open wraps it as a new native document.
-pub fn document(scene: ImportedScene, name: &str) -> (Document, Vec<VectorWarning>) {
-    let mut doc = Document::new(name, scene.size, ColorMode::Rgb, SampleType::F32);
-    doc.resolution_dpi = scene.resolution_dpi;
-    doc.design_units = scene.units;
-    doc.layers = scene.layers;
-    doc.symbols = scene.symbols;
-    (doc, scene.warnings)
-}
+pub use super::import_scene::document;
 fn open(session: &mut Session, params: &Value) -> Result<Value> {
     let request: Open = serde_json::from_value(params.clone()).map_err(error)?;
     let scene = photocraft_pdf::import_with(
