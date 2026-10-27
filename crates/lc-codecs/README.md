@@ -76,8 +76,9 @@ All pure Rust, verified with `cargo info` / `cargo tree`:
 | photocraft-cms | GPL-3.0-or-later (workspace) | shared ICC parse/write, CMS |
 | jxl-oxide | MIT OR Apache-2.0 | JPEG XL decode |
 | ravif (+ rav1e, avif-serialize) | BSD-3-Clause / BSD-2-Clause | AVIF encode (native only; heavy to compile) |
+| heic-rs (=0.1.4, via photocraft-heif) | MIT OR Apache-2.0 | HEIC/HEIF still-image decode |
 
-Deliberately **not** used: anything AGPL from imazen (zenjpeg, jxl-encoder, rav1d-safe),
+Deliberately **not** used: anything AGPL from imazen (heic, zenjpeg, jxl-encoder, rav1d-safe),
 jpegxl-rs / imagequant (GPL / C), dav1d / libheif (C).
 
 ## Performance (Apple M-series, release, synthetic 24 MP JPEG q90 4:2:0)
