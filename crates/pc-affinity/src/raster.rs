@@ -171,7 +171,8 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
     }
     let (w, h) = (x1 - x0, y1 - y0);
     if u64::from(w) * u64::from(h) > MAX_PIXELS {
-        return Err(Error::Limit("layer exceeds 100 megapixels"));
+        r.warn("pixel layers larger than 100 megapixels");
+        return Ok(None);
     }
     let format = s.enumeration(bitmap, b"Frmt").map(|(f, _)| f);
     let (channels, bps) = match format {
