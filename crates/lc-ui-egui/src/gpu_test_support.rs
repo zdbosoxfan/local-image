@@ -16,6 +16,7 @@ pub fn lock() -> Guard {
             *depth += 1;
         } else {
             *held = Some((GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner), 1));
+            lightcraft_engine::gpu::set_enabled(true);
         }
     });
     Guard(PhantomData)
