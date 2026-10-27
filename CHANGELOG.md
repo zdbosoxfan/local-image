@@ -8,8 +8,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
-- Custom ONNX models with external weights and half precision are copied as one self-contained
-  file. Weights must sit in the model's folder or the same Hugging Face repository's blobs folder.
+- Custom ONNX models with external weights are copied as one self-contained file, and
+  half-precision subject, sky and depth models now load. Weights must sit in the model's folder
+  or the same Hugging Face repository's blobs folder.
 
 - Affinity import keeps decorated text, table cells and grid lines, master-page content,
   embedded native documents and supported layer styles editable. CMYK pixel layers retain
