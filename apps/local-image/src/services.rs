@@ -25,7 +25,7 @@ use std::sync::Arc;
 /// images, and Photoshop brushes/gradients (which go to the preset libraries).
 const OPEN_EXTS: &[&str] = photocraft_codecs::PHOTO_EXTENSIONS;
 
-fn open_extensions() -> Vec<&'static str> {
+pub(crate) fn open_extensions() -> Vec<&'static str> {
     ["pcraft", "psdt", "svg", "svgz", "pdf", "abr", "grd"]
         .into_iter()
         .chain(OPEN_EXTS.iter().copied().filter(|ext| photocraft_codecs::is_readable_extension(ext, true)))

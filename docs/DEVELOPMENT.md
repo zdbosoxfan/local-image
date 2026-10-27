@@ -148,8 +148,11 @@ Packaging is Rust too (`xtask/`, run through the `cargo xtask` alias):
 * **Linux:** `cargo xtask package linux` writes
   `dist/release/local-image-<version>-linux-<arch>.tar.gz` and its `.sha256` (app, CLI, README,
   licences and all referenced attribution texts). Run `cargo xtask attributions` after changing
-  the curated credits, port records or dependency graph. After unpacking, `./local-image --install` adds it to the application menu for the
-  current user (`--install --system` for `/usr/local`, `--uninstall` to remove it).
+  the curated credits, port records or dependency graph. From the unpacked folder, run
+  `./local-image --install`: it copies the app to `~/.local/bin`,
+  links `local-image-cli` to it and adds the menu entry. Use `sudo ./local-image --install --system`
+  for `/usr/local`, `local-image --uninstall` to remove a user install, or
+  `sudo /usr/local/bin/local-image --uninstall --system` to remove a system install.
 * **Windows:** `cargo xtask package windows --arch x64` builds with a static CRT, checks the PE
   headers, and writes an MSI (WiX v5: `dotnet tool install -g wix`) and a portable zip
   (`portable.txt` keeps settings in `LocalImageData\` beside the exe). Both are signed when

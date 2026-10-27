@@ -130,6 +130,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Linux: explain how to upgrade from unpacked releases and report missing or incomplete uninstalls;
+  match Open With file types to readable formats and register native `.pcraft` documents.
+
 - Develop: dragging a curve region notch preserves neighboring splits and the Curve Regions
   undo label.
 
