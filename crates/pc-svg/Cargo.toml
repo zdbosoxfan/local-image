@@ -24,7 +24,7 @@ serde_json.workspace = true
 flate2.workspace = true
 usvg = { version = "=0.45.1", default-features = false }
 svgtypes = "=0.15.3"
-roxmltree = "=0.21.1"
+roxmltree = "=0.21.2"
 simplecss = "=0.2.2"
 [dev-dependencies]
 photocraft-cms.workspace = true
