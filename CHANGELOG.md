@@ -8,6 +8,10 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Affinity import keeps decorated text, table cells and grid lines, master-page content,
+  embedded native documents and supported layer styles editable. CMYK pixel layers retain
+  source-profile colour conversion, with a coated CMYK fallback and explicit approximation warnings.
+
 - Compositing: Export PDF carries File Info author, description, keywords, copyright status,
   notice and rights URL without camera, GPS or Develop metadata.
 
@@ -53,6 +57,9 @@ All notable changes to Local Image are recorded here. The format follows
   Find Similar enables filtering, and filters put aside follow keyword and folder changes.
 - Pro and Studio Light secondary text is more readable on neutral panels and filled controls;
   Studio Light status colors are darker while image preview badges retain their existing amber.
+- Affinity raster import enforces a 100-megapixel full-resolution layer cap and checks
+  shared allocation limits before decoding. Engine Open/Place captures a machine-sized
+  memory allowance and rejects invalid detached native effects before publication.
 
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
   removes false colour and zipper along slanted and fine high-contrast edges (window mullions,
@@ -118,6 +125,11 @@ All notable changes to Local Image are recorded here. The format follows
 
 - Library: directory-sync failures when opening the catalog journal are reported, and retries
   confirm the directory entry is durable before saving edits.
+- Affinity import crops pixel masks to their artwork and omits over-budget masks, cached pictures
+  and oversized effects with warnings. Embedded layer nesting shares the outer safety limit;
+  unreadable embedded layouts and missing or mismatched CMYK profiles retain their cached/default
+  fallback, while cancellation, shared resource limits and checksum failures remain fatal.
+
 - Develop and export preserve saturated colours already inside the selected output space,
   including deep blue. Colours outside that space transition smoothly, avoiding visible jumps
   from small edits. Rendered images and converted film negatives keep their saturated colours

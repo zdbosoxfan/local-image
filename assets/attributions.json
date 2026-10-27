@@ -2539,9 +2539,10 @@
         },
         {
           "name": "VectorCraft",
+          "version": "including f73a3df974b990fd4d73d5addf6a95c48ea3cc2b mask extent",
           "used_for": "The document model VectorCraft imports: spreads, artboards, layers, groups, curves, shapes, text and images, with transforms composed into document space.",
           "upstream": "crates/affinity/src/model.rs",
-          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
           "ours": "crates/pc-affinity/src/model.rs",
           "licence": "MIT OR Apache-2.0",
           "licence_files": [
@@ -2549,7 +2550,7 @@
             "licenses/vectorcraft-LICENSE-MIT",
             "licenses/vectorcraft-NOTICE"
           ],
-          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/model.rs"
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/affinity/src/model.rs"
         },
         {
           "name": "VectorCraft",
@@ -2581,9 +2582,10 @@
         },
         {
           "name": "VectorCraft",
+          "version": "including f73a3df974b990fd4d73d5addf6a95c48ea3cc2b cropped masks",
           "used_for": "Pixel layers (Rstr) and placed images (ImgN).",
           "upstream": "crates/affinity/src/raster.rs",
-          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
           "ours": "crates/pc-affinity/src/raster.rs",
           "licence": "MIT OR Apache-2.0",
           "licence_files": [
@@ -2591,7 +2593,7 @@
             "licenses/vectorcraft-LICENSE-MIT",
             "licenses/vectorcraft-NOTICE"
           ],
-          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/raster.rs"
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/affinity/src/raster.rs"
         },
         {
           "name": "VectorCraft",

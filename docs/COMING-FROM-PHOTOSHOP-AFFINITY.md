@@ -15,8 +15,13 @@ feature models. Complex smart objects, proprietary effects and imported vector/t
 can be approximated or rasterized. Read any import warning and compare a rendered reference.
 Keep the original PSD or Affinity file and work on a copy; do not use an interchange file as
 your sole master. An exported PSD is useful for collaboration, not a guarantee of lossless
-round trips. Affinity import support is limited; PSD or rendered TIFF is the practical fallback
-when a native Affinity document is unsupported.
+round trips. Native Affinity import preserves editable shapes, decorated text, table text and grid lines,
+master-page content, embedded native documents, masks and supported layer styles. Mixed text
+outlines become companion vector layers. CMYK pixels use the embedded profile or the built-in
+coated CMYK profile; vector CMYK colours still warn. Bevels, nonuniform effect transforms,
+gradient projections, unavailable fonts and unsupported records can differ: inspect the import
+warnings and compare the original. HEIC originals and some text metrics remain unsupported.
+Keep PSD or rendered TIFF as a fallback for documents outside this subset.
 
 Save Local Image's editable master as **`.pcraft`**. Export a PNG, JPEG or TIFF for delivery.
 Save As and Export serve different purposes: a JPEG cannot preserve your editable layers,
