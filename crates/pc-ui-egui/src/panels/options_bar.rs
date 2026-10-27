@@ -740,7 +740,13 @@ pub(super) fn brush_preset_chip(
     let c = pos2(r.left() + 14.0, r.top() + 11.0);
     brush_tip(ui.painter(), c, 7.0, b.hardness, Color32::WHITE);
     ui.painter().text(pos2(c.x, r.bottom() - 5.0), Align2::CENTER_CENTER, format!("{}", b.size.round() as i64), egui::FontId::proportional(9.5), t.text_dim);
-    icons::paint(ui, Rect::from_center_size(pos2(r.right() - 9.0, c.y), vec2(10.0, 10.0)), "chevron-down", 9.0, t.text_faint);
+    icons::paint(
+        ui,
+        Rect::from_center_size(pos2(r.right() - 9.0, c.y), vec2(10.0, 10.0)),
+        "chevron-down",
+        9.0,
+        if resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
+    );
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Brush Preset picker")));
     let resp = resp.on_hover_text(tl!("Brush Preset picker"));
     egui::Popup::from_toggle_button_response(&resp)
