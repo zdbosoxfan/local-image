@@ -3,6 +3,67 @@ use photocraft_doc::{
     Color, ColorMode, SampleType, Size, Subpath, TextLayer,
     text::{CharStyle, TextRun},
 };
+
+#[test]
+fn outline_adapters_keep_grouping_and_controls() {
+    use crate::vector_packages::path_text::{curves, on_path::PaintedOutline};
+    use photocraft_doc::{Knot, PathOp};
+    use photocraft_geom::Point;
+    use photocraft_text::render::PathEl;
+
+    let red = Color::rgb(1.0, 0.0, 0.0);
+    let blue = Color::rgb(0.0, 0.0, 1.0);
+    let paints = vec![
+        PaintedOutline {
+            color: red,
+            elements: vec![
+                PathEl::MoveTo([0.0, 0.0]),
+                PathEl::QuadTo([3.0, 6.0], [6.0, 0.0]),
+                PathEl::CurveTo([9.0, 3.0], [-3.0, 3.0], [0.0, 0.0]),
+                PathEl::Close,
+                PathEl::MoveTo([1.0, 1.0]),
+                PathEl::LineTo([1.0, 3.0]),
+                PathEl::LineTo([3.0, 3.0]),
+                PathEl::LineTo([3.0, 1.0]),
+                PathEl::MoveTo([4.0, 1.0]),
+                PathEl::LineTo([5.0, 1.0]),
+                PathEl::LineTo([4.0, 2.0]),
+                PathEl::Close,
+            ],
+        },
+        PaintedOutline { color: blue, elements: vec![PathEl::MoveTo([10.0, 0.0]), PathEl::LineTo([13.0, 0.0]), PathEl::LineTo([10.0, 3.0]), PathEl::Close] },
+        PaintedOutline {
+            color: red,
+            elements: vec![PathEl::MoveTo([20.0, 0.0]), PathEl::LineTo([20.0, 3.0]), PathEl::LineTo([23.0, 0.0]), PathEl::LineTo([20.0, 0.0])],
+        },
+        PaintedOutline { color: red, elements: vec![PathEl::MoveTo([30.0, 0.0]), PathEl::LineTo([33.0, 0.0]), PathEl::LineTo([30.0, 3.0]), PathEl::Close] },
+    ];
+    let curved = Subpath {
+        closed: true,
+        op: PathOp::Combine,
+        knots: vec![
+            Knot { anchor: Point::new(0.0, 0.0), in_ctrl: Point::new(-3.0, 3.0), out_ctrl: Point::new(2.0, 4.0), smooth: false },
+            Knot { anchor: Point::new(6.0, 0.0), in_ctrl: Point::new(4.0, 4.0), out_ctrl: Point::new(9.0, 3.0), smooth: false },
+        ],
+    };
+    let counter = Subpath::polygon(&[(1.0, 1.0), (1.0, 3.0), (3.0, 3.0), (3.0, 1.0)]).with_op(PathOp::Join);
+    let detached = Subpath::polygon(&[(4.0, 1.0), (5.0, 1.0), (4.0, 2.0)]).with_op(PathOp::Join);
+    let blue_contour = Subpath::polygon(&[(10.0, 0.0), (13.0, 0.0), (10.0, 3.0)]);
+    let red_after_blue = Subpath::polygon(&[(20.0, 0.0), (20.0, 3.0), (23.0, 0.0)]);
+    let adjacent_red = Subpath::polygon(&[(30.0, 0.0), (33.0, 0.0), (30.0, 3.0)]);
+    assert_eq!(
+        outlines::paths(&paints),
+        vec![
+            (red, Path::new(vec![curved.clone(), counter.clone(), detached.clone(), red_after_blue.clone(), adjacent_red.clone()])),
+            (blue, Path::new(vec![blue_contour.clone()])),
+        ]
+    );
+    assert_eq!(
+        curves::paths(&paints),
+        vec![(red, Path::new(vec![curved, counter, detached])), (blue, Path::new(vec![blue_contour])), (red, Path::new(vec![red_after_blue, adjacent_red])),]
+    );
+}
+
 pub(super) fn fixture(text: bool) -> (Session, LayerId, LayerId) {
     let mut s = Session::new();
     let mut doc = Document::new("Envelope", Size::new(192, 160), ColorMode::Rgb, SampleType::U8);
