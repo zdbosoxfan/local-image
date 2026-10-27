@@ -130,6 +130,8 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Library: opening a library folder no longer truncates or replaces files that planted catalog or settings links point to; writes follow such a link only to a valid catalog or settings file.
+
 - Develop: dragging a curve region notch preserves neighboring splits and the Curve Regions
   undo label.
 

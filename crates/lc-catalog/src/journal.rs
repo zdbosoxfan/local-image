@@ -95,6 +95,8 @@ pub struct LoadReport {
     pub torn_bytes: u64,
     /// The damaged log was preserved under this name.
     pub damaged: Option<String>,
+    /// Persistence was refused for this session; the catalog files were left untouched.
+    pub write_refusal: Option<String>,
     /// No catalog files existed (a new library).
     pub created: bool,
 }
@@ -174,6 +176,8 @@ pub struct Journal {
     /// A failed append may have left part of its records after `log_bytes`, and cutting them off
     /// failed too: the next append cuts the log back to `log_bytes` first.
     tail_dirty: bool,
+    /// Unsafe link or preservation-copy destination found at open: never repair or save over it.
+    write_refusal: Option<String>,
 }
 
 /// A background snapshot in flight.
@@ -254,6 +258,17 @@ fn older(what: String) -> CatalogError {
 /// `{"format":"lightcraft-catalog","version":V,"seq":N,"catalog":<serde_json of the catalog>}\n`
 /// with `V` = [`VERSION`]. Fills in the serialise / write+sync times and the size.
 fn write_snapshot(store: &mut dyn Store, seq: u64, catalog: &Catalog) -> std::io::Result<SnapshotTiming> {
+    if let Some(target) = store.link_target(SNAPSHOT)? {
+        let bytes = store.read(SNAPSHOT)?;
+        let valid = bytes.as_deref().is_some_and(|b| decode_snapshot(b).is_ok());
+        if !valid {
+            return Err(std::io::Error::other(format!(
+                "refusing to write {} -> {}: target is not a valid catalog snapshot",
+                std::path::Path::new(&store.describe()).join(SNAPSHOT).display(),
+                target.display()
+            )));
+        }
+    }
     let t0 = web_time::Instant::now();
     let mut serialize_ms = 0.0;
     let bytes = store.write_atomic_with(SNAPSHOT, &mut |w| {
@@ -289,36 +304,65 @@ struct SnapFile {
     catalog: Catalog,
 }
 
+fn decode_snapshot(bytes: &[u8]) -> Result<SnapFile> {
+    // the header first: a newer snapshot may not parse as this version's catalog
+    let h: SnapHeader = serde_json::from_slice(bytes).map_err(|e| CatalogError::Corrupt(format!("{SNAPSHOT}: {e}")))?;
+    if h.format != FORMAT {
+        return Err(CatalogError::Corrupt(format!("{SNAPSHOT}: not a Local Image catalog (format {:?})", h.format)));
+    }
+    if h.version > VERSION {
+        return Err(newer(format!("{SNAPSHOT} is catalog format v{}", h.version)));
+    }
+    if h.version < VERSION {
+        return Err(older(format!("{SNAPSHOT} is catalog format v{}", h.version)));
+    }
+    let s: SnapFile = serde_json::from_slice(bytes).map_err(|e| CatalogError::Corrupt(format!("{SNAPSHOT}: {e}")))?;
+    // real use never gets near this; the next record's seq would wrap
+    if s.seq > MAX_SEQ {
+        return Err(CatalogError::Corrupt(format!("{SNAPSHOT}: seq {} is out of range", s.seq)));
+    }
+    Ok(s)
+}
+
 impl Journal {
     /// Open (or create) the catalog in `store`: load the snapshot, replay the log, repair a torn
     /// tail. Fails if the snapshot is unreadable or the library is in another catalog format
     /// (then nothing is modified), or if a new library's first snapshot can't be written.
+    /// Invalid linked targets instead leave persistence refused in [`LoadReport::write_refusal`].
     pub fn open(mut store: Box<dyn Store>) -> Result<(Journal, Catalog, LoadReport)> {
         let mut report = LoadReport::default();
+        let snapshot_target = store.link_target(SNAPSHOT).map_err(io)?;
+        let log_target = store.link_target(LOG).map_err(io)?;
+        let snapshot_refusal = snapshot_target
+            .as_ref()
+            .map(|target| {
+                format!(
+                    "refusing catalog writes: {} -> {} is not a valid catalog snapshot",
+                    std::path::Path::new(&store.describe()).join(SNAPSHOT).display(),
+                    target.display()
+                )
+            })
+            .unwrap_or_default();
         let snap = store.read(SNAPSHOT).map_err(io)?;
         let log = store.read(LOG).map_err(io)?;
-        report.created = snap.is_none() && log.is_none();
+        report.created = snap.is_none() && log.is_none() && snapshot_target.is_none() && log_target.is_none();
         // no snapshot: a new library (or one whose log holds nothing yet)
         let fresh = snap.is_none();
         let (mut catalog, snapshot_seq) = match snap {
             Some(bytes) => {
-                // the header first: a newer snapshot may not parse as this version's catalog
-                let h: SnapHeader = serde_json::from_slice(&bytes).map_err(|e| CatalogError::Corrupt(format!("{SNAPSHOT}: {e}")))?;
-                if h.format != FORMAT {
-                    return Err(CatalogError::Corrupt(format!("{SNAPSHOT}: not a Local Image catalog (format {:?})", h.format)));
+                match decode_snapshot(&bytes) {
+                    Ok(s) => (s.catalog, s.seq),
+                    Err(e) if snapshot_target.is_some() => {
+                        // Keep the library inspectable without saving defaults over the linked data.
+                        report.write_refusal = Some(format!("{snapshot_refusal}: {e}"));
+                        (Catalog::new(), 0)
+                    }
+                    Err(e) => return Err(e),
                 }
-                if h.version > VERSION {
-                    return Err(newer(format!("{SNAPSHOT} is catalog format v{}", h.version)));
-                }
-                if h.version < VERSION {
-                    return Err(older(format!("{SNAPSHOT} is catalog format v{}", h.version)));
-                }
-                let s: SnapFile = serde_json::from_slice(&bytes).map_err(|e| CatalogError::Corrupt(format!("{SNAPSHOT}: {e}")))?;
-                // real use never gets near this; the next record's seq would wrap
-                if s.seq > MAX_SEQ {
-                    return Err(CatalogError::Corrupt(format!("{SNAPSHOT}: seq {} is out of range", s.seq)));
-                }
-                (s.catalog, s.seq)
+            }
+            None if snapshot_target.is_some() => {
+                report.write_refusal = Some(snapshot_refusal);
+                (Catalog::new(), 0)
             }
             // the earliest builds kept a log without a snapshot; this build always writes one first
             None if log.as_ref().is_some_and(|l| l.iter().any(|b| !b.is_ascii_whitespace())) => {
@@ -338,7 +382,9 @@ impl Journal {
             pending: None,
             retry_at_records: 0,
             tail_dirty: false,
+            write_refusal: report.write_refusal.take(),
         };
+        let mut invalid_log_link = log_target.is_some() && log.is_none();
         let log = log.unwrap_or_default();
 
         // Scan records; `good_end` is the byte offset just past the last good record.
@@ -353,6 +399,10 @@ impl Journal {
             };
             let line = std::str::from_utf8(&log[pos..line_end]).ok().map(|l| l.trim_end_matches('\r'));
             if line.is_some_and(|l| l.trim().is_empty()) {
+                if !has_nl && log_target.is_some() {
+                    invalid_log_link = j.log_records == 0;
+                    break;
+                }
                 pos = next;
                 good_end = next;
                 continue;
@@ -361,6 +411,10 @@ impl Journal {
             if record.is_none()
                 && let Some(Line::Newer(seq)) = line.map(decode_line)
             {
+                if log_target.is_some() {
+                    invalid_log_link = true;
+                    break;
+                }
                 return Err(newer(format!("{LOG} record {seq} holds a change this version doesn't know")));
             }
             match record {
@@ -378,13 +432,22 @@ impl Journal {
                     j.seq = seq;
                 }
                 _ => {
+                    if has_nl || (j.log_records == 0 && !log[pos..].starts_with(b"{\"seq\":")) {
+                        invalid_log_link = true;
+                    }
                     // bad record (or a gap): torn tail if nothing good follows, else damage
                     let mut rest_has_good = false;
                     for l in log[next..].split(|b| *b == b'\n') {
                         match std::str::from_utf8(l).map(|l| decode_line(l.trim_end_matches('\r'))) {
                             Ok(Line::Record(..)) => rest_has_good = true,
                             // refused before anything is modified
-                            Ok(Line::Newer(seq)) => return Err(newer(format!("{LOG} record {seq} holds a change this version doesn't know"))),
+                            Ok(Line::Newer(seq)) => {
+                                if log_target.is_some() {
+                                    invalid_log_link = true;
+                                    break;
+                                }
+                                return Err(newer(format!("{LOG} record {seq} holds a change this version doesn't know")));
+                            }
                             Ok(Line::Bad) | Err(_) => {}
                         }
                     }
@@ -400,13 +463,29 @@ impl Journal {
             needs_newline = !has_nl;
         }
 
+        if invalid_log_link && let Some(target) = log_target {
+            j.write_refusal = Some(format!(
+                "refusing catalog writes: {} -> {} is not a valid catalog log",
+                std::path::Path::new(&j.store.describe()).join(LOG).display(),
+                target.display()
+            ));
+        }
         if let Some(at) = damaged_at {
             let name = format!("{LOG}.damaged-{}", j.seq);
-            j.store.write_atomic(&name, &log).map_err(io)?;
-            log::warn!("catalog log damaged at byte {at}; kept as {name}; state recovered up to op {}", j.seq);
-            report.damaged = Some(name);
-            j.snapshot(&catalog)?;
-        } else {
+            if let Some(target) = j.store.link_target(&name).map_err(io)? {
+                j.write_refusal = Some(format!(
+                    "refusing catalog writes: preservation copy {} -> {} is a symbolic link",
+                    std::path::Path::new(&j.store.describe()).join(&name).display(),
+                    target.display()
+                ));
+            }
+            if j.write_refusal.is_none() {
+                j.store.write_atomic(&name, &log).map_err(io)?;
+                log::warn!("catalog log damaged at byte {at}; kept as {name}; state recovered up to op {}", j.seq);
+                report.damaged = Some(name);
+                j.snapshot(&catalog)?;
+            }
+        } else if j.write_refusal.is_none() {
             if good_end < log.len() {
                 report.torn_bytes = (log.len() - good_end) as u64;
                 log::warn!("catalog log: dropped a torn final record ({} bytes)", report.torn_bytes);
@@ -421,13 +500,24 @@ impl Journal {
         }
         // A new library gets its snapshot before anything is appended, so a log is never without
         // one (a log without a snapshot is refused as the earliest builds' format).
-        if fresh {
+        if fresh && j.write_refusal.is_none() {
             // tiny: written directly, not counted as a compaction
             let empty = format!("{{\"format\":\"{FORMAT}\",\"version\":{VERSION},\"seq\":0,\"catalog\":{}}}\n", catalog.to_snapshot());
             j.store.write_atomic(SNAPSHOT, empty.as_bytes()).map_err(io)?;
         }
+        if let Some(reason) = &j.write_refusal {
+            log::warn!("{reason}");
+        }
+        report.write_refusal = j.write_refusal.clone();
         catalog.revision = 0;
         Ok((j, catalog, report))
+    }
+
+    fn check_writable(&self) -> Result<()> {
+        match &self.write_refusal {
+            Some(reason) => Err(CatalogError::Io(reason.clone())),
+            None => Ok(()),
+        }
     }
 
     /// Append ops (already applied to the live catalog) durably, in order.
@@ -435,6 +525,7 @@ impl Journal {
         if ops.is_empty() {
             return Ok(());
         }
+        self.check_writable()?;
         let t0 = web_time::Instant::now();
         let mut buf = String::new();
         let mut seq = self.seq;
@@ -485,6 +576,7 @@ impl Journal {
     /// appended afterwards. Once the snapshot is durable [`Journal::seq`] includes them, even if
     /// resetting the log then fails (the error is still returned).
     pub fn snapshot_with_unlogged(&mut self, catalog: &Catalog, unlogged: u64) -> Result<()> {
+        self.check_writable()?;
         // never two snapshot writers; the one in flight is older, so it must land first
         if let Err(e) = self.wait() {
             log::warn!("catalog: background snapshot failed ({e}); writing one now");
@@ -523,6 +615,7 @@ impl Journal {
     /// `catalog` must reflect every appended op. Appends go on meanwhile; [`Journal::poll`]
     /// finishes the compaction. No-op while a snapshot is already in flight.
     pub fn snapshot_in_background(&mut self, catalog: &Catalog) -> Result<()> {
+        self.check_writable()?;
         if self.pending.is_some() {
             return Ok(());
         }
@@ -586,6 +679,7 @@ impl Journal {
                 return Err(io(e));
             }
         };
+        self.check_writable()?;
         // `catalog.snap` (op `p.seq`) is durable; the log's records `<= p.seq` are now stale.
         // Keep exactly the ones appended since (a crash before this rewrite skips the stale ones).
         let t1 = web_time::Instant::now();

@@ -277,3 +277,167 @@ mod store_link_tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[cfg(unix)]
+mod journal_link_tests {
+    use crate::journal::{LOG, SNAPSHOT, encode_record};
+    use crate::{FsStore, Journal, Op};
+    use std::{fs, os::unix::fs::symlink, path::PathBuf};
+
+    fn library(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("lc-journal-links-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (mut journal, catalog, _) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+        journal.snapshot(&catalog).unwrap();
+        root
+    }
+
+    #[test]
+    fn unrelated_log_link_is_untouched_and_blocks_edits_and_close() {
+        let root = library("unrelated");
+        let target = root.join("notes.txt");
+        let bytes = b"These are unrelated notes, not a catalog.";
+        fs::write(&target, bytes).unwrap();
+        fs::remove_file(root.join(LOG)).unwrap();
+        symlink(&target, root.join(LOG)).unwrap();
+        let snapshot = fs::read(root.join(SNAPSHOT)).unwrap();
+        let (mut journal, catalog, _) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), bytes);
+        let op = Op::Batch { ops: vec![] };
+        let error = journal.append(&[op]).unwrap_err().to_string();
+        assert!(error.contains(&root.join(LOG).display().to_string()) && error.contains(&target.display().to_string()), "{error}");
+        assert_eq!(journal.snapshot(&catalog).unwrap_err().to_string(), error);
+        assert_eq!(journal.snapshot_with_unlogged(&catalog, 1).unwrap_err().to_string(), error);
+        assert_eq!(journal.snapshot_in_background(&catalog).unwrap_err().to_string(), error);
+        assert_eq!(fs::read(root.join(SNAPSHOT)).unwrap(), snapshot);
+        assert_eq!(fs::read(&target).unwrap(), bytes);
+        drop(journal);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn planted_damage_copy_blocks_repair_edits_and_close() {
+        let root = library("damage-copy");
+        let op = Op::Batch { ops: vec![] };
+        let bytes = format!("{}\nbad record\n{}\n", encode_record(1, &op), encode_record(2, &op));
+        fs::write(root.join(LOG), &bytes).unwrap();
+        let target = root.join("notes.txt");
+        fs::write(&target, b"keep my notes").unwrap();
+        let copy = root.join("catalog.log.damaged-1");
+        symlink(&target, &copy).unwrap();
+        let snapshot = fs::read(root.join(SNAPSHOT)).unwrap();
+        let (mut journal, catalog, _) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"keep my notes");
+        let error = journal.append(&[op]).unwrap_err().to_string();
+        assert!(error.contains(&copy.display().to_string()) && error.contains(&target.display().to_string()), "{error}");
+        assert_eq!(journal.snapshot(&catalog).unwrap_err().to_string(), error);
+        assert_eq!(journal.snapshot_in_background(&catalog).unwrap_err().to_string(), error);
+        assert_eq!(fs::read(root.join(LOG)).unwrap(), bytes.as_bytes());
+        assert_eq!(fs::read(root.join(SNAPSHOT)).unwrap(), snapshot);
+        assert_eq!(fs::read(&target).unwrap(), b"keep my notes");
+        drop(journal);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn relocated_log_supports_edits_compaction_and_torn_tail_recovery() {
+        let root = library("relocated");
+        let moved = root.join("another-disk");
+        fs::create_dir(&moved).unwrap();
+        let target = moved.join(LOG);
+        fs::rename(root.join(LOG), &target).unwrap();
+        let link = root.join(LOG);
+        symlink(&target, &link).unwrap();
+        let op = Op::Batch { ops: vec![] };
+        let (mut journal, mut catalog, _) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+        catalog.apply(op.clone()).unwrap();
+        journal.append(std::slice::from_ref(&op)).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), format!("{}\n", encode_record(1, &op)).as_bytes());
+        journal.snapshot_in_background(&catalog).unwrap();
+        journal.wait().unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"");
+        drop(journal);
+        let fragment = b"{\"seq\":2,\"cr";
+        fs::write(&target, fragment).unwrap();
+        let (mut journal, catalog, report) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+        assert_eq!(report.torn_bytes, fragment.len() as u64);
+        assert_eq!(fs::read(&target).unwrap(), b"");
+        journal.append(std::slice::from_ref(&op)).unwrap();
+        drop(journal);
+        let record = format!("{}\n", encode_record(2, &op));
+        fs::write(&target, format!("{record}crash residue")).unwrap();
+        let (mut journal, _, report) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+        assert_eq!(report.replayed, 1);
+        assert_eq!(report.torn_bytes, 13);
+        assert_eq!(fs::read(&target).unwrap(), record.as_bytes());
+        journal.snapshot(&catalog).unwrap();
+        assert_eq!(fs::read_link(link).unwrap(), target);
+        assert_eq!(fs::read(&target).unwrap(), b"");
+        drop(journal);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn linked_log_accepts_only_records_blank_lines_and_crash_residue() {
+        let op = Op::Batch { ops: vec![] };
+        let record = encode_record(1, &op);
+        let gap = encode_record(3, &op);
+        let cases = [
+            ("empty", String::new(), true),
+            ("blank", "\n \r\n".into(), true),
+            ("first-torn", "{\"seq\":".into(), true),
+            ("complete", record.clone(), true),
+            ("later-torn", format!("{record}\nresidue"), true),
+            ("blank-residue", format!("{record}\n "), true),
+            ("text", "notes\n".into(), false),
+            ("blank-tail", " ".into(), false),
+            ("blank-text", "\nnotes".into(), false),
+            ("bad-terminated", format!("{record}\nresidue\n"), false),
+            ("gap", format!("{record}\n{gap}\n"), false),
+        ];
+        for (tag, bytes, valid) in cases {
+            let root = library(tag);
+            let target = root.join("target");
+            fs::write(&target, &bytes).unwrap();
+            fs::remove_file(root.join(LOG)).unwrap();
+            symlink(&target, root.join(LOG)).unwrap();
+            let (mut journal, catalog, report) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+            assert_eq!(report.write_refusal.is_none(), valid, "{tag}: {report:?}");
+            if valid {
+                journal.append(std::slice::from_ref(&op)).unwrap();
+                let saved = fs::read_to_string(&target).unwrap();
+                assert!(saved.lines().all(|line| line.trim().is_empty() || crate::journal::decode_record(line).is_some()), "{tag}: {saved}");
+                journal.snapshot(&catalog).unwrap();
+                assert_eq!(fs::read(&target).unwrap(), b"");
+            } else {
+                assert!(journal.append(std::slice::from_ref(&op)).is_err(), "{tag}");
+                assert!(journal.snapshot(&catalog).is_err(), "{tag}");
+                assert_eq!(fs::read(&target).unwrap(), bytes.as_bytes(), "{tag}");
+            }
+            assert_eq!(fs::read_link(root.join(LOG)).unwrap(), target);
+            drop(journal);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn snapshot_links_require_a_decodable_catalog() {
+        let root = library("snapshot");
+        let link = root.join(SNAPSHOT);
+        let target = root.join("moved-snapshot");
+        fs::rename(&link, &target).unwrap();
+        symlink(&target, &link).unwrap();
+        let (mut journal, catalog, _) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+        journal.snapshot(&catalog).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), target);
+        drop(journal);
+        fs::write(&target, b"not a snapshot").unwrap();
+        let (mut journal, catalog, report) = Journal::open(Box::new(FsStore::open(&root).unwrap())).unwrap();
+        assert!(report.write_refusal.as_ref().unwrap().contains(&target.display().to_string()));
+        assert!(journal.snapshot(&catalog).is_err());
+        assert!(journal.append(&[Op::Batch { ops: vec![] }]).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"not a snapshot");
+        drop(journal);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
