@@ -421,6 +421,59 @@ mod journal_link_tests {
     }
 
     #[test]
+    fn linked_log_unknown_ops_are_refused_untouched() {
+        use crate::CatalogError;
+
+        let body = r#"{"op":"fromTheFuture"}"#;
+        let future = format!("{{\"seq\":1,\"crc\":{},\"op\":{body}}}\n", crc32fast::hash(body.as_bytes()));
+        for prefix in ["", "bad record\n"] {
+            let root = library("newer-log");
+            let target = root.join("moved-log");
+            let bytes = format!("{prefix}{future}");
+            fs::write(&target, &bytes).unwrap();
+            fs::remove_file(root.join(LOG)).unwrap();
+            symlink(&target, root.join(LOG)).unwrap();
+            let snapshot = fs::read(root.join(SNAPSHOT)).unwrap();
+
+            let error = Journal::open(Box::new(FsStore::open(&root).unwrap())).err();
+            assert_eq!(fs::read(&target).unwrap(), bytes.as_bytes());
+            assert_eq!(fs::read(root.join(SNAPSHOT)).unwrap(), snapshot);
+            assert_eq!(fs::read_link(root.join(LOG)).unwrap(), target);
+            assert!(matches!(error, Some(CatalogError::Newer(_))), "{prefix:?}: {error:?}");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn linked_snapshot_versions_are_refused_untouched() {
+        use crate::{CatalogError, journal::VERSION};
+
+        for version in [VERSION + 1, VERSION - 1] {
+            let root = library("snapshot-version");
+            let link = root.join(SNAPSHOT);
+            let target = root.join("moved-snapshot");
+            let mut snapshot: serde_json::Value = serde_json::from_slice(&fs::read(&link).unwrap()).unwrap();
+            snapshot["version"] = version.into();
+            let bytes = serde_json::to_vec(&snapshot).unwrap();
+            fs::write(&target, &bytes).unwrap();
+            fs::remove_file(&link).unwrap();
+            symlink(&target, &link).unwrap();
+            let log = fs::read(root.join(LOG)).unwrap();
+
+            let error = Journal::open(Box::new(FsStore::open(&root).unwrap())).err();
+            assert_eq!(fs::read(&target).unwrap(), bytes);
+            assert_eq!(fs::read(root.join(LOG)).unwrap(), log);
+            assert_eq!(fs::read_link(&link).unwrap(), target);
+            if version > VERSION {
+                assert!(matches!(error, Some(CatalogError::Newer(_))), "{error:?}");
+            } else {
+                assert!(matches!(error, Some(CatalogError::Older(_))), "{error:?}");
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn snapshot_links_require_a_decodable_catalog() {
         let root = library("snapshot");
         let link = root.join(SNAPSHOT);

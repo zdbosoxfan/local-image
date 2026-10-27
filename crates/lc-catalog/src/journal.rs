@@ -364,7 +364,7 @@ impl Journal {
             Some(bytes) => {
                 match decode_snapshot(&bytes) {
                     Ok(s) => (s.catalog, s.seq),
-                    Err(e) if snapshot_target.is_some() => {
+                    Err(e @ CatalogError::Corrupt(_)) if snapshot_target.is_some() => {
                         // Keep the library inspectable without saving defaults over the linked data.
                         report.write_refusal = Some(format!("{snapshot_refusal}: {e}"));
                         (Catalog::new(), 0)
@@ -423,10 +423,6 @@ impl Journal {
             if record.is_none()
                 && let Some(Line::Newer(seq)) = line.map(decode_line)
             {
-                if log_target.is_some() {
-                    invalid_log_link = true;
-                    break;
-                }
                 return Err(newer(format!("{LOG} record {seq} holds a change this version doesn't know")));
             }
             match record {
@@ -454,10 +450,6 @@ impl Journal {
                             Ok(Line::Record(..)) => rest_has_good = true,
                             // refused before anything is modified
                             Ok(Line::Newer(seq)) => {
-                                if log_target.is_some() {
-                                    invalid_log_link = true;
-                                    break;
-                                }
                                 return Err(newer(format!("{LOG} record {seq} holds a change this version doesn't know")));
                             }
                             Ok(Line::Bad) | Err(_) => {}
