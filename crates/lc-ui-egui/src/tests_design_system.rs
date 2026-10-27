@@ -30,8 +30,9 @@ fn setup(session: lightcraft_engine::Session, width: f32, dark: bool) -> Headles
     app.ui.left_panel = false;
     app.ui.filmstrip = false;
     app.ui.right_width = width;
-    app.set_host_theme(if dark { Tokens::default() } else { super::tests_develop_c::light() });
+    app.set_host_theme(crate::theme::host_palette(if dark { li_ui_kit::theme::ThemeKind::Pro } else { li_ui_kit::theme::ThemeKind::StudioLight }));
     let mut h = Headless::new(app, [1200.0, 1500.0], 1.0);
+    h.app.restyle(&h.view.ctx);
     h.step();
     h.step();
     assert!(h.settle(T));
@@ -75,6 +76,121 @@ fn design_system_develop_screens() {
     for dark in [true, false] {
         for width in [250.0, 400.0] {
             let tag = format!("{}-{}", if dark { "dark" } else { "light" }, width as u32);
+            for scale in [1.0, 1.5] {
+                use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+                use std::sync::{
+                    Arc,
+                    atomic::{AtomicBool, Ordering},
+                };
+                let tag = format!("{tag}-{scale}ppp");
+                let hold = Arc::new(AtomicBool::new(false));
+                let held = hold.clone();
+                let mut session = lightcraft_engine::Session::new();
+                session.media.file_loader = Some(Arc::new(move |path: &str, _| {
+                    while path != "p1.tif" && held.load(Ordering::Relaxed) {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Ok((li_raster::RgbFrame::filled(96, 64, [0.2, 0.3, 0.4]), Default::default()))
+                }));
+                for id in [PhotoId(1), PhotoId(2), PhotoId(3)] {
+                    let name = format!("p{}.tif", id.0);
+                    let photo = Photo::new(id, Source::File { path: name.clone() }, &name, "TIFF", 96, 64, "2026-10-24");
+                    session.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+                }
+                session.execute("library.select", &json!({"ids":[1,2,3], "active":1})).unwrap();
+                let mut upright = setup(session, width, dark);
+                upright.pixels_per_point = scale;
+                hold.store(true, Ordering::Relaxed);
+                upright.app.session.execute("geometry.upright", &json!({"mode":"vertical"})).unwrap();
+                upright.app.session.execute("develop.sync", &json!({"groups":["geometry"]})).unwrap();
+                for _ in 0..12 {
+                    upright.step();
+                }
+                let full = Rect::from_min_size(pos2(0.0, 0.0), upright.size);
+                save(&upright, &format!("upright-start-toast-{tag}"), full);
+                for (name, panel) in [
+                    ("edit", RightPanel::Edit),
+                    ("profiles", RightPanel::Profiles),
+                    ("crop", RightPanel::Crop),
+                    ("remove", RightPanel::Remove),
+                    ("masking", RightPanel::Masking),
+                    ("red-eye", RightPanel::RedEye),
+                    ("info", RightPanel::Info),
+                    ("keywords", RightPanel::Keywords),
+                    ("versions", RightPanel::Versions),
+                    ("activity", RightPanel::Activity),
+                ] {
+                    upright.app.ui.right = panel;
+                    upright.events.push(egui::Event::PointerMoved(pos2(0.0, 0.0)));
+                    upright.step();
+                    upright.step();
+                    save(&upright, &format!("upright-running-{name}-{tag}"), panel_top(&upright, 350.0));
+                    eprintln!(
+                        "UPRIGHT_GEOMETRY {name}-{tag} requested={width} actual={} panel={:?} cancel={:?}",
+                        rect(&upright, "panel:right_panel").width(),
+                        rect(&upright, "panel:right_panel"),
+                        rect(&upright, "button:uprightCancel")
+                    );
+                    let cancel = rect(&upright, "button:uprightCancel").center();
+                    upright.events.push(egui::Event::PointerMoved(cancel));
+                    upright.step();
+                    upright.step();
+                    save(&upright, &format!("upright-cancel-hover-{name}-{tag}"), panel_top(&upright, 350.0));
+                }
+                upright.app.ui.right = RightPanel::Edit;
+                upright.events.push(egui::Event::PointerMoved(pos2(0.0, 0.0)));
+                upright.step();
+                upright.step();
+                focus(&mut upright, "button:uprightCancel");
+                upright.step();
+                eprintln!(
+                    "FOCUS_GEOMETRY upright-cancel-{tag} panel={:?} button={:?}",
+                    rect(&upright, "panel:right_panel"),
+                    rect(&upright, "button:uprightCancel")
+                );
+                save(&upright, &format!("upright-cancel-focused-{tag}"), panel_top(&upright, 350.0));
+                save(&upright, &format!("upright-cancel-focused-full-{tag}"), full);
+                hold.store(false, Ordering::Relaxed);
+                let stored = upright.step_until(T, |h| {
+                    [PhotoId(2), PhotoId(3)].iter().all(|id| h.app.session.develop_of(*id).unwrap().geometry.upright_transform.is_some())
+                });
+                assert!(stored);
+                assert!(upright.app.ui.toast.as_ref().is_some_and(|toast| toast.0 == "Upright complete"));
+                upright.step();
+                save(&upright, &format!("upright-finish-toast-{tag}"), full);
+                eprintln!("IDLE_GEOMETRY edit-{tag} requested={width} actual={}", rect(&upright, "panel:right_panel").width());
+                hold.store(true, Ordering::Relaxed);
+                let photo = Photo::new(PhotoId(4), Source::File { path: "p4.tif".into() }, "p4.tif", "TIFF", 96, 64, "2026-10-24");
+                upright.app.session.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+                upright.app.session.execute("library.select", &json!({"ids":[1,4], "active":1})).unwrap();
+                upright.app.session.execute("develop.sync", &json!({"groups":["geometry"]})).unwrap();
+                upright.step();
+                upright.step();
+                let cancelled = upright.app.session.upright.jobs().last().unwrap().clone();
+                focus(&mut upright, "button:uprightCancel");
+                request(&mut upright, "ui.key", json!({"key":"space"}));
+                assert!(cancelled.cancel.load(Ordering::Relaxed), "keyboard Cancel reaches the running analysis");
+                hold.store(false, Ordering::Relaxed);
+                assert!(upright.step_until(T, |h| !h.app.session.upright.busy()));
+                eprintln!("KEYBOARD_CANCEL {tag} cancelled=true drained=true");
+                for (name, panel, target) in
+                    [("text-button", RightPanel::Crop, "button:straightenAuto"), ("segmented", RightPanel::Versions, "button:versionsTab-auto")]
+                {
+                    let mut h = setup(lightcraft_engine::Session::with_demo(), width, dark);
+                    h.pixels_per_point = scale;
+                    h.app.ui.right = panel;
+                    h.step();
+                    h.step();
+                    focus(&mut h, target);
+                    h.step();
+                    eprintln!("FOCUS_GEOMETRY {name}-{tag} panel={:?} button={:?}", rect(&h, "panel:right_panel"), rect(&h, target));
+                    save(&h, &format!("{name}-focused-{tag}"), panel_top(&h, 800.0));
+                    h.events.push(egui::Event::PointerMoved(rect(&h, target).center()));
+                    h.step();
+                    h.step();
+                    save(&h, &format!("{name}-hovered-{tag}"), panel_top(&h, 800.0));
+                }
+            }
             // Layer bar: Background row, a filled and a radial layer, the selected layer's controls.
             let mut h = setup(lightcraft_engine::Session::with_demo(), width, dark);
             click(&mut h, "button:layerNew");
@@ -281,6 +397,9 @@ fn design_system_develop_screens() {
                 h.app.ui.selected_guide = None;
                 assert!(h.settle(T));
                 save(&h, &format!("guides-contrast-{tag}"), full);
+                request(&mut h, "engine.execute", json!({"command":"geometry.guides", "params":{"guides":[]}}));
+                assert!(h.settle(T));
+                save(&h, &format!("guides-photo-reference-{tag}"), full);
 
                 let mut pan = setup(lightcraft_engine::Session::with_demo(), width, dark);
                 pan.pixels_per_point = scale;
