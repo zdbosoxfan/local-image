@@ -34,7 +34,11 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if resp.hovered() {
         ui.painter().rect_filled(r, 9.0, t.hover);
     }
-    ui.painter().circle_filled(egui::pos2(r.left() + 10.0, r.center().y), 3.5, dot);
+    ui.painter().circle_filled(
+        egui::pos2(r.left() + 10.0, r.center().y),
+        3.5,
+        if resp.hovered() && dot == t.text_faint { t.text_secondary_on_fill } else { dot },
+    );
     ui.painter().galley(egui::pos2(r.left() + 18.0, r.center().y - galley.size().y / 2.0), galley, t.text_dim);
     let mut tip = if st.connected {
         li_i18n::fmt(tl!("ComfyUI at {host} — click for Local AI settings"), &[("host", &st.host)])

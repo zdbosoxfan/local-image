@@ -659,6 +659,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         painter.rect_filled(right, 0.0, t.dock);
         painter.line_segment([right.left_top(), right.left_bottom()], Stroke::new(1.0, t.separator));
         let mut props = ui.new_child(egui::UiBuilder::new().max_rect(right.shrink2(vec2(14.0, 12.0))));
+        if !t.dark() {
+            props.visuals_mut().weak_text_color = Some(t.text_secondary_on_fill);
+        }
         egui::ScrollArea::vertical().id_salt("liquify-props").show(&mut props, |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             widgets::section_label(ui, tl!("Brush Tool Options"));
@@ -916,7 +919,7 @@ fn diagnostics_enabled() -> bool {
 /// The ordinary footer line under the options, plus the developer rows when asked for.
 fn stroke_feedback(ui: &mut egui::Ui, d: &LiquifyDialog, diagnostics: bool) {
     let t = Tokens::get(ui.ctx());
-    let faint = |text: String| egui::RichText::new(text).color(t.text_faint).size(11.0);
+    let faint = |text: String| egui::RichText::new(text).color(if t.dark() { t.text_faint } else { t.text_secondary_on_fill }).size(11.0);
     ui.label(faint(li_i18n::fmt(tl!("Strokes: {count}"), &[("count", &d.strokes.len().to_string())])));
     if diagnostics {
         // Developer-only, so plain English and not part of the translation catalogue.

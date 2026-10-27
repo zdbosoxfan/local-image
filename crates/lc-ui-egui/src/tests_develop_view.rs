@@ -444,6 +444,7 @@ fn a_running_upright_analysis_shows_atop_any_panel() {
         h.step_until(T, |h| [PhotoId(2), PhotoId(3)].iter().all(|id| h.app.session.develop_of(*id).unwrap().geometry.upright_transform.is_some()));
     assert!(stored);
     h.step();
+    assert_eq!(h.app.ui.toast.as_ref().map(|toast| toast.0.as_str()), Some(li_i18n::library::t("Upright complete")));
     assert!(!h.app.widgets.iter().any(|(w, _)| w == "progress:upright"), "gone once stored");
 }
 

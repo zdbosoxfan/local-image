@@ -75,13 +75,16 @@ scrims, guides), which must read the same in light and dark chrome. Image data (
 mask black/white, the transparency checker) is content, not chrome, and may be literal.
 
 **Photo overlays.** `LibraryRoles::overlay_guide` (`overlay_guide` in the Library facade) is the
-amber guide role, RGB (255, 196, 40), fixed across themes. Unselected Upright guide lines and endpoints
-use it with an `overlay_bg` outline; selected guides retain `overlay_fg` and their larger handles.
+amber guide role, RGB (255, 196, 40), fixed across themes. Unselected Upright lines use a 2 pt amber
+core inside a 4 pt `overlay_bg` outline; endpoints retain their amber fill and dark outline.
+Selected guides retain their 2.5 pt `overlay_fg` core, 3.5 pt dark edge and larger handles.
 Check overlays against both light and dark photo areas, not just the canvas surround. Amber against
 `overlay_bg` (26, 26, 26) is 10.92:1; amber alone against white is only 1.59:1, so keep the dark outline
-(17.40:1 against white). The core or outline meets the 3:1 non-text contrast bar on the sampled light
-and dark photo areas. At 1.0 pixel per point, antialiasing reduces the amber core's contrast: on mid-grey
-(about RGB 92, 92, 92), both core and outline reach only about 2.6:1, below that bar.
+(17.40:1 against white). In synthetic photo captures at 250 and 400 pt in both themes, the minimum
+sampled core-or-outline contrast at 1 / 1.5 pixels per point is 10.48 / 10.48:1 on light areas,
+9.40 / 9.56:1 on dark areas, and 4.70 / 4.70:1 in the mid-tone neighbourhood around RGB (85, 83, 73).
+These raster measurements use matching guide-free photo pixels; the fully covered amber core survives
+both scales. They cover those sampled areas, not every antialiased edge or arbitrary photo pixel.
 
 **Secondary text by surface.** In Pro, ordinary `text_faint` is `#999999`; in Studio Light it
 is `#6e6e78`. Keep it on cards, fields and chrome so `text` / `text_dim` / `text_faint`

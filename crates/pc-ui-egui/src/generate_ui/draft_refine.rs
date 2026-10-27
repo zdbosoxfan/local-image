@@ -245,6 +245,9 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let preview_height = (height - 380.0).max(300.0);
     ui.columns(2, |cols| {
         for (i, ui) in cols.iter_mut().enumerate() {
+            if !t.dark() {
+                ui.visuals_mut().weak_text_color = Some(t.text_secondary_on_fill);
+            }
             ui.push_id(i, |ui| {
                 let refine = i == 1;
                 widgets::section_label(ui, if refine { tl!("Refinement") } else { tl!("Draft") });
@@ -265,7 +268,11 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             r.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), app.draft_refine.split as f64, tl!("Comparison")));
                         });
                     } else {
-                        ui.label(RichText::new(tl!("Wheel to zoom; drag to pan")).font(crate::theme::medium(11.0)).color(t.text_faint));
+                        ui.label(RichText::new(tl!("Wheel to zoom; drag to pan")).font(crate::theme::medium(11.0)).color(if t.dark() {
+                            t.text_faint
+                        } else {
+                            t.text_secondary_on_fill
+                        }));
                     }
                 });
             });

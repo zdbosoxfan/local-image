@@ -200,7 +200,11 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                     let r = resp.rect;
                                     let tri =
                                         vec![r.right_bottom() + vec2(-2.0, -2.0), r.right_bottom() + vec2(-6.0, -2.0), r.right_bottom() + vec2(-2.0, -6.0)];
-                                    ui.painter().add(egui::Shape::convex_polygon(tri, t.text_faint, Stroke::NONE));
+                                    ui.painter().add(egui::Shape::convex_polygon(
+                                        tri,
+                                        if sel || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
+                                        Stroke::NONE,
+                                    ));
                                 }
                                 if resp.clicked() && ui.data(|d| d.get_temp::<egui::Id>(held_id)) != Some(key) {
                                     crate::toolsets_ui::persona::select_tool(app, ui.ctx(), tool);

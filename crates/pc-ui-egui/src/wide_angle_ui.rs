@@ -314,6 +314,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         painter.rect_filled(right, 0.0, t.dock);
         painter.line_segment([right.left_top(), right.left_bottom()], Stroke::new(1.0, t.separator));
         let mut props = ui.new_child(egui::UiBuilder::new().max_rect(right.shrink2(vec2(14.0, 10.0))));
+        if !t.dark() {
+            props.visuals_mut().weak_text_color = Some(t.text_secondary_on_fill);
+        }
         egui::ScrollArea::vertical().id_salt("awa-props").show(&mut props, |ui| {
             ui.spacing_mut().item_spacing.y = 5.0;
             widgets::section_label(ui, tl!("Correction"));
@@ -378,7 +381,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             widgets::checkbox(ui, &mut d.preview, tl!("Preview"));
             ui.label(
                 egui::RichText::new(tl!("Drag on the image to add a constraint; Shift for horizontal/vertical; right-click to delete."))
-                    .color(t.text_faint)
+                    .color(if t.dark() { t.text_faint } else { t.text_secondary_on_fill })
                     .size(11.0),
             );
         });
@@ -394,7 +397,11 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ) {
             action = Some(if role == widgets::ButtonRole::Default { "ok" } else { "cancel" });
         }
-        fu.label(egui::RichText::new(format!("{:.0} ms · straightness {:.1} px", d.render_ms, d.residual)).color(t.text_faint));
+        fu.label(egui::RichText::new(format!("{:.0} ms · straightness {:.1} px", d.render_ms, d.residual)).color(if t.dark() {
+            t.text_faint
+        } else {
+            t.text_secondary_on_fill
+        }));
     });
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         action = Some("cancel");

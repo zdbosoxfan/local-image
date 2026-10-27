@@ -349,7 +349,7 @@ pub fn upright_poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         ctx.request_repaint();
     }
     if changed > 1 {
-        app.toast(ctx, format!("{} ✓", li_i18n::library::t("Upright")));
+        app.toast(ctx, li_i18n::library::t("Upright complete"));
     }
     if app.session.upright.busy() {
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -366,15 +366,27 @@ pub fn upright_progress(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     let total: usize = running.iter().map(|j| j.total).sum();
     let done: usize = running.iter().map(|j| j.done.load(Ordering::Relaxed)).sum();
-    pad(ui, |ui| {
-        ui.horizontal(|ui| {
-            let text = format!("{} {done}/{total}", li_i18n::library::t("Upright"));
-            let bar = ui.add(egui::ProgressBar::new(done as f32 / total.max(1) as f32).desired_width(150.0).text(text));
-            register(ui.ctx(), "progress:upright", bar.rect);
-            if crate::widgets::text_button(ui, "uprightCancel", li_i18n::library::t("Cancel"), false).clicked() {
+    let focus_room = li_ui_kit::widget_style::FOCUS_OUTSET + li_ui_kit::widget_style::FOCUS_STROKE;
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: focus_room as i8, bottom: focus_room as i8 }).show(ui, |ui| {
+        let row = ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = focus_room;
+            let cancel = li_ui_kit::progress::job_row(
+                ui,
+                &li_ui_kit::progress::JobLine {
+                    title: &format!("{} {done}/{total}", li_i18n::library::t("Upright")),
+                    detail: "",
+                    fraction: Some(done as f32 / total.max(1) as f32),
+                    stopping: false,
+                },
+                li_i18n::library::t("Cancel"),
+                li_ui_kit::widgets::Profile::Library,
+            );
+            register(ui.ctx(), "button:uprightCancel", cancel.rect);
+            if cancel.clicked() {
                 let _ = app.run("develop.cancelUpright", json!({}));
             }
         });
+        register(ui.ctx(), "progress:upright", row.response.rect);
     });
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
 }
