@@ -1025,12 +1025,25 @@ locked advances), so the re-sync is left for a feature port.
 Local adaptation `488d2e4c` uses selection bounds for outline drags and retains contained
 objects as snap targets. Lasso outline drags now snap too; Lasso was not a snapping tool on main.
 
-## Gradient review corrections (2026-10-26)
+## Perceptual gradients (2026-10-26)
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
-| [`2bad6468213d`](https://github.com/storytold/vectorcraft/commit/2bad6468213df3250963f69a5d6488af2868725e) | Gradients: a Perceptual gradient mixes its colours in OKLab, and SVG and PDF write it as an image | `crates/pc-vector/src/gradient_method.rs` (non-finite RGB guard) | MIT OR Apache-2.0 |
-| [`9237a8bdde35`](https://github.com/storytold/photocraft/commit/9237a8bdde35f5365154b9eaf713bd5bb66fe0da) | PSD gradients: read the interpolation method Photoshop writes; add Smooth (#3442) | `crates/pc-io/src/gradient_bake.rs` (measured Smooth test and module documentation) | MIT OR Apache-2.0 |
+| [`2bad6468213d`](https://github.com/storytold/vectorcraft/commit/2bad6468213df3250963f69a5d6488af2868725e) | Gradients: a Perceptual gradient mixes its colours in OKLab, and SVG and PDF write it as an image | `crates/pc-doc/src/effects.rs` (native methods), `crates/pc-doc/src/lib.rs` (method persistence), `crates/pc-doc/tests/coverage/doc_model_coverage.rs` (persistence regression), `crates/pc-vector/src/gradient_method.rs` (OKLab mixing, non-finite RGB guard and bounded expansion), `crates/pc-vector/src/gradient_method/tests.rs` (mixing and expansion regressions), `crates/pc-vector/src/lib.rs` (method-aware paints), `crates/pc-vector/src/tests.rs` (shared sampler adaptation), `crates/pc-compose/src/gradient_fill.rs` (method-aware ramps), `crates/pc-compose/src/gradient_fill/tests_method.rs` (shape/fill parity), `crates/pc-compose/src/shape_split.rs` (method cache identity and regression), `crates/pc-engine/src/gradient_fill_cmds.rs` (method preservation and description), `crates/pc-export-common/src/gradient.rs` (bounded vector expansion and regression), `crates/pc-svg/tests/export/main.rs` (Perceptual vector export), `crates/pc-pdf/tests/export/main.rs` (Perceptual vector export), `crates/pc-gpu/tests/gpu/parity.rs` (parity module registration), `crates/pc-gpu/tests/gpu/parity/gradient_methods.rs` (CPU/GPU parity), `crates/pc-io/src/blocks.rs` (editable Perceptual stops and round-trip regressions) | MIT OR Apache-2.0 |
+| [`9237a8bdde35`](https://github.com/storytold/photocraft/commit/9237a8bdde35f5365154b9eaf713bd5bb66fe0da) | PSD gradients: read the interpolation method Photoshop writes; add Smooth (#3442) | `crates/pc-io/src/blocks.rs` (current-key precedence, Smooth baking and regressions), `crates/pc-io/src/effects_map.rs` (current method key for effects), `crates/pc-io/src/gradient_bake.rs` (baked Smooth easing, measured Smooth test and module documentation) | MIT OR Apache-2.0 |
+| [`78ae50f7b2c4`](https://github.com/storytold/photocraft/commit/78ae50f7b2c470a062506cce8ddb429db802c606) | security: bisect flat-table and gradient-stop lookups; charge ICC curve samples; bound PSD planes, RAW ljpeg retention and TIFF dump preview | `crates/pc-vector/src/gradient_method.rs` (colour-stop bisection), `crates/pc-vector/src/lib.rs` (opacity-stop bisection), `crates/pc-vector/src/gradient_method/tests.rs` (bisection and hard-stop regressions), `crates/pc-vector/src/tests.rs` (shared bisected sampler adaptation), `crates/pc-compose/src/gradient_fill.rs` (shared bisected ramp lookup) | MIT OR Apache-2.0 |
+| [`6beb68f934c4`](https://github.com/storytold/vectorcraft/commit/6beb68f934c49f792e2d05560c692e04b3c1af98) | Gradients: the Gradient panel's Method menu and paint.editGradient's `method` choose Classic or Perceptual | `crates/pc-engine/src/gradient_fill_cmds.rs` (live method commands), `crates/pc-engine/src/gradient_fill_cmds/tests.rs` (command regressions), `crates/pc-engine/src/paint_cmds.rs` (destructive method and validation), `crates/pc-engine/src/vector_cmds.rs` (shape paint method), `crates/pc-ui-egui/src/canvas/tools.rs` (drag method), `crates/pc-ui-egui/src/gradient_ui.rs` (Properties and previews), `crates/pc-ui-egui/src/gradient_ui/method_tests.rs` (method controls and drags), `crates/pc-ui-egui/src/i18n_tests.rs` (Method label coverage), `crates/pc-ui-egui/src/panels/options_bar.rs` (Method control), `crates/pc-ui-egui/src/state.rs` (Classic tool default), `crates/pc-ui-egui/src/vector_packages/appearance.rs` (Method control), `crates/pc-ui-egui/src/vector_packages/appearance/method_tests.rs` (keyboard and undo regression) | MIT OR Apache-2.0 |
 
-Both are SHOULD ports for gradient appearance parity. The Smooth measurements retain upstream's
-black-to-white and red-to-blue rows and two-level tolerance.
+These four commits form the Perceptual gradients feature port under decision D10: upstream's two
+native methods only, Classic and Perceptual. Local adaptations keep SVG and PDF vector and fail
+expansion rather than truncating; take only gradient colour and opacity bisection from 78ae50f7,
+current-key precedence and baked Smooth from 9237a8bd, and place 6beb68f9 on Local Image's existing
+surfaces and command names. Unsupported Linear appearances retain their existing baking.
+The literal/pattern-only method-field adaptations in dc209948 are local: `crates/pc-affinity/src/import/paint.rs`,
+`crates/pc-compose/src/tests.rs`, `crates/pc-engine/src/vector_packages/brushes/tests.rs`,
+`crates/pc-engine/tests/coverage/gradient_fill_cmds_coverage.rs`, `crates/pc-export-common/cases/clipping.rs`,
+`crates/pc-format/tests/it/common/mod.rs`, `crates/pc-pdf/src/import/paint.rs`,
+`crates/pc-svg/src/import/paint.rs`, `crates/pc-svg/tests/export/roundtrip.rs`,
+`crates/pc-ui-egui/src/vector_packages/appearance.rs`, `crates/pc-ui-egui/tests/gpu/vector_integration.rs`
+and `crates/pc-vector/src/profile_tests.rs`.
+The Smooth measurements retain upstream's black-to-white and red-to-blue rows and two-level tolerance.

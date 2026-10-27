@@ -79,6 +79,16 @@ fn options_method_reaches_live_and_destructive_drags() {
 }
 
 #[test]
+fn selecting_perceptual_fill_keeps_the_tool_method_classic() {
+    let mut app = tests::app_with_gradient("linear");
+    app.run(cmds::CREATE, json!({"from":[20,60],"to":[180,60],"method":"perceptual"})).unwrap();
+    let before = app.ui.tool_options.clone();
+    options_changed(&mut app, &before);
+    assert_eq!(tests::get(&mut app)["method"], "perceptual");
+    assert_eq!(app.ui.tool_options.gradient_method, GradientMethod::Classic);
+}
+
+#[test]
 fn options_bar_method_keyboard_choice_edits_the_selected_fill_once() {
     let mut app = tests::app_with_gradient("linear");
     app.run(cmds::CREATE, json!({"from":[20,60],"to":[180,60],"dither":false})).unwrap();

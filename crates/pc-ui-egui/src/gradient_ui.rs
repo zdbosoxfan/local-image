@@ -590,7 +590,7 @@ pub fn preset_swatch(
     let _ = resp.on_hover_text(tl!("The current gradient (pick one in Window › Gradients)"));
 }
 
-/// Live mode: style, reverse, dither and blend mode changes in the options bar also edit the selected
+/// Live mode: method, style, reverse, dither and blend mode changes in the options bar also edit the selected
 /// gradient fill layer (one history step each), as in Photoshop.
 pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptions) {
     let o = app.ui.tool_options.clone();
@@ -626,8 +626,8 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
 
 // Properties panel
 
-/// Width of the Properties label column ("Style", "Angle", "Scale").
-const PROP_LABEL_W: f32 = 38.0;
+/// Width of the Properties label column ("Method", "Style", "Angle", "Scale").
+const PROP_LABEL_W: f32 = 44.0;
 
 /// Commits a numeric field once (drag released, Enter, focus lost); `None` while editing.
 fn field(ui: &mut egui::Ui, id: &str, current: f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32) -> Option<f32> {
@@ -656,7 +656,7 @@ fn label(ui: &mut egui::Ui, text: &str) {
 }
 
 /// Properties panel sections for a gradient fill layer (`props_layout::section` headers):
-/// "Gradient" (the stops editor) and "Gradient Options" (style, angle, scale, reverse, dither,
+/// "Gradient" (the stops editor) and "Gradient Options" (method, style, angle, scale, reverse, dither,
 /// "Align with layer", Reset Alignment). Every change is one `gradient.fill.*` command.
 pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
     use crate::props_layout::{COL_GAP, LABEL_GAP, field_width, section};
