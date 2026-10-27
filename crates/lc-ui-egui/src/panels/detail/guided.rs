@@ -35,7 +35,7 @@ pub(super) fn guided_overlay(
     let col = tokens.overlay_guide;
     let selected = app.ui.selected_guide.filter(|(photo, _)| *photo == id.0).map(|(_, i)| i);
     let draw = |a: Pos2, b: Pos2, sel: bool| {
-        let (edge, core, at) = if sel { (3.5, 2.5, 5.0) } else { (3.0, 1.5, 4.0) };
+        let (edge, core, at) = if sel { (3.5, 2.5, 5.0) } else { (4.0, 2.0, 4.0) };
         p.line_segment([a, b], Stroke::new(edge, tokens.overlay_bg));
         p.line_segment([a, b], Stroke::new(core, if sel { tokens.overlay_fg } else { col }));
         for q in [a, b] {
