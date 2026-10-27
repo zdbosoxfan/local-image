@@ -182,7 +182,7 @@ or an explicitly allowed test host.
 | Face data | `AI/` folder inside the library folder | Stored on this computer only. |
 | Model files | The model folder set in Local AI settings, or the default model folder | Installed only after the size and SHA-256 check. |
 | Model setup state | `state/ai-models.json` under the app's data folder | Per ComfyUI server: what each model file is, its compiled recipe, the issues found and the verification results (times, GPU memory, image measurements). No images. |
-| Template cache | `state/templates/<version>/` under the app's data folder | The ComfyUI server's official workflow templates, per template package version. |
+| Template cache | `state/templates/<host-hash>/<version>/` under the app's data folder | The ComfyUI server's official workflow templates, per ComfyUI server and template package version. |
 | Catalogue cache | `catalog-cache/` under the app's data folder (`~/Library/Application Support/Local Image/` on macOS, `$XDG_DATA_HOME/local-image/` on Linux) | Model browser responses. |
 | Log | `local-image.log` in the platform log folder (`~/Library/Logs/Local Image/` on macOS) | Diagnostic messages, kept for the last two runs. Not uploaded. |
 
