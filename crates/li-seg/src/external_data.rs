@@ -15,24 +15,27 @@ const MAX_MODEL_BYTES: u64 = (2 << 30) - 1;
 /// `pb::tensor_proto::DataLocation::External`.
 const EXTERNAL: i32 = 1;
 
+fn open_regular_file(path: &Path) -> Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(li_fs::read::REGULAR_READ_OPEN_FLAGS);
+    }
+    let file = options.open(path)?;
+    ensure!(file.metadata()?.is_file(), "The model input must be a regular file");
+    Ok(file)
+}
+
 struct ModelSource<'a> {
     path: &'a Path,
     file: std::fs::File,
-    #[cfg(not(unix))]
-    opened_path: PathBuf,
 }
 
 impl<'a> ModelSource<'a> {
     fn open(path: &'a Path) -> Result<Self> {
-        let file = li_fs::read::open_regular(path, MAX_MODEL_BYTES)?;
-        #[cfg(not(unix))]
-        let opened_path = path.canonicalize()?;
-        Ok(Self {
-            path,
-            file,
-            #[cfg(not(unix))]
-            opened_path,
-        })
+        Ok(Self { path, file: open_regular_file(path)? })
     }
 }
 
@@ -52,9 +55,16 @@ impl WeightsBoundary {
             let current = std::fs::metadata(&model)?;
             ensure!(current.dev() == opened.dev() && current.ino() == opened.ino(), "The model file changed while its folder was being resolved");
         }
-        // Other platforms recheck the path; they cannot bind it to the opened descriptor.
+        // Other platforms compare size and timestamps; they cannot bind the path to the opened descriptor.
         #[cfg(not(unix))]
-        ensure!(source.opened_path == model.canonicalize()?, "The model file changed while its folder was being resolved");
+        {
+            let opened = source.file.metadata()?;
+            let current = std::fs::metadata(&model)?;
+            ensure!(
+                current.len() == opened.len() && current.modified()? == opened.modified()? && current.created()? == opened.created()?,
+                "The model file changed while its folder was being resolved"
+            );
+        }
         // Only the canonical snapshot layout grants access to a repository's blobs.
         // Do not canonicalize the blob root: a symlink there must not widen the boundary.
         let blobs = dir.ancestors().find_map(|revision| {
@@ -118,7 +128,7 @@ impl<'a> CheckedWeights<'a> {
             "The model's weights file {location:?} points to {}; it must be inside the model's folder or the same Hugging Face repository's blobs folder",
             path.display()
         );
-        let file = li_fs::read::open_regular(&path, u64::MAX).with_context(|| format!("The model's weights file {} must be a regular file", path.display()))?;
+        let file = open_regular_file(&path).with_context(|| format!("The model's weights file {} must be a regular file", path.display()))?;
         Ok(Self { path, file, boundary })
     }
 
@@ -290,6 +300,31 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
         let error = result.err().expect("a swapped model folder must be refused");
         assert!(format!("{error:#}").contains("model file changed"), "{error:#}");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn fifo_models_are_refused_without_a_writer() {
+        const CHILD_DIR: &str = "LI_SEG_FIFO_MODEL_DIR";
+        if let Some(dir) = std::env::var_os(CHILD_DIR) {
+            let path = Path::new(&dir).join("model.onnx");
+            let error = ModelSource::open(&path).err().expect("FIFO models must be refused");
+            assert!(format!("{error:#}").contains("regular file"), "{error:#}");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("li-seg-fifo-model-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(std::process::Command::new("mkfifo").arg(dir.join("model.onnx")).status().unwrap().success());
+        let output = std::process::Command::new("timeout")
+            .args(["--", "5s"])
+            .arg(std::env::current_exe().unwrap())
+            .args(["--exact", "external_data::tests::fifo_models_are_refused_without_a_writer", "--nocapture"])
+            .env(CHILD_DIR, &dir)
+            .output()
+            .unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(output.status.success(), "FIFO rejection must complete without a writer: {output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed"), "the child must run the FIFO model check: {output:?}");
     }
 
     #[test]
