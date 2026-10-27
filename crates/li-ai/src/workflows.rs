@@ -57,6 +57,9 @@ pub struct Built {
 }
 
 pub struct QwenParams<'a> {
+    /// The family's sampler and scheduler (`KSampler` node 6).
+    pub sampler_name: &'a str,
+    pub scheduler: &'a str,
     pub prompt: &'a str,
     pub negative: &'a str,
     pub width: u32,
@@ -86,7 +89,7 @@ pub fn qwen(files: &Files, p: &QwenParams) -> Built {
     g.node(
         6,
         "KSampler",
-        json!({ "model": ["1", 0], "seed": p.seed, "steps": p.steps, "cfg": p.cfg, "sampler_name": "euler", "scheduler": "simple",
+        json!({ "model": ["1", 0], "seed": p.seed, "steps": p.steps, "cfg": p.cfg, "sampler_name": p.sampler_name, "scheduler": p.scheduler,
                 "denoise": if refs {p.denoise.clamp(0.0,1.0)} else {1.0}, "positive": ["4", 0], "negative": ["4", 1], "latent_image": if refs { json!(["4", 2]) } else { json!(["5", 0]) } }),
     );
     g.node(7, "VAEDecode", json!({ "samples": ["6", 0], "vae": ["3", 0] }));
@@ -208,6 +211,8 @@ mod tests {
         let t2i = qwen(
             &files(),
             &QwenParams {
+                sampler_name: "er_sde",
+                scheduler: "beta",
                 prompt: "p",
                 negative: "",
                 width: 1024,
@@ -222,12 +227,15 @@ mod tests {
             },
         );
         links_resolve(&t2i.graph);
+        assert_eq!((&t2i.graph["6"]["inputs"]["sampler_name"], &t2i.graph["6"]["inputs"]["scheduler"]), (&json!("er_sde"), &json!("beta")));
         assert_eq!(t2i.graph["6"]["inputs"]["latent_image"], json!(["5", 0]));
         assert_eq!(t2i.graph["9"]["inputs"]["model"], json!(["100", 0]));
         assert_eq!(t2i.graph["6"]["inputs"]["model"], json!(["9", 0]));
         let edit = qwen(
             &files(),
             &QwenParams {
+                sampler_name: "euler",
+                scheduler: "simple",
                 prompt: "p",
                 negative: "",
                 width: 0,
@@ -254,6 +262,8 @@ mod tests {
             let b = qwen(
                 &files(),
                 &QwenParams {
+                    sampler_name: "euler",
+                    scheduler: "simple",
                     prompt: "p",
                     negative: "",
                     width: 1024,

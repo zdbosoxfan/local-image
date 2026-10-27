@@ -15,11 +15,15 @@
 //!
 //! `--script` is a JSON array of `[method, params]` control-protocol calls (see
 //! docs/control-protocol.md), applied in order with a few frames between them, plus
-//! `["sleep", {"ms": N}]` (keep rendering) and `["click", {"x": X, "y": Y}]` (screen click).
+//! `["sleep", {"ms": N}]` (keep rendering), `["click", {"x": X, "y": Y}]` (screen click),
+//! and `["click-value", {"value": V}]` for a dropdown's accessible value.
+//! `--model-setup-scene NAME` (with `--features snapshot-fixtures`) renders a synthetic wizard
+//! state without a server, real model files or test renders. See model_setup/snapshots.rs for names.
 //! `--right-click-at X,Y` opens a screen-space context menu after the script, including panel
 //! and document-tab menus that are outside the document-coordinate control pointer.
 //! `--click-at X,Y` opens a screen-space menu (for example the top Select menu) after the script.
 
+use egui_kittest::kittest::Queryable;
 use photocraft_ui_egui::control::{ControlRequest, Outcome, handle};
 use photocraft_ui_egui::{PhotocraftApp, Services};
 use serde_json::Value;
@@ -56,6 +60,7 @@ fn main() {
         ..Default::default()
     };
     let open = arg(&args, "--open");
+    let model_setup_scene = arg(&args, "--model-setup-scene");
     let safe_gpu = args.iter().any(|a| a == "--safe-gpu");
     // `--background-jobs`: long commands run as background jobs, as in the desktop app (#210).
     let background_jobs = args.iter().any(|a| a == "--background-jobs");
@@ -94,6 +99,25 @@ fn main() {
         v.maximized = Some(false);
     }
     harness.run_steps(4);
+    if let Some(scene) = &model_setup_scene {
+        #[cfg(feature = "snapshot-fixtures")]
+        {
+            if let Err(error) = photocraft_ui_egui::model_setup::snapshot_scene(scene) {
+                eprintln!("{error}");
+                std::process::exit(2);
+            }
+            if scene == "generate" {
+                harness.state_mut().ui.ai.generate.model = "unet:flux3-image-klein-bf16.safetensors".into();
+                harness.state_mut().ui.ai.generate.variant = "installed".into();
+            }
+            harness.run_steps(4);
+        }
+        #[cfg(not(feature = "snapshot-fixtures"))]
+        {
+            eprintln!("--model-setup-scene {scene} requires --features snapshot-fixtures");
+            std::process::exit(2);
+        }
+    }
     let ctx = harness.ctx.clone();
     let timing = std::env::var_os("SNAPSHOT_TIMING").is_some();
     for (method, params) in script {
@@ -105,6 +129,15 @@ fn main() {
             while t0.elapsed() < std::time::Duration::from_millis(ms) {
                 harness.step();
             }
+            continue;
+        }
+        if method == "click-value" {
+            let Some(value) = params["value"].as_str() else {
+                eprintln!("click-value needs a value");
+                std::process::exit(2);
+            };
+            harness.get_by_value(value).click();
+            harness.run_steps(4);
             continue;
         }
         // `["click", {"x": X, "y": Y}]`: a primary click at a screen position.
@@ -153,6 +186,14 @@ fn main() {
         harness.step();
         harness.event(egui::Event::PointerButton { pos, button, pressed: false, modifiers: egui::Modifiers::NONE });
         harness.run_steps(4);
+    }
+    if arg(&args, "--model-setup-scene").as_deref() == Some("ready-check") {
+        let before = harness.get_by_label("Copy report").rect();
+        harness.run_steps(120);
+        let after = harness.get_by_label("Copy report").rect();
+        assert!((after.bottom() - before.bottom()).abs() < 0.5 && (after.right() - before.right()).abs() < 0.5, "footer drifted: {before:?} -> {after:?}");
+        assert!(after.bottom() < h - 20.0, "window covers the status bar: {after:?}");
+        println!("layout: footer stable over 120 frames: {before:?} -> {after:?}");
     }
     let t_settle = std::time::Instant::now();
     while t_settle.elapsed() < std::time::Duration::from_millis(settle_ms) {

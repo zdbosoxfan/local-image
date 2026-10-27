@@ -1,25 +1,37 @@
 {
-  "schema": 1,
+  "schema": 2,
   "families": {
     "sd15": 1,
     "sdxl": 1,
     "pony": 1,
     "illustrious": 1,
     "sd35": 1,
-    "flux1": 1,
+    "flux1": 2,
     "flux1-kontext": 1,
     "flux1-fill": 1,
     "flux2": 1,
-    "flux2-klein": 1,
+    "flux2-klein": 2,
     "qwen-image": 1,
     "qwen-edit": 1,
-    "qwen-image-21": 1,
-    "z-image": 1,
+    "qwen-image-21": 2,
+    "z-image": 2,
     "ernie": 1,
-    "hidream": 1,
+    "hidream": 2,
     "seedvr2": 1,
     "realplksr": 1,
     "bsrgan": 1,
-    "restoration": 1
+    "restoration": 1,
+    "flux3-klein": 1,
+    "krea2": 1,
+    "moss-image": 1
+  },
+  "min_schema": {
+    "flux3-klein": 2,
+    "krea2": 2,
+    "moss-image": 2,
+    "qwen-image-21": 2
+  },
+  "data": {
+    "runtime": 2
   }
 }

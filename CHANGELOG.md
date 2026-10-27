@@ -27,6 +27,26 @@ All notable changes to Local Image are recorded here. The format follows
 - Guided Upright guides can be selected, deleted individually, and adjusted by dragging endpoints.
 - Middle-button drags pan zoomed Develop photos without leaving the active tool.
 
+- AI: models without a Local Image profile run through the official workflow templates of the
+  connected ComfyUI (FLUX.3 Klein, MOSS-Image, Krea 2 and later releases), matched to the
+  installed file at any precision, with Create, Edit, Fill, Refine and Upscale derived from the
+  template. Model setup checks each model before anything runs (ComfyUI version, missing nodes or
+  options, missing companion files, GPU support for the precision, memory, licence) and explains
+  each problem with a fix; verification tests a model with small renders on request.
+- `local-image-cli ai doctor` lists every model on the connected ComfyUI, how it runs and what
+  blocks it; `--verify` tests models one at a time; Ctrl-C cancels its render and exits 130;
+  `--json` prints the report.
+- AI: Window › Set Up Models… shows every installed model, what it is, what it needs and why,
+  with one-click fixes (verified download of a missing file, use another installed file, move a
+  misplaced file, choose a template, ignore) and test renders with progress and Cancel. Generate's
+  picker marks template models "Not tested", "Test again" or "Verified", lists models that can't run
+  yet with the reason and a Set up… button, and a banner announces new models.
+- AI: an opt-in Enhance prompt switch for models whose official template has a local prompt
+  enhancer (off by default, remembered per model), with its own optional verification render when
+  installed.
+- AI: Import Workflow… accepts a ComfyUI workflow without `li:` node titles; its prompt, negative,
+  seed and size are found by their roles (basic controls).
+
 ### Changed
 
 - Library and Develop: Cmd+L / Ctrl+L switches filtering off and restores the same filter.
@@ -74,6 +94,17 @@ All notable changes to Local Image are recorded here. The format follows
   first photo's correction or freezing the app while they solve.
 - Develop: Reset, a section's reset and double-clicking a slider return to the photo's own
   defaults, such as a raw's camera defaults and As Shot white balance.
+- AI: Set Up Models uses the Model Browser frame and neutral navigation with a fixed footer and
+  shared accessible status chips. Distinct-file counts, model names and singular forms agree
+  across the wizard, picker and preferences; test dates use the Library's format in the interface language.
+- AI: previously verified template models ask for one re-test after the recipe-hash change.
+- AI: model files are identified by their weights before their names; a name that points at a
+  model generation no profile describes is no longer filed under an older family.
+- AI: ComfyUI errors name the failing node's files and say what to do (update ComfyUI, the text
+  encoder or VAE that doesn't fit, a file ComfyUI hasn't listed yet).
+- AI: the Model Browser checks a template against the connected ComfyUI before downloading its
+  files, badges templates that need a newer ComfyUI, and sets up an installed template's model to
+  run through that template (full controls) instead of adding a basic-controls custom workflow.
 
 ### Fixed
 
@@ -124,6 +155,15 @@ All notable changes to Local Image are recorded here. The format follows
   transparency keep it.
 - Export: AI-enlarged 8-bit exports in Adobe RGB, ProPhoto, Display P3 or Rec. 2020 are dithered
   when converted from the model's sRGB output, so enlarged skies and smooth walls no longer band.
+- AI: a changed model stays marked for testing across subsequent scans and temporary missing-node
+  blockers until it is explicitly tested again.
+- AI: a verification result cannot overwrite a newer model scan or changed setup choices.
+- AI: verification retries test previously failed tools again; optional style files no longer block
+  plain Create, and published capabilities honor their static checks. Background model refreshes
+  recheck files and recipes after updates.
+- AI: a Hugging Face model card no longer installs every file of its repository into one folder:
+  files go to the folder their repository path names, diffusers copies and shards are left out,
+  and a repository with several precisions installs the one chosen in the install dialog.
 - Library: a catalog snapshot with an out-of-range change counter is refused as damaged instead of
   wrapping; captured times that are not ASCII no longer crash the By Date panel; impossible times
   such as 10:75 are refused instead of rolling over.

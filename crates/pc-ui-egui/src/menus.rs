@@ -734,6 +734,7 @@ pub(crate) fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         "li.panel.generate" => p.generate,
         "li.draftRefine" => app.draft_refine.open,
         "li.browseModels" => crate::model_browser::is_open(),
+        "li.modelSetup" => crate::model_setup::is_open(),
         "window.toggle.layers" => p.layers,
         "window.toggle.history" => p.history,
         "window.toggle.properties" => p.properties,

@@ -162,6 +162,7 @@ fn availability_installed_preset_reports_missing_nodes() {
         family: "sdxl".into(),
         label: "Test Installed".into(),
         files: [(Role::Checkpoint, "test.safetensors".to_owned())].into(),
+        ..Default::default()
     };
     catalog::set_installed(vec![im]);
     let inst_preset = presets().iter().find(|p| p.installed && p.model.key() == "test-installed-missing-nodes").expect("installed preset");
@@ -213,8 +214,133 @@ fn build_skips_installed_duplicate_of_existing_preset() {
         family: model_info.family.clone(),
         label: "Duplicate".into(),
         files: [(main_role, main_name)].into(),
+        ..Default::default()
     };
     let reg = li_ai::family::registry();
     let cat = catalog::build(reg, &[im]);
     assert!(cat.models.iter().all(|m| m.id.key() != "ckpt:duplicate.safetensors"));
+}
+
+/// An `/object_info` with every node the builders use and these loader files.
+fn info_with(files: &[(&str, &str, &[&str])]) -> ObjectInfo {
+    let mut info = li_ai::mock::object_info();
+    for (class, input, names) in files {
+        info[*class]["input"]["required"][*input] = json!([names]);
+        if *class == "CLIPLoader" {
+            info["DualCLIPLoader"]["input"]["required"]["clip_name1"] = json!([names]);
+        }
+    }
+    ObjectInfo(info)
+}
+
+/// Registers installed models, runs `f` on the live catalogue, then clears them.
+fn with_installed<T>(installed: Vec<InstalledModel>, f: impl FnOnce() -> T) -> T {
+    let _state = CATALOG_STATE.lock().unwrap_or_else(|e| e.into_inner());
+    catalog::set_installed(installed);
+    let out = f();
+    catalog::set_installed(Vec::new());
+    out
+}
+
+fn installed(key: &str, family: &str, role: Role, file: &str, variant: Option<&str>) -> InstalledModel {
+    InstalledModel {
+        key: key.into(),
+        family: family.into(),
+        label: file.into(),
+        files: [(role, file.to_owned())].into(),
+        variant: variant.map(str::to_owned),
+        ..Default::default()
+    }
+}
+
+/// A checkpoint no family describes is not blocked by "missing the nodes ." (the
+/// refine checker validates its own recipe).
+#[test]
+fn unknown_installed_checkpoints_are_available_for_the_checker() {
+    let a = with_installed(vec![installed("ckpt:new-model.safetensors", "", Role::Checkpoint, "new-model.safetensors", None)], || {
+        let p = presets().iter().find(|p| p.model.key() == "ckpt:new-model.safetensors").unwrap();
+        availability(p, &info_with(&[("CheckpointLoaderSimple", "ckpt_name", &["new-model.safetensors"])]))
+    });
+    assert!(a.available, "{a:?}");
+    assert!(li_ai::builders::required_nodes(&li_ai::refine::unknown_profile()).is_empty());
+}
+
+/// Klein 9B files outside the curated preset get the 8B text encoder; the base
+/// sampling override still applies (overrides are cumulative).
+#[test]
+fn klein_9b_files_get_the_8b_text_encoder() {
+    let info = info_with(&[
+        ("UNETLoader", "unet_name", &["flux-2-klein-base-9b.safetensors", "model.safetensors", "flux-2-klein-base-4b-custom.safetensors"]),
+        ("CLIPLoader", "clip_name", &["qwen_3_4b.safetensors", "qwen_3_8b_fp8mixed.safetensors"]),
+        ("VAELoader", "vae_name", &["flux2-vae.safetensors"]),
+    ]);
+    let models = vec![
+        installed("unet:flux-2-klein-base-9b.safetensors", "flux2-klein", Role::Unet, "flux-2-klein-base-9b.safetensors", Some("9b")),
+        installed("unet:model.safetensors", "flux2-klein", Role::Unet, "model.safetensors", Some("9b")),
+        installed("unet:flux-2-klein-base-4b-custom.safetensors", "flux2-klein", Role::Unet, "flux-2-klein-base-4b-custom.safetensors", Some("4b")),
+    ];
+    let got = with_installed(models, || {
+        ["unet:flux-2-klein-base-9b.safetensors", "unet:model.safetensors", "unet:flux-2-klein-base-4b-custom.safetensors"].map(|key| {
+            let p = presets().iter().find(|p| p.model.key() == key).unwrap();
+            let a = availability(p, &info);
+            let steps = p.model.info().steps.default;
+            (a.files.get(&Role::Clip).cloned(), steps)
+        })
+    });
+    assert_eq!(got[0], (Some("qwen_3_8b_fp8mixed.safetensors".into()), 20.0), "base 9B: 8B encoder and base sampling");
+    assert_eq!(got[1].0.as_deref(), Some("qwen_3_8b_fp8mixed.safetensors"), "renamed 9B by its detected variant");
+    assert_eq!(got[2], (Some("qwen_3_4b.safetensors".into()), 20.0), "base 4B keeps the 4B encoder");
+}
+
+/// An installed Qwen Image 2.1 file resolves its text encoder (any precision), and
+/// is unavailable rather than run with an empty `clip_name` when none is installed.
+#[test]
+fn qwen_21_installed_files_need_their_text_encoder() {
+    let model = || vec![installed("unet:qwen_image_2.1_custom_bf16.safetensors", "qwen-image-21", Role::Unet, "qwen_image_2.1_custom_bf16.safetensors", None)];
+    let with_te = info_with(&[
+        ("UNETLoader", "unet_name", &["qwen_image_2.1_custom_bf16.safetensors"]),
+        ("CLIPLoader", "clip_name", &["qwen3vl_8b_int8_convrot.safetensors"]),
+        ("VAELoader", "vae_name", &["qwen_image_2.1_vae_bf16.safetensors"]),
+    ]);
+    let a =
+        with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_custom_bf16.safetensors").unwrap(), &with_te));
+    assert!(a.available, "{a:?}");
+    assert_eq!(a.files[&Role::Clip], "qwen3vl_8b_int8_convrot.safetensors");
+    let without = info_with(&[
+        ("UNETLoader", "unet_name", &["qwen_image_2.1_custom_bf16.safetensors"]),
+        ("CLIPLoader", "clip_name", &["qwen_3_4b.safetensors"]),
+        ("VAELoader", "vae_name", &["qwen_image_2.1_vae_bf16.safetensors"]),
+    ]);
+    let a =
+        with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_custom_bf16.safetensors").unwrap(), &without));
+    assert!(!a.available && a.reason.contains("qwen3vl_8b"), "{a:?}");
+    // Turbo runs its own template (ManualSigmas, cfg 1), never the 40-step builder.
+    let turbo =
+        vec![installed("unet:qwen_image_2.1_turbo_bf16.safetensors", "qwen-image-21", Role::Unet, "qwen_image_2.1_turbo_bf16.safetensors", Some("turbo"))];
+    let a = with_installed(turbo, || {
+        let p = presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_turbo_bf16.safetensors").unwrap();
+        assert!(p.model.info().template_engine);
+        availability(p, &with_te)
+    });
+    assert!(!a.available && a.reason.contains("Set up"), "{a:?}");
+}
+
+/// `ae.safetensors` is matched by name or stem, never as a substring of another VAE.
+#[test]
+fn ae_vae_is_never_a_substring_match() {
+    let model = || vec![installed("unet:z_image_bf16.safetensors", "z-image", Role::Unet, "z_image_bf16.safetensors", None)];
+    let other_vaes = info_with(&[
+        ("UNETLoader", "unet_name", &["z_image_bf16.safetensors"]),
+        ("CLIPLoader", "clip_name", &["qwen_3_4b.safetensors"]),
+        ("VAELoader", "vae_name", &["flux2-vae.safetensors", "qwen_image_vae.safetensors"]),
+    ]);
+    let a = with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:z_image_bf16.safetensors").unwrap(), &other_vaes));
+    assert!(!a.available && !a.files.contains_key(&Role::Vae) && a.reason.contains("ae.safetensors"), "{a:?}");
+    let subfolder = info_with(&[
+        ("UNETLoader", "unet_name", &["z_image_bf16.safetensors"]),
+        ("CLIPLoader", "clip_name", &["qwen_3_4b.safetensors"]),
+        ("VAELoader", "vae_name", &["sub/AE.safetensors", "flux2-vae.safetensors"]),
+    ]);
+    let a = with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:z_image_bf16.safetensors").unwrap(), &subfolder));
+    assert_eq!(a.files.get(&Role::Vae).map(String::as_str), Some("sub/AE.safetensors"), "{a:?}");
 }

@@ -256,6 +256,13 @@ pub fn deletion_date(t: std::time::SystemTime) -> String {
     };
     format_date(seconds.saturating_add(i64::from(timezone::local_offset(seconds))))
 }
+/// `YYYY-MM-DDThh:mm:ss±hh:mm` in local time (for records people read).
+pub fn local_time(t: std::time::SystemTime) -> String {
+    let seconds = t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs().min(i64::MAX as u64) as i64).unwrap_or(0);
+    let offset = timezone::local_offset(seconds);
+    let sign = if offset < 0 { '-' } else { '+' };
+    format!("{}{sign}{:02}:{:02}", format_date(seconds.saturating_add(i64::from(offset))), offset.abs() / 3600, offset.abs() % 3600 / 60)
+}
 fn format_date(seconds: i64) -> String {
     let (days, rem) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
     let (y, m, d) = timezone::civil(days);
@@ -270,6 +277,8 @@ mod tests {
     fn dates_and_paths_are_formatted_for_the_spec() {
         assert_eq!(format_date(1_760_000_000), "2025-10-09T08:53:20");
         assert_eq!(format_date(0), "1970-01-01T00:00:00");
+        let stamp = local_time(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_760_000_000));
+        assert_eq!((stamp.len(), &stamp[10..11], &stamp[22..23]), (25, "T", ":"), "{stamp}");
         assert_eq!(encode_path(Path::new("/a b/ü.onnx")), "/a%20b/%C3%BC.onnx");
     }
 

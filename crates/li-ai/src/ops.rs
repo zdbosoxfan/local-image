@@ -16,6 +16,41 @@ use crate::workflows::{self, LoraUse};
 #[path = "ops_review_tests.rs"]
 mod review_tests;
 
+/// What turns a request into a graph: a family's builder, or an official-template recipe.
+pub enum Engine<'a> {
+    Builder { family: &'a Family, files: &'a workflows::Files },
+    Template { recipe: &'a crate::template::TemplateRecipe, family: &'a Family },
+}
+
+impl Engine<'_> {
+    /// Sizes, inpaint method and prompt conventions.
+    pub fn family(&self) -> &Family {
+        match self {
+            Engine::Builder { family, .. } | Engine::Template { family, .. } => family,
+        }
+    }
+
+    pub fn build(&self, p: &Params, info: &ObjectInfo) -> Result<workflows::Built> {
+        match self {
+            Engine::Builder { family, files } => Ok(builders::build(family, files, p)),
+            Engine::Template { recipe, .. } => recipe.build(p, info),
+        }
+    }
+}
+
+/// A ComfyUI error of a template-model run, explained with the files its template declares.
+pub(crate) fn explain_with_recipe(e: anyhow::Error, recipe: Option<&crate::template::TemplateRecipe>) -> anyhow::Error {
+    match (recipe, crate::comfy::friendly_of(&e)) {
+        (Some(r), Some(f)) => {
+            let declared =
+                r.bindings().into_iter().filter(|b| matches!(b.role.as_str(), "clip" | "vae")).map(|b| (b.role.clone(), b.declared.clone())).collect();
+            let template = r.sources.first().map(|s| s.name.clone());
+            anyhow::anyhow!(f.with_recipe(declared, template))
+        }
+        _ => e,
+    }
+}
+
 /// A random 48-bit seed (what 0.7 used, so seeds stay interchangeable).
 pub fn new_seed() -> u64 {
     rand::random::<u64>() & ((1 << 48) - 1)
@@ -98,11 +133,16 @@ pub struct GenerateRequest {
     pub refine: Option<RefineStep>,
     /// Upscale-refine factor.
     pub scale: f32,
+    /// Template models: run the template's local prompt enhancer first (when its file is installed).
+    pub enhance: bool,
 }
 
 impl GenerateRequest {
     pub fn new(model: ModelId, prompt: impl Into<String>) -> Self {
-        let info = model.info();
+        Self::with_info(model, prompt, model.info())
+    }
+
+    pub(crate) fn with_info(model: ModelId, prompt: impl Into<String>, info: &catalog::ModelInfo) -> Self {
         Self {
             model,
             variant: catalog::default_variant(model).to_owned(),
@@ -125,6 +165,7 @@ impl GenerateRequest {
             sampler: None,
             refine: None,
             scale: 2.0,
+            enhance: false,
         }
     }
 
@@ -139,10 +180,14 @@ impl GenerateRequest {
 
     /// Plain-language problems with the request, before anything is sent.
     pub fn validate(&self) -> Result<()> {
+        self.validate_with(None)
+    }
+
+    fn validate_with(&self, model: Option<&catalog::ModelInfo>) -> Result<()> {
         if !(0.0..=100.0).contains(&self.variety) {
             bail!("Variety must be between 0 and 100.");
         }
-        let info = self.model.try_info().with_context(|| format!("The model {} is not installed or known.", self.model.key()))?;
+        let info = model.or_else(|| self.model.try_info()).with_context(|| format!("The model {} is not installed or known.", self.model.key()))?;
         let f = &info.resolved;
         let (source, refs) = self.source_and_refs();
         let needs_prompt = !matches!(self.mode, GenerateMode::UpscaleRefine | GenerateMode::Refine);
@@ -215,11 +260,24 @@ pub struct Generated {
 #[derive(Clone, Debug)]
 pub struct Ai {
     pub client: ComfyClient,
+    /// Submit only while ComfyUI's queue is empty (background verification never queues
+    /// behind, or ahead of, someone's work).
+    idle_only: bool,
 }
 
 impl Ai {
     pub fn new(host: impl Into<String>) -> Self {
-        Self { client: ComfyClient::new(host) }
+        Self { client: ComfyClient::new(host), idle_only: false }
+    }
+
+    /// The same service for background checks: every prompt waits for an idle queue
+    /// ([`ComfyClient::run_when_idle`]).
+    pub fn idle_only(host: impl Into<String>) -> Self {
+        Self { client: ComfyClient::new(host), idle_only: true }
+    }
+
+    fn run(&self, graph: serde_json::Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
+        if self.idle_only { self.client.run_when_idle(graph, images, ctl) } else { self.client.run(graph, images, ctl) }
     }
 
     fn resolve(&self, model: ModelId, variant: &str, info: &ObjectInfo) -> Result<Availability> {
@@ -364,7 +422,7 @@ impl Ai {
             let highlighted = imaging::klein_highlight(&crop.to_rgb8(), in_crop);
             let built = workflows::klein_remove(&a.files, highlighted.width(), highlighted.height(), seed.wrapping_add(i as u64));
             let png = imaging::encode_png(&highlighted)?;
-            let bytes = self.client.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?;
+            let bytes = self.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?;
             let out = imaging::decode_frame(&bytes)?.rgb();
             if (out.width as u32, out.height as u32) != highlighted.dimensions() {
                 bail!("The removal model returned an unexpected size.");
@@ -387,7 +445,8 @@ impl Ai {
         let instruction = "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the unwanted object or area to remove and black marks the area to keep. Remove the selected object completely and reconstruct a natural empty continuation of the surrounding background in its place. Match the surrounding texture, perspective, lighting and color. Do not insert any new objects, people, text or symbols. Do not draw the mask in the result. Keep the original composition and all other areas unchanged. ";
         let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", variant, seed, 25, 1.0, 1.0, &[], info, ctl, None)?;
+        let a = self.resolve(ModelId::Qwen, variant, info)?;
+        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], info, ctl, None)?;
         let edited = RgbFrame::from_rgb8(&image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8());
         // Match the surrounding colour while preserving generated gradients, as Klein does.
         let blended = imaging::poisson_blend_frame(image, &edited, mask);
@@ -427,7 +486,8 @@ impl Ai {
         );
         let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
+        let a = self.resolve(ModelId::Qwen, variant, &info)?;
+        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
         let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
         Ok(RgbFrame::from_fn(image.width, image.height, |x, y| {
             let p = edited.get_pixel(x as u32, y as u32);
@@ -435,14 +495,15 @@ impl Ai {
         }))
     }
 
-    /// Qwen "edit": the output follows reference 1 and is resized back to its size.
+    /// Qwen "edit" with the resolved files `a` of model `f` (a curated preset or an installed Qwen
+    /// Image 2.1 file): the output follows reference 1 and is resized back to its size.
     #[allow(clippy::too_many_arguments)]
     fn qwen_edit(
         &self,
         refs: &[RgbaImage],
         prompt: &str,
         negative: &str,
-        variant: &str,
+        (a, f): (&Availability, &Family),
         seed: u64,
         steps: u32,
         cfg: f32,
@@ -452,8 +513,8 @@ impl Ai {
         ctl: &JobControl,
         sampler: Option<&(String, String)>,
     ) -> Result<RgbaImage> {
-        let a = self.resolve(ModelId::Qwen, variant, info)?;
         let loras = Self::validate_lora_names(info, loras, "LoraLoaderModelOnly")?;
+        let qwen = &f.pipeline;
         let (ow, oh) = refs[0].dimensions();
         let pngs = refs
             .iter()
@@ -465,6 +526,8 @@ impl Ai {
         let mut built = workflows::qwen(
             &a.files,
             &workflows::QwenParams {
+                sampler_name: &qwen.sampler_name,
+                scheduler: &qwen.scheduler,
                 prompt,
                 negative,
                 width: 0,
@@ -480,7 +543,7 @@ impl Ai {
         );
         set_qwen_sampler(&mut built, sampler);
         let images: Vec<(String, Vec<u8>)> = built.image_nodes.iter().cloned().zip(pngs).collect();
-        let out = imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?;
+        let out = imaging::decode_rgba(&self.run(built.graph, &images, ctl)?)?;
         Ok(if out.dimensions() != (ow, oh) { li_raster::resize_rgba8(&out, ow, oh, li_raster::Filter::Lanczos3) } else { out })
     }
 
@@ -498,7 +561,8 @@ impl Ai {
             "Remove the background from <image1> and preserve the subject exactly. Return an RGBA PNG with a transparent background and a real alpha channel. Keep the original subject position, scale, details and colors. {}",
             hint.trim()
         );
-        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
+        let a = self.resolve(ModelId::Qwen, variant, &info)?;
+        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
         imaging::finish_cutout(&out)
     }
 
@@ -530,7 +594,17 @@ impl Ai {
     }
 
     pub fn generate_detailed(&self, requested: &GenerateRequest, ctl: &JobControl) -> Result<Generated> {
-        requested.validate()?;
+        self.generate_with_model(requested, None, ctl)
+    }
+
+    /// Verification uses the scan's checked recipe without changing generation's gated catalogue.
+    pub(crate) fn generate_for_verification(&self, req: &GenerateRequest, model: &catalog::ModelInfo, ctl: &JobControl) -> Result<RgbaImage> {
+        Ok(self.generate_with_model(req, Some(model), ctl)?.image)
+    }
+
+    fn generate_with_model(&self, requested: &GenerateRequest, checked: Option<&catalog::ModelInfo>, ctl: &JobControl) -> Result<Generated> {
+        requested.validate_with(checked)?;
+        let model = checked.or_else(|| requested.model.try_info()).context("The model is no longer available.")?;
         ctl.set_stage(Stage::Preparing);
         let info = self.inventory()?;
         let mut req = requested.clone();
@@ -568,7 +642,12 @@ impl Ai {
         } else {
             None
         };
-        let out = self.generate_once(&req, &info, recipe.as_ref(), ctl)?;
+        let availability = if req.mode == GenerateMode::Refine || checked.is_some() && model.recipe.is_some() {
+            Availability::default()
+        } else {
+            self.resolve(req.model, &req.variant, &info)?
+        };
+        let out = self.generate_once(&req, model, &availability, &info, recipe.as_ref(), ctl).map_err(|e| explain_with_recipe(e, model.recipe.as_deref()))?;
         let image = match (&req.refine, &second_recipe) {
             (Some(step), Some(recipe)) => {
                 ctl.set_message("Refining the draft");
@@ -576,7 +655,7 @@ impl Ai {
             }
             _ => out,
         };
-        let family = &req.model.info().resolved;
+        let family = &model.resolved;
         let (sampler, scheduler) = req.sampler.clone().unwrap_or_else(|| (family.pipeline.sampler_name.clone(), family.pipeline.scheduler.clone()));
         // Report the actual latent strength, including full-noise text/reference creation.
         let denoise = match req.mode {
@@ -609,7 +688,15 @@ impl Ai {
         }
     }
 
-    fn generate_once(&self, req: &GenerateRequest, info: &ObjectInfo, recipe: Option<&crate::refine::Recipe>, ctl: &JobControl) -> Result<RgbaImage> {
+    fn generate_once(
+        &self,
+        req: &GenerateRequest,
+        m: &catalog::ModelInfo,
+        a: &Availability,
+        info: &ObjectInfo,
+        recipe: Option<&crate::refine::Recipe>,
+        ctl: &JobControl,
+    ) -> Result<RgbaImage> {
         if req.mode == GenerateMode::Refine {
             let source = req.source_and_refs().0.context("Open an image first.")?;
             let recipe = recipe.context("Refinement recipe was not resolved.")?;
@@ -630,14 +717,17 @@ impl Ai {
             };
             return recipe.run(&self.client, source, &p, ctl);
         }
-        let m = req.model.info();
         let f = &m.resolved;
-        let a = self.resolve(req.model, &req.variant, info)?;
+        // Resolved before the Qwen 2.1 branch: a template-engine Qwen file never takes it.
+        let engine = match &m.recipe {
+            Some(recipe) => Engine::Template { recipe, family: f },
+            None => Engine::Builder { family: f, files: &a.files },
+        };
         let loras = Self::validate_loras(info, &req.loras, f)?;
         let (prompt, negative) = prompt_rules(f, &req.prompt, &req.negative);
         let (source, refs) = req.source_and_refs();
-        if f.pipeline.encode == Encode::QwenImage21 && matches!(req.mode, GenerateMode::Create | GenerateMode::Edit) {
-            return self.qwen21_generate(req, &a, &loras, info, ctl, false);
+        if m.recipe.is_none() && f.pipeline.encode == Encode::QwenImage21 && matches!(req.mode, GenerateMode::Create | GenerateMode::Edit) {
+            return self.qwen21_generate(req, a, &loras, info, ctl, false);
         }
         let sampler = req.sampler.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
         let base = Params {
@@ -655,13 +745,14 @@ impl Ai {
             sampler,
             variety: req.variety,
             init_denoise: req.denoise,
+            enhance: req.enhance && m.recipe.as_ref().is_some_and(|r| r.enhancer_ready()),
         };
         match req.mode {
             GenerateMode::Create => {
                 let (w, h) = imaging::snap_size(req.width, req.height, f.sizes.multiple.max(8));
                 let refs = prepare_refs(f, refs, w, h)?;
                 let p = Params { width: w, height: h, references: refs.len(), ..base };
-                let out = self.run_built(builders::build(f, &a.files, &p), None, None, &refs, ctl)?;
+                let out = self.run_built(engine.build(&p, info)?, None, None, &refs, ctl)?;
                 Ok(imaging::over_white(&out))
             }
             GenerateMode::Edit if f.capabilities.edit => {
@@ -670,22 +761,22 @@ impl Ai {
                 let png = imaging::encode_png(&li_raster::resize_rgba8(&imaging::over_white(src), w, h, li_raster::Filter::Lanczos3))?;
                 let refs = prepare_refs(f, refs, w, h)?;
                 let p = Params { task: Task::Edit, width: w, height: h, references: refs.len(), ..base };
-                let out = self.run_built(builders::build(f, &a.files, &p), Some(png), None, &refs, ctl)?;
+                let out = self.run_built(engine.build(&p, info)?, Some(png), None, &refs, ctl)?;
                 Ok(resize_to(&imaging::over_white(&out), src.width(), src.height()))
             }
             GenerateMode::Edit | GenerateMode::Refine => {
                 let src = source.context("Open an image first.")?;
                 let denoise = req.denoise;
-                self.refine_image(src, f, &a, Params { task: Task::Refine { denoise }, ..base }, prepare_refs(f, refs, 1024, 1024)?, ctl)
+                self.refine_image(src, &engine, info, Params { task: Task::Refine { denoise }, ..base }, prepare_refs(f, refs, 1024, 1024)?, ctl)
             }
             GenerateMode::Inpaint => {
                 let src = source.context("Open an image first.")?;
                 let mask = req.mask.as_ref().context("Make a selection to fill.")?;
-                self.inpaint_image(src, mask, f, &a, base, req.denoise, refs, ctl)
+                self.inpaint_image(src, mask, &engine, info, base, req.denoise, refs, ctl)
             }
             GenerateMode::UpscaleRefine => {
                 let src = source.context("Open an image to enlarge.")?;
-                self.upscale_refine(src, req.scale, f, &a, Params { task: Task::Refine { denoise: req.denoise }, ..base }, ctl)
+                self.upscale_refine(src, req.scale, &engine, info, Params { task: Task::Refine { denoise: req.denoise }, ..base }, ctl)
             }
         }
     }
@@ -708,15 +799,16 @@ impl Ai {
             };
             images.push((id.clone(), png.context("an image input of the graph has no picture")?));
         }
-        imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)
+        imaging::decode_rgba(&self.run(built.graph, &images, ctl)?)
     }
 
     /// img2img of the whole image at the family's working size; the result keeps `src`'s size.
-    fn refine_image(&self, src: &RgbaImage, f: &Family, a: &Availability, p: Params, refs: Vec<Vec<u8>>, ctl: &JobControl) -> Result<RgbaImage> {
+    fn refine_image(&self, src: &RgbaImage, engine: &Engine, info: &ObjectInfo, p: Params, refs: Vec<Vec<u8>>, ctl: &JobControl) -> Result<RgbaImage> {
+        let f = engine.family();
         let (w, h) = crate::inpaint::work_size(src.width(), src.height(), f.sizes.native, f.sizes.max, f.sizes.multiple);
         let png = imaging::encode_png(&li_raster::resize_rgba8(&imaging::over_white(src), w, h, li_raster::Filter::Lanczos3))?;
         let p = Params { width: w, height: h, references: refs.len(), ..p };
-        let out = self.run_built(builders::build(f, &a.files, &p), Some(png), None, &refs, ctl)?;
+        let out = self.run_built(engine.build(&p, info)?, Some(png), None, &refs, ctl)?;
         Ok(resize_to(&imaging::over_white(&out), src.width(), src.height()))
     }
 
@@ -727,14 +819,15 @@ impl Ai {
         &self,
         src: &RgbaImage,
         mask: &GrayImage,
-        f: &Family,
-        a: &Availability,
+        engine: &Engine,
+        info: &ObjectInfo,
         base: Params,
         denoise: f32,
         refs: &[RgbaImage],
         ctl: &JobControl,
     ) -> Result<RgbaImage> {
         use crate::inpaint;
+        let f = engine.family();
         let plan = inpaint::plan(mask).context("Make a selection to fill.")?;
         let rgb = image::DynamicImage::ImageRgba8(imaging::over_white(src)).to_rgb8();
         let crop = imageops::crop_imm(&rgb, plan.context.x0, plan.context.y0, plan.context.width(), plan.context.height()).to_image();
@@ -766,7 +859,7 @@ impl Ai {
         let mask_png = mask_png.map(|m| imaging::encode_png(&li_raster::resize_gray8(&m, w, h, li_raster::Filter::Triangle))).transpose()?;
         let p = Params { task, prompt: &prompt_owned, width: w, height: h, references: refs_png.len(), ..base };
         ctl.set_message("Filling the selection");
-        let out = self.run_built(builders::build(f, &a.files, &p), Some(source_png), mask_png, &refs_png, ctl)?;
+        let out = self.run_built(engine.build(&p, info)?, Some(source_png), mask_png, &refs_png, ctl)?;
         let out_rgb = image::DynamicImage::ImageRgba8(imaging::over_white(&out)).to_rgb8();
         let comp = inpaint::compositing_mask(mask, &plan);
         let merged = inpaint::composite(&rgb, &out_rgb, &plan, &comp);
@@ -779,7 +872,8 @@ impl Ai {
 
     /// Enlarges by `scale` (Lanczos), then refines in overlapping tiles at the family's native
     /// size, blended with feathered weights.
-    fn upscale_refine(&self, src: &RgbaImage, scale: f32, f: &Family, a: &Availability, p: Params, ctl: &JobControl) -> Result<RgbaImage> {
+    fn upscale_refine(&self, src: &RgbaImage, scale: f32, engine: &Engine, info: &ObjectInfo, p: Params, ctl: &JobControl) -> Result<RgbaImage> {
+        let f = engine.family();
         let scale = scale.clamp(1.0, 4.0);
         let (tw, th) = (((src.width() as f32 * scale) as u32).min(8192), ((src.height() as f32 * scale) as u32).min(8192));
         let big = li_raster::resize_rgba8(&imaging::over_white(src), tw, th, li_raster::Filter::Lanczos3);
@@ -807,7 +901,7 @@ impl Ai {
                 let (ww, wh) = imaging::snap_size(w, h, f.sizes.multiple.max(8));
                 let png = imaging::encode_png(&li_raster::resize_rgba8(&crop, ww, wh, li_raster::Filter::Lanczos3))?;
                 let tp = Params { prompt, width: ww, height: wh, ..p.clone() };
-                let out = self.run_built(builders::build(f, &a.files, &tp), Some(png), None, &[], ctl)?;
+                let out = self.run_built(engine.build(&tp, info)?, Some(png), None, &[], ctl)?;
                 let out = resize_to(&out, w, h);
                 for yy in 0..h {
                     for xx in 0..w {
@@ -875,8 +969,7 @@ impl Ai {
         if let crate::refine::Recipe::Family { profile, files, .. } = &recipe
             && u64::from(src.width()) * u64::from(src.height()) > u64::from(profile.sizes.max).pow(2)
         {
-            let availability = Availability { available: true, files: files.clone(), ..Default::default() };
-            return self.upscale_refine(&src, 1.0, profile, &availability, p, ctl);
+            return self.upscale_refine(&src, 1.0, &Engine::Builder { family: profile, files }, info, p, ctl);
         }
         recipe.run(&self.client, &src, &p, ctl)
     }
@@ -895,8 +988,20 @@ impl Ai {
         if req.mode == GenerateMode::Edit {
             let mut all = vec![source.context("Open an image to edit.")?.clone()];
             all.extend(refs.iter().cloned());
-            let out =
-                self.qwen_edit(&all, &req.prompt, &req.negative, &req.variant, req.seed, req.steps, req.guidance, 1.0, loras, info, ctl, req.sampler.as_ref())?;
+            let out = self.qwen_edit(
+                &all,
+                &req.prompt,
+                &req.negative,
+                (a, &req.model.info().resolved),
+                req.seed,
+                req.steps,
+                req.guidance,
+                1.0,
+                loras,
+                info,
+                ctl,
+                req.sampler.as_ref(),
+            )?;
             return Ok(imaging::over_white(&out));
         }
         let grid = if refs.is_empty() { 16 } else { 32 };
@@ -919,9 +1024,12 @@ impl Ai {
                 }
             })
             .collect::<Result<Vec<_>>>()?;
+        let pipeline = &req.model.info().resolved.pipeline;
         let mut built = workflows::qwen(
             &a.files,
             &workflows::QwenParams {
+                sampler_name: &pipeline.sampler_name,
+                scheduler: &pipeline.scheduler,
                 prompt: &prompt,
                 negative: &req.negative,
                 width: w,
@@ -937,7 +1045,7 @@ impl Ai {
         );
         set_qwen_sampler(&mut built, req.sampler.as_ref());
         let images: Vec<_> = built.image_nodes.iter().cloned().zip(pngs).collect();
-        let out = imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?;
+        let out = imaging::decode_rgba(&self.run(built.graph, &images, ctl)?)?;
         if background {
             return imaging::finish_background(&out);
         }
@@ -993,7 +1101,7 @@ impl Ai {
             };
             uploads.push((node, png));
         }
-        imaging::decode_rgba(&self.client.run(graph, &uploads, ctl)?)
+        imaging::decode_rgba(&self.run(graph, &uploads, ctl)?)
     }
 
     /// SeedVR2 enhancement to `width × height` (same aspect, larger, even). Keeps the alpha.
@@ -1040,7 +1148,7 @@ impl Ai {
         let resized = li_raster::resize_rgba8(image, width, height, li_raster::Filter::Lanczos3);
         let png = imaging::encode_png(&imaging::over_white(&resized))?;
         let built = workflows::seedvr2(&files, seed);
-        let out = image::load_from_memory(&self.client.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?)?.to_rgba8();
+        let out = image::load_from_memory(&self.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?)?.to_rgba8();
         let out = if out.dimensions() != (width, height) { li_raster::resize_rgba8(&out, width, height, li_raster::Filter::Lanczos3) } else { out };
         // Restore transparency: blend by alpha⁴ so soft edges keep the source colour.
         Ok(RgbaImage::from_fn(width, height, |x, y| {

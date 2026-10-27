@@ -6,8 +6,9 @@
 //!
 //! Nothing goes online until the window is open; every catalogue is cached so the window still
 //! works offline. Installing shows the licence and the exact files first, then downloads them
-//! verified (size and SHA-256) into ComfyUI's folders and refreshes the engine. A template for a
-//! family Local Image doesn't know yet becomes a custom workflow with basic controls.
+//! verified (size and SHA-256) into ComfyUI's folders and refreshes the engine. A template card is
+//! checked against the connected ComfyUI before anything downloads; a template for a family Local
+//! Image has no builder for is set up to run through that template (Set Up Models tests it).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -15,14 +16,19 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, TextureHandle, vec2};
-use li_ai::browser::{self, Cache, Config, HttpNet, Item, Kind, Net, Plan, Query, Source, View};
-use li_ai::comfy::JobControl;
+use li_ai::browser::{self, Cache, Config, HttpNet, Item, Kind, Net, Query, Source, View};
 use li_ai::settings::AiSettings;
 use serde_json::Value;
 
 use crate::PhotocraftApp;
 use crate::theme::Tokens;
 use crate::widgets;
+
+mod install;
+
+#[cfg(test)]
+pub(crate) use install::test_install_plan;
+use install::{Confirm, InstallRun, confirm_window};
 
 #[derive(Clone, Debug, PartialEq)]
 enum Nav {
@@ -46,23 +52,6 @@ enum Preview {
     Failed,
 }
 
-#[derive(Default)]
-struct InstallRun {
-    done: u64,
-    total: u64,
-    file: String,
-    finished: bool,
-    error: Option<String>,
-    ctl: JobControl,
-    note: Option<String>,
-}
-
-struct Confirm {
-    item: Item,
-    plan: Slot<Result<(Plan, Option<Value>), String>>,
-    accept: bool,
-}
-
 struct State {
     open: bool,
     kind: Kind,
@@ -76,7 +65,7 @@ struct State {
     previews: HashMap<String, Preview>,
     installs: HashMap<String, Arc<Mutex<InstallRun>>>,
     confirm: Option<Confirm>,
-    profiles: Option<Slot<Result<Vec<String>, String>>>,
+    profiles: Option<Slot<Result<li_ai::family::UpdateReport, String>>>,
     profiles_msg: String,
     installed: Option<(std::time::Instant, Arc<HashSet<String>>)>,
     installed_at: Option<std::time::Instant>,
@@ -113,6 +102,41 @@ fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
 
 const SOURCES: [(Source, &str); 4] =
     [(Source::HuggingFace, "Hugging Face"), (Source::Civitai, "Civitai"), (Source::Template, "Templates"), (Source::Community, "Community")];
+
+#[cfg(feature = "snapshot-fixtures")]
+pub(crate) fn snapshot_scene() {
+    with(|s| {
+        *s = State { open: true, ..Default::default() };
+        s.loaded = Some((s.nav.clone(), s.kind, s.search.clone(), s.sources));
+        s.installed = Some((std::time::Instant::now(), Arc::new(HashSet::new())));
+        s.items = vec![
+            Item {
+                id: "synthetic-flux3".into(),
+                title: "FLUX.3 Klein Distilled".into(),
+                family: Some("flux3-klein".into()),
+                license: "FLUX Kommunity".into(),
+                source: Some(Source::HuggingFace),
+                ..Default::default()
+            },
+            Item {
+                id: "synthetic-moss".into(),
+                title: "MOSS-Image SFT".into(),
+                template: Some("image_moss_image_t2i".into()),
+                license: "Apache-2.0".into(),
+                min_comfyui: Some("0.44.0".into()),
+                ..Default::default()
+            },
+            Item {
+                id: "synthetic-krea".into(),
+                title: "Krea 2 Turbo".into(),
+                family: Some("krea2".into()),
+                license: "Apache-2.0".into(),
+                source: Some(Source::HuggingFace),
+                ..Default::default()
+            },
+        ];
+    });
+}
 
 /// Opens the browser window.
 pub fn open() {
@@ -172,7 +196,7 @@ pub fn is_open() -> bool {
 
 /// The sources' configuration: the AI settings' tokens, and the connected ComfyUI's own
 /// (version-matched) copy of the official templates.
-fn config() -> Config {
+pub(crate) fn config() -> Config {
     let mut cfg = Config::from_env(&AiSettings::load());
     let st = crate::ai_ui::status();
     if st.connected && std::env::var("LOCAL_IMAGE_TEMPLATES_BASE").is_err() {
@@ -394,128 +418,14 @@ fn load_preview(url: String) -> Slot<Option<egui::ColorImage>> {
     slot
 }
 
-#[cfg(test)]
-thread_local! { static TEST_PLAN: RefCell<Option<Plan>> = const { RefCell::new(None) }; }
-
-#[cfg(test)]
-pub(crate) struct TestPlanGuard;
-#[cfg(test)]
-impl Drop for TestPlanGuard {
-    fn drop(&mut self) {
-        TEST_PLAN.with(|plan| *plan.borrow_mut() = None);
-    }
-}
-#[cfg(test)]
-pub(crate) fn test_install_plan(plan: Plan) -> TestPlanGuard {
-    TEST_PLAN.with(|next| *next.borrow_mut() = Some(plan));
-    with(|s| s.installed = Some((std::time::Instant::now(), Arc::new(HashSet::new()))));
-    TestPlanGuard
-}
-
-/// Resolves what installing `item` downloads (and, for a template, its workflow).
-fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
-    #[cfg(test)]
-    if let Some(plan) = TEST_PLAN.with(|next| next.borrow_mut().take()) {
-        return Arc::new(Mutex::new(Some(Ok((plan, None)))));
-    }
-    let slot = Arc::new(Mutex::new(None));
-    let out = slot.clone();
-    let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("model-plan".into()).spawn(move || {
-        li_i18n::set_current(lang);
-        let r = (|| -> anyhow::Result<(Plan, Option<Value>)> {
-            let cfg = config();
-            let net = HttpNet::new(cfg.clone());
-            let info = if item.family.as_deref() == Some("restoration") {
-                li_ai::comfy::ObjectInfo::default()
-            } else {
-                li_ai::service().client.object_info().map_err(|e| {
-                    anyhow::anyhow!(
-                        "{}",
-                        li_i18n::fmt(tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"), &[("error", &format!("{e:#}"))])
-                    )
-                })?
-            };
-            let reg = li_ai::family::registry();
-            if let Some(name) = &item.template {
-                let (ui, files) = browser::fetch_template(&cfg, &net, name)?;
-                let mut plan = browser::plan(&item, &files, None, &info, &cfg, &net)?;
-                if plan.license.is_empty() {
-                    plan.license =
-                        item.family.as_deref().and_then(|f| reg.family(f)).map(|f| f.license.clone()).unwrap_or_else(|| tl!("See each model's page").into());
-                }
-                return Ok((plan, Some(ui)));
-            }
-            let fam = item.family.as_deref().and_then(|f| reg.family(f));
-            Ok((browser::plan(&item, &item.files, fam, &info, &cfg, &net)?, None))
-        })()
-        .map_err(|e| format!("{e:#}"));
-        if let Ok(mut o) = out.lock() {
-            *o = Some(r);
-        }
-        request_repaint();
-    });
-    slot
-}
-
-fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<InstallRun>> {
-    let run = Arc::new(Mutex::new(InstallRun { total: plan.total(), ..Default::default() }));
-    if AiSettings::load().is_remote() {
-        if let Ok(mut state) = run.lock() {
-            state.finished = true;
-            state.error = Some(tl!("Install generative models on the remote ComfyUI server, then check the connection again.").into());
-        }
-        return run;
-    }
-    let r = run.clone();
-    let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("model-install".into()).spawn(move || {
-        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
-        li_i18n::set_current(lang);
-        let cfg = config();
-        let dir = AiSettings::load().model_dir();
-        let ctl = r.lock().map(|x| x.ctl.clone()).unwrap_or_default();
-        let progress = |done: u64, total: u64, file: &str| {
-            if let Ok(mut x) = r.lock() {
-                x.done = done;
-                x.total = total;
-                x.file = file.to_owned();
-            }
-            request_repaint();
-        };
-        let result = browser::install(&plan, &dir, &cfg, &ctl, &progress).and_then(|()| {
-            // A template for a family Local Image doesn't know runs as a custom workflow.
-            if let (Some(ui), None) = (&template, &item.family) {
-                let info = li_ai::service().client.object_info()?;
-                let mut w = li_ai::custom::from_template(&item.title, ui, &info)?;
-                w.family = item.family.clone();
-                li_ai::custom::save(&w, &li_ai::custom::dir())?;
-                return Ok(Some(li_i18n::fmt(tl!("Added “{name}” to the model list (basic controls)"), &[("name", &item.title)])));
-            }
-            Ok(None)
-        });
-        if let Ok(mut x) = r.lock() {
-            x.finished = true;
-            match result {
-                Ok(note) => x.note = note,
-                Err(e) => x.error = Some(first_line(&format!("{e:#}"))),
-            }
-        }
-        crate::generate_ui::reload_customs();
-        crate::ai_ui::refresh();
-        request_repaint();
-    });
-    run
-}
-
-fn start_profile_update() -> Slot<Result<Vec<String>, String>> {
+fn start_profile_update() -> Slot<Result<li_ai::family::UpdateReport, String>> {
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
     let _ = std::thread::Builder::new().name("family-update".into()).spawn(move || {
         let net = HttpNet::new(config());
         let base = std::env::var("LOCAL_IMAGE_FAMILIES_BASE").unwrap_or_else(|_| li_ai::family::REMOTE_BASE.to_owned());
         let r = li_ai::family::update_from(&|u| net.get(u), &base, &li_ai::family::cache_dir()).map_err(|e| first_line(&format!("{e:#}")));
-        if matches!(&r, Ok(v) if !v.is_empty()) {
+        if matches!(&r, Ok(v) if !v.updated.is_empty() || !v.kept_user.is_empty()) {
             li_ai::family::reload();
             crate::ai_ui::refresh();
         }
@@ -527,17 +437,38 @@ fn start_profile_update() -> Slot<Result<Vec<String>, String>> {
     slot
 }
 
-fn human(n: u64) -> String {
-    li_ai::download::human_bytes(n)
+/// One line per outcome of a profile update.
+fn profile_report(r: &li_ai::family::UpdateReport) -> String {
+    let mut parts = Vec::new();
+    let names = |v: &[String]| v.join(", ");
+    match r.updated.len() {
+        0 => {}
+        1 => parts.push(li_i18n::fmt(tl!("Updated 1 model profile: {names}"), &[("names", &names(&r.updated))])),
+        n => parts.push(li_i18n::fmt(tl!("Updated {n} model profiles: {names}"), &[("n", &n.to_string()), ("names", &names(&r.updated))])),
+    }
+    if !r.kept_user.is_empty() {
+        parts.push(li_i18n::fmt(tl!("Your own profiles stay in use: {names}"), &[("names", &names(&r.kept_user))]));
+    }
+    if !r.needs_newer_app.is_empty() {
+        parts.push(li_i18n::fmt(tl!("Needs a newer Local Image: {names}"), &[("names", &names(&r.needs_newer_app))]));
+    }
+    if !r.rejected.is_empty() {
+        let ids: Vec<String> = r.rejected.iter().map(|(id, _)| id.clone()).collect();
+        parts.push(li_i18n::fmt(tl!("Not used (the previous copy stays): {names}"), &[("names", &names(&ids))]));
+    }
+    parts.join(" · ")
 }
 
-/// A small pill.
-fn pill(ui: &mut egui::Ui, text: &str, fill: Color32, ink: Color32) -> egui::Response {
-    let galley = ui.painter().layout_no_wrap(text.to_owned(), egui::FontId::proportional(10.5), ink);
-    let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 10.0, 16.0), Sense::hover());
-    ui.painter().rect_filled(r, 8.0, fill);
-    ui.painter().galley(r.center() - galley.size() / 2.0, galley, ink);
-    resp
+/// The template's minimum ComfyUI, when the connected server is older.
+fn needs_newer_comfy(item: &Item) -> Option<String> {
+    use li_ai::template::index::Version;
+    let need = Version::parse(item.min_comfyui.as_deref()?)?;
+    let have = Version::parse(&crate::ai_ui::status().comfyui_version)?;
+    (have < need).then(|| need.to_string())
+}
+
+fn human(n: u64) -> String {
+    li_ai::download::human_bytes(n)
 }
 
 /// A source filter: a quiet outlined chip, filled when on.
@@ -568,31 +499,6 @@ fn filter_chip(ui: &mut egui::Ui, text: &str, on: bool, disabled: bool, t: &Toke
     resp
 }
 
-fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, on: bool, t: &Tokens) -> bool {
-    nav_row_with(ui, icon, label, "", on, t)
-}
-
-fn nav_row_with(ui: &mut egui::Ui, icon: &str, label: &str, trailing: &str, on: bool, t: &Tokens) -> bool {
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
-    if on {
-        ui.painter().rect_filled(r, t.radius_sm, t.row_selected);
-    } else if resp.hovered() {
-        ui.painter().rect_filled(r, t.radius_sm, t.hover);
-    }
-    let ink = if on { t.text } else { t.text_dim };
-    let mut x = r.left() + 8.0;
-    if !icon.is_empty() {
-        crate::icons::paint(ui, egui::Rect::from_min_size(egui::pos2(x, r.top() + 5.0), vec2(16.0, 16.0)), icon, 14.0, ink);
-        x += 22.0;
-    }
-    ui.painter().text(egui::pos2(x, r.center().y), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.5), ink);
-    if !trailing.is_empty() {
-        ui.painter().text(egui::pos2(r.right() - 8.0, r.center().y), egui::Align2::RIGHT_CENTER, trailing, egui::FontId::proportional(11.0), t.text_faint);
-    }
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label));
-    resp.clicked()
-}
-
 fn capability_tags(item: &Item) -> Vec<String> {
     let reg = li_ai::family::registry();
     let mut tags = Vec::new();
@@ -613,11 +519,9 @@ fn capability_tags(item: &Item) -> Vec<String> {
                 tags.push(tl!("Fill").into());
             }
             if c.references > 0 {
-                tags.push(li_i18n::fmt(tl!("{n} refs"), &[("n", &c.references.to_string())]));
+                tags.push(li_i18n::trn(li_i18n::current(), c.references as u64, "{n} ref", "{n} refs"));
             }
         }
-    } else if item.basic_controls() {
-        tags.push(tl!("Basic controls").into());
     } else if item.template.is_none() {
         tags.push(tl!("Unknown family").into());
     }
@@ -744,7 +648,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                     (Nav::Installed, "hard-drive", tl!("Installed"), ""),
                     (Nav::FitsGpu, "cpu", tl!("Works on my GPU"), gpu_text.as_str()),
                 ] {
-                    if nav_row_with(ui, icon, label, trailing, s.nav == nav, t) {
+                    if widgets::nav_row(ui, icon, None, label, trailing, s.nav == nav).clicked() {
                         s.nav = nav;
                     }
                 }
@@ -765,7 +669,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                             ui.label(RichText::new(&f.group).size(10.5).color(t.text_faint));
                         }
                         let on = s.nav == Nav::Family(f.id.clone());
-                        if nav_row(ui, "", &f.label, on, t) {
+                        if widgets::nav_row(ui, "", None, &f.label, "", on).clicked() {
                             s.nav = Nav::Family(f.id.clone());
                         }
                     }
@@ -873,7 +777,7 @@ fn grid(ui: &mut egui::Ui, s: &mut State, t: &Tokens, loading: bool) {
         ui.add_space(gap);
     }
     if let Some(item) = action {
-        s.confirm = Some(Confirm { plan: start_plan(item.clone()), item, accept: false });
+        s.confirm = Some(Confirm::new(item));
     }
 }
 
@@ -948,22 +852,31 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
                 .as_deref()
                 .and_then(|f| li_ai::family::registry().family(f))
                 .map(|f| f.label.clone())
-                .unwrap_or_else(|| tl!("Unknown family").into());
-            ui.painter().text(pr.center() + vec2(0.0, 22.0), egui::Align2::CENTER_CENTER, fam, egui::FontId::proportional(11.0), t.text_faint);
+                .unwrap_or_else(|| if item.template.is_some() { item.title.clone() } else { tl!("Unknown family").into() });
+            let mut job = egui::text::LayoutJob::simple_singleline(fam, crate::theme::medium(11.0), t.text_faint);
+            job.wrap = egui::text::TextWrapping::truncate_at_width((pr.width() - 16.0).max(0.0));
+            let galley = ui.painter().layout_job(job);
+            ui.painter().galley(pr.center() + vec2(-galley.size().x / 2.0, 22.0 - galley.size().y / 2.0), galley, t.text_faint);
         }
     }
     // Source and access badges over the preview.
     let mut badge_ui = ui.new_child(egui::UiBuilder::new().max_rect(pr.shrink(8.0)).layout(egui::Layout::left_to_right(egui::Align::Min)));
-    let dark = Color32::from_black_alpha(170);
     if let Some(src) = item.source {
-        pill(&mut badge_ui, src.label(), dark, Color32::WHITE);
+        widgets::overlay_chip(&mut badge_ui, li_i18n::t(src.label()), widgets::Tone::Neutral);
+    } else if item.template.is_some() {
+        widgets::overlay_chip(&mut badge_ui, tl!("ComfyUI template"), widgets::Tone::Neutral);
     }
     if item.gated {
-        pill(&mut badge_ui, tl!("Licence gate"), dark, Color32::from_rgb(255, 200, 90)).on_hover_text(tl!("Accept the licence on the publisher's page first"));
+        widgets::overlay_chip(&mut badge_ui, tl!("Licence gate"), widgets::Tone::Warning)
+            .on_hover_text(tl!("Accept the licence on the publisher's page first"));
     }
-    if item.basic_controls() {
-        pill(&mut badge_ui, tl!("Basic controls"), dark, Color32::WHITE)
-            .on_hover_text(tl!("Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only"));
+    if let Some(need) = needs_newer_comfy(item) {
+        widgets::overlay_chip(&mut badge_ui, &li_i18n::fmt(tl!("Needs ComfyUI {need}"), &[("need", &need)]), widgets::Tone::Warning).on_hover_text(
+            li_i18n::fmt(
+                tl!("This template was made for ComfyUI {need} or newer; this server runs {have}."),
+                &[("need", &need), ("have", &crate::ai_ui::status().comfyui_version)],
+            ),
+        );
     }
     // Text.
     let body = egui::Rect::from_min_max(egui::pos2(outer.left() + 10.0, pr.bottom() + 8.0), outer.max - vec2(10.0, 8.0));
@@ -984,7 +897,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         for tg in capability_tags(item).iter().take(5) {
-            pill(ui, tg, t.card, t.text_dim);
+            widgets::tag_chip(ui, tg);
         }
     });
     ui.horizontal(|ui| {
@@ -1022,6 +935,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     let ui = &mut a;
     let run = s.installs.get(&item.id).cloned();
     let installed = is_installed(item, names);
+    let setup = run.as_ref().and_then(|r| r.lock().ok().and_then(|r| r.setup.clone()));
     match run.as_ref().and_then(|r| r.lock().ok().map(|r| (r.finished, r.error.clone(), r.done, r.total, r.note.clone()))) {
         Some((false, _, done, total, _)) => {
             ui.add(
@@ -1045,13 +959,18 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
             }
         }
         Some((true, None, _, _, note)) => {
-            let r = ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
+            let r = ui.label(RichText::new(tl!("Installed")).size(11.5).color(t.accent));
             if let Some(n) = note {
                 r.on_hover_text(n);
             }
+            if let Some(key) = setup
+                && widgets::secondary_button(ui, tl!("Set up and test"), 0.0).clicked()
+            {
+                crate::model_setup::open(Some(&key));
+            }
         }
         None if installed => {
-            ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
+            ui.label(RichText::new(tl!("Installed")).size(11.5).color(t.accent));
             if let Some(target) = removal_for(item) {
                 let tip = if li_ai::trash::available() { tl!("Remove (moves the files to the Trash)") } else { tl!("Remove (deletes the files)") };
                 let r = crate::icons::button(ui, "trash", 22.0, false, tip);
@@ -1094,8 +1013,7 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
         s.profiles = None;
         s.profiles_msg = match r {
             Ok(v) if v.is_empty() => tl!("Model profiles are up to date").into(),
-            Ok(v) if v.len() == 1 => li_i18n::fmt(tl!("Updated 1 model profile: {names}"), &[("names", &v.join(", "))]),
-            Ok(v) => li_i18n::fmt(tl!("Updated {n} model profiles: {names}"), &[("n", &v.len().to_string()), ("names", &v.join(", "))]),
+            Ok(v) => profile_report(&v),
             Err(e) => li_i18n::fmt(tl!("Couldn't update profiles: {error}"), &[("error", &e)]),
         };
     }
@@ -1127,181 +1045,5 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
     });
 }
 
-/// The install confirmation: licence first, then the exact files.
-fn confirm_window(ctx: &egui::Context, t: &Tokens) {
-    let Some((item, plan, mut accept)) = with(|s| s.confirm.as_ref().map(|c| (c.item.clone(), c.plan.lock().ok().and_then(|p| p.clone()), c.accept))) else {
-        return;
-    };
-    let mut close = false;
-    let mut go: Option<(Plan, Option<Value>)> = None;
-    use widgets::{ButtonRole, DialogButton};
-    let buttons = |ui: &mut egui::Ui, list: &[DialogButton]| -> Option<ButtonRole> {
-        ui.add_space(10.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| widgets::dialog_buttons(ui, list)).inner
-    };
-    // Like every dialog: no dimming behind it.
-    let modal = egui::Modal::new(egui::Id::new("browser-confirm")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
-        ui.set_width(500.0);
-        ui.label(RichText::new(li_i18n::fmt(tl!("Install {name}"), &[("name", &item.title)])).size(15.0).strong().color(t.text));
-        ui.add_space(6.0);
-        match &plan {
-            None => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(RichText::new(tl!("Checking the files’ sizes and checksums…")).color(t.text_dim));
-                });
-                ui.ctx().request_repaint_after(Duration::from_millis(200));
-                if buttons(ui, &[DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)]).is_some() {
-                    close = true;
-                }
-            }
-            Some(Err(e)) => {
-                ui.label(RichText::new(e).color(t.danger));
-                let page = item.license_url.clone().or(Some(item.page_url.clone())).filter(|u| !u.is_empty());
-                let mut list = vec![DialogButton::new(ButtonRole::Cancel, tl!("Close"), 80.0)];
-                if page.is_some() {
-                    list.insert(0, DialogButton::new(ButtonRole::Alternate, tl!("Open Its Page"), 0.0));
-                }
-                match buttons(ui, &list) {
-                    Some(ButtonRole::Alternate) => {
-                        if let Some(url) = page {
-                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-                        }
-                    }
-                    Some(_) => close = true,
-                    None => {}
-                }
-            }
-            Some(Ok((p, template))) => {
-                // Licence.
-                egui::Frame::new().fill(t.field).corner_radius(t.radius_sm).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(RichText::new(tl!("Licence")).size(11.0).color(t.text_faint));
-                    ui.label(RichText::new(if p.license.is_empty() { tl!("Not stated: check the model's page before use") } else { &p.license }).color(t.text));
-                    if item.commercial == Some(false) {
-                        ui.label(RichText::new(tl!("The author doesn't allow commercial use.")).color(t.warning));
-                    }
-                    if p.gated {
-                        ui.label(RichText::new(tl!("The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.")).color(t.warning));
-                    }
-                    if let Some(url) = &p.license_url
-                        && ui.link(tl!("Read the licence")).clicked()
-                    {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-                    }
-                });
-                ui.add_space(8.0);
-                if p.files.is_empty() {
-                    ui.label(RichText::new(tl!("Everything it needs is already installed.")).color(t.text_dim));
-                } else {
-                    let size = human(p.total());
-                    let what = if p.files.len() == 1 {
-                        li_i18n::fmt(tl!("1 file to download ({size}), verified by SHA-256:"), &[("size", &size)])
-                    } else {
-                        li_i18n::fmt(tl!("{n} files to download ({size}), verified by SHA-256:"), &[("n", &p.files.len().to_string()), ("size", &size)])
-                    };
-                    ui.label(RichText::new(what).color(t.text_dim));
-                    egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
-                        for f in &p.files {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new(&f.name).color(t.text));
-                                ui.label(RichText::new(format!("→ {}", f.folder)).size(11.0).color(t.text_faint));
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(RichText::new(human(f.bytes)).color(t.text_dim)));
-                            });
-                        }
-                    });
-                }
-                if !p.present.is_empty() {
-                    ui.label(RichText::new(li_i18n::fmt(tl!("Already installed: {names}"), &[("names", &p.present.join(", "))])).size(11.0).color(t.text_faint));
-                }
-                let dir = AiSettings::load().model_dir();
-                if let Some(free) = li_ai::download::free_space(&dir)
-                    && free < p.total() + (256 << 20)
-                {
-                    ui.label(RichText::new(li_i18n::fmt(tl!("Not enough space in {folder} ({free} free)."), &[("folder", &dir.display().to_string()), ("free", &human(free))])).color(t.danger));
-                }
-                if template.is_some() && item.family.is_none() {
-                    ui.label(RichText::new(tl!("Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).")).size(11.5).color(t.text_dim));
-                }
-                ui.add_space(8.0);
-                if !p.files.is_empty() {
-                    widgets::checkbox(ui, &mut accept, tl!("I have read and accept the licence"));
-                }
-                let label = if p.files.is_empty() { tl!("Done") } else { tl!("Install") };
-                match buttons(ui, &[DialogButton::new(ButtonRole::Default, label, 80.0).enabled(accept || p.files.is_empty()), DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)]) {
-                    Some(ButtonRole::Default) => go = Some((p.clone(), template.clone())),
-                    Some(_) => close = true,
-                    None => {}
-                }
-            }
-        }
-    });
-    #[cfg(test)]
-    ctx.data_mut(|data| data.insert_temp(egui::Id::new("browser-confirm-rect"), modal.response.rect));
-    close |= modal.is_top_modal && !modal.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-    with(|s| {
-        if let Some(c) = s.confirm.as_mut() {
-            c.accept = accept;
-        }
-        if let Some((p, template)) = go {
-            if !p.files.is_empty() || template.is_some() {
-                s.installs.insert(item.id.clone(), start_install(item.clone(), p, template));
-            }
-            s.confirm = None;
-        } else if close {
-            s.confirm = None;
-        }
-    });
-}
-
 #[cfg(test)]
-mod ds_tests {
-    use super::*;
-    #[test]
-    fn ds_finding_unknown_family_loras_always_open_trending() {
-        for nav in [Nav::Installed, Nav::New, Nav::Family("flux".into())] {
-            with(|s| s.nav = nav);
-            open_loras_any();
-            with(|s| {
-                assert_eq!(s.nav, Nav::Trending);
-                assert_eq!(s.kind, Kind::Lora);
-                assert!(s.open);
-            });
-        }
-        with(|s| *s = State::default());
-    }
-    #[test]
-    fn ds_finding_installed_names_are_cached_across_repaints() {
-        let mut state = State::default();
-        let first = cached_installed(&mut state, || HashSet::from(["sample.safetensors".into()]));
-        for _ in 0..20 {
-            let next = cached_installed(&mut state, || panic!("filesystem rescan on repaint"));
-            assert!(Arc::ptr_eq(&first, &next));
-        }
-        state.installed.as_mut().unwrap().0 -= std::time::Duration::from_secs(2);
-        assert!(cached_installed(&mut state, HashSet::new).is_empty());
-    }
-}
-
-#[cfg(test)]
-#[test]
-fn ds2_restoration_cards_supersede_pending_catalogue_fetch() {
-    let mut state = State { nav: Nav::Family("restoration".into()), fetch: Some(Arc::new(Mutex::new(None))), ..Default::default() };
-    let old_fetch = state.fetch.clone().unwrap();
-    let mut initialized = false;
-    let mut h = egui_kittest::Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui(move |ui| {
-        if !initialized {
-            PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
-            initialized = true;
-            ui.ctx().request_repaint();
-            return;
-        }
-        body(ui, &mut state, &Tokens::get(ui.ctx()));
-    });
-    h.run_steps(3);
-    use egui_kittest::kittest::Queryable;
-    assert!(h.get_all_by_label("FBCNN · JPEG cleanup").count() > 0);
-    *old_fetch.lock().unwrap() = Some(Fetched { items: vec![], notes: vec!["old family".into()] });
-    h.run_steps(2);
-    assert!(h.get_all_by_label("FBCNN · JPEG cleanup").count() > 0);
-}
+mod tests;

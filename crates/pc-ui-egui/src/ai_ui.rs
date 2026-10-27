@@ -16,6 +16,11 @@
 mod enhance_settings;
 mod lan_discovery;
 mod owned_engine;
+mod status_ui;
+pub(crate) use status_ui::short_gpu;
+#[cfg(test)]
+use status_ui::status_controls_with;
+pub use status_ui::{ai_jobs, status_controls, status_pill, stop_generation};
 pub(crate) mod settings_ui;
 
 use std::collections::BTreeMap;
@@ -111,6 +116,10 @@ pub struct EngineStatus {
     /// The sampler limits the connected ComfyUI reports (steps, guidance, denoise).
     pub limits: Option<li_ai::comfy::SamplerLimits>,
     pub object_info: Option<Arc<li_ai::comfy::ObjectInfo>>,
+    /// The version ComfyUI reports (`0.42.5`; empty when it doesn't say).
+    pub comfyui_version: String,
+    /// Model setup for this server: new models, models to re-check, each model's status.
+    pub setup: li_ai::modelsetup::summary::Summary,
 }
 
 impl EngineStatus {
@@ -163,7 +172,7 @@ fn shared() -> &'static Arc<Shared> {
 
 /// The current engine status (cheap).
 pub fn status() -> EngineStatus {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "snapshot-fixtures"))]
     if let Some(status) = TEST_STATUS.with(|s| s.borrow().clone()) {
         return status;
     }
@@ -175,7 +184,7 @@ pub(crate) static AI_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 // UI tests use the real mock server for commands, with deterministic readiness on their
 // own thread rather than racing the asynchronous status poller.
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! {
     pub(crate) static TEST_STATUS: std::cell::RefCell<Option<EngineStatus>> = const { std::cell::RefCell::new(None) };
 }
@@ -198,6 +207,7 @@ pub fn refresh() {
 
 fn poll_loop(s: Arc<Shared>) {
     let mut last_inventory: Option<Instant> = None;
+    let mut last_setup_versions = (String::new(), String::new());
     let mut last = Instant::now() - Duration::from_secs(60);
     loop {
         let forced = s.refresh.swap(false, std::sync::atomic::Ordering::SeqCst);
@@ -233,35 +243,44 @@ fn poll_loop(s: Arc<Shared>) {
         let mut presets = s.status.lock().map(|x| x.presets.clone()).unwrap_or_default();
         let mut limits = s.status.lock().ok().and_then(|x| x.limits);
         let mut object_info = s.status.lock().ok().and_then(|x| x.object_info.clone());
+        let mut setup = s.status.lock().map(|x| x.setup.clone()).unwrap_or_default();
+        let comfyui_version = stats.as_ref().map(li_ai::modelsetup::version_of).unwrap_or_default();
         let mut error = String::new();
-        if connected && (forced || !connected_before || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30))) {
-            match ai.client.object_info() {
-                Ok(info) => {
-                    // Installed models (by header, metadata or name) join the catalogue first.
-                    let settings = AiSettings::load();
-                    let model_dir = settings.model_dir();
-                    li_ai::inventory::refresh(&info, (!settings.is_remote() && model_dir.is_dir()).then_some(model_dir.as_path()));
-                    li_ai::refine::checker().invalidate_changed_files();
-                    limits = info.sampler_limits();
-                    presets = catalog::presets()
-                        .iter()
-                        .map(|p| {
-                            (p.id(), {
-                                let a = catalog::availability(p, &info);
-                                if a.available { Ok(()) } else { Err(a.reason) }
+        if let Some(stats) = &stats {
+            let mut snapshot = li_ai::modelsetup::Snapshot::from_parts(&host, stats, Default::default());
+            let setup_versions = (comfyui_version.clone(), snapshot.templates_version.clone());
+            if forced || !connected_before || setup_versions != last_setup_versions || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30)) {
+                match ai.client.object_info() {
+                    Ok(info) => {
+                        let settings = AiSettings::load();
+                        let opts = li_ai::modelsetup::Options::for_host(&host, (!settings.is_remote()).then(|| settings.model_dir()));
+                        snapshot.info = info.clone();
+                        let scan = li_ai::modelsetup::scan_snapshot(&opts, snapshot);
+                        setup = li_ai::modelsetup::summary::summarise(Some(&scan.server), &catalog::catalog().models, Some(&comfyui_version));
+                        li_ai::refine::checker().invalidate_changed_files();
+                        limits = info.sampler_limits();
+                        presets = catalog::presets()
+                            .iter()
+                            .map(|p| {
+                                (p.id(), {
+                                    let a = catalog::availability(p, &info);
+                                    if a.available { Ok(()) } else { Err(a.reason) }
+                                })
                             })
-                        })
-                        .collect();
-                    object_info = Some(Arc::new(info));
-                    last_inventory = Some(Instant::now());
+                            .collect();
+                        object_info = Some(Arc::new(info));
+                        last_setup_versions = setup_versions;
+                        last_inventory = Some(Instant::now());
+                    }
+                    Err(e) => error = format!("{e:#}"),
                 }
-                Err(e) => error = format!("{e:#}"),
             }
         }
         if !connected {
             presets.clear();
             limits = None;
             object_info = None;
+            setup = Default::default();
             last_inventory = None;
         }
         let child_alive = match CHILD.is_running() {
@@ -275,8 +294,21 @@ fn poll_loop(s: Arc<Shared>) {
         };
         let changed;
         if let Ok(mut st) = s.status.lock() {
-            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits, object_info };
+            let new = EngineStatus {
+                checked: true,
+                connected,
+                host,
+                gpu,
+                presets,
+                error,
+                starting: child_alive && !connected,
+                limits,
+                object_info,
+                comfyui_version,
+                setup,
+            };
             changed = pressure_changed
+                || st.setup != new.setup
                 || st.host != new.host
                 || st.connected != new.connected
                 || st.presets != new.presets
@@ -503,7 +535,7 @@ fn custom_model_options(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, gr
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! {
     /// The file the next "Choose an ONNX file…" click picks, in place of a real dialog.
     pub(crate) static TEST_PICK: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
@@ -1088,7 +1120,7 @@ pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
 ];
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! { pub(crate) static TEST_LAMA_READY: std::cell::RefCell<Option<bool>> = const { std::cell::RefCell::new(None) }; }
 
 /// Resolve Automatic from the background connection status. Explicit choices persist.
@@ -1218,120 +1250,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
     }
 }
 
-// Status pill
-
-/// The AI engine status in the status bar (right-to-left layout); click opens Local AI.
-pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    if let Ok(mut c) = shared().ctx.lock()
-        && c.is_none()
-    {
-        *c = Some(ui.ctx().clone());
-    }
-    let t = Tokens::get(ui.ctx());
-    let st = status();
-    let (dot, text) = if !st.checked {
-        (t.text_faint, tl!("AI").to_owned())
-    } else if st.starting {
-        (t.warning, tl!("AI starting…").to_owned())
-    } else if !st.connected {
-        (t.text_faint, tl!("AI off").to_owned())
-    } else if !st.any_ready() {
-        (t.warning, tl!("AI · no models").to_owned())
-    } else {
-        let gpu = st.gpu.as_ref().map(|g| {
-            let used = g.vram_used.map(|u| format!(" · {:.0}/{:.0} GB", u as f64 / 1e9, g.vram_total as f64 / 1e9)).unwrap_or_default();
-            format!(" · {}{used}", short_gpu(&g.name))
-        });
-        (Color32::from_rgb(70, 190, 110), li_i18n::fmt(tl!("AI ready{gpu}"), &[("gpu", &gpu.unwrap_or_default())]))
-    };
-    let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(11.5), t.text_dim);
-    let size = vec2(galley.size().x + 26.0, 18.0);
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    if resp.hovered() {
-        ui.painter().rect_filled(r, 9.0, t.hover);
-    }
-    ui.painter().circle_filled(egui::pos2(r.left() + 10.0, r.center().y), 3.5, dot);
-    ui.painter().galley(egui::pos2(r.left() + 18.0, r.center().y - galley.size().y / 2.0), galley, t.text_dim);
-    let resp = resp.on_hover_text(if st.connected {
-        li_i18n::fmt(tl!("ComfyUI at {host} — click for Local AI settings"), &[("host", &st.host)])
-    } else {
-        tl!("Local AI is off — click to set it up").into()
-    });
-    if resp.clicked() {
-        open_local_ai(app);
-    }
-    if !st.checked || st.starting {
-        ui.ctx().request_repaint_after(Duration::from_millis(500));
-    }
-}
-
-/// The status bar's AI controls, drawn just left of [`status_pill`] (right-to-left layout):
-/// a red Stop while AI jobs run, and Eject (unload the models from GPU memory) while the
-/// engine is connected.
-pub fn status_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    status_controls_with(app, ui, &status());
-}
-
-/// AI jobs running in the session (Generate, AI Remove, Enhance, …).
-pub fn ai_jobs(app: &PhotocraftApp) -> Vec<photocraft_engine::jobs::JobId> {
-    app.session.jobs().into_iter().filter(|j| j.command.starts_with("ai.")).map(|j| j.id).collect()
-}
-
-/// A small status-bar icon button with an accessible name; disabled ones are faint and inert.
-fn bar_icon(ui: &mut egui::Ui, icon: &str, tint: Color32, enabled: bool, tip: &str) -> egui::Response {
-    let t = Tokens::get(ui.ctx());
-    let sense = if enabled { Sense::click() } else { Sense::hover() };
-    let (r, resp) = ui.allocate_exact_size(vec2(20.0, 18.0), sense);
-    if enabled && resp.hovered() {
-        ui.painter().rect_filled(r, t.radius_sm, t.hover);
-    }
-    crate::icons::paint(ui, r, icon, 13.0, if enabled { tint } else { t.text_faint });
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tip));
-    resp.on_hover_text(tip)
-}
-
-pub(crate) fn status_controls_with(app: &mut PhotocraftApp, ui: &mut egui::Ui, st: &EngineStatus) {
-    let t = Tokens::get(ui.ctx());
-    let jobs = ai_jobs(app);
-    if !jobs.is_empty() && bar_icon(ui, "circle-stop", t.danger, true, tl!("Stop generation")).clicked() {
-        stop_generation(app, &jobs);
-    }
-    let tip = if st.connected { tl!("Unload AI models from GPU memory") } else { tl!("Unload AI models from GPU memory (the AI engine is off)") };
-    if bar_icon(ui, "eject", t.text_dim, st.connected, tip).clicked() {
-        app.ui.status = tl!("Unloading AI models…").into();
-        app.ui.status_error = false;
-        let lang = li_i18n::current();
-        let ctx = ui.ctx().clone();
-        let _ = std::thread::Builder::new().name("ai-unload".into()).spawn(move || {
-            li_i18n::set_current(lang);
-            let note = match li_ai::service().client.free_memory() {
-                Ok(()) => (tl!("Models unloaded.").to_owned(), false),
-                Err(e) => (format!("{e:#}"), true),
-            };
-            if let Ok(mut n) = REMOVE_NOTE.lock() {
-                *n = Some(note);
-            }
-            refresh();
-            ctx.request_repaint();
-        });
-    }
-}
-
-/// Cancel only the requested jobs. Each worker's bridged control owns its ComfyUI
-/// prompt and handles targeted cancellation/retry; a process-wide prompt snapshot
-/// could interrupt another feature's job.
-pub fn stop_generation(app: &mut PhotocraftApp, jobs: &[photocraft_engine::jobs::JobId]) {
-    for id in jobs {
-        crate::jobs_ui::cancel(app, *id);
-    }
-    app.ui.status = tl!("Stopping generation…").into();
-    app.ui.status_error = false;
-}
-
-fn short_gpu(name: &str) -> String {
-    name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Laptop GPU", "Laptop")
-}
-
 // Dialogs
 
 #[derive(Default)]
@@ -1388,6 +1306,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::generate_ui::batch_window(app, ctx);
     crate::generate_ui::cloud_confirm_window(app, ctx);
     crate::model_browser::window(app, ctx);
+    crate::model_setup::window(app, ctx);
     remove_confirm(app, ctx);
 }
 
@@ -1639,6 +1558,7 @@ const IDS: &[&str] = &[
     "li.draftRefine",
     "li.localAi",
     "li.browseModels",
+    "li.modelSetup",
     crate::context_bar::TOGGLE_ID,
     "li.filmstrip",
     crate::develop_layer::DEVELOP_ID,
@@ -1707,6 +1627,8 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
             (Some("lora"), Some(f)) => crate::model_browser::open_loras(f),
             _ => crate::model_browser::open(),
         },
+        // `{"model": key}` opens it on that model.
+        "li.modelSetup" => crate::model_setup::open(params.get("model").and_then(Value::as_str)),
         _ => {}
     }
     Some(Ok(Value::Null))

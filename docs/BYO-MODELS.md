@@ -1,5 +1,9 @@
 # Bring your own restoration models
 
+> Image generation models you install in ComfyUI (FLUX.3 Klein, MOSS-Image, Krea 2 and any model
+> ComfyUI ships an official template for) are set up separately: see [MODEL-SETUP.md](MODEL-SETUP.md).
+> This page covers restoration models.
+
 Local Image can detect selected models that **you installed in your own ComfyUI**. It does not ship, bundle, download or install these weights or their community nodes. They are not bundled-component attributions. The default Restoration section uses the separately vetted, pinned permissive models: FBCNN, SCUNet, NAFNet and the relicensed Apache-2.0 DDColor weights. Runtime architecture support is checked separately from licensing.
 
 Open Compositing → Filter → AI → Restore… → Bring your own model → Detect installed models. The app reads ComfyUI's `/object_info` choices and the configured model folders, including `upscale_models`, `facerestore_models` and `stablesr`. Names are identification hints, not proof that a renamed file is the author's checkpoint. Only recognised models are listed. SUPIR and HYPIR are excluded even when installed; names containing either identifier are never offered or submitted.

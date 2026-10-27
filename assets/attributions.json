@@ -7262,7 +7262,7 @@
         {
           "name": "ComfyUI workflow templates",
           "author": "Comfy Org",
-          "used_for": "Ten templates and their thumbnails as test fixtures; at run time the Model Browser reads them from the connected ComfyUI.",
+          "used_for": "Templates, their thumbnails and trimmed indexes as test fixtures; at run time the Model Browser and model setup read them from the connected ComfyUI.",
           "licence": "MIT",
           "licence_files": [
             "licenses/comfyui-workflow-templates-LICENSE"
@@ -7465,6 +7465,12 @@
           "url": "https://huggingface.co/black-forest-labs/FLUX.2-dev/blob/main/LICENSE.md"
         },
         {
+          "name": "FLUX.3 Klein",
+          "used_for": "FLUX.3 Image Klein (5.6B): a 16-step distilled model and a 50-step base model; edits with up to 10 reference images.",
+          "licence": "FLUX Kommunity License v1.0",
+          "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy"
+        },
+        {
           "name": "HiDream I1",
           "used_for": "HiDream I1 (17B MoE) Full, Dev and Fast: high quality and prompt adherence; four text encoders.",
           "licence": "MIT",
@@ -7475,6 +7481,18 @@
           "used_for": "SDXL fine-tunes for illustration and anime (Illustrious XL, NoobAI); tag prompts with quality tags.",
           "licence": "Fair AI Public License 1.0-SD",
           "url": "https://huggingface.co/OnomaAIResearch/Illustrious-xl-early-release-v0"
+        },
+        {
+          "name": "Krea 2",
+          "used_for": "Krea 2 (12B): stylised images in eight steps (Turbo) and style references from your own pictures.",
+          "licence": "Krea 2 Community License",
+          "url": "https://huggingface.co/Comfy-Org/Krea-2"
+        },
+        {
+          "name": "MOSS-Image",
+          "used_for": "MOSS-Image: detailed images from long scene descriptions (SFT); a Base variant for comparison and fine-tuning.",
+          "licence": "Apache-2.0",
+          "url": "https://huggingface.co/Comfy-Org/MOSS-Image"
         },
         {
           "name": "Pony Diffusion",

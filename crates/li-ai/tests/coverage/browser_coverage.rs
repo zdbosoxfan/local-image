@@ -141,6 +141,12 @@ fn family_for_label_variants_and_unknown() {
 
     // Unknown label
     assert_eq!(family_for_label(reg, "totally-unknown"), None);
+
+    // A newer generation is not its older namesake
+    assert_eq!(family_for_label(reg, "HiDream"), Some("hidream".to_string()));
+    assert_eq!(family_for_label(reg, "HiDream O1"), None);
+    assert_eq!(family_for_label(reg, "Qwen Image 3"), None);
+    assert_eq!(family_for_label(reg, "Flux.3"), None);
 }
 
 // model_folder
@@ -735,3 +741,109 @@ fn plan_refuses_unverified_and_bad_host() {
 }
 
 // End of tests
+
+fn hf_card(id: &str, tags: &[&str], files: &[&str]) -> Item {
+    let list = json!([{ "id": id, "tags": tags, "siblings": files.iter().map(|f| json!({"rfilename": f})).collect::<Vec<_>>() }]);
+    parse_hf_list(registry(), "https://huggingface.co", &list, Kind::Model).remove(0)
+}
+
+fn placed(item: &Item) -> Vec<(String, String)> {
+    item.files.iter().map(|f| (f.folder.clone(), f.name.clone())).collect()
+}
+
+#[test]
+fn hf_cards_place_files_by_their_repository_folders_and_skip_diffusers_layouts() {
+    // FLUX.1-dev: the ComfyUI file at the root, the VAE by its component name, no diffusers copies.
+    let flux = hf_card(
+        "black-forest-labs/FLUX.1-dev",
+        &["text-to-image", "flux"],
+        &[
+            "flux1-dev.safetensors",
+            "ae.safetensors",
+            "transformer/diffusion_pytorch_model-00001-of-00003.safetensors",
+            "transformer/diffusion_pytorch_model-00002-of-00003.safetensors",
+            "text_encoder/model.safetensors",
+            "text_encoder_2/model-00001-of-00002.safetensors",
+            "vae/diffusion_pytorch_model.safetensors",
+        ],
+    );
+    assert_eq!(placed(&flux), [("diffusion_models".into(), "flux1-dev.safetensors".into()), ("vae".into(), "ae.safetensors".into())]);
+    // SDXL base: the two root checkpoints, not the fp16 UNet or diffusers parts.
+    let sdxl = hf_card(
+        "stabilityai/stable-diffusion-xl-base-1.0",
+        &["text-to-image", "base_model:sdxl"],
+        &[
+            "sd_xl_base_1.0.safetensors",
+            "sd_xl_base_1.0_0.9vae.safetensors",
+            "unet/diffusion_pytorch_model.fp16.safetensors",
+            "vae/diffusion_pytorch_model.safetensors",
+            "text_encoder/model.fp16.safetensors",
+            "text_encoder_2/model.safetensors",
+        ],
+    );
+    assert_eq!(placed(&sdxl).len(), 2, "{:?}", placed(&sdxl));
+    // A Comfy-Org repackage: each file in the folder its path names, one copy each.
+    let klein = hf_card(
+        "Comfy-Org/flux2-klein",
+        &["text-to-image"],
+        &[
+            "split_files/diffusion_models/flux-2-klein-4b.safetensors",
+            "split_files/diffusion_models/flux-2-klein-4b-fp8.safetensors",
+            "split_files/text_encoders/qwen_3_4b.safetensors",
+            "split_files/vae/flux2-vae.safetensors",
+            "extra/vae/flux2-vae.safetensors",
+        ],
+    );
+    assert_eq!(
+        placed(&klein),
+        [
+            ("diffusion_models".into(), "flux-2-klein-4b.safetensors".into()),
+            ("diffusion_models".into(), "flux-2-klein-4b-fp8.safetensors".into()),
+            ("text_encoders".into(), "qwen_3_4b.safetensors".into()),
+            ("vae".into(), "flux2-vae.safetensors".into()),
+        ]
+    );
+    // GGUF quantisations of one model: each a choice, installing only the one picked.
+    let gguf = hf_card("city96/FLUX.1-dev-gguf", &["text-to-image", "flux"], &["flux1-dev-Q4_K_S.gguf", "flux1-dev-Q8_0.gguf", "flux1-dev-F16.gguf"]);
+    assert!(gguf.files.iter().all(|f| f.folder == "diffusion_models"));
+    let choices: Vec<&str> = hf::variants(&gguf).iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(choices.first(), Some(&"flux1-dev-F16.gguf"), "{choices:?}");
+    let one = hf::selection(&gguf, Some("flux1-dev-Q8_0.gguf"), &[]);
+    assert_eq!(placed(&one), [("diffusion_models".into(), "flux1-dev-Q8_0.gguf".into())]);
+}
+
+#[test]
+fn a_misplaced_component_file_does_not_stand_in_for_the_component() {
+    let reg = registry();
+    let flux = reg.family("flux1").unwrap();
+    let tree = |repo: &str, files: &[(&str, u64)]| -> (String, Result<Vec<u8>, String>) {
+        let body: Vec<Value> = files.iter().map(|(p, n)| json!({"type": "file", "path": p, "size": n, "lfs": {"oid": "b".repeat(64), "size": n}})).collect();
+        (format!("https://huggingface.co/api/models/{repo}/tree/main?recursive=true"), Ok(serde_json::to_vec(&body).unwrap()))
+    };
+    let net = FakeNet {
+        bodies: BTreeMap::from([
+            tree("user/flux-mix", &[("ae.safetensors", 300), ("flux1-mix.safetensors", 1000)]),
+            tree("comfyanonymous/flux_text_encoders", &[("clip_l.safetensors", 10), ("t5xxl_fp8_e4m3fn_scaled.safetensors", 20)]),
+            tree("Comfy-Org/Lumina_Image_2.0_Repackaged", &[("split_files/vae/ae.safetensors", 300)]),
+        ]),
+        head: None,
+    };
+    let file = |name: &str, folder: &str| CatalogFile {
+        name: name.into(),
+        folder: folder.into(),
+        url: format!("https://huggingface.co/user/flux-mix/resolve/main/{name}"),
+        ..Default::default()
+    };
+    let item = Item { id: "hf:user/flux-mix".into(), kind: Some(Kind::Model), family: Some("flux1".into()), ..Default::default() };
+    let p = plan(
+        &item,
+        &[file("flux1-mix.safetensors", "diffusion_models"), file("ae.safetensors", "checkpoints")],
+        Some(flux),
+        &ObjectInfo(json!({})),
+        &Config::default(),
+        &net,
+    )
+    .unwrap();
+    let vaes: Vec<&PlannedFile> = p.files.iter().filter(|f| f.folder == "vae").collect();
+    assert_eq!(vaes.len(), 1, "the family's VAE is still planned: {:?}", p.files);
+}

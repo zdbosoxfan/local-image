@@ -48,6 +48,8 @@ pub struct Params<'a> {
     pub variety: f32,
     /// Create with an InitImage reference: how much of the starting latent to re-noise.
     pub init_denoise: f32,
+    /// Template models: run the template's optional LLM prompt enhancer.
+    pub enhance: bool,
 }
 
 impl<'a> Params<'a> {
@@ -67,6 +69,7 @@ impl<'a> Params<'a> {
             sampler: None,
             variety: 0.0,
             init_denoise: 1.0,
+            enhance: false,
         }
     }
 }
@@ -136,7 +139,7 @@ fn variety_text(seed: u64) -> String {
 /// The graph for `p` on family `f` (with the model's overrides applied) and the resolved files.
 pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
     if f.pipeline.encode == Encode::QwenImage21 {
-        return qwen21(files, p);
+        return qwen21(f, files, p);
     }
     let pl = &f.pipeline;
     let mut g = G::default();
@@ -470,12 +473,14 @@ fn finish(g: G) -> Built {
 
 /// Qwen Image 2.1 through 0.7's builder (create, edit, references). Full refine uses the official
 /// edit path; partial refine also encodes the source, since the text encoder's latent is empty.
-fn qwen21(files: &Files, p: &Params) -> Built {
+fn qwen21(f: &Family, files: &Files, p: &Params) -> Built {
     let with_source = !matches!(p.task, Task::Create);
     let refs = p.references + usize::from(with_source);
     let mut b = crate::workflows::qwen(
         files,
         &crate::workflows::QwenParams {
+            sampler_name: &f.pipeline.sampler_name,
+            scheduler: &f.pipeline.scheduler,
             prompt: p.prompt,
             negative: p.negative,
             width: p.width,
@@ -521,12 +526,24 @@ fn qwen21(files: &Files, p: &Params) -> Built {
     b
 }
 
-/// The node classes a family's plain Create graph uses (what ComfyUI must offer).
+fn graph_classes(b: &Built) -> Vec<String> {
+    let mut nodes: Vec<String> = b
+        .graph
+        .as_object()
+        .map(|o| o.values().filter_map(|n| n["class_type"].as_str()).filter(|c| !c.is_empty()).map(str::to_owned).collect())
+        .unwrap_or_default();
+    nodes.sort();
+    nodes.dedup();
+    nodes
+}
+
+/// The node classes a family's plain Create graph uses (what ComfyUI must offer). Families
+/// without a builder (unknown files, template-only families) need none here.
 pub fn required_nodes(f: &Family) -> Vec<String> {
     if f.id == "restoration" {
         return crate::restoration::NODES.iter().map(|n| (*n).to_owned()).collect();
     }
-    if f.kind != crate::family::FamilyKind::Image {
+    if f.id == "unknown" || !f.buildable() {
         return Vec::new();
     }
     let mut files = Files::new();
@@ -541,16 +558,14 @@ pub fn required_nodes(f: &Family) -> Vec<String> {
         files.insert(Role::Unet, "z_image_turbo.safetensors".into());
         p.variety = 100.0;
     }
-    let b = build(f, &files, &p);
-    let mut nodes: Vec<String> =
-        b.graph.as_object().map(|o| o.values().filter_map(|n| n["class_type"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
-    nodes.sort();
-    nodes.dedup();
-    nodes
+    graph_classes(&build(f, &files, &p))
 }
 
 /// Extra nodes a task needs beyond Create (shown when a mode is unavailable).
 pub fn task_nodes(f: &Family, task: Task, references: usize) -> Vec<String> {
+    if f.id == "unknown" || !f.buildable() {
+        return Vec::new();
+    }
     let mut files = Files::new();
     for r in [Role::Unet, Role::Checkpoint, Role::Clip, Role::Clip2, Role::Clip3, Role::Clip4, Role::Vae, Role::ClipVision, Role::StyleModel] {
         files.insert(r, "x.safetensors".into());
@@ -558,12 +573,7 @@ pub fn task_nodes(f: &Family, task: Task, references: usize) -> Vec<String> {
     let mut p = Params::create("", 1024, 1024, 0, 1, 1.0);
     p.task = task;
     p.references = references;
-    let b = build(f, &files, &p);
-    let mut nodes: Vec<String> =
-        b.graph.as_object().map(|o| o.values().filter_map(|n| n["class_type"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
-    nodes.sort();
-    nodes.dedup();
-    nodes
+    graph_classes(&build(f, &files, &p))
 }
 
 #[cfg(test)]
@@ -646,7 +656,7 @@ mod tests {
         for (id, main) in [("z-image", "z_image_bf16.safetensors"), ("flux2-klein", "flux-2-klein-4b.safetensors")] {
             let mut files = files();
             files.insert(Role::Unet, main.into());
-            let f = registry().family(id).unwrap().resolved_for_file(main);
+            let f = registry().family(id).unwrap().resolved_for_file(main, None);
             let mut p = Params::create("a fox", 512, 288, 42, 8, 1.0);
             let off = build(&f, &files, &p);
             p.variety = 100.0;
@@ -829,7 +839,7 @@ mod tests {
 
     #[test]
     fn original_qwen_edit_refines_with_its_official_single_image_encoder() {
-        let f = registry().family("qwen-edit").unwrap().resolved_for_file("qwen_image_edit_fp8_e4m3fn.safetensors");
+        let f = registry().family("qwen-edit").unwrap().resolved_for_file("qwen_image_edit_fp8_e4m3fn.safetensors", None);
         for task in [Task::Edit, Task::Refine { denoise: 0.4 }] {
             let mut p = Params::create("keep the composition", 1024, 768, 3, 20, 2.5);
             p.task = task;
@@ -854,7 +864,7 @@ mod tests {
     #[test]
     fn hidream_dev_and_fast_refine_use_the_official_distilled_samplers() {
         for (name, steps, shift) in [("hidream_i1_dev_fp8.safetensors", 28, 6.0), ("hidream_i1_fast_fp8.safetensors", 16, 3.0)] {
-            let f = registry().family("hidream").unwrap().resolved_for_file(name);
+            let f = registry().family("hidream").unwrap().resolved_for_file(name, None);
             let mut p = Params::create("keep the composition", 1024, 768, 3, f.sampling.steps.default as u32, f.sampling.cfg.default);
             p.task = Task::Refine { denoise: 0.4 };
             let b = build(&f, &files(), &p);
@@ -871,7 +881,7 @@ mod tests {
 
     #[test]
     fn z_image_base_refine_uses_the_official_cfg_and_negative_text() {
-        let f = registry().family("z-image").unwrap().resolved_for_file("z_image_bf16.safetensors");
+        let f = registry().family("z-image").unwrap().resolved_for_file("z_image_bf16.safetensors", None);
         let mut p = Params::create("keep the composition", 1024, 768, 3, f.sampling.steps.default as u32, f.sampling.cfg.default);
         p.task = Task::Refine { denoise: 0.4 };
         let b = build(&f, &files(), &p);
@@ -881,13 +891,13 @@ mod tests {
         assert_eq!(k["inputs"]["sampler_name"], "res_multistep");
         assert_eq!(upstream(&b, k, "negative")["class_type"], "CLIPTextEncode");
         assert_eq!(upstream(&b, k, "latent_image")["class_type"], "VAEEncode");
-        assert_eq!(registry().family("z-image").unwrap().resolved_for_file("z_image_turbo_bf16.safetensors").sampling.cfg.default, 1.0);
+        assert_eq!(registry().family("z-image").unwrap().resolved_for_file("z_image_turbo_bf16.safetensors", None).sampling.cfg.default, 1.0);
         closed(&b.graph);
     }
 
     #[test]
     fn flux1_schnell_refine_keeps_its_official_four_step_path() {
-        let f = registry().family("flux1").unwrap().resolved_for_file("flux1-schnell.safetensors");
+        let f = registry().family("flux1").unwrap().resolved_for_file("flux1-schnell.safetensors", None);
         let mut p = Params::create("keep the composition", 1024, 768, 3, f.sampling.steps.default as u32, f.sampling.cfg.default);
         p.task = Task::Refine { denoise: 0.4 };
         let b = build(&f, &files(), &p);
@@ -903,7 +913,7 @@ mod tests {
     #[test]
     fn flux2_klein_base_refine_keeps_the_official_cfg_negative_encoding() {
         for name in ["flux-2-klein-base-4b.safetensors", "flux-2-klein-base-9b.safetensors"] {
-            let f = registry().family("flux2-klein").unwrap().resolved_for_file(name);
+            let f = registry().family("flux2-klein").unwrap().resolved_for_file(name, None);
             let mut p = Params::create("keep the composition", 1024, 768, 3, f.sampling.steps.default as u32, f.sampling.cfg.default);
             p.task = Task::Refine { denoise: 1.0 };
             let b = build(&f, &files(), &p);

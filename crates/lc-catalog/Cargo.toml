@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 li-fs.workspace = true
+li-i18n.workspace = true
 lightcraft-develop = { workspace = true }
 lightcraft-meta = { workspace = true }
 serde = { workspace = true }

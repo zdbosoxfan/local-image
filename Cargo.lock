@@ -3922,6 +3922,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "crc32fast",
  "li-fs",
+ "li-i18n",
  "lightcraft-develop",
  "lightcraft-meta",
  "log",
@@ -4302,6 +4303,7 @@ dependencies = [
 name = "local-image-cli"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-ai",
  "lightcraft-raw",
  "lightcraft-sysmem",
  "lightcraft-tiff",
@@ -7673,6 +7675,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

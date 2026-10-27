@@ -1,0 +1,128 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "seedvr2_7b_fp16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "10": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "LocalImage_SeedVR2",
+      "images": [
+        "9",
+        0
+      ]
+    }
+  },
+  "2": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "seedvr2_ema_vae_fp16.safetensors"
+    }
+  },
+  "3": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": ""
+    }
+  },
+  "4": {
+    "class_type": "SeedVR2Preprocess",
+    "inputs": {
+      "resized_images": [
+        "3",
+        0
+      ]
+    }
+  },
+  "5": {
+    "class_type": "VAEEncodeTiled",
+    "inputs": {
+      "overlap": 128,
+      "pixels": [
+        "4",
+        0
+      ],
+      "temporal_overlap": 8,
+      "temporal_size": 4096,
+      "tile_size": 512,
+      "vae": [
+        "2",
+        0
+      ]
+    }
+  },
+  "6": {
+    "class_type": "SeedVR2Conditioning",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "vae_conditioning": [
+        "5",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1.0,
+      "denoise": 1.0,
+      "latent_image": [
+        "5",
+        0
+      ],
+      "model": [
+        "1",
+        0
+      ],
+      "negative": [
+        "6",
+        1
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "seed": 42,
+      "steps": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "overlap": 128,
+      "samples": [
+        "7",
+        0
+      ],
+      "temporal_overlap": 8,
+      "temporal_size": 4096,
+      "tile_size": 512,
+      "vae": [
+        "2",
+        0
+      ]
+    }
+  },
+  "9": {
+    "class_type": "SeedVR2PostProcessing",
+    "inputs": {
+      "color_correction_method": "lab",
+      "images": [
+        "8",
+        0
+      ],
+      "original_resized_images": [
+        "3",
+        0
+      ]
+    }
+  }
+}
