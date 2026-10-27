@@ -467,7 +467,11 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         if widgets::dropdown(&mut zb, "gallery-zoom", &mut z, &opts, 110.0) {
             d.zoom = z;
         }
-        zb.label(egui::RichText::new(format!("{} {:.0} ms", tl!("Preview"), d.preview_ms)).color(t.text_faint).size(11.0));
+        zb.label(
+            egui::RichText::new(format!("{} {:.0} ms", tl!("Preview"), d.preview_ms))
+                .color(if t.dark() { t.text_faint } else { t.text_secondary_on_fill })
+                .size(11.0),
+        );
 
         // Category folders with thumbnails
         painter.rect_filled(mid, 0.0, t.dock);
@@ -592,7 +596,11 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 }
             }
             if e.filter.uses_colours() {
-                ui.label(egui::RichText::new(tl!("Uses the foreground and background colours.")).color(t.text_faint).size(11.0));
+                ui.label(
+                    egui::RichText::new(tl!("Uses the foreground and background colours."))
+                        .color(if t.dark() { t.text_faint } else { t.text_secondary_on_fill })
+                        .size(11.0),
+                );
             }
         });
         // Effect layers (top of the list = applied last).
@@ -615,7 +623,13 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     Align2::LEFT_CENTER,
                     tl!(d.effects[i].filter.name()),
                     FontId::proportional(12.5),
-                    if d.effects[i].visible { t.text } else { t.text_faint },
+                    if d.effects[i].visible {
+                        t.text
+                    } else if sel || !t.dark() {
+                        t.text_secondary_on_fill
+                    } else {
+                        t.text_faint
+                    },
                 );
                 if resp.clicked() {
                     if resp.interact_pointer_pos().is_some_and(|p| p.x < eye.right() + 4.0) {

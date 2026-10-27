@@ -685,6 +685,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         painter.rect_filled(right, 0.0, t.dock);
         painter.line_segment([right.left_top(), right.left_bottom()], Stroke::new(1.0, t.separator));
         let mut props = ui.new_child(egui::UiBuilder::new().max_rect(right.shrink2(vec2(14.0, 10.0))));
+        if !t.dark() {
+            props.visuals_mut().weak_text_color = Some(t.text_secondary_on_fill);
+        }
         // This header is outside the settings scroll area and follows the same Before/After
         // selector as the texture. Both derive from the same completed preview revision.
         super::camera_raw_scope_ui::header(&mut props, d, scope);
@@ -813,7 +816,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         fu.add_space(12.0);
         widgets::checkbox(&mut fu, &mut d.show_before, tl!("Before (Y)"));
-        fu.label(egui::RichText::new(format!("{:.0} ms", d.render_ms)).color(t.text_faint));
+        fu.label(egui::RichText::new(format!("{:.0} ms", d.render_ms)).color(if t.dark() { t.text_faint } else { t.text_secondary_on_fill }));
     });
     super::camera_raw_scope_ui::persist(app, ctx);
     if ctx.input(|i| i.key_pressed(egui::Key::Y))

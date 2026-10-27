@@ -47,7 +47,12 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(0.5));
         }
         let marker = Rect::from_center_size(pos2(rect.left() + 14.0, rect.center().y), vec2(12.0, 12.0));
-        ui.painter().rect_stroke(marker, 2.0, Stroke::new(1.0, t.text_faint), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            marker,
+            2.0,
+            Stroke::new(1.0, if applied.is_none() || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint }),
+            egui::StrokeKind::Inside,
+        );
         if applied.is_none() {
             crate::icons::paint(ui, marker, "check", 10.0, t.icon);
         }
@@ -80,7 +85,12 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
             // Apply marker (click to apply).
             let marker = Rect::from_center_size(pos2(rect.left() + 14.0, rect.center().y), vec2(12.0, 12.0));
-            ui.painter().rect_stroke(marker, 2.0, Stroke::new(1.0, t.text_faint), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(
+                marker,
+                2.0,
+                Stroke::new(1.0, if selected == Some(c.id) || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint }),
+                egui::StrokeKind::Inside,
+            );
             if applied == Some(c.id) {
                 crate::icons::paint(ui, marker, "check", 10.0, t.accent);
             }

@@ -642,6 +642,9 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
         let h = full.y;
         ui.allocate_ui_with_layout(vec2(side, h), egui::Layout::top_down(egui::Align::LEFT), |ui| {
             ui.painter().rect_filled(ui.max_rect(), 0.0, t.dock);
+            if !t.dark() {
+                ui.visuals_mut().weak_text_color = Some(t.text_secondary_on_fill);
+            }
             egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 12)).show(ui, |ui| {
                 ui.set_width(side - 20.0);
                 ui.horizontal(|ui| {
@@ -679,7 +682,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                         if f.group != group {
                             group = &f.group;
                             ui.add_space(4.0);
-                            ui.label(RichText::new(&f.group).size(10.5).color(t.text_faint));
+                            ui.label(RichText::new(&f.group).size(10.5).color(if t.dark() { t.text_faint } else { t.text_secondary_on_fill }));
                         }
                         let on = s.nav == Nav::Family(f.id.clone());
                         if widgets::nav_row(ui, "", None, &f.label, "", on).clicked() {
@@ -866,10 +869,11 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
                 .and_then(|f| li_ai::family::registry().family(f))
                 .map(|f| f.label.clone())
                 .unwrap_or_else(|| if item.template.is_some() { item.title.clone() } else { tl!("Unknown family").into() });
-            let mut job = egui::text::LayoutJob::simple_singleline(fam, crate::theme::medium(11.0), t.text_faint);
+            let secondary = if t.dark() { t.text_faint } else { t.text_secondary_on_fill };
+            let mut job = egui::text::LayoutJob::simple_singleline(fam, crate::theme::medium(11.0), secondary);
             job.wrap = egui::text::TextWrapping::truncate_at_width((pr.width() - 16.0).max(0.0));
             let galley = ui.painter().layout_job(job);
-            ui.painter().galley(pr.center() + vec2(-galley.size().x / 2.0, 22.0 - galley.size().y / 2.0), galley, t.text_faint);
+            ui.painter().galley(pr.center() + vec2(-galley.size().x / 2.0, 22.0 - galley.size().y / 2.0), galley, secondary);
         }
     }
     // Source and access badges over the preview.

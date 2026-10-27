@@ -220,7 +220,8 @@ pub fn separator(ui: &mut Ui, profile: Profile, vertical_height: Option<f32>) {
 pub fn heading(ui: &mut Ui, title: &str, profile: Profile, open: bool) -> Response {
     let t = profile.tokens(ui.ctx());
     if profile == Profile::Editor {
-        return ui.label(egui::RichText::new(title).font(crate::fonts::medium(m::LABEL_FONT)).color(t.text_faint));
+        let ink = ui.visuals().weak_text_color.unwrap_or(t.text_faint);
+        return ui.label(egui::RichText::new(title).font(crate::fonts::medium(m::LABEL_FONT)).color(ink));
     }
     let (r, response) = ui.allocate_exact_size(vec2(ui.available_width(), m::HEADER_HEIGHT), Sense::click());
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, ui.is_enabled(), open, title));
