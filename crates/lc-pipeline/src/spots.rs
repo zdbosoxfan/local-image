@@ -238,18 +238,18 @@ pub fn apply_timed(img: &mut RgbFrame, spots: &[Spot], frame: &Frame, ppl: f64, 
 
 /// An inclusive-exclusive pixel box.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct PxBox {
-    x0: usize,
-    y0: usize,
-    x1: usize,
-    y1: usize,
+pub struct PxBox {
+    pub x0: usize,
+    pub y0: usize,
+    pub x1: usize,
+    pub y1: usize,
 }
 
 impl PxBox {
-    fn width(&self) -> usize {
+    pub fn width(&self) -> usize {
         self.x1 - self.x0
     }
-    fn height(&self) -> usize {
+    pub fn height(&self) -> usize {
         self.y1 - self.y0
     }
 }
@@ -305,7 +305,7 @@ fn heal_patch_from(
     use photocraft_algo::poisson;
     const GAMMA: f32 = 2.2;
     let Some(hb) = bbox(cov, w, h) else { return Ok((pixels.to_vec(), vec![0.; pixels.len()])) };
-    let hole: Vec<bool> = cov.iter().map(|c| *c > 0.004).collect();
+    let hole: Vec<bool> = cov.iter().map(|c| *c > COVERAGE_THRESHOLD).collect();
     // the encoding: the area's 99th percentile at 1
     let mut peak: Vec<f32> = pixels.iter().map(|p| p[0].max(p[1]).max(p[2])).filter(|v| v.is_finite()).collect();
     let k = if peak.is_empty() {
@@ -352,12 +352,14 @@ fn heal_patch_from(
     Ok((out, alpha))
 }
 
+const COVERAGE_THRESHOLD: f32 = 0.004;
+
 /// The box of coverage above a trace, `None` when there is none.
-fn bbox(cov: &[f32], w: usize, h: usize) -> Option<PxBox> {
+pub fn bbox(cov: &[f32], w: usize, h: usize) -> Option<PxBox> {
     let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
     for y in 0..h {
         for x in 0..w {
-            if cov[y * w + x] > 0.004 {
+            if cov[y * w + x] > COVERAGE_THRESHOLD {
                 (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
             }
         }
@@ -366,7 +368,7 @@ fn bbox(cov: &[f32], w: usize, h: usize) -> Option<PxBox> {
 }
 
 /// `b` grown by `m` on every side, within the image.
-fn inflate(b: PxBox, m: usize, w: usize, h: usize) -> PxBox {
+pub fn inflate(b: PxBox, m: usize, w: usize, h: usize) -> PxBox {
     PxBox { x0: b.x0.saturating_sub(m), y0: b.y0.saturating_sub(m), x1: (b.x1 + m).min(w), y1: (b.y1 + m).min(h) }
 }
 
