@@ -8,6 +8,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Custom ONNX models with external weights and half precision are copied as one self-contained
+  file. Weights must sit in the model's folder or the same Hugging Face repository's blobs folder.
+
 - Affinity import keeps decorated text, table cells and grid lines, master-page content,
   embedded native documents and supported layer styles editable. CMYK pixel layers retain
   source-profile colour conversion, with a coated CMYK fallback and explicit approximation warnings.
@@ -60,6 +63,14 @@ All notable changes to Local Image are recorded here. The format follows
   seed and size are found by their roles (basic controls).
 
 ### Changed
+
+- Recovery uses private storage; existing folders lose group and other access.
+- SVG: quoted font families round-trip through editable text export and import.
+- Automation: saves preserve the existing file's group on Unix.
+- Editor keeps one tab per file. Tabs whose file is overwritten are detached with a notice and
+  must be saved under a new name.
+- PSD and PSB export save sparse layers without pixels when their dense pixel buffer would
+  exceed both the canvas size and half the memory budget.
 
 - Drag the parametric Tone Curve line to adjust its tonal region with one undo step.
   Drag histogram zones to adjust Blacks, Shadows, Exposure, Highlights and Whites;
@@ -140,8 +151,8 @@ All notable changes to Local Image are recorded here. The format follows
 
 - Developer tools: upstream checks resolve linked project names and report checked and unchecked
   ports separately, failing when an upstream source or history could not be checked.
-- Library: directory-sync failures when opening the catalog journal are reported, and retries
-  confirm the directory entry is durable before saving edits.
+- Library: an edit is no longer shown as saved when the library folder could not be flushed to
+  disk; it stays queued and is retried.
 
 - Compositing: Add Noise and Wave retain the full unsigned 32-bit seed range.
 
@@ -160,30 +171,13 @@ All notable changes to Local Image are recorded here. The format follows
 - Develop: the scene gamut knee preserves its colour response across exposure changes, including
   very bright HDR values.
 
-- Recovery: restricting an existing directory removes group and other access while preserving
-  owner permissions and special mode bits.
-- SVG: editable text preserves font-family apostrophes and backslashes across export and import.
-- Automation: saving over a Unix FIFO replaces it without blocking while copying permissions.
-- Editor: the CPU canvas keeps smooth filtering when zoomed in. Moving a selection outline
-  snaps to objects inside it, and presets dropped onto the canvas follow its aligned view.
-- Library: Vectorize opens its dialog when the photo is already open or still loading in the Editor.
-- PSD and PSB export keep sparse retouch layers whose pixel bounds fit the canvas, even when the
-  dense layer buffer exceeds half the memory budget.
-- Editor: overwrite notices explain that each affected tab is unsaved and needs a new file name.
+- Editor: moving a selection outline snaps to objects inside it, including when using the
+  Lasso tool, and presets dropped onto the canvas follow its aligned view.
 - PSD export keeps pattern fills inside their vector masks when reopened.
 - PSD export uses the embedded CMYK profile when generating layer pixels, avoiding a colour shift
   when reopening fills without cached pixels.
 
 - Develop: background Upright analyses discard results after the photo's source content is replaced.
-- Custom ONNX imports accept Hugging Face snapshot links into the same repository's blobs,
-  refuse other external weights outside the model's folder with their resolved destination,
-  and reject absolute, parent and Windows-prefixed weights paths before any filesystem lookup.
-  External weights must be regular files; reserved Windows device names are rejected lexically.
-  The model file's identity binds its resolved folder to the bytes read, refusing folder swaps.
-  Linux and macOS check the opened weights descriptor's path against that boundary before reading;
-  other targets (including experimental Windows) recheck paths, leaving a check-to-open race window.
-  Input-size checks, validation and copying reuse the loaded bytes for all models.
-  Hard links to outside files remain a limitation against a same-user attacker.
 - Develop: Refine Edges distinguishes different subject masks and image detail when reusing a
   matting result, preventing stale coverage with repeated or symmetric patterns.
 - Develop: changing the monitor, Library or preview cache cancels full-size loupe renders that
