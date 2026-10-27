@@ -464,7 +464,9 @@ mod tests {
             let limits = crate::Limits { max_pixels: 100, ..Default::default() };
             let result = crate::read(&bytes, limits);
             if width > 10_000 {
-                assert_eq!(result, Err(Error::Limit("layer exceeds 100 megapixels")));
+                let doc = result.unwrap();
+                assert!(doc.warnings.iter().any(|w| w.contains("larger than 100 megapixels")));
+                assert!(!doc.spreads[0].nodes.iter().any(|n| matches!(n.kind, Kind::Image(_))));
             } else {
                 assert!(matches!(result, Err(Error::Limit(_))));
             }
