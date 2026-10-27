@@ -92,7 +92,10 @@ pub fn snapshot_scene(scene: &str) -> Result<(), String> {
         }
         if scene == "remote-check" {
             let snapshot = scan.snapshot.as_mut().ok_or("fixture server is present")?;
-            snapshot.remote = true;
+            li_ai::settings::install_store_backend(li_ai::settings::StoreBackend {
+                load: Arc::new(|| Ok(Some(serde_json::json!({"setup_mode": "remote"})))),
+                save: Arc::new(|_| Err("Snapshot settings are read-only.".into())),
+            });
             snapshot.host = "192.0.2.10:8189".into();
         }
         if scene == "partial-verify" {

@@ -204,7 +204,8 @@ pub(crate) fn selected() -> Option<String> {
 /// The scan, choices and caches for the configured ComfyUI.
 fn options() -> modelsetup::Options {
     let host = li_ai::service().client.host().to_owned();
-    let model_dir = modelsetup::is_local(&host).then(|| li_ai::AiSettings::load().model_dir());
+    let s = li_ai::AiSettings::load();
+    let model_dir = (!s.is_remote() && modelsetup::is_local(&host)).then(|| s.model_dir());
     modelsetup::Options::for_host(&host, model_dir)
 }
 

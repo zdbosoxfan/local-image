@@ -413,15 +413,21 @@ fn a_single_test_render_uses_the_singular_label() {
 
 #[test]
 fn remote_fixes_explain_why_they_are_disabled() {
-    let mut scan = fixture();
-    scan.snapshot.as_mut().unwrap().remote = true;
-    let mut h = harness(scan, MOSS, vec2(1440.0, 900.0));
-    select(&mut h, MOSS, Step::Check);
-    let download = h.get_by_label("Download 19.3 GB");
-    assert!(download.accesskit_node().is_disabled());
-    download.hover();
-    h.run_steps(60);
-    h.get_by_label("The model folder is on another computer; install or move the file there.");
+    let backend = li_ai::settings::StoreBackend {
+        load: Arc::new(|| Ok(Some(serde_json::json!({"setup_mode": "remote", "comfy_host": "127.0.0.1"})))),
+        save: Arc::new(|_| panic!("the fixture must not save AI settings")),
+    };
+    li_ai::settings::with_store_backend(backend, || {
+        let mut h = harness(fixture(), MOSS, vec2(1440.0, 900.0));
+        select(&mut h, MOSS, Step::Check);
+        let download = h.get_by_label("Download 19.3 GB");
+        assert!(download.accesskit_node().is_disabled());
+        download.hover();
+        h.run_steps(60);
+        h.get_by_label("The model folder is on another computer; install or move the file there.");
+        assert!(h.get_by_label("Move to vae/").accesskit_node().is_disabled());
+        assert!(options().model_dir.is_none());
+    });
 }
 
 #[test]

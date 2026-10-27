@@ -195,7 +195,8 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>, settings: &AiS
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
         li_i18n::set_current(lang);
         let cfg = config();
-        let dir = AiSettings::load().model_dir();
+        let settings = AiSettings::load();
+        let dir = settings.model_dir();
         let ctl = r.lock().map(|x| x.ctl.clone()).unwrap_or_default();
         let progress = |done: u64, total: u64, file: &str| {
             if let Ok(mut x) = r.lock() {
@@ -211,7 +212,7 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>, settings: &AiS
             // is set to it, and model setup prepares the recipe.
             let (Some(ui), None, Some(name)) = (&template, &item.family, &item.template) else { return Ok(None) };
             let host = li_ai::service().client.host().to_owned();
-            let model_dir = li_ai::modelsetup::is_local(&host).then(|| dir.clone());
+            let model_dir = (!settings.is_remote() && li_ai::modelsetup::is_local(&host)).then(|| dir.clone());
             li_ai::modelsetup::fixes::adopt_template(&li_ai::modelsetup::Options::for_host(&host, model_dir), ui, name)
         });
         if let Ok(mut x) = r.lock() {

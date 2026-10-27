@@ -154,7 +154,7 @@ fn severity_status(sev: Severity) -> (&'static str, &'static str, Tone) {
 }
 
 /// One finding with its fixes.
-fn issue_row(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, i: &Issue, t: &Tokens, out: &mut Vec<Action>) {
+fn issue_row(ui: &mut egui::Ui, s: &mut State, scan: &Scan, local: bool, key: &str, i: &Issue, t: &Tokens, out: &mut Vec<Action>) {
     let (icon, status, tone) = severity_status(i.severity);
     ui.horizontal_top(|ui| {
         widgets::status_icon(ui, icon, status, tone);
@@ -178,7 +178,7 @@ fn issue_row(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, i: &Issue
             if !fixes.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     for (n, f) in fixes.iter().enumerate() {
-                        ui.push_id((key, &i.code, n), |ui| fix_button(ui, s, scan, key, f, out));
+                        ui.push_id((key, &i.code, n), |ui| fix_button(ui, s, scan, local, key, f, out));
                     }
                 });
             }
@@ -187,9 +187,8 @@ fn issue_row(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, i: &Issue
     ui.add_space(4.0);
 }
 
-fn fix_button(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, f: &Fix, out: &mut Vec<Action>) {
+fn fix_button(ui: &mut egui::Ui, s: &mut State, scan: &Scan, local: bool, key: &str, f: &Fix, out: &mut Vec<Action>) {
     let busy = s.busy();
-    let local = scan.snapshot.as_ref().is_some_and(|x| !x.remote);
     let size = |b: u64| li_ai::download::human_bytes(b);
     let (label, tip, enabled): (String, Option<&str>, bool) = match f {
         Fix::Download { bytes, .. } => (
@@ -261,8 +260,9 @@ fn check(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelStat
         });
         ui.add_space(4.0);
     }
+    let local = scan.snapshot.is_some() && options().model_dir.is_some();
     for i in &issues {
-        issue_row(ui, s, scan, key, i, t, out);
+        issue_row(ui, s, scan, local, key, i, t, out);
     }
     let mut passed: Vec<String> = Vec::new();
     if let Some(sn) = &scan.snapshot {
