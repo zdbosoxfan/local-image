@@ -649,7 +649,7 @@ fn dpi_scaled_oversized_effects_warn_and_keep_the_artwork() {
 }
 #[test]
 fn unreadable_embedded_documents_fall_back_to_the_cached_picture() {
-    for data in [b"EmDc\0\0\0\0\0\xffKA".to_vec(), b"unrecognized embedded data".to_vec()] {
+    for data in [b"EmDc\0\0\0\0\0\xffKA".to_vec()] {
         let bytes = container(vec![cached_embedded("inner", 2), curve()], vec![], None, &[("inner", &data, Method::Zlib)]);
         let doc = photocraft_affinity::read(&bytes, Limits::default()).unwrap();
         assert!(matches!(doc.spreads[0].nodes[0].kind, model::Kind::Image(_)));
@@ -657,6 +657,16 @@ fn unreadable_embedded_documents_fall_back_to_the_cached_picture() {
         assert!(doc.warnings.iter().any(|w| w.contains("embedded document") && w.contains("could not be read")));
     }
 }
+#[test]
+fn non_affinity_embedded_data_is_not_reported_as_damaged() {
+    let bytes = container(vec![cached_embedded("inner", 2), curve()], vec![], None, &[("inner", b"unrecognized embedded data", Method::Zlib)]);
+    let doc = photocraft_affinity::read(&bytes, Limits::default()).unwrap();
+    assert!(matches!(doc.spreads[0].nodes[0].kind, model::Kind::Image(_)));
+    assert!(matches!(doc.spreads[0].nodes[1].kind, model::Kind::Shape { .. }));
+    assert!(doc.warnings.iter().any(|w| w.contains("imported as pictures of them")));
+    assert!(!doc.warnings.iter().any(|w| w.contains("could not be read")));
+}
+
 #[test]
 fn absent_and_non_cmyk_profile_data_use_the_coated_fallback() {
     let reference = import(&container(vec![bitmap(2, 2, 4, &[2, 0, 0, 0, 2])], vec![], None, &[]), &ImportOptions::default()).unwrap();
