@@ -587,6 +587,47 @@ fn self_contained_imports_keep_the_loaded_model_bytes() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
+fn self_contained_models_in_shared_memory_import() {
+    let dir = temp_models();
+    let source_dir = Path::new("/dev/shm").join(dir.file_name().unwrap());
+    std::fs::create_dir(&source_dir).expect("/dev/shm must exist and allow a temporary model folder");
+    let bytes = constant_onnx(32, 1, &vec![0.5; 32 * 32], None);
+    let src = picked_bytes(&source_dir, "model.onnx", &bytes);
+    let result = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep);
+    std::fs::remove_dir_all(source_dir).unwrap();
+    let c = result.unwrap();
+    assert_eq!(c.size, 32);
+    assert_eq!(std::fs::read(c.path(&dir)).unwrap(), bytes);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn models_with_external_weights_in_shared_memory_import() {
+    use prost::Message;
+
+    let dir = temp_models();
+    let source_dir = Path::new("/dev/shm").join(dir.file_name().unwrap());
+    std::fs::create_dir(&source_dir).expect("/dev/shm must exist and allow a temporary model folder");
+    let values = vec![0.5f32; 32 * 32];
+    let weights: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+    let src = picked_bytes(&source_dir, "model.onnx", &external_onnx(32, &values, "model.onnx_data"));
+    std::fs::write(source_dir.join("picked/model.onnx_data"), &weights).unwrap();
+    let result = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep);
+    std::fs::remove_dir_all(source_dir).unwrap();
+    let c = result.unwrap();
+    assert_eq!(c.size, 32);
+    let bytes = std::fs::read(c.path(&dir)).unwrap();
+    let proto = tract_onnx::pb::ModelProto::decode(bytes.as_slice()).unwrap();
+    let tensor = proto.graph.unwrap().initializer.into_iter().find(|t| t.name == "k").unwrap();
+    assert_eq!(tensor.raw_data, weights);
+    assert!(tensor.external_data.is_empty());
+    assert_eq!(tensor.data_location, None);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_model_with_external_weights_is_copied_as_one_file() {
     let dir = temp_models();
     let s = 32usize;
