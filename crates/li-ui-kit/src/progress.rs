@@ -81,7 +81,7 @@ pub fn job_row(ui: &mut Ui, line: &JobLine<'_>, cancel: &str, profile: Profile) 
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(RichText::new(line.detail).size(11.0).color(t.text_dim)).truncate());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(percent).size(11.0).color(t.text_faint).monospace());
+                ui.label(RichText::new(percent).size(11.0).color(t.text_dim).monospace());
             });
         });
     }
