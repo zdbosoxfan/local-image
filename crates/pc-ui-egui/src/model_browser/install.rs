@@ -430,8 +430,8 @@ pub(super) fn confirm_window(ctx: &egui::Context, t: &Tokens) {
 
 #[cfg(test)]
 mod spawn_tests {
-    use super::*;
     use super::super::spawn_tests::fail_spawn;
+    use super::*;
 
     #[test]
     fn plan_thread_failure_completes_with_error() {
