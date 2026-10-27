@@ -131,6 +131,10 @@ fn design_system_develop_screens() {
                         rect(&upright, "panel:right_panel"),
                         rect(&upright, "button:uprightCancel")
                     );
+                    focus(&mut upright, "button:uprightCancel");
+                    upright.step();
+                    save(&upright, &format!("upright-cancel-focused-{name}-{tag}"), panel_top(&upright, 350.0));
+                    save(&upright, &format!("upright-cancel-focused-full-{name}-{tag}"), full);
                     let cancel = rect(&upright, "button:uprightCancel").center();
                     upright.events.push(egui::Event::PointerMoved(cancel));
                     upright.step();
@@ -173,6 +177,16 @@ fn design_system_develop_screens() {
                 hold.store(false, Ordering::Relaxed);
                 assert!(upright.step_until(T, |h| !h.app.session.upright.busy()));
                 eprintln!("KEYBOARD_CANCEL {tag} cancelled=true drained=true");
+                let (release, held) = std::sync::mpsc::channel();
+                let job = crate::tasks::spawn_job(&mut upright.app, "Exporting 1 of 2", move |_| held.recv().unwrap(), |_, _, ()| {}).unwrap();
+                job.set_fraction(0.5);
+                job.set_message("synthetic.tif");
+                for _ in 0..24 {
+                    upright.step();
+                }
+                save(&upright, &format!("library-job-{tag}"), full);
+                release.send(()).unwrap();
+                assert!(upright.settle(T));
                 for (name, panel, target) in
                     [("text-button", RightPanel::Crop, "button:straightenAuto"), ("segmented", RightPanel::Versions, "button:versionsTab-auto")]
                 {
