@@ -69,8 +69,7 @@ All notable changes to Local Image are recorded here. The format follows
   Find Similar enables filtering, and filters put aside follow keyword and folder changes.
 - Pro and Studio Light secondary text is more readable on neutral panels and filled controls;
   Studio Light status colors are darker while image preview badges retain their existing amber.
-- Affinity raster import enforces a 100-megapixel full-resolution layer cap and checks
-  shared allocation limits before decoding. Engine Open/Place captures a machine-sized
+- Affinity raster import leaves out pixel layers over 100 megapixels with a warning and checks shared allocation limits before decoding. Engine Open/Place captures a machine-sized
   memory allowance and rejects invalid detached native effects before publication.
 
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
@@ -142,10 +141,6 @@ All notable changes to Local Image are recorded here. The format follows
   ports separately, failing when an upstream source or history could not be checked.
 - Library: directory-sync failures when opening the catalog journal are reported, and retries
   confirm the directory entry is durable before saving edits.
-- Affinity import crops pixel masks to their artwork and omits over-budget masks, cached pictures
-  and oversized effects with warnings. Embedded layer nesting shares the outer safety limit;
-  unreadable embedded layouts and missing or mismatched CMYK profiles retain their cached/default
-  fallback, while cancellation, shared resource limits and checksum failures remain fatal.
 
 - Compositing: Add Noise and Wave retain the full unsigned 32-bit seed range.
 
