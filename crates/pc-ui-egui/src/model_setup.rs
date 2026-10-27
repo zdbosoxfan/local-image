@@ -113,6 +113,9 @@ struct ChooseTemplate {
 #[derive(Default)]
 struct State {
     open: bool,
+    was_open: bool,
+    focus_pending: bool,
+    focus_at_open: Option<egui::Id>,
     #[cfg(feature = "snapshot-fixtures")]
     snapshot_only: bool,
     selected: Option<String>,
@@ -443,16 +446,25 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     notice_new_models(app);
     if !is_open() {
+        with(|s| {
+            s.was_open = false;
+            s.focus_pending = false;
+        });
         return;
     }
-    with(collect);
+    with(|s| {
+        if !s.was_open {
+            s.was_open = true;
+            s.focus_pending = true;
+            s.focus_at_open = ctx.memory(|m| m.focused());
+        }
+        collect(s);
+    });
     let t = Tokens::get(ctx);
     let mut open = true;
     let mut actions = Vec::new();
     let screen = ctx.content_rect();
     let size = vec2((screen.width() - 160.0).clamp(720.0, 1100.0), (screen.height() - 200.0).clamp(380.0, 680.0));
-    let first_tab =
-        ctx.memory(|memory| memory.focused().is_none()) && ctx.input(|input| input.modifiers == egui::Modifiers::NONE && input.key_pressed(egui::Key::Tab));
     let shown = egui::Window::new(tl!("Set Up Models"))
         .id(egui::Id::new("model-setup-window"))
         .collapsible(false)
@@ -478,17 +490,23 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         s.dialog_was_open = dialog_open;
     });
     let on_top = shown.as_ref().is_some_and(|w| ctx.top_layer_id() == Some(w.response.layer_id));
-    if on_top && !with(|s| dialogs::any_open(s)) {
-        // The window's title-bar close button registers before its content.
-        if first_tab
+    with(|s| {
+        let focused = ctx.memory(|m| m.focused());
+        if focused.is_some() && focused != s.focus_at_open {
+            s.focus_pending = false;
+        }
+        if s.focus_pending
+            && on_top
+            && !dialogs::any_open(s)
             && let Some(recheck) = shown.as_ref().and_then(|window| window.inner.as_ref())
             && recheck.enabled()
         {
             recheck.request_focus();
+            s.focus_pending = false;
         }
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-            open = false;
-        }
+    });
+    if on_top && !with(|s| dialogs::any_open(s)) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        open = false;
     }
     for a in actions {
         dispatch(app, ctx, a);
@@ -501,6 +519,11 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
             s.choose_template = None;
         });
     }
+    with(|s| {
+        if !s.open {
+            s.focus_pending = false;
+        }
+    });
     if with(|s| s.busy() || s.undo.is_some()) {
         ctx.request_repaint_after(Duration::from_millis(250));
     }
