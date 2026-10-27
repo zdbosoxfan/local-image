@@ -57,6 +57,7 @@ pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
 
 /// Library/Develop final-review additions awaiting translation.
 pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
+    "Upright complete",
     "Built-in DNG lens corrections are already applied.",
     "Imported lens correction profile available.",
     "Embedded lens corrections available. These take priority over the lens database.",

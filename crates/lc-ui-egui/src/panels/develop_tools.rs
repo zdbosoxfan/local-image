@@ -349,7 +349,7 @@ pub fn upright_poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         ctx.request_repaint();
     }
     if changed > 1 {
-        app.toast(ctx, format!("{} ✓", li_i18n::library::t("Upright")));
+        app.toast(ctx, li_i18n::library::t("Upright complete"));
     }
     if app.session.upright.busy() {
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
