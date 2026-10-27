@@ -19,8 +19,11 @@ mapfile -t packages < <(find "$payload" -mindepth 1 -maxdepth 1 -type d)
 cp -a "${packages[0]}/." "$appdir/usr/bin/"
 cp packaging/linux/AppRun "$appdir/AppRun"
 chmod +x "$appdir/AppRun"
-cp packaging/linux/io.github.zdbosoxfan.LocalImage.desktop "$appdir/"
-cp assets/app-icon/local-image-1024.png "$appdir/local-image.png"
+cp apps/local-image/io.github.zdbosoxfan.LocalImage.desktop "$appdir/"
+cp assets/app-icon/local-image-1024.png "$appdir/io.github.zdbosoxfan.LocalImage.png"
+mkdir -p "$appdir/usr/share/icons/hicolor/256x256/apps" "$appdir/usr/share/mime/packages"
+cp assets/app-icon/hicolor/256x256/apps/io.github.zdbosoxfan.LocalImage.png "$appdir/usr/share/icons/hicolor/256x256/apps/"
+cp apps/local-image/io.github.zdbosoxfan.LocalImage.xml "$appdir/usr/share/mime/packages/"
 output="${DIST:-$repo/dist/release}/$(basename -- "${packages[0]}").AppImage"
 ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run --runtime-file "$APPIMAGE_RUNTIME" --mksquashfs-opt -processors --mksquashfs-opt "${CARGO_BUILD_JOBS:-4}" "$appdir" "$output"
 (cd -- "$(dirname -- "$output")" && sha256sum "$(basename -- "$output")" > "$(basename -- "$output").sha256")

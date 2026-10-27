@@ -524,7 +524,7 @@ pub enum FilterParams {
 impl FilterParams {
     /// Pixels read outside an output tile.
     pub fn halo(&self) -> Halo {
-        let g = |sigma: f32| Halo::Radius((sigma.max(0.0) * 3.0).ceil() as i32 + 1);
+        let g = |sigma: f32| Halo::Radius(((sigma.max(0.0) * 3.0).ceil() as i32).saturating_add(1));
         match self {
             FilterParams::GaussianBlur { radius } | FilterParams::HighPass { radius } => g(*radius),
             FilterParams::UnsharpMask { radius, .. } | FilterParams::SmartSharpen { radius, .. } => g(*radius),
@@ -533,10 +533,10 @@ impl FilterParams {
             | FilterParams::Median { radius }
             | FilterParams::DustAndScratches { radius, .. }
             | FilterParams::Minimum { radius, .. }
-            | FilterParams::Maximum { radius, .. } => Halo::Radius(radius.max(0.0).ceil() as i32 + 1),
-            FilterParams::MotionBlur { distance, .. } => Halo::Radius((distance.abs() / 2.0).ceil() as i32 + 2),
-            FilterParams::Mosaic { cell_size } => Halo::Radius(cell_size.max(1.0).ceil() as i32 + 1),
-            FilterParams::Emboss { height, .. } => Halo::Radius(height.abs().ceil() as i32 + 2),
+            | FilterParams::Maximum { radius, .. } => Halo::Radius((radius.max(0.0).ceil() as i32).saturating_add(1)),
+            FilterParams::MotionBlur { distance, .. } => Halo::Radius(((distance.abs() / 2.0).ceil() as i32).saturating_add(2)),
+            FilterParams::Mosaic { cell_size } => Halo::Radius((cell_size.max(1.0).ceil() as i32).saturating_add(1)),
+            FilterParams::Emboss { height, .. } => Halo::Radius((height.abs().ceil() as i32).saturating_add(2)),
             FilterParams::FindEdges => Halo::Radius(1),
             FilterParams::AddNoise { .. } | FilterParams::Solarize | FilterParams::Invert | FilterParams::Desaturate => Halo::Radius(0),
             FilterParams::RadialBlur { .. }
@@ -628,7 +628,7 @@ impl FilterParams {
 
 /// Halos of the second filter batch.
 fn halo_ext(p: &FilterParams) -> Halo {
-    let r = |v: f32| Halo::Radius(v.max(0.0).ceil() as i32 + 1);
+    let r = |v: f32| Halo::Radius((v.max(0.0).ceil() as i32).saturating_add(1));
     match p {
         FilterParams::ColorHalftone { max_radius, .. } => r(max_radius * 3.0),
         FilterParams::Crystallize { cell_size, .. } => r(cell_size.max(1.0) * 3.0),
@@ -649,8 +649,9 @@ fn halo_ext(p: &FilterParams) -> Halo {
         FilterParams::Relight { intensity, .. } if *intensity == 0.0 => Halo::Radius(0),
         FilterParams::Relight { .. } => Halo::Radius(relight::HALO_RADIUS),
         FilterParams::ReduceNoise { .. } => r(denoise::reach()),
-        FilterParams::SmartBlur { radius, .. } => r(*radius),
-        FilterParams::LensBlur { radius, .. } => r(*radius),
+        // The kernels clamp the radius to 100 px: size the source window by what they use.
+        FilterParams::SmartBlur { radius, .. } => r(radius.min(100.0)),
+        FilterParams::LensBlur { radius, .. } => r(radius.min(100.0)),
         FilterParams::ShapeBlur { radius, .. } => r(*radius),
         FilterParams::TiltShift { blur, .. } => r(gallery::reach(*blur)),
         FilterParams::IrisBlur { pins } => r(gallery::reach(pins.iter().map(|p| p.blur).fold(0.0, f32::max))),
@@ -905,10 +906,12 @@ pub fn apply_in_with(
 }
 
 /// Results do not depend on the tiling, so wide-halo filters use bigger tiles to keep the
-/// re-read margin (and its cost) below ~2× the tile area.
+/// re-read margin (and its cost) below ~2× the tile area. The radius is input-derived, so the
+/// arithmetic is done in `i64`: an `i32::MAX` radius must not overflow, and the tile stays within
+/// the 2048 px cap.
 fn auto_tile(params: &FilterParams) -> i32 {
     match params.halo() {
-        Halo::Radius(r) => TILE.max((2 * r + 63) / 64 * 64).min(2048),
+        Halo::Radius(r) => ((2 * i64::from(r) + 63) / 64 * 64).clamp(i64::from(TILE), 2048) as i32,
         Halo::Bounds => TILE,
     }
 }

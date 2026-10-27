@@ -28,9 +28,12 @@ impl Haze {
     }
 }
 
+/// The dark-channel and guided-filter radii: upstream's full-size 6 and 9 px, in proportion to
+/// the output scale so a preview covers the same part of the photo as the export (upstream's
+/// `2 + ⌈4s⌉`, `3 + ⌈6s⌉` keeps 3-4 px at any scale, a halo several times wider in a preview).
 pub fn windows(scale: f32) -> (usize, usize) {
     let s = scale.clamp(0.0, 1.0);
-    (2 + (4.0 * s).ceil() as usize, 3 + (6.0 * s).ceil() as usize)
+    (((6.0 * s).round() as usize).max(1), ((9.0 * s).round() as usize).max(1))
 }
 fn max_filter(p: &GrayFrame, r: usize) -> GrayFrame {
     p.map(|v| -v).min_filter(r).map(|v| -v)
@@ -208,6 +211,32 @@ pub fn haze_plane(img: &RgbFrame, scale: f32) -> Haze {
     let positive = guided_rgb(img, &positive, w2, HAZE_EPS);
     let negative = guided_rgb(img, &negative, w2, HAZE_EPS);
     Haze { positive, negative, air, distance }
+}
+
+/// Stops a neutral shadow can darken per unit of Dehaze strength (a smooth floor).
+pub const SHADOW_FLOOR_EV: f32 = 1.5;
+
+/// Dehaze as the finish stage applies it: [`dehaze_px`] with two bounds upstream lacks. Positive
+/// Dehaze uses at most the pixel's own dark value, so the guided plane's overshoot beside a
+/// bright edge cannot push a channel below zero (a black fringe). Each channel darkens by at
+/// most [`SHADOW_FLOOR_EV`]·strength stops, approached smoothly, where upstream takes neutral
+/// shadows towards black (their scale is `1 − strength`).
+pub fn dehaze_finish(c: [f32; 3], strength: f32, dark: f32, air: [f32; 3], distance: f32) -> [f32; 3] {
+    let s = strength.clamp(-1.0, 1.0);
+    if s <= 0.0 {
+        return dehaze_px(c, s, dark, air, distance);
+    }
+    let own = (0..3).map(|k| c[k] / air[k].max(1e-6)).fold(f32::INFINITY, f32::min).max(0.0);
+    let out = dehaze_px(c, s, dark.min(own), air, distance);
+    let floor = SHADOW_FLOOR_EV * s;
+    std::array::from_fn(|k| {
+        if c[k] > 0.0 && out[k] < c[k] {
+            let ev = (out[k] / c[k]).max(1e-6).log2();
+            c[k] * crate::primary::soft_bound(ev, -floor, floor).exp2()
+        } else {
+            out[k]
+        }
+    })
 }
 
 /// The upstream scene-linear inversion, with Dehaze's distance tied to |strength|.

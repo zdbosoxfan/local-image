@@ -21,13 +21,17 @@ pub fn culling(app: &LightcraftApp) -> bool {
     matches!(app.ui.view, ViewMode::Compare | ViewMode::Survey)
 }
 
+/// A catalog photo that can be shown or pinned.
+pub(crate) fn live(app: &LightcraftApp, id: PhotoId) -> bool {
+    app.session.catalog.photo(id).is_some_and(|photo| !photo.deleted)
+}
+
 /// The (select, candidate) pair, repaired or chosen if needed: the active photo against the next
 /// selected photo, else against its neighbour in the view.
 pub fn compare_pair(app: &mut LightcraftApp) -> Option<(PhotoId, PhotoId)> {
-    let exists = |app: &LightcraftApp, id: PhotoId| app.session.catalog.photo(id).is_some_and(|p| !p.deleted);
     if let Some((a, b)) = app.ui.compare {
         let (a, b) = (PhotoId(a), PhotoId(b));
-        if a != b && exists(app, a) && exists(app, b) {
+        if a != b && live(app, a) && live(app, b) {
             return Some((a, b));
         }
     }
@@ -151,16 +155,17 @@ fn photo_tile(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, slot: Slo
     let Some(photo) = app.session.catalog.photo(id).cloned() else { return (area, resp) };
     let caption_h = 26.0;
     let img_area = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - caption_h));
-    let frame = lightcraft_pipeline::geometry::Frame::with_lens(
+    let lens_db = lightcraft_engine::lens_db::for_photo(&photo, &photo.develop);
+    let frame = lightcraft_pipeline::geometry::Frame::with_lenses(
         photo.width.max(1) as usize,
         photo.height.max(1) as usize,
         &photo.develop,
         true,
         photo.embedded_lens.as_ref(),
+        lens_db.as_ref(),
     );
     let aspect = frame.aspect() as f32;
-    let native = [photo.width.max(1) as usize, photo.height.max(1) as usize];
-    let img = super::detail::fit_rect(img_area, aspect, zoom, native, ppp, app.ui.pan);
+    let img = super::detail::fit_rect(img_area, aspect, zoom, super::detail::native_px(&frame), ppp, app.ui.pan);
     let want = (img.width().max(img.height()).min(img_area.width().max(img_area.height()) * 4.0) * ppp).min(2560.0) as usize;
     let (rw, rh) = if aspect >= 1.0 { (want, (want as f32 / aspect) as usize) } else { ((want as f32 * aspect) as usize, want) };
     if let Some(job) = app.session.render_job(id, rw.max(8), rh.max(8), false, true) {
@@ -345,7 +350,7 @@ pub fn show_survey(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 /// the Edit panel works on, so a look can be matched by eye.
 pub fn show_reference(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let canvas = area_and_filmstrip(app, ui);
-    let reference = app.ui.reference.map(PhotoId).filter(|r| app.session.catalog.photo(*r).is_some());
+    let reference = app.ui.reference.map(PhotoId).filter(|r| live(app, *r));
     let (Some(r), Some(active)) = (reference, app.session.active()) else {
         super::empty_message(ui, canvas, "No reference photo", "Right-click a photo ▸ Set as Reference Photo, then View → Reference View (Shift+R)");
         return;

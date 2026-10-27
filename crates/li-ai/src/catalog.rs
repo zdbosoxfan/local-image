@@ -9,7 +9,7 @@
 //! the installed models change; [`catalog`] returns a `&'static` snapshot.
 
 use std::collections::BTreeMap;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use crate::comfy::ObjectInfo;
 use crate::family::{Family, FamilyKind, ModelDef, RefMethod};
@@ -130,8 +130,13 @@ pub struct ModelInfo {
     pub tool: bool,
     pub starter: bool,
     pub origin: Origin,
-    /// The family profile with this model's overrides applied (what the builders run).
+    /// The family profile with this model's overrides applied (what the builders run; for a
+    /// template model, the profile its recipe implies).
     pub resolved: Family,
+    /// Runs through official ComfyUI templates (no builder).
+    pub template_engine: bool,
+    /// The compiled template recipe, once model setup has made one.
+    pub recipe: Option<Arc<crate::template::TemplateRecipe>>,
 }
 
 impl ModelInfo {
@@ -190,13 +195,19 @@ impl Preset {
 }
 
 /// A model found installed (built by [`crate::inventory`]).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct InstalledModel {
     pub key: String,
+    /// The architecture's family id (a builder family, a template-only family, or empty).
     pub family: String,
     pub label: String,
     /// Role → ComfyUI file name (main weights, text encoders, VAE).
     pub files: BTreeMap<Role, String>,
+    /// The variant detection gave (`9b`, `turbo`, `distilled`).
+    pub variant: Option<String>,
+    pub quant: Option<crate::identify::QuantClass>,
+    /// The precision-independent name key ([`crate::stem::stem_key`]).
+    pub stem: String,
 }
 
 /// One snapshot of every model.
@@ -209,7 +220,7 @@ pub struct Catalog {
     pub on_device: &'static [li_seg::ModelSpec],
 }
 
-fn info_for(f: &Family, m: &ModelDef, origin: Origin) -> ModelInfo {
+pub(crate) fn info_for(f: &Family, m: &ModelDef, origin: Origin) -> ModelInfo {
     let r = f.resolved_for(m);
     let c = r.capabilities;
     let short = if m.short.is_empty() { m.label.clone() } else { m.short.clone() };
@@ -240,7 +251,9 @@ fn info_for(f: &Family, m: &ModelDef, origin: Origin) -> ModelInfo {
         tool: m.tool,
         starter: m.starter,
         origin,
+        template_engine: r.engine == crate::family::Engine::Template,
         resolved: r,
+        recipe: None,
     }
 }
 
@@ -264,8 +277,21 @@ impl ModelId {
     }
 }
 
+/// A template model's compiled recipe and the profile it implies (published by model setup).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TemplateModel {
+    pub recipe: Arc<crate::template::TemplateRecipe>,
+    pub family: Family,
+    pub label: String,
+}
+
 /// Builds the catalogue from the registry and the installed models.
 pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Catalog {
+    build_with_templates(reg, installed, &BTreeMap::new())
+}
+
+/// [`build`] with the template recipes model setup compiled, by model key.
+pub fn build_with_templates(reg: &crate::family::Registry, installed: &[InstalledModel], templates: &BTreeMap<String, TemplateModel>) -> Catalog {
     let mut cat = Catalog { on_device: li_seg::MODELS, ..Catalog::default() };
     for (f, m) in reg.models() {
         let info = info_for(f, m, Origin::Profile);
@@ -294,8 +320,21 @@ pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Cat
             continue;
         }
         let def = ModelDef { key: im.key.clone(), label: im.label.clone(), short: im.label.clone(), ..Default::default() };
-        let resolved = f.resolved_for_file(main.map(String::as_str).unwrap_or_default());
-        let info = info_for(&resolved, &def, Origin::Installed);
+        let resolved = f.resolved_for_file(main.map(String::as_str).unwrap_or_default(), im.variant.as_deref());
+        let info = match templates.get(&im.key) {
+            Some(t) => {
+                let def = ModelDef { label: t.label.clone(), short: t.label.clone(), ..def };
+                let mut info = info_for(&t.family, &def, Origin::Installed);
+                info.template_engine = true;
+                info.recipe = Some(t.recipe.clone());
+                info
+            }
+            None => {
+                let mut info = info_for(&resolved, &def, Origin::Installed);
+                info.template_engine |= f.kind == FamilyKind::Template;
+                info
+            }
+        };
         cat.presets.push(Preset {
             model: info.id,
             variant: "installed".into(),
@@ -318,24 +357,25 @@ pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Cat
 struct State {
     snapshot: Option<&'static Catalog>,
     installed: Vec<InstalledModel>,
+    templates: BTreeMap<String, TemplateModel>,
 }
 
-static STATE: RwLock<State> = RwLock::new(State { snapshot: None, installed: Vec::new() });
+static STATE: RwLock<State> = RwLock::new(State { snapshot: None, installed: Vec::new(), templates: BTreeMap::new() });
 
 /// The current catalogue.
 pub fn catalog() -> &'static Catalog {
     if let Some(c) = STATE.read().ok().and_then(|s| s.snapshot) {
         return c;
     }
-    let installed = STATE.read().map(|s| s.installed.clone()).unwrap_or_default();
-    let c: &'static Catalog = Box::leak(Box::new(build(crate::family::registry(), &installed)));
+    let (installed, templates) = STATE.read().map(|s| (s.installed.clone(), s.templates.clone())).unwrap_or_default();
+    let c: &'static Catalog = Box::leak(Box::new(build_with_templates(crate::family::registry(), &installed, &templates)));
     if let Ok(mut s) = STATE.write() {
         if let Some(existing) = s.snapshot {
             return existing;
         }
         // An inventory scan may have replaced the installed models while this was building; caching it then would
         // hide them until the next invalidation, so only a catalogue built from the current list is kept.
-        if s.installed == installed {
+        if s.installed == installed && s.templates == templates {
             s.snapshot = Some(c);
         }
     }
@@ -362,6 +402,18 @@ pub fn set_installed(installed: Vec<InstalledModel>) -> bool {
         return false;
     }
     s.installed = installed;
+    INVENTORY_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    s.snapshot = None;
+    true
+}
+
+/// Replaces the template recipes (after model setup). Returns true when they changed.
+pub fn set_templates(templates: BTreeMap<String, TemplateModel>) -> bool {
+    let Ok(mut s) = STATE.write() else { return false };
+    if s.templates == templates {
+        return false;
+    }
+    s.templates = templates;
     INVENTORY_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     s.snapshot = None;
     true
@@ -491,8 +543,14 @@ pub struct Availability {
 
 pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
     let model = preset.model.try_info();
+    if let Some(m) = model.filter(|m| m.template_engine) {
+        return template_availability(preset, m, info);
+    }
     let mut nodes: Vec<String> = preset.required_nodes.clone();
-    if let Some(m) = model {
+    // Models without a builder (unknown files, template-only families) are checked by their own
+    // recipe: the refine checker or the model setup's static check.
+    let built = model.filter(|m| m.family != "unknown" && m.resolved.buildable());
+    if let Some(m) = built {
         nodes.extend(crate::builders::required_nodes(&m.resolved));
     }
     nodes.sort();
@@ -501,7 +559,7 @@ pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
     if !missing_nodes.is_empty() {
         return Availability { reason: format!("Update ComfyUI: it is missing the nodes {}.", missing_nodes.join(", ")), ..Default::default() };
     }
-    let family_choices = model.map(|m| m.resolved.pipeline.required_choices.clone()).unwrap_or_default();
+    let family_choices = built.map(|m| m.resolved.pipeline.required_choices.clone()).unwrap_or_default();
     for (class, input, value) in preset.required_choices.iter().chain(family_choices.iter()) {
         if !info.choices(class, input).iter().any(|c| c == value) {
             return Availability { reason: format!("Update ComfyUI: {class} does not offer “{value}”."), ..Default::default() };
@@ -524,7 +582,7 @@ pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
         }
     }
     // Installed models: text encoders and VAE the family needs, found by its component rules.
-    if let Some(m) = model {
+    if let Some(m) = built {
         for (role, name) in crate::inventory::resolve_components(&m.resolved, info) {
             files.entry(role).or_insert(name);
         }
@@ -532,6 +590,16 @@ pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
             if !files.contains_key(&c.role) && preset.installed {
                 missing.push(c.names.first().map(String::as_str).unwrap_or("a text encoder or VAE"));
             }
+        }
+        // A graph is never built with an empty loader file: a separate text encoder or VAE the
+        // pipeline loads must have resolved.
+        let pl = &m.resolved.pipeline;
+        let needs_clip = matches!(pl.clip.node.as_str(), "CLIPLoader" | "DualCLIPLoader" | "TripleCLIPLoader" | "QuadrupleCLIPLoader");
+        if missing.is_empty() && needs_clip && !files.contains_key(&Role::Clip) {
+            missing.push("a text encoder");
+        }
+        if missing.is_empty() && pl.vae == "file" && !files.contains_key(&Role::Vae) {
+            missing.push("a VAE");
         }
     }
     if !missing.is_empty() {
@@ -541,6 +609,38 @@ pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
             files,
             ..Default::default()
         };
+    }
+    Availability { available: true, reason: String::new(), files }
+}
+
+/// Availability of the default usable graph. Optional tools and their files are checked separately.
+fn template_availability(preset: &Preset, m: &ModelInfo, info: &ObjectInfo) -> Availability {
+    let Some(recipe) = &m.recipe else {
+        return Availability {
+            reason: format!("Set up {} first: Generate › Set Up Models, or run local-image-cli ai doctor.", m.label), ..Default::default()
+        };
+    };
+    let graph = if m.text_to_image {
+        recipe.create.as_ref().or(recipe.style.as_ref())
+    } else {
+        recipe.edit.as_ref().or(recipe.create.as_ref()).or(recipe.style.as_ref())
+    };
+    let Some(graph) = graph else {
+        return Availability { reason: format!("Set up {} first.", m.label), ..Default::default() };
+    };
+    let mut classes: Vec<&str> = graph.graph.values().filter_map(|n| n["class_type"].as_str()).filter(|c| !info.has_node(c)).collect();
+    classes.sort();
+    classes.dedup();
+    if !classes.is_empty() {
+        return Availability { reason: format!("Update ComfyUI: it is missing the nodes {}.", classes.join(", ")), ..Default::default() };
+    }
+    let missing: Vec<&str> = graph.files.iter().filter(|b| !b.optional && b.used.is_none()).map(|b| b.declared.as_str()).collect();
+    let mut files = BTreeMap::new();
+    for f in &preset.files {
+        files.insert(f.role, f.name.clone());
+    }
+    if !missing.is_empty() {
+        return Availability { reason: format!("{} needs {}. Open Set Up Models to get them.", m.label, missing.join(", ")), files, ..Default::default() };
     }
     Availability { available: true, reason: String::new(), files }
 }
@@ -624,6 +724,7 @@ mod tests {
             family: "sdxl".into(),
             label: "juggernautXL_v9".into(),
             files: [(Role::Checkpoint, "juggernautXL_v9.safetensors".to_owned())].into(),
+            ..Default::default()
         };
         let cat = build(reg, &[im]);
         let m = cat.models.iter().find(|m| m.id.key() == "ckpt:juggernautXL_v9.safetensors").unwrap();
@@ -646,7 +747,13 @@ mod tests {
             ("flux2-klein", "flux-2-klein-base-9b.safetensors", 20.0, 5.0),
         ];
         for (family, file, steps, cfg) in installed {
-            let im = InstalledModel { key: format!("unet:{file}"), family: family.into(), label: file.into(), files: [(Role::Unet, file.into())].into() };
+            let im = InstalledModel {
+                key: format!("unet:{file}"),
+                family: family.into(),
+                label: file.into(),
+                files: [(Role::Unet, file.into())].into(),
+                ..Default::default()
+            };
             let cat = build(crate::family::registry(), std::slice::from_ref(&im));
             let model = cat.models.iter().find(|m| m.id.key() == im.key).unwrap();
             assert_eq!(model.steps.default, steps);
@@ -655,7 +762,7 @@ mod tests {
         // Existing schema-1 profiles without the optional field retain their defaults.
         let sd15 = crate::family::registry().family("sd15").unwrap();
         assert!(sd15.file_overrides.is_empty());
-        assert_eq!(sd15.resolved_for_file("custom.safetensors"), sd15.clone());
+        assert_eq!(sd15.resolved_for_file("custom.safetensors", None), sd15.clone());
     }
 }
 
@@ -663,7 +770,13 @@ mod tests {
 #[test]
 fn final_review_realvis_lightning_uses_author_sampling_profile() {
     for file in ["realvisxlV50_v50LightningBakedvae.safetensors", "RealVisXL_V5.0_Lightning_fp16.safetensors"] {
-        let im = InstalledModel { key: format!("ckpt:{file}"), family: "sdxl".into(), label: file.into(), files: [(Role::Checkpoint, file.into())].into() };
+        let im = InstalledModel {
+            key: format!("ckpt:{file}"),
+            family: "sdxl".into(),
+            label: file.into(),
+            files: [(Role::Checkpoint, file.into())].into(),
+            ..Default::default()
+        };
         let key = im.key.clone();
         let cat = build(crate::family::registry(), &[im]);
         let f = &cat.models.iter().find(|m| m.id.key() == key).unwrap().resolved;
@@ -678,7 +791,7 @@ fn final_review_realvis_lightning_uses_author_sampling_profile() {
     }
     let generic = crate::family::registry().family("sdxl").unwrap();
     for file in ["realvisxlV50_v50Bakedvae.safetensors", "OtherXL_Lightning.safetensors"] {
-        assert_eq!(generic.resolved_for_file(file), generic.clone());
+        assert_eq!(generic.resolved_for_file(file, None), generic.clone());
     }
 }
 

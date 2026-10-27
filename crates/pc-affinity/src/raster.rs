@@ -3,17 +3,18 @@
 //! 256 bytes × 256 rows per channel, each its own archive entry.
 
 //! Adapted from VectorCraft crates/affinity/src/raster.rs at
-//! d522c1d7be4035bd4f4a84cd6ebfca44f5155092. MIT OR Apache-2.0.
+//! d522c1d7be4035bd4f4a84cd6ebfca44f5155092, with AF.5 records from
+//! b3ccdf01a7482fc4fd7545ed9e302911824a2a3c. MIT OR Apache-2.0.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 
 use std::collections::HashMap;
 
 use crate::Error;
-use crate::model::{Affine, Image, Pixels, Reader};
-use crate::stream::{self, ObjId, Tag, Value};
+use crate::model::{Affine, Image, Pixels, Reader, Rect};
+use crate::stream::{self, ObjId, Stream, Tag, Value};
 
 /// Pixels decoded per layer (the content's bounding box, not the canvas).
-const MAX_PIXELS: u64 = 64 << 20;
+pub(crate) const MAX_PIXELS: u64 = 100_000_000;
 const TILE: usize = 256;
 const TILE_BYTES: usize = TILE * TILE;
 
@@ -42,8 +43,12 @@ pub(crate) fn node_image(r: &mut Reader, id: ObjId, world: Affine) -> Result<Opt
     if let Some(name) = s.entry(bitmap, b"Bckg").filter(|n| !n.is_empty())
         && (s.is(id, b"ImgN") || !has_tiles)
     {
+        if u64::from(width) * u64::from(height) > MAX_PIXELS {
+            return Err(Error::Limit("layer exceeds 100 megapixels"));
+        }
+        r.charge_pixels(u64::from(width) * u64::from(height))?;
         match original(r, name) {
-            Ok(bytes) => return Ok(Some(Image { width, height, pixels: Pixels::Encoded(bytes), transform: world })),
+            Ok(bytes) => return Ok(Some(Image { profile: None, width, height, pixels: Pixels::Encoded(bytes), transform: world })),
             Err(Error::Limit(e)) => return Err(Error::Limit(e)),
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(_) => r.warn("an embedded image file that could not be read (its cached pixels were used)"),
@@ -63,6 +68,10 @@ pub(crate) fn node_image(r: &mut Reader, id: ObjId, world: Affine) -> Result<Opt
             )
         })
         .unwrap_or((0, 0, width, height));
+    let state_slots = (1..=4).fold(0usize, |count, c| count.saturating_add(s.array_len(bitmap, &tag(b"Sta", c))));
+    if !r.charge_slots(state_slots) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
     let source_tiles_only =
         (1..=4).all(|c| matches!(s.field(bitmap, &tag(b"Sta", c)), Some(Value::Array(a)) if !a.is_empty() && a.iter().all(|v| *v == Value::UInt(5))));
     if s.field(bitmap, b"Bckg").is_some() && has_tiles && !source_tiles_only && !s.is(id, b"ImgN") {
@@ -72,7 +81,7 @@ pub(crate) fn node_image(r: &mut Reader, id: ObjId, world: Affine) -> Result<Opt
 }
 
 /// A mask layer (`MRst`): one channel of coverage as grey pixels (white shows, black hides).
-pub(crate) fn mask(r: &mut Reader, id: ObjId, world: Affine) -> Result<Option<Image>, Error> {
+pub(crate) fn mask(r: &mut Reader, id: ObjId, world: Affine, over: Option<Rect>) -> Result<Option<Image>, Error> {
     let s = r.s;
     let Some(bitmap) = s.obj(id, b"Bitm") else { return Ok(None) };
     let width = s.int(bitmap, b"BmpW").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
@@ -81,7 +90,36 @@ pub(crate) fn mask(r: &mut Reader, id: ObjId, world: Affine) -> Result<Option<Im
         r.warn("pixel masks in an unknown format (imported without them)");
         return Ok(None);
     }
-    decode(r, bitmap, (0, 0, width, height), world)
+    let crop = match over.map(|over| crop_to(over, world, width, height)) {
+        Some(Some(crop)) => crop,
+        // A black pixel preserves hide-all coverage when the artwork lies outside the mask.
+        Some(None) => {
+            if r.pixel_capacity() == 0 {
+                r.warn("pixel mask beyond the import limit (left out)");
+                return Ok(None);
+            }
+            r.charge_pixels(1)?;
+            return Ok(Some(Image { profile: None, width: 1, height: 1, pixels: Pixels::Rgba8(vec![0, 0, 0, 255]), transform: world }));
+        }
+        None => (0, 0, width, height),
+    };
+    decode_auxiliary(r, bitmap, crop, world, "pixel mask beyond the import limit (left out)")
+}
+
+/// Bitmap pixels covering document bounds, with one pixel of padding for the sampling edge.
+fn crop_to(over: Rect, world: Affine, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+    let Some(inv) = (photocraft_geom::Affine { m: world.0 }).inverse() else { return Some((0, 0, width, height)) };
+    let points = [(over.x0, over.y0), (over.x1, over.y0), (over.x1, over.y1), (over.x0, over.y1)].map(|(x, y)| inv.apply(photocraft_geom::Point::new(x, y)));
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for point in points {
+        if !point.x.is_finite() || !point.y.is_finite() {
+            return Some((0, 0, width, height));
+        }
+        (x0, y0, x1, y1) = (x0.min(point.x), y0.min(point.y), x1.max(point.x), y1.max(point.y));
+    }
+    let clamp = |value: f64, max: u32| value.clamp(0., f64::from(max)) as u32;
+    let crop = (clamp(x0.floor() - 1., width), clamp(y0.floor() - 1., height), clamp(x1.ceil() + 1., width), clamp(y1.ceil() + 1., height));
+    (crop.2 > crop.0 && crop.3 > crop.1).then_some(crop)
 }
 
 /// An embedded document or symbol instance (`EmbN`), as the picture of it Affinity caches.
@@ -99,7 +137,29 @@ pub(crate) fn embedded(r: &mut Reader, id: ObjId, world: Affine) -> Result<Optio
     // thumbnails of documents with embedded documents and SVG files).
     let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
     let place = Affine([(x1 - x0) / f64::from(width), 0.0, 0.0, (y1 - y0) / f64::from(height), x0 - cx, y0 - cy]).then(world);
-    decode(r, cache, (0, 0, width, height), place)
+    decode_auxiliary(r, cache, (0, 0, width, height), place, "embedded cached picture beyond the import limit (left out)")
+}
+
+fn decode_auxiliary(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affine, warning: &str) -> Result<Option<Image>, Error> {
+    crate::import::cancelled(r.archive.cancel)?;
+    let count = u64::from(crop.2.saturating_sub(crop.0)) * u64::from(crop.3.saturating_sub(crop.1));
+    let state_slots = (1..=4).fold(0usize, |count, c| count.saturating_add(r.s.array_len(bitmap, &tag(b"Sta", c))));
+    if !r.charge_slots(state_slots) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
+    let source = if source_entry(r.s, bitmap).is_some() {
+        let width = r.s.int(bitmap, b"BmpW").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+        let height = r.s.int(bitmap, b"BmpH").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+        u64::from(width) * u64::from(height)
+    } else {
+        0
+    };
+    // Source-backed caches hold the cropped pixels and the full decoded source together.
+    if count > MAX_PIXELS || source > MAX_PIXELS || count.saturating_add(source) > r.pixel_capacity() {
+        r.warn(warning);
+        return Ok(None);
+    }
+    decode(r, bitmap, crop, world)
 }
 
 /// Decode the tiles of a bitmap inside `crop` (pixels), placed by `world` (bitmap pixels to document).
@@ -111,7 +171,7 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
     }
     let (w, h) = (x1 - x0, y1 - y0);
     if u64::from(w) * u64::from(h) > MAX_PIXELS {
-        r.warn("pixel layers larger than 64 megapixels");
+        r.warn("pixel layers larger than 100 megapixels");
         return Ok(None);
     }
     let format = s.enumeration(bitmap, b"Frmt").map(|(f, _)| f);
@@ -120,10 +180,7 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
         Some(1) => (4, 2),
         Some(6) => (1, 1),
         Some(7) => (1, 2),
-        Some(4) => {
-            r.warn("CMYK pixel layers (converted to RGB without the document's colour profile)");
-            (5, 1)
-        }
+        Some(4) => (5, 1),
         _ => {
             r.warn("pixel layers in grey, Lab or 32-bit formats");
             return Ok(None);
@@ -135,20 +192,20 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
     // duplicating the pixels. State 5 is checked in the public Patchy embedded-jpeg fixture.
     // Support only the observed, same-size RGBA8 image with a zero bitmap origin; other
     // representations still receive the existing loss warning rather than guessing a mapping.
-    let needs_source = (1..=channels).any(|c| matches!(s.field(bitmap, &tag(b"Sta", c)), Some(Value::Array(a)) if a.contains(&Value::UInt(5))));
-    let source = if needs_source && format == Some(0) && s.int(bitmap, b"LInf") == Some(0) && s.int(bitmap, b"TInf") == Some(0) {
-        if let Some(name) = s.entry(bitmap, b"Bckg") {
-            let width = s.int(bitmap, b"BmpW").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
-            let height = s.int(bitmap, b"BmpH").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
-            r.charge_pixels(u64::from(width) * u64::from(height))?;
-            match original(r, name).and_then(|bytes| source_pixels(&bytes, width, height)) {
-                Ok(pixels) => Some((width as usize, pixels)),
-                Err(Error::Limit(e)) => return Err(Error::Limit(e)),
-                Err(Error::Cancelled) => return Err(Error::Cancelled),
-                Err(_) => None,
-            }
-        } else {
-            None
+    // Pay for shared state arrays before source detection or the per-channel tile walk.
+    let state_slots = (1..=channels).fold(0usize, |count, c| count.saturating_add(s.array_len(bitmap, &tag(b"Sta", c))));
+    if !r.charge_slots(state_slots) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
+    let source = if let Some(name) = source_entry(s, bitmap) {
+        let width = s.int(bitmap, b"BmpW").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+        let height = s.int(bitmap, b"BmpH").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+        r.charge_pixels(u64::from(width) * u64::from(height))?;
+        match original(r, name).and_then(|bytes| source_pixels(&bytes, width, height)) {
+            Ok(pixels) => Some((width as usize, pixels)),
+            Err(Error::Limit(e)) => return Err(Error::Limit(e)),
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(_) => None,
         }
     } else {
         None
@@ -159,7 +216,8 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
         planes.push(plane(r, bitmap, c, bps, (x0, y0, w, h), &mut cache)?);
     }
     let n = (w as usize) * (h as usize);
-    let mut rgba = vec![0u8; n * 4];
+    let stride = if channels == 5 { 5 } else { 4 };
+    let mut rgba = vec![0u8; n * stride];
     let sample = |p: &Vec<u8>, i: usize| -> f64 {
         if bps == 2 {
             f64::from(u16::from_le_bytes([p.get(2 * i).copied().unwrap_or(0), p.get(2 * i + 1).copied().unwrap_or(0)])) / 65535.0
@@ -167,23 +225,33 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
             f64::from(p.get(i).copied().unwrap_or(0)) / 255.0
         }
     };
-    for (i, px) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+    for (i, px) in rgba.chunks_exact_mut(stride).enumerate() {
+        if i % 65536 == 0 {
+            crate::import::cancelled(r.archive.cancel)?;
+        }
         let mut v = [0.; 5];
         for (value, plane) in v.iter_mut().zip(&planes) {
             *value = sample(plane, i);
         }
-        let (r2, g, b, a) = if channels == 1 {
-            (v[0], v[0], v[0], 1.0)
-        } else if channels == 5 {
-            let k = 1.0 - v[3];
-            ((1.0 - v[0]) * k, (1.0 - v[1]) * k, (1.0 - v[2]) * k, v[4])
-        } else {
-            (v[0], v[1], v[2], v[3])
-        };
+        if channels == 5 {
+            for (channel, value) in px.iter_mut().zip(v) {
+                *channel = (value.clamp(0., 1.) * 255.).round() as u8;
+            }
+            continue;
+        }
+        let (r2, g, b, a) = if channels == 1 { (v[0], v[0], v[0], 1.0) } else { (v[0], v[1], v[2], v[3]) };
         px.copy_from_slice(&[r2, g, b, a].map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8));
     }
     let transform = Affine([1.0, 0.0, 0.0, 1.0, f64::from(x0), f64::from(y0)]).then(world);
-    Ok(Some(Image { width: w, height: h, pixels: Pixels::Rgba8(rgba), transform }))
+    Ok(Some(Image { profile: None, width: w, height: h, pixels: if channels == 5 { Pixels::Cmyka8(rgba) } else { Pixels::Rgba8(rgba) }, transform }))
+}
+
+fn source_entry(s: &Stream, bitmap: ObjId) -> Option<&str> {
+    if s.enumeration(bitmap, b"Frmt").map(|(format, _)| format) != Some(0) || s.int(bitmap, b"LInf") != Some(0) || s.int(bitmap, b"TInf") != Some(0) {
+        return None;
+    }
+    let needs_source = (1..=4).any(|c| matches!(s.field(bitmap, &tag(b"Sta", c)), Some(Value::Array(a)) if a.contains(&Value::UInt(5))));
+    if needs_source { s.entry(bitmap, b"Bckg") } else { None }
 }
 
 /// The original image file: entry `c/N` is a stream whose root (`Blck`) holds it as `Data`.
@@ -192,7 +260,12 @@ fn original(r: &mut Reader, name: &str) -> Result<Vec<u8>, Error> {
     let s = stream::parse_with(&bytes, r.archive.limits, r.archive.cancel)?;
     let root = s.object(s.root).ok_or(Error::Malformed("embedded image"))?;
     match root.get(Tag::of(b"Data")) {
-        Some(Value::Blob(b)) if !b.is_empty() => Ok(b.clone()),
+        Some(Value::Blob(b)) if !b.is_empty() => {
+            if !r.charge_owned(b.len()) {
+                return Err(r.failure.unwrap_or(Error::Limit("embedded source bytes")));
+            }
+            Ok(b.clone())
+        }
         _ => Err(Error::Malformed("embedded image without data")),
     }
 }
@@ -242,10 +315,14 @@ fn plane(r: &mut Reader, bitmap: ObjId, c: usize, bps: usize, (x0, y0, w, h): (u
     let height = s.int(bitmap, b"BmpH").and_then(|v| usize::try_from(v).ok()).unwrap_or(0);
     let tw = s.int(bitmap, &tag(b"TWi", c)).and_then(|v| usize::try_from(v).ok()).unwrap_or_else(|| (width * bps).div_ceil(TILE));
     let th = s.int(bitmap, &tag(b"THi", c)).and_then(|v| usize::try_from(v).ok()).unwrap_or_else(|| height.div_ceil(TILE));
-    let states: Vec<u8> = match s.field(bitmap, &tag(b"Sta", c)) {
-        Some(Value::Array(a)) => a.iter().map(|v| if let Value::UInt(u) = v { u8::try_from(*u).unwrap_or(255) } else { 255 }).collect(),
-        _ => Vec::new(),
+    // Borrow shared state arrays; only the declared tile grid is visited.
+    let states: &[Value] = match s.field(bitmap, &tag(b"Sta", c)) {
+        Some(Value::Array(a)) => a,
+        _ => &[],
     };
+    if !r.charge_slots(s.array_len(bitmap, &tag(b"Idx", c))) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
     let tiles = s.objs(bitmap, &tag(b"Idx", c));
     let row = (w as usize) * bps;
     let mut out = vec![0u8; row * h as usize];
@@ -255,6 +332,7 @@ fn plane(r: &mut Reader, bitmap: ObjId, c: usize, bps: usize, (x0, y0, w, h): (u
     for (t, state) in states.iter().enumerate().take(tw.saturating_mul(th)) {
         crate::import::cancelled(r.archive.cancel)?;
         let (ty, tx) = (t / tw.max(1), t % tw.max(1));
+        let state = if let Value::UInt(u) = state { u8::try_from(*u).unwrap_or(255) } else { 255 };
         let fill = match state {
             0 | 1 => None,
             2 => Some(0xFF),
@@ -374,6 +452,26 @@ mod tests {
             ],
             None,
         )
+    }
+
+    #[test]
+    fn full_resolution_layers_preflight_shared_budget_above_64_megapixels() {
+        for (width, height) in [(9000, 8000), (10_000, 10_000), (10_001, 10_000)] {
+            let bitmap = F::Obj(tag(b"DyBm"), vec![(tag(b"Frmt"), F::Enum(0, 0)), (tag(b"BmpW"), F::I32(width)), (tag(b"BmpH"), F::I32(height))]);
+            let node = F::Def(1, vec![tag(b"Rstr")], vec![(tag(b"Bitm"), bitmap)]);
+            let spread = F::Def(2, vec![tag(b"Sprd")], vec![(tag(b"Chld"), F::Shared(vec![node]))]);
+            let stream = synth::stream(&[(tag(b"DocR"), F::Obj(tag(b"DocN"), vec![(tag(b"Chld"), F::Shared(vec![spread]))]))]);
+            let bytes = synth::container(&[("doc.dat", &stream, Method::Zlib)], None);
+            let limits = crate::Limits { max_pixels: 100, ..Default::default() };
+            let result = crate::read(&bytes, limits);
+            if width > 10_000 {
+                let doc = result.unwrap();
+                assert!(doc.warnings.iter().any(|w| w.contains("larger than 100 megapixels")));
+                assert!(!doc.spreads[0].nodes.iter().any(|n| matches!(n.kind, Kind::Image(_))));
+            } else {
+                assert!(matches!(result, Err(Error::Limit(_))));
+            }
+        }
     }
 
     #[test]

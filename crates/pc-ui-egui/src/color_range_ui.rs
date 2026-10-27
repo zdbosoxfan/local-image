@@ -413,8 +413,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                 "Preview unavailable:
 {e}"
             );
-            let g = ui.painter().layout(msg, egui::FontId::proportional(11.0), t.text_faint, frame.width() - 16.0);
-            ui.painter().galley(frame.center() - g.size() / 2.0, g, t.text_faint);
+            let secondary = if t.dark() { t.text_faint } else { t.text_secondary_on_fill };
+            let g = ui.painter().layout(msg, egui::FontId::proportional(11.0), secondary, frame.width() - 16.0);
+            ui.painter().galley(frame.center() - g.size() / 2.0, g, secondary);
         }
         ui.painter().rect_stroke(frame, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
         let label = match app.color_range.as_ref().and_then(|p| p.error.as_deref()) {

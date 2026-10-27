@@ -44,6 +44,9 @@ pub(crate) fn map_roles(t: &mut Tokens) {
     t.library.pick = text;
     t.library.reject = readable_text(palette.danger, palette.chrome);
     t.library.caution = readable_text(palette.warning, palette.chrome);
+    // Image badges keep their existing amber when the light chrome warning darkens.
+    t.library.overlay_caution =
+        if palette.kind == crate::theme::ThemeKind::StudioLight { readable_text(Color32::from_rgb(190, 130, 20), palette.chrome) } else { t.library.caution };
 }
 /// The hosted Library profile retains metrics and all pre-existing contrast adjustments.
 pub fn for_kind(kind: crate::theme::ThemeKind) -> Tokens {

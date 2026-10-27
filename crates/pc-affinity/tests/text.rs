@@ -5,6 +5,7 @@
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092. MIT OR Apache-2.0.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 #![cfg(feature = "synth")]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 mod support {
@@ -300,7 +301,13 @@ fn nonfinite_text_frame_and_baseline_fail_before_model_publication() {
 #[test]
 fn text_run_storage_obeys_expanded_model_budget() {
     let count = 20_000;
-    let bytes = document(vec![block(utf8(&"x".repeat(count)), (1..=count).map(|n| run(n as i32, None)).collect(), &[])], false, 96., IDENTITY);
+    let characters_per_run = 40;
+    let bytes = document(
+        vec![block(utf8(&"x".repeat(count * characters_per_run)), (1..=count).map(|n| run((n * characters_per_run) as i32, None)).collect(), &[])],
+        false,
+        96.,
+        IDENTITY,
+    );
     let limits = Limits { max_total: 8 << 20, ..Limits::default() };
     assert!(matches!(photocraft_affinity::read(&bytes, limits), Err(photocraft_affinity::Error::Limit("expanded model allocation"))));
 }
@@ -342,4 +349,13 @@ fn dsfix_character_attribute_run_budget_preserves_all_characters() {
     assert_eq!(content(text(&d)), "x".repeat(5000));
     assert_eq!(text(&d).runs.len(), 4096);
     assert!(warning(&d, "text run budget exceeded"));
+}
+
+#[test]
+fn font_names_above_16_kib_use_default_without_copying_metadata() {
+    let d = read(vec![block(utf8("keep"), vec![run(4, Some(attrs(&"F".repeat(16 * 1024 + 1), &"P".repeat(16 * 1024 + 1), 400, false, 12.)))], &[])]);
+    assert_eq!(content(text(&d)), "keep");
+    assert!(text(&d).runs[0].family.is_empty());
+    assert!(text(&d).runs[0].postscript.is_empty());
+    assert!(warning(&d, "font names longer than 16384 bytes"));
 }

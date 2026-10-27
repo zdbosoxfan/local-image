@@ -60,14 +60,18 @@ fn gamut(r: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
 
 fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
     if (fu(F_MODE) == 2u) { return c0; }
-    // `desaturate_negative`
-    let avg = max((c0.x + c0.y + c0.z) / 3.0, 0.0);
-    let mn = min(c0.x, min(c0.y, c0.z));
+    // `scene_gamut_knee`, then `desaturate_negative`
+    var ck = c0;
+    if (fu(F_TONE_SCENE_COMPRESSION) != 0u) {
+        ck = gamut_scene(c0, SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT);
+    }
+    let avg = max((ck.x + ck.y + ck.z) / 3.0, 0.0);
+    let mn = min(ck.x, min(ck.y, ck.z));
     var f = 1.0;
     if (mn < 0.0) {
         f = -avg / (mn - avg);
     }
-    var pix = array<f32, 3>(avg + f * (c0.x - avg), avg + f * (c0.y - avg), avg + f * (c0.z - avg));
+    var pix = array<f32, 3>(avg + f * (ck.x - avg), avg + f * (ck.y - avg), avg + f * (ck.z - avg));
     if (fu(F_TONE_LUM) != 0u) {
         let c = vec3<f32>(pix[0],pix[1],pix[2]);
         let yy = lum2020(c);
@@ -218,7 +222,11 @@ fn color_ops(rgb: vec3<f32>, local_sat: f32, local_hue: f32) -> vec3<f32> {
     let lab0 = oklab(rgb);
     var l = lab0.x;
     var c = sqrt(lab0.y * lab0.y + lab0.z * lab0.z);
-    var h = atan2(lab0.z, lab0.y);
+    // atan2(0,0) is undefined in WGSL (fast-math Metal may give NaN); CPU atan2 gives zero.
+    var h = 0.0;
+    if (c > 0.0) {
+        h = atan2(lab0.z, lab0.y);
+    }
     if (fu(F_MIXER) != 0u) {
         let w = band_weights(h);
         var dh = 0.0;
@@ -282,28 +290,6 @@ fn color_ops(rgb: vec3<f32>, local_sat: f32, local_hue: f32) -> vec3<f32> {
     return oklab_inv(lab);
 }
 
-// `colorops::calibrate`: primaries matrix, then the shadows tint (luminance kept).
-fn calibrate(c0: vec3<f32>) -> vec3<f32> {
-    var c = c0;
-    if (fu(F_CALIB) != 0u) {
-        let m = array<vec3<f32>, 3>(
-            vec3<f32>(ff(F_CALIB_M), ff(F_CALIB_M + 1u), ff(F_CALIB_M + 2u)),
-            vec3<f32>(ff(F_CALIB_M + 3u), ff(F_CALIB_M + 4u), ff(F_CALIB_M + 5u)),
-            vec3<f32>(ff(F_CALIB_M + 6u), ff(F_CALIB_M + 7u), ff(F_CALIB_M + 8u)),
-        );
-        c = max(mul3(m, c), vec3<f32>(0.0));
-    }
-    let st = ff(F_SHADOW_TINT);
-    if (st != 0.0) {
-        let y0 = lum2020(c);
-        let w = 1.0 - sstep(-5.0, -0.5, log2(max(y0, 1e-7) / 0.18));
-        c.y *= max(1.0 - SHADOW_TINT_K * st * w, 0.0);
-        let y1 = max(lum2020(c), 1e-9);
-        c = c * y0 / y1;
-    }
-    return c;
-}
-
 // `finish::refine_saturation`.
 fn refine_saturation(before: vec3<f32>, after: vec3<f32>, refine: f32) -> vec3<f32> {
     let lw = vec3<f32>(0.2126, 0.7152, 0.0722);
@@ -344,25 +330,6 @@ fn grain_noise(x: f32, y: f32, seed: u32) -> f32 {
 fn enc8(v: f32, x: u32, y: u32, channel: u32) -> u32 {
     return li_dither8(v, vec2(x, y));
 }
-
-fn soft_gamut(r: vec3<f32>) -> vec3<f32> {
-    let a = max(r.x, max(r.y, r.z));
-    if (a <= 1e-9) { return r; }
-    let threshold = 0.8;
-    let power = 1.2;
-    let scale = (1.3-threshold) / pow(pow((1.0-threshold)/(1.3-threshold), -power)-1.0, 1.0/power);
-    var result = r;
-    for (var i=0u; i<3u; i++) {
-        let distance = (a-r[i])/a;
-        if (distance > threshold) {
-            let u = (distance-threshold)/scale;
-            let compressed = threshold+scale*u/pow(1.0+pow(u,power), 1.0/power);
-            result[i] = a*(1.0-compressed);
-        }
-    }
-    return result;
-}
-
 
 fn working_curve(channel:u32, x:f32)->f32 {
     let q=curve(channel,x);
@@ -493,11 +460,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dz = ff(F_DEHAZE) + lt[10];
     if (dz != 0.0 && fu(F_HAS_DARK) != 0u) {
         let strength=clamp(dz,-1.0,1.0);
-        let at=i+select(0u,w*h,strength<0.0);
-        let d=dark[at];let air=haze_air();
-        let tmin=clamp(exp(-abs(strength)*haze_distance()),1.0/1024.0,1.0);
-        let t=max(1.0-strength*d,tmin);
-        if(t!=1.0) {c=(c-air)/t+air;}
+        c=dehaze_finish(c,strength,dark[i+select(0u,w*h,strength<0.0)]);
     }
 
     var layer_scene=false;
@@ -505,9 +468,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let alpha=alpha_at(layer,i,n);
         if(alpha>0.0 && (descriptor(layer,2u)&1u)!=0u){
             layer_scene=true;layer_context(layer);let strength=clamp(ff(F_DEHAZE),-1.0,1.0);clear_context();
-            if(strength!=0.0 && fu(F_HAS_DARK)!=0u){let dd=dark[i+select(0u,n,strength<0.0)];
-                let air=haze_air();let t=max(1.0-strength*dd,clamp(exp(-abs(strength)*haze_distance()),1.0/1024.0,1.0));
-                var q=c;if(t!=1.0){q=(c-air)/t+air;}c=c+(q-c)*alpha;}
+            if(strength!=0.0 && fu(F_HAS_DARK)!=0u){let q=dehaze_finish(c,strength,dark[i+select(0u,n,strength<0.0)]);c=c+(q-c)*alpha;}
         }
     }
     // Local exposure / temp / tint
@@ -586,15 +547,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let alpha=alpha_at(layer,i,n);
         if(alpha>0.0 && (descriptor(layer,2u)&2u)!=0u){layer_context(layer);var dl=0.0;
             let hh=ff(F_HL);let ss=ff(F_SH);let ws=1.0-sstep(-4.8,0.3,base);let wh=sstep(-1.0,2.8,base);dl+=ss*1.7*ws*sqrt(ws)+hh*1.7*wh;
-            if(ff(F_CLAR)!=0.0 && fu(F_HAS_CLAR)!=0u){let det=clamp(l_pre-clar[i],-2.5,2.5);let mid=exp(-pow(base/3.2,2.0));dl+=ff(F_CLAR)*0.85*det*(0.35+0.65*mid);}
+            if(ff(F_CLAR)!=0.0 && fu(F_HAS_CLAR)!=0u){let det=clamp(l_pre-clar[i],-2.5,2.5);let q=base/3.2;let mid=exp(-(q*q));dl+=ff(F_CLAR)*0.85*det*(0.35+0.65*mid);}
             if(ff(F_TEX)!=0.0 && fu(F_HAS_TEX)!=0u){let det=l_pre-tex[i];dl+=ff(F_TEX)*1.1*clamp(det,-1.0,1.0)*(1.0-0.6*sstep(0.4,1.6,abs(det)));}
             dl+=sharp_delta(ff(F_SHARP_A),l_pre,x,y);clear_context();if(dl!=0.0){c=c+(c*exp2(dl)-c)*alpha;}}
     }
-    // Calibration (scene linear, before the tone map)
-    if (fu(F_CALIB) != 0u || ff(F_SHADOW_TINT) != 0.0) {
-        c = calibrate(c);
-    }
-
     // Tone map on luminance, highlight desaturation
     d = tone_v2(c);
     if (fu(F_MODE) == 2u && ff(F_LAYER_CONTRAST) != 0.0) {
@@ -637,26 +593,34 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         out[3u*i]=bitcast<u32>(d.x);out[3u*i+1u]=bitcast<u32>(d.y);out[3u*i+2u]=bitcast<u32>(d.z);
         return;
     }
-    // Gamut map to the output space (desaturate towards luminance until in range)
+    // Output gamut mapping
     let om = array<vec3<f32>, 3>(
         vec3<f32>(ff(F_OUT_M), ff(F_OUT_M + 1u), ff(F_OUT_M + 2u)),
         vec3<f32>(ff(F_OUT_M + 3u), ff(F_OUT_M + 4u), ff(F_OUT_M + 5u)),
         vec3<f32>(ff(F_OUT_M + 6u), ff(F_OUT_M + 7u), ff(F_OUT_M + 8u)),
     );
     var r = mul3(om, d);
-    if (fu(F_SOFT_GAMUT) != 0u) { r = soft_gamut(r); }
-    let yy = clamp(ff(F_OUT_Y) * r.x + ff(F_OUT_Y + 1u) * r.y + ff(F_OUT_Y + 2u) * r.z, 0.0, 1.0);
-    var tg = 1.0;
-    for (var k = 0u; k < 3u; k++) {
-        let cc = r[k];
-        if (cc < 0.0) {
-            tg = min(tg, yy / max(yy - cc, 1e-9));
-        } else if (cc > 1.0) {
-            tg = min(tg, (1.0 - yy) / max(cc - yy, 1e-9));
+    if (fu(F_HARD_CLIP) != 0u) {
+        let gm = array<vec3<f32>, 3>(
+            vec3<f32>(ff(F_HARD_CLIP_M), ff(F_HARD_CLIP_M + 1u), ff(F_HARD_CLIP_M + 2u)),
+            vec3<f32>(ff(F_HARD_CLIP_M + 3u), ff(F_HARD_CLIP_M + 4u), ff(F_HARD_CLIP_M + 5u)),
+            vec3<f32>(ff(F_HARD_CLIP_M + 6u), ff(F_HARD_CLIP_M + 7u), ff(F_HARD_CLIP_M + 8u)),
+        );
+        r = clamp(gamut_output(d, r, gm, fu(F_GAMUT_BAND), vec3<f32>(ff(F_OUT_Y), ff(F_OUT_Y + 1u), ff(F_OUT_Y + 2u))), vec3<f32>(0.0), vec3<f32>(1.0));
+    } else {
+        let yy = clamp(ff(F_OUT_Y) * r.x + ff(F_OUT_Y + 1u) * r.y + ff(F_OUT_Y + 2u) * r.z, 0.0, 1.0);
+        var tg = 1.0;
+        for (var k = 0u; k < 3u; k++) {
+            let cc = r[k];
+            if (cc < 0.0) {
+                tg = min(tg, yy / max(yy - cc, 1e-9));
+            } else if (cc > 1.0) {
+                tg = min(tg, (1.0 - yy) / max(cc - yy, 1e-9));
+            }
         }
-    }
-    if (tg < 1.0) {
-        r = yy + (r - yy) * tg;
+        if (tg < 1.0) {
+            r = yy + (r - yy) * tg;
+        }
     }
 
     // Encode, curves, grain
@@ -784,3 +748,15 @@ fn sharp_delta(amount:f32,l_pre:f32,x:u32,y:u32)->f32 {
 
 fn haze_air()->vec3<f32>{let o=P[F_AIR_PLANE];return vec3<f32>(masks[o],masks[o+1u],masks[o+2u])*bitcast<f32>(P[F_GAIN]);}
 fn haze_distance()->f32{return masks[P[F_AIR_PLANE]+3u];}
+// `haze::dehaze_finish`: upstream's inversion; positive strength uses at most the pixel's own
+// dark value and darkens each channel by at most DEHAZE_FLOOR_EV*strength stops (tanh floor).
+fn dehaze_finish(c:vec3<f32>,strength:f32,dark_value:f32)->vec3<f32>{
+    let air=haze_air();var d=dark_value;
+    if(strength>0.0){d=min(d,max(min(min(c.x/max(air.x,1e-6),c.y/max(air.y,1e-6)),c.z/max(air.z,1e-6)),0.0));}
+    let t=max(1.0-strength*d,clamp(exp(-abs(strength)*haze_distance()),1.0/1024.0,1.0));
+    if(t==1.0){return c;}
+    var q=(c-air)/t+air;
+    if(strength>0.0){let lim=DEHAZE_FLOOR_EV*strength;
+        for(var k=0u;k<3u;k++){if(c[k]>0.0 && q[k]<c[k]){let ev=log2(max(q[k]/c[k],1e-6));let e=exp(2.0*ev/lim);q[k]=c[k]*exp2(-lim*(1.0-e)/(1.0+e));}}}
+    return q;
+}

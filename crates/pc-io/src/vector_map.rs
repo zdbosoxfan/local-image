@@ -258,10 +258,26 @@ pub fn parse_vstk(data: &[u8], dpi: f32) -> Option<VstkInfo> {
         _ => Vec::new(),
     };
     let paint = get_desc(&d, "strokeStyleContent").and_then(content_fill).unwrap_or(Fill::Solid(photocraft_color::Color::BLACK));
+    let mut opacity = num(d.get("strokeStyleOpacity")).map_or(1.0, |v| v as f32 / 100.0);
+    // The writer folds the colour's alpha into strokeStyleOpacity for Photoshop and keeps it as
+    // `pcAl` on the colour: unfold it so Appearance gets back both the colour alpha and the
+    // stroke opacity.
+    if let Fill::Solid(c) = &paint
+        && c.alpha.is_finite()
+    {
+        if c.alpha <= 1e-6 {
+            // A zero or tiny product cannot recover the independently editable stroke opacity.
+            if let Some(original) = num(d.get("pcSO")).filter(|v| v.is_finite()) {
+                opacity = original.clamp(0.0, 1.0) as f32;
+            }
+        } else if (c.alpha - 1.0).abs() > 1e-6 {
+            opacity = (opacity / c.alpha).clamp(0.0, 1.0);
+        }
+    }
     let stroke = ShapeStroke {
         width: unit_px(d.get("strokeStyleLineWidth"), dpi).unwrap_or(1.0) as f32,
         paint,
-        opacity: num(d.get("strokeStyleOpacity")).map_or(1.0, |v| v as f32 / 100.0),
+        opacity,
         align,
         cap,
         join,
@@ -276,17 +292,35 @@ fn en(ty: &str, v: &str) -> Value {
     Value::Enumerated { type_id: Id::new(ty), value: Id::new(v) }
 }
 
+/// Photoshop's stroke colour has no alpha. Fold the colour's alpha into `strokeStyleOpacity` so
+/// Photoshop draws the stroke as translucent as it is here.
+fn fold_stroke_color_alpha(s: &ShapeStroke) -> ShapeStroke {
+    let mut out = s.clone();
+    if let Fill::Solid(c) = &mut out.paint
+        && c.alpha.is_finite()
+        && (c.alpha - 1.0).abs() > 1e-6
+    {
+        out.opacity = (out.opacity * c.alpha).clamp(0.0, 1.0);
+        c.alpha = 1.0;
+    }
+    out
+}
+
 pub fn vstk_bytes(stroke: Option<&ShapeStroke>, fill_enabled: bool, dpi: f32) -> Vec<u8> {
     let default = ShapeStroke::default();
-    let s = stroke.unwrap_or(&default);
-    let (_, content) = fill_to_desc(&s.paint);
+    let folded = stroke.map(fold_stroke_color_alpha);
+    let s = folded.as_ref().unwrap_or(&default);
+    // The content keeps the original colour (with `pcAl`), so the reader can tell the colour
+    // alpha apart from the stroke opacity folded for Photoshop.
+    let paint = stroke.map_or(&s.paint, |st| &st.paint);
+    let (_, content) = fill_to_desc(paint);
     let class = match s.paint {
         Fill::Solid(_) => "solidColorLayer",
         Fill::Gradient { .. } => "gradientLayer",
         Fill::Pattern { .. } => "patternLayer",
     };
     let content = Descriptor { class_id: Id::new(class), ..content };
-    let d = Descriptor::new("strokeStyle")
+    let mut d = Descriptor::new("strokeStyle")
         .with("strokeStyleVersion", Value::Integer(2))
         .with("strokeEnabled", Value::Boolean(stroke.is_some()))
         .with("fillEnabled", Value::Boolean(fill_enabled))
@@ -333,6 +367,14 @@ pub fn vstk_bytes(stroke: Option<&ShapeStroke>, fill_enabled: bool, dpi: f32) ->
         .with("strokeStyleOpacity", Value::UnitFloat { unit: *b"#Prc", value: f64::from(s.opacity * 100.0) })
         .with("strokeStyleContent", Value::Descriptor(content))
         .with("strokeStyleResolution", Value::Double(f64::from(dpi)));
+    if let Some(original) = stroke
+        && let Fill::Solid(c) = &original.paint
+        && c.alpha.is_finite()
+        && c.alpha <= 1e-6
+        && original.opacity.is_finite()
+    {
+        d = d.with("pcSO", Value::Double(f64::from(original.opacity.clamp(0.0, 1.0))));
+    }
     VersionedDescriptor::new(d).to_bytes()
 }
 
@@ -654,6 +696,74 @@ mod tests {
         }
         let off = parse_vstk(&vstk_bytes(None, true, 72.0), 72.0).unwrap();
         assert!(off.stroke.is_none() && off.fill_enabled);
+    }
+
+    #[test]
+    fn vstk_folds_color_alpha_into_stroke_opacity() {
+        let s = ShapeStroke { width: 2.0, paint: Fill::Solid(Color::rgba(0.0, 0.0, 1.0, 0.4)), opacity: 0.5, ..ShapeStroke::default() };
+        let bytes = vstk_bytes(Some(&s), true, 72.0);
+        let raw = crate::blocks::parse_prefix_versioned(&bytes).unwrap();
+        let file_opacity = crate::blocks::num(raw.get("strokeStyleOpacity")).unwrap() as f32 / 100.0;
+        assert!((file_opacity - 0.2).abs() < 1e-4, "Photoshop sees the product in strokeStyleOpacity");
+        let got = parse_vstk(&bytes, 72.0).unwrap().stroke.unwrap();
+        assert!((got.opacity - 0.5).abs() < 1e-4);
+        let Fill::Solid(c) = got.paint else { panic!("solid") };
+        assert!((c.alpha - 0.4).abs() < 1e-5);
+        assert!((c.to_rgb()[2] - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn transparent_stroke_colour_keeps_its_independent_opacity() {
+        for alpha in [0.0, 1e-8, 1e-6, 0.4] {
+            let s = ShapeStroke { width: 2.0, paint: Fill::Solid(Color::rgba(0.0, 0.0, 1.0, alpha)), opacity: 0.5, ..ShapeStroke::default() };
+            let bytes = vstk_bytes(Some(&s), true, 72.0);
+            let raw = crate::blocks::parse_prefix_versioned(&bytes).unwrap();
+            let file_opacity = crate::blocks::num(raw.get("strokeStyleOpacity")).unwrap() as f32 / 100.0;
+            assert!((file_opacity - 0.5 * alpha).abs() < 1e-8, "Photoshop sees the product at alpha {alpha}");
+            let got = parse_vstk(&bytes, 72.0).unwrap().stroke.unwrap();
+            assert!((got.opacity - 0.5).abs() < 1e-5, "alpha {alpha}: independent opacity {}", got.opacity);
+            let Fill::Solid(c) = got.paint else { panic!("solid") };
+            assert!((c.alpha - alpha).abs() < 1e-8, "alpha {alpha}: colour alpha {}", c.alpha);
+        }
+    }
+
+    #[test]
+    fn missing_or_non_finite_original_stroke_opacity_keeps_the_file_opacity() {
+        let s = ShapeStroke { paint: Fill::Solid(Color::rgba(0.0, 0.0, 1.0, 0.0)), opacity: 0.5, ..ShapeStroke::default() };
+        let mut d = crate::blocks::parse_prefix_versioned(&vstk_bytes(Some(&s), true, 72.0)).unwrap();
+        d.items.retain(|(k, _)| !k.is("pcSO"));
+        for bad in [None, Some(f64::NAN), Some(f64::INFINITY), Some(f64::NEG_INFINITY)] {
+            let mut d = d.clone();
+            if let Some(v) = bad {
+                d = d.with("pcSO", Value::Double(v));
+            }
+            let got = parse_vstk(&VersionedDescriptor::new(d).to_bytes(), 72.0).unwrap().stroke.unwrap();
+            assert_eq!(got.opacity, 0.0, "private opacity {bad:?}");
+        }
+    }
+
+    #[test]
+    fn invertible_stroke_alpha_ignores_private_original_opacity() {
+        for alpha in [0.4, 1.0 - 5e-7, 1.0] {
+            let s = ShapeStroke { paint: Fill::Solid(Color::rgba(0.0, 0.0, 1.0, alpha)), opacity: 0.5, ..ShapeStroke::default() };
+            let d = crate::blocks::parse_prefix_versioned(&vstk_bytes(Some(&s), true, 72.0)).unwrap().with("pcSO", Value::Double(0.9));
+            let got = parse_vstk(&VersionedDescriptor::new(d).to_bytes(), 72.0).unwrap().stroke.unwrap();
+            assert!((got.opacity - 0.5).abs() < 1e-5, "alpha {alpha}: independent opacity {}", got.opacity);
+            let Fill::Solid(c) = got.paint else { panic!("solid") };
+            assert!((c.alpha - alpha).abs() < 1e-6, "alpha {alpha}: colour alpha {}", c.alpha);
+        }
+    }
+
+    #[test]
+    fn private_original_stroke_opacity_is_bounded() {
+        let s = ShapeStroke { paint: Fill::Solid(Color::rgba(0.0, 0.0, 1.0, 0.0)), opacity: 0.5, ..ShapeStroke::default() };
+        let mut d = crate::blocks::parse_prefix_versioned(&vstk_bytes(Some(&s), true, 72.0)).unwrap();
+        d.items.retain(|(k, _)| !k.is("pcSO"));
+        for (value, expected) in [(-1.0, 0.0), (2.0, 1.0), (f64::MAX, 1.0)] {
+            let bytes = VersionedDescriptor::new(d.clone().with("pcSO", Value::Double(value))).to_bytes();
+            let got = parse_vstk(&bytes, 72.0).unwrap().stroke.unwrap();
+            assert_eq!(got.opacity, expected, "private opacity {value}");
+        }
     }
 
     #[test]

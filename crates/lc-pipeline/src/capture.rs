@@ -9,9 +9,11 @@
 //! GPL-3.0-or-later; the algorithm is Ingo Weyrich's for RawTherapee), see `docs/PORTS.md`.
 //! Differences: it runs on the scene-linear Rec.2020 source (darktable: camera RGB inside its
 //! demosaic module), luminance uses Rec.2020 weights, the "clipped" test reads the source's own
-//! clip level when the caller knows it, and the automatic radius comes from the raw decoder
-//! (`lightcraft_raw::capture`).
+//! clip level when the caller knows it, the automatic radius comes from the raw decoder
+//! (`lightcraft_raw::capture`), and flat regions outside the mask blur's support are excluded
+//! exactly (see [`blend_mask`]).
 
+use li_raster::blur::GaussianPlan;
 use li_raster::{GrayFrame, RgbFrame, par_rows};
 
 /// Kernel σ steps of the per-pixel kernel table (darktable's `CAPTURE_GAUSS_FRACTION`).
@@ -21,6 +23,18 @@ const SMALL: f32 = 0.66;
 /// Luminance floor (darktable's `CAPTURE_YMIN`).
 const YMIN: f32 = 0.001;
 const NORM_MIN: f32 = 1.52587890625e-05;
+/// σ of the blur that smooths the contrast mask.
+pub const MASK_SIGMA: f32 = 2.0;
+
+/// How far the mask blur reaches: its exact result is zero further than this many pixels (along
+/// either axis) from every pixel with a positive mask.
+pub fn mask_reach() -> usize {
+    match crate::blur::plan(MASK_SIGMA) {
+        GaussianPlan::Identity => 0,
+        GaussianPlan::Sampled => li_raster::blur::gaussian_kernel(MASK_SIGMA).len() / 2,
+        GaussianPlan::Boxes(radii) => radii.iter().sum(),
+    }
+}
 
 /// Capture sharpening parameters, for the image being sharpened.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -160,6 +174,9 @@ fn blur_with(
 /// Where to sharpen (0..1): structure above the contrast threshold, nothing near clipped or
 /// black pixels or at the outermost 2 px (darktable's `_prepare_blend` + `_modify_blend` + the
 /// blurred/unblurred mix). Also returns the luminance.
+///
+/// A positive mask admits a pixel to the deconvolution. Running-sum round-off must not admit flat
+/// pixels beyond [`mask_reach`], where the exact blurred mask is zero.
 pub fn blend_mask(img: &RgbFrame, p: &CaptureParams) -> (GrayFrame, GrayFrame) {
     blend_mask_with_confidence(img, p, None)
 }
@@ -236,12 +253,27 @@ pub fn blend_mask_with_confidence(img: &RgbFrame, p: &CaptureParams, clip: Optio
         }
     });
     let unblurred = GrayFrame { width: w, height: h, data: modified };
-    let mut blurred = crate::blur::gaussian(&unblurred, 2.0);
+    let mut blurred = crate::blur::gaussian(&unblurred, MASK_SIGMA);
     // after the blur, tiny edges keep the unblurred strength
     for (b, u) in blurred.data.iter_mut().zip(&unblurred.data) {
         let wt = 1.0 / (1.0 + (5.0 - 10.0 * (u - *b)).exp());
         *b = (wt * u + (1.0 - wt) * *b).clamp(0.0, 1.0);
     }
+    let reach = mask_reach();
+    let mut near = vec![false; w * h];
+    par_rows(&mut near, w, |row, out| {
+        let positive = &unblurred.data[row * w..(row + 1) * w];
+        for (col, o) in out.iter_mut().enumerate() {
+            *o = positive[col.saturating_sub(reach)..=(col + reach).min(w - 1)].iter().any(|v| *v > 0.0);
+        }
+    });
+    par_rows(&mut blurred.data, w, |row, out| {
+        for (col, b) in out.iter_mut().enumerate() {
+            if !(row.saturating_sub(reach)..=(row + reach).min(h - 1)).any(|y| near[y * w + col]) {
+                *b = 0.0;
+            }
+        }
+    });
     // Smoothing may bleed a positive blend back into the exclusion. Sensor-clipped
     // samples themselves must stay untouched even when their developed RGB is dim.
     if clip.is_some() {
@@ -366,6 +398,32 @@ mod tests {
         let mut same = before.clone();
         sharpen(&mut same, &CaptureParams { sigma: 0.1, ..Default::default() });
         assert_eq!(same.data, before.data);
+    }
+
+    #[test]
+    fn mask_and_sharpening_leave_flat_pixels_beyond_the_blur_support_unchanged() {
+        let reach = mask_reach();
+        for base in [0.07, 0.12, 0.18, 0.3] {
+            let src = RgbFrame::from_fn(257, 97, |x, y| {
+                let v = if (20..40).contains(&x) && (25..65).contains(&y) {
+                    0.06 + 0.6 * (0.5 + 0.5 * (x as f32 * 0.47 + y as f32 * 0.11).sin())
+                } else {
+                    base
+                };
+                [v * 0.9, v, v * 1.1]
+            });
+            let p = CaptureParams { sigma: 1.4, threshold: 0.6, iterations: 50, ..Default::default() };
+            let (mask, _) = blend_mask(&src, &p);
+            assert!(mask.data.iter().any(|v| *v > 0.5), "the chart must exercise sharpening");
+            let mut out = src.clone();
+            sharpen(&mut out, &p);
+            for y in 0..src.height {
+                for x in 42 + reach..src.width {
+                    assert_eq!(mask.get(x, y), 0.0, "base {base}, ({x}, {y})");
+                    assert_eq!(out.get(x, y), src.get(x, y), "base {base}, ({x}, {y})");
+                }
+            }
+        }
     }
 
     #[test]

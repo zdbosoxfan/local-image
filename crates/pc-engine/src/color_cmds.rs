@@ -555,7 +555,7 @@ pub fn resolve_profile(spec: &str, doc: Option<&Document>, mode: Option<ColorMod
     }
     let lower = spec.to_ascii_lowercase();
     if lower.ends_with(".icc") || lower.ends_with(".icm") || spec.contains('/') || spec.contains('\\') {
-        let bytes = std::fs::read(spec).map_err(|e| EngineError::Other(format!("cannot read profile `{spec}`: {e}")))?;
+        let bytes = crate::file_cmds::read_file(spec).map_err(|e| EngineError::Other(format!("cannot read profile: {e}")))?;
         return Profile::parse(&bytes).map(Arc::new).map_err(cms_err);
     }
     let ids: Vec<&str> = Builtin::ALL.iter().map(|b| b.id()).collect();
@@ -1620,5 +1620,14 @@ mod deferred_admission_tests {
         let mut untagged = tagged(Builtin::Srgb);
         untagged.icc_profile = None;
         assert!(convert_document(&mut untagged, Builtin::DisplayP3.profile(), Intent::RelativeColorimetric, true).is_ok());
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod bounded_profile_tests {
+    #[test]
+    fn profiles_refuse_kernel_paths_before_parsing() {
+        let error = super::resolve_profile("/proc/version", None, None).unwrap_err().to_string();
+        assert!(error.contains("input paths are unavailable"), "{error}");
     }
 }

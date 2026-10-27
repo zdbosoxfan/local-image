@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 1,
+  "version": 2,
   "id": "flux2-klein",
   "label": "FLUX.2 Klein",
   "group": "FLUX",
@@ -74,19 +74,20 @@
       "names": [
         "qwen_3_4b.safetensors"
       ],
-      "patterns": [
+      "stems": [
         "qwen_3_4b"
-      ]
+      ],
+      "patterns": []
     },
     {
       "role": "vae",
       "names": [
         "flux2-vae.safetensors"
       ],
-      "patterns": [
-        "flux2-vae",
-        "flux2_vae"
-      ]
+      "stems": [
+        "flux2-vae"
+      ],
+      "patterns": []
     }
   ],
   "vram_gb": 16,
@@ -103,6 +104,7 @@
       "patterns": [
         "klein*base"
       ],
+      "variants": [],
       "sampling": {
         "steps": {
           "default": 20,
@@ -119,6 +121,36 @@
       "pipeline": {
         "zero_negative": false
       }
+    },
+    {
+      "patterns": [
+        "klein*9b"
+      ],
+      "variants": [
+        "9b"
+      ],
+      "components": [
+        {
+          "role": "clip",
+          "names": [
+            "qwen_3_8b_fp8mixed.safetensors",
+            "qwen_3_8b.safetensors"
+          ],
+          "stems": [
+            "qwen_3_8b"
+          ],
+          "patterns": [],
+          "download": {
+            "role": "clip",
+            "folder": "text_encoders",
+            "name": "qwen_3_8b_fp8mixed.safetensors",
+            "bytes": 8664848742,
+            "sha256": "abad16806e0cbabc54e0325d6565847443fe396d5f0be38bb3cd3fe75a1201d6",
+            "url": "https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/3f62d9d8ae1fec33c6e91453d5c712855b096b55/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors",
+            "compatible": []
+          }
+        }
+      ]
     }
   ],
   "models": [

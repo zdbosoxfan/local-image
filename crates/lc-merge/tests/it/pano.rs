@@ -223,6 +223,11 @@ fn auto_projection_and_finishing() {
     let (med, p99, seam) = check(&res, &rs, &e, f);
     eprintln!("perspective: median {med:.4}, p99 {p99:.4}, seam step {seam:.4}");
     assert!(med < 0.02 && p99 < 0.1 && seam < 0.05);
+    // the recorded 35 mm-equivalent focal length is the panorama's own: over the canvas diagonal
+    // it is the shots' focal length (the canvas is at their resolution)
+    let f35 = res.metadata.focal_length_35mm.expect("a 35 mm-equivalent focal length");
+    let f_canvas = f35 * (res.image.width as f64).hypot(res.image.height as f64) / 36f64.hypot(24.0);
+    assert!((f_canvas / f - 1.0).abs() < 0.02, "{f35} mm equivalent is {f_canvas} px over the canvas, the shots' is {f} px");
     let c = res.crop.expect("auto crop");
     assert!(c[2] * c[3] > 0.6, "crop {c:?}");
     let (w, h) = (res.image.width as f64, res.image.height as f64);
@@ -240,8 +245,137 @@ fn auto_projection_and_finishing() {
 }
 
 #[test]
+fn panoramas_carry_no_source_lens_model() {
+    let shots = [Shot { yaw: -12.0, pitch: 0.5, roll: 0.3, gain: 1.0 }, Shot { yaw: 12.0, pitch: -0.4, roll: 0.0, gain: 1.0 }];
+    let e = env();
+    let lens = lightcraft_meta::SonyLensCorrection {
+        distortion: vec![-100, 0, 417],
+        ca_red: vec![128, 256, 640],
+        ca_blue: vec![512, 0, -256],
+        vignetting: vec![0, 32, 6144],
+    };
+    let frames: Vec<Frame> = shots
+        .iter()
+        .map(|s| {
+            let mut frame = shoot(&e, &rot(s.yaw, s.pitch, s.roll), 800.0, 800, 600, s.gain);
+            frame.metadata.sony = Some(lightcraft_meta::SonyMetadata { lens_correction: Some(lens.clone()), ..Default::default() });
+            frame
+        })
+        .collect();
+    let res = stitch(frames, &PanoOptions { projection: Projection::Perspective, ..Default::default() }, &no_progress).unwrap();
+    assert!(res.metadata.lens_corrections_baked);
+    assert!(res.metadata.sony.is_some_and(|sony| sony.lens_correction.is_none()));
+}
+
+#[test]
 fn unrelated_photos_do_not_stitch() {
     let a = lightcraft_scenes::demo_library();
     let frames: Vec<Frame> = a.iter().take(2).map(|s| Frame::from_linear_rec2020(s.render(400, 300), None)).collect();
     assert!(stitch(frames, &PanoOptions::default(), &no_progress).is_err());
+}
+
+#[test]
+fn highlights_clipped_at_different_exposures_share_one_level() {
+    // Windows far brighter than any frame holds, so every frame clips. The third frame was exposed
+    // 1.6× brighter, so its clipped samples compensate to a lower level than the others'.
+    let mut e = env().map(|p| p.map(|v| v * 0.35));
+    for (x0, x1) in [(780, 900), (1320, 1500)] {
+        for y in 360..480 {
+            for x in x0..x1 {
+                e.set(x, y, [3.0; 3]);
+            }
+        }
+    }
+    let shots = [
+        Shot { yaw: -22.0, pitch: 0.5, roll: 0.3, gain: 1.0 },
+        Shot { yaw: 0.0, pitch: -0.4, roll: 0.0, gain: 1.0 },
+        Shot { yaw: 21.0, pitch: 0.8, roll: -0.4, gain: 1.6 },
+    ];
+    let frames: Vec<Frame> = shots
+        .iter()
+        .map(|s| {
+            // Raw frames: camera RGB that saturates on the sensor.
+            let mut frame = shoot(&e, &rot(s.yaw, s.pitch, s.roll), 800.0, 800, 600, s.gain);
+            frame.image = frame.image.map(|p| p.map(|v| v.min(1.0)));
+            frame.clip = lightcraft_merge::frame::detect_clip(&frame.image);
+            frame.raw = true;
+            frame
+        })
+        .collect();
+    let res =
+        stitch(frames, &PanoOptions { projection: Projection::Perspective, max_megapixels: 100.0, ..Default::default() }, &no_progress).unwrap();
+    assert_eq!(res.used.len(), 3);
+    let g = &res.gains;
+    assert!((g[2] / g[1] - 1.0 / 1.6).abs() < 0.05, "gains {g:?}");
+    let clip = res.clip.unwrap();
+    assert!(clip.is_finite() && clip > 0.0);
+    // Everything brighter than the scene is a window: it must sit at the panorama's clip level,
+    // not at the 1/1.6 level the third frame's clipped samples compensate to.
+    let window: Vec<_> = res.image.data.iter().zip(&res.alpha.data).filter(|(p, a)| **a >= 1.0 && p[1] > 0.5 * clip).map(|(p, _)| *p).collect();
+    let at_clip = window.iter().filter(|p| p.iter().all(|v| *v >= 0.99 * clip)).count();
+    assert!(window.len() > 5000, "window pixels {}", window.len());
+    assert!(at_clip as f64 > 0.95 * window.len() as f64, "{at_clip} of {} window pixels at the clip level", window.len());
+}
+
+#[test]
+fn float_frames_keep_highlights_above_the_white_level() {
+    // Scene-linear EXR or float TIFF frames hold windows at 3× their white level, unclipped.
+    let mut e = env().map(|p| p.map(|v| v * 0.35));
+    for (x0, x1) in [(780, 900), (1320, 1500)] {
+        for y in 360..480 {
+            for x in x0..x1 {
+                e.set(x, y, [3.0; 3]);
+            }
+        }
+    }
+    let shots = [
+        Shot { yaw: -22.0, pitch: 0.5, roll: 0.3, gain: 1.0 },
+        Shot { yaw: 0.0, pitch: -0.4, roll: 0.0, gain: 1.0 },
+        Shot { yaw: 21.0, pitch: 0.8, roll: -0.4, gain: 1.0 },
+    ];
+    let frames: Vec<Frame> = shots.iter().map(|s| shoot(&e, &rot(s.yaw, s.pitch, s.roll), 800.0, 800, 600, s.gain)).collect();
+    assert!(frames.iter().all(|f| !f.raw && f.clip < 1.0), "float frames read as clipped at their white level");
+    let res =
+        stitch(frames, &PanoOptions { projection: Projection::Perspective, max_megapixels: 100.0, ..Default::default() }, &no_progress).unwrap();
+    assert_eq!(res.used.len(), 3);
+    assert_eq!(res.clip, None);
+    let window: Vec<f32> = res.image.data.iter().zip(&res.alpha.data).filter(|(p, a)| **a >= 1.0 && p[1] > 1.5).map(|(p, _)| p[1]).collect();
+    assert!(window.len() > 5000, "window pixels above the white level: {}", window.len());
+    let mut sorted = window.clone();
+    sorted.sort_by(f32::total_cmp);
+    let median = sorted[sorted.len() / 2];
+    assert!((median - 3.0).abs() < 0.3, "window median {median}");
+}
+
+#[test]
+fn minified_panorama_filters_fine_gratings() {
+    let image = RgbFrame::from_fn(640, 400, |x, y| {
+        if (160..480).contains(&x) && (100..300).contains(&y) {
+            [0.5 + 0.4 * (std::f32::consts::TAU * 0.45 * x as f32).cos(); 3]
+        } else {
+            // Distinct, deterministic corners register the otherwise repetitive grating.
+            let value = ((x / 11 * 73 + y / 13 * 127 + (x / 11) * (y / 13) * 17) % 251) as f32 / 251.0;
+            [0.1 + value * 0.7; 3]
+        }
+    });
+    let frames = vec![Frame::from_linear_rec2020(image.clone(), None), Frame::from_linear_rec2020(image, None)];
+    let result =
+        stitch(frames, &PanoOptions { projection: Projection::Perspective, max_megapixels: 0.09216, ..Default::default() }, &no_progress).unwrap();
+    let camera = result.cameras[0].as_ref().unwrap();
+    let mut count = 0;
+    let mut squared = 0.0;
+    for y in 0..result.image.height {
+        for x in 0..result.image.width {
+            let direction = result.projection.inverse(x as f64 + 0.5 + result.origin.0, y as f64 + 0.5 + result.origin.1, result.focal);
+            let Some((sx, sy)) = camera.project(direction) else { continue };
+            if (180.0..460.0).contains(&sx) && (120.0..280.0).contains(&sy) {
+                let error = f64::from(result.image.get(x, y)[0]) - 0.5;
+                squared += error * error;
+                count += 1;
+            }
+        }
+    }
+    assert!(count > 1000, "grating samples: {count}");
+    let rms = (squared / f64::from(count)).sqrt();
+    assert!(rms < 0.06, "aliased grating RMS {rms}");
 }

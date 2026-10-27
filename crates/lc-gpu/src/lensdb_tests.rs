@@ -100,7 +100,7 @@ fn packed_lens_models_track_f64_reference_in_f32() {
                     let (ow, oh) = if orientation.swaps_axes() { (h, w) } else { (w, h) };
                     let mut wp = Warp::identity(ow as f64, oh as f64);
                     wp.set_lensdb(&c, orientation, w as f64, h as f64, &s);
-                    let p = warp_params(&wp, (ow, oh), (ow, oh), &Affine::IDENTITY, 1.0, 1.0);
+                    let p = warp_params(&wp, (ow, oh), (ow, oh), &Affine::IDENTITY, 1.0, 1.0, 0.0);
                     let m = wp.lensdb.expect("profile");
                     for (x, y) in [(0.5, 0.5), (ow as f64 - 0.5, oh as f64 - 0.5), (ow as f64 * 0.23, oh as f64 * 0.81), (m.cx, m.cy)] {
                         // Positions handed to the shader are already f32.
@@ -133,7 +133,7 @@ fn zero_strength_and_identity_models_disable_database_branches() {
         wp.set_lensdb(&c, s.orientation, 641.0, 427.0, &s);
         // An unrelated manual correction can still require the warp kernel.
         wp.k1 = 0.03;
-        let p = warp_params(&wp, (641, 427), (641, 427), &Affine::IDENTITY, 1.0, 1.0);
+        let p = warp_params(&wp, (641, 427), (641, 427), &Affine::IDENTITY, 1.0, 1.0, 0.0);
         assert_eq!((p[65], p[69], p[76]), (0, 0, 0));
         assert_eq!(database_f32(&p, 1.25, 400.5, 0), (1.25, 400.5));
         assert_eq!(gain_f32(&p, 1.25, 400.5), 1.0);
@@ -150,12 +150,12 @@ fn zero_strength_and_identity_models_disable_database_branches() {
     wp.lensdb_dist = 2.0;
     wp.lensdb_tca = 2.0;
     wp.lensdb_vig = 2.0;
-    let p = warp_params(&wp, (641, 427), (641, 427), &Affine::IDENTITY, 1.0, 1.0);
+    let p = warp_params(&wp, (641, 427), (641, 427), &Affine::IDENTITY, 1.0, 1.0, 0.0);
     assert_eq!((p[65], p[69], p[76], p[63], p[64]), (0, 0, 0, 0, 0));
     // PA's nonpositive/near-zero denominator guard.
     for k in [-8.0, -0.9999995] {
         wp.lensdb = Some(LensCorrection { diag_norm: 1.0, vignetting: Some([k, 0.0, 0.0]), ..c }.on(wp.w, wp.h));
-        let p = warp_params(&wp, (641, 427), (641, 427), &Affine::IDENTITY, 1.0, 1.0);
+        let p = warp_params(&wp, (641, 427), (641, 427), &Affine::IDENTITY, 1.0, 1.0, 0.0);
         let x = f32::from_bits(p[81]) + 1.0 / f32::from_bits(p[80]);
         assert_eq!(gain_f32(&p, x, f32::from_bits(p[82])), 1.0);
     }
@@ -210,7 +210,7 @@ fn lens_database_gpu_uses_f64_coverage_at_rounding_boundary() {
         wp.lensdb = Some(m);
         wp.lensdb_dist = 1.0;
         assert_eq!(wp.covers(&Affine::IDENTITY, 0, 0), covered);
-        let p = warp_params(&wp, (32, 24), (1, 1), &Affine::IDENTITY, 1.0, 1.0);
+        let p = warp_params(&wp, (32, 24), (1, 1), &Affine::IDENTITY, 1.0, 1.0, 0.0);
         xs.push(database_f32(&p, 0.5, 0.5, 1).0);
         cases.push((wp, p, covered));
     }
@@ -222,11 +222,13 @@ fn lens_database_gpu_uses_f64_coverage_at_rounding_boundary() {
     let src = gpu.upload(&[0.12f32; 32 * 24 * 3]);
     let mut cx = Cx::new(gpu);
     for (wp, p, covered) in cases {
-        let mask = gpu.upload(&coverage_mask(&wp, &Affine::IDENTITY, 1, 1));
+        let mask = gpu.upload(&warp_tables(&wp, &Affine::IDENTITY, 1, 1, 1.0, 1.0));
         let dst = gpu.buffer(3);
         cx.run("sample_warp", &p, &[Some(&src), Some(&dst), Some(&mask)], [1, 1, 1]);
         let v = cx.read::<f32>(&dst, 3);
-        assert_eq!(v, if covered { vec![0.12; 3] } else { lightcraft_pipeline::geometry::BLANK.to_vec() });
+        // the cubic's normalized weights reproduce a flat field to within rounding
+        let want = if covered { [0.12; 3] } else { lightcraft_pipeline::geometry::BLANK };
+        assert!(v.iter().zip(want).all(|(a, b)| (a - b).abs() < 1e-6), "covered {covered}: {v:?}");
     }
     assert!(errors.pop().is_none());
     assert!(!crate::ctx::failed());

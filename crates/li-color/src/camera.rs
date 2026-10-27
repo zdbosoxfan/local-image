@@ -436,6 +436,22 @@ mod tests {
     }
 
     #[test]
+    fn kim_tint_has_the_dng_sdk_sign() {
+        // A white above the Planckian locus (higher v) is a green illuminant: positive tint in
+        // both the UI's Kim model and the SDK's Robertson model.
+        for t in [2500.0, 3500.0, 5000.0, 6500.0, 9000.0] {
+            let (u, v) = cct::xy_to_uv(cct::temp_tint_to_xy(t, 0.0));
+            for dv in [-0.008, -0.003, 0.003, 0.008] {
+                let xy = cct::uv_to_xy(u, v + dv);
+                let (_, kim) = cct::xy_to_temp_tint(xy);
+                let (_, sdk) = dng_temp_tint(xy);
+                assert!(kim * dv > 0.0 && sdk * dv > 0.0, "{t} K, dv {dv}: Kim {kim} vs SDK {sdk}");
+                assert!((kim - sdk).abs() < 0.1 * sdk.abs() + 1.0, "{t} K, dv {dv}: Kim {kim} vs SDK {sdk}");
+            }
+        }
+    }
+
+    #[test]
     fn inverse_cct_matches_rawtherapee_reference() {
         for row in include_str!("../tests/fixtures/illuminants.csv").lines() {
             let v: Vec<f64> = row.split(',').map(|v| v.parse().unwrap()).collect();

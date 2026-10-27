@@ -228,7 +228,7 @@ Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.
 `licenses/rawtherapee-NOTICE.md`, `licenses/lensfun-NOTICE.md` and `licenses/model-system-NOTICE.md`.
 
 * **Raw processing** (`DevelopSettings.raw`, raw files only; Detail copy group):
-  * Demosaic: Default (AHD) / AHD / **RCD** / **Dual (RCD + VNG4)** / **VNG4** /
+  * Demosaic: Automatic (RCD, or Dual RCD + VNG4 on noisy mosaics; also used for HDR merges) / AHD / **RCD** / **Dual (RCD + VNG4)** / **VNG4** /
     **AMaZE** / **Dual (AMaZE + VNG4)** / PPG / Bilinear. The saved `dualRcd`
     (RCD + bilinear) decoder and mask are unchanged and appear in the menu only when selected.
     New keys are `vng4`, `amaze`, `dualRcdVng`, `dualAmazeVng`.
@@ -237,10 +237,20 @@ Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.
     VNG-linear pass and two median colour-smoothing passes; their mask includes the
     exact upstream 9x9 disc Gaussian and exponential approximation.
   * Highlights: Reconstruct (today's) / **Inpaint Opposed** / **Segmentation** / Clip.
-    `segmentation` runs on normalized CFA after opcode lists 1/2, before demosaic and
-    opcode list 3. Bayer previews reduce each of the four CFA phases separately,
-    preserving clipped maxima, before reconstruction with scaled morphology. X-Trans
-    reconstructs its full CFA before binning. RGB/monochrome raws use opposed as fallback.
+    Every mode reads clipping from the sensor and runs before opcode list 3
+    (`lightcraft_raw::highlight::Highlights`). Clip, Inpaint Opposed (darktable's CFA
+    variant) and `segmentation` run on normalized CFA after opcode lists 1/2, before
+    demosaic; Reconstruct runs after demosaic on the channels a 3×3 clip mask of the
+    mosaic flags (a pixel is clipped in every channel only when its own sample is).
+    Fully clipped cores: Reconstruct continues the surrounding ring, fading to neutral;
+    Opposed and Segmentation get a neutral pass on those pixels only. Binned previews use
+    the block maxima; for Opposed and Segmentation, Bayer previews reduce each of the four
+    CFA phases separately, preserving clipped maxima, before reconstruction with scaled
+    morphology. X-Trans reconstructs its full CFA before binning. RGB/monochrome raws use
+    opposed as fallback.
+  * The mosaic is demosaiced white balanced with the as-shot multipliers (dual masks and
+    Auto still read unbalanced data), and isolated hot or dead photosites are replaced
+    first (`RawImage::suppress_hot_pixels`).
     The raw API implements all seven upstream recovery modes and noise; the Develop
     menu uses upstream defaults (combine 2, candidating 0.4, recovery off).
   * **Capture sharpening**: Richardson–Lucy with an automatic radius measured from the raw,

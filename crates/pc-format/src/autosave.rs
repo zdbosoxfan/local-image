@@ -21,7 +21,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use photocraft_doc::Document;
 use serde::{Deserialize, Serialize};
 
-use crate::store::write_atomic;
 use crate::{FormatError, PcraftWriter, Result, SaveOptions, SaveStats};
 
 /// Sidecar describing an autosave.
@@ -184,9 +183,9 @@ fn worker(
             break;
         }
         let r = (|| {
-            std::fs::create_dir_all(&bundle)?;
+            create_private_dir(&bundle)?;
             let stats = writer.save_dir(&job.snapshot, &bundle, &job.opts)?;
-            write_atomic(&sidecar, &serde_json::to_vec_pretty(&job.info)?)?;
+            li_fs::atomic_write_private(&sidecar, &serde_json::to_vec_pretty(&job.info)?)?;
             Ok(stats)
         })();
         if let Ok(mut results) = completed.lock() {
@@ -203,6 +202,45 @@ fn worker(
     }
 }
 
+fn create_private_dir(path: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(path)
+}
+
+fn read_sidecar_bounded(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    const MAX_BYTES: u64 = 1 << 20;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(not(unix))]
+    if !std::fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "recovery metadata must be a regular file"));
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > MAX_BYTES {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "recovery metadata must be a regular file of at most 1 MiB"));
+    }
+    let mut limited = file.take(MAX_BYTES + 1);
+    let mut bytes = Vec::new();
+    limited.read_to_end(&mut bytes)?;
+    if limited.limit() == 0 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "recovery metadata exceeds 1 MiB"));
+    }
+    Ok(bytes)
+}
+
 /// Recoverable documents in `recovery_dir`, newest first. A sidecar must be named after its own
 /// (sanitized) key, so a stray or hand-edited one can never point outside the directory.
 pub fn list_recovery(recovery_dir: &Path) -> Vec<RecoveryEntry> {
@@ -212,8 +250,10 @@ pub fn list_recovery(recovery_dir: &Path) -> Vec<RecoveryEntry> {
     };
     for e in rd.flatten() {
         let p = e.path();
-        if p.extension().is_some_and(|x| x == "json")
-            && let Ok(bytes) = std::fs::read(&p)
+        // Invalid sidecars are skipped without modifying their recovery bundles.
+        if e.file_type().is_ok_and(|ft| ft.is_file())
+            && p.extension().is_some_and(|x| x == "json")
+            && let Ok(bytes) = read_sidecar_bounded(&p)
             && let Ok(info) = serde_json::from_slice::<RecoveryInfo>(&bytes)
             && sanitize(&info.key) == info.key
             && p.file_stem().is_some_and(|stem| *stem == *info.key)
@@ -283,6 +323,24 @@ impl RecoveryStore {
         let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let session = format!("{t:x}_{:x}_{:x}", std::process::id(), STORES.fetch_add(1, Ordering::Relaxed));
         let dir = recovery_dir.into();
+        #[cfg(unix)]
+        {
+            use rustix::fs::{Mode, OFlags, fchmod, fstat, open};
+            use rustix::io::Errno;
+            // Pin the real directory so a pathname replacement cannot redirect the chmod.
+            let migration = open(&dir, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()).and_then(|directory| {
+                let metadata = fstat(&directory)?;
+                if metadata.st_uid == rustix::process::geteuid().as_raw() && metadata.st_mode & 0o077 != 0 {
+                    fchmod(&directory, Mode::from_raw_mode(metadata.st_mode & !0o077))?;
+                }
+                Ok(())
+            });
+            match migration {
+                // Missing roots are created privately by the worker; other file types are left alone.
+                Ok(()) | Err(Errno::NOENT | Errno::NOTDIR | Errno::LOOP) => {}
+                Err(error) => log::warn!("could not restrict recovery directory permissions: {error}"),
+            }
+        }
         sweep_orphans(&dir, ORPHAN_AGE);
         RecoveryStore { dir, session, savers: HashMap::new(), adopted: HashMap::new() }
     }
@@ -458,6 +516,9 @@ fn note(last: &Arc<Mutex<Option<Result<SaveStats>>>>, r: Result<SaveStats>) {
 }
 
 fn remove_entry(dir: &Path, key: &str) -> Result<()> {
+    if sanitize(key) != key {
+        return Err(FormatError::corrupt("recovery entry key contains path components"));
+    }
     let bundle = dir.join(format!("{key}.pcraft"));
     if bundle.exists() {
         std::fs::remove_dir_all(bundle)?;

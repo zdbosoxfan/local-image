@@ -131,7 +131,7 @@ pub fn refine_registration(reference: &GrayFrame, moving: &GrayFrame, initial: &
             if !(0.02..0.98).contains(&target) || q.x < 2.0 || q.y < 2.0 || q.x > w as f64 - 2.0 || q.y > h as f64 - 2.0 {
                 continue;
             }
-            let source = crate::features::bilinear(moving, q.x as f32, q.y as f32) as f64;
+            let source = cubic(moving, q.x as f32, q.y as f32) as f64;
             if !(0.02..0.98).contains(&source) {
                 continue;
             }
@@ -154,7 +154,7 @@ pub fn refine_registration(reference: &GrayFrame, moving: &GrayFrame, initial: &
             if !(0.02..0.98).contains(&target) || q.x < 2.0 || q.y < 2.0 || q.x > w as f64 - 2.0 || q.y > h as f64 - 2.0 {
                 continue;
             }
-            let sample = |x: f64, y: f64| crate::features::bilinear(moving, x as f32, y as f32) as f64;
+            let sample = |x: f64, y: f64| cubic(moving, x as f32, y as f32) as f64;
             let source = sample(q.x, q.y);
             if !(0.02..0.98).contains(&source) {
                 continue;
@@ -222,6 +222,29 @@ pub fn refine_registration(reference: &GrayFrame, moving: &GrayFrame, initial: &
     current
 }
 
+/// Catmull–Rom sample of a registration plane at continuous coordinates (pixel centres at
+/// +0.5). Bilinear interpolation smooths by an amount that varies with the sub-pixel position,
+/// which biases direct registration towards particular phases by up to a tenth of a pixel.
+/// Excluded (zero) pixels make the sample NaN, so values near clipping never mix into it.
+fn cubic(img: &GrayFrame, x: f32, y: f32) -> f32 {
+    let (fx, fy) = (x - 0.5, y - 0.5);
+    let (x0, y0) = (fx.floor(), fy.floor());
+    let taps = |t: f32| [-1.0f32, 0.0, 1.0, 2.0].map(|i| li_raster::resample::Resample::Bicubic.weight(f64::from(t - i)) as f32);
+    let (wx, wy) = (taps(fx - x0), taps(fy - y0));
+    let (x0, y0) = (x0 as isize, y0 as isize);
+    let mut value = 0.0;
+    for (j, wy) in wy.iter().enumerate() {
+        for (i, wx) in wx.iter().enumerate() {
+            let tap = img.get_clamped(x0 + i as isize - 1, y0 + j as isize - 1);
+            if tap <= 0.0 {
+                return f32::NAN;
+            }
+            value += wx * wy * tap;
+        }
+    }
+    value
+}
+
 /// Resample `img` into the reference geometry: `out(p) = img(h(p))`. Returns the warped image and
 /// a validity mask (false where `h(p)` falls outside `img`).
 pub fn warp(img: &RgbFrame, h: &Homography) -> (RgbFrame, Vec<bool>) {
@@ -236,7 +259,7 @@ pub fn warp(img: &RgbFrame, h: &Homography) -> (RgbFrame, Vec<bool>) {
             let p = h.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
             let (sx, sy) = (p.x as f32, p.y as f32);
             if sx >= 0.0 && sy >= 0.0 && sx <= w as f32 && sy <= ht as f32 {
-                row[x] = img.sample_bilinear(sx, sy);
+                row[x] = img.sample_cubic(sx, sy, [1.0; 2], 0.0);
                 vrow[x] = true;
             }
         }

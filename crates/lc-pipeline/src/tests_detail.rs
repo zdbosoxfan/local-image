@@ -455,6 +455,45 @@ fn dehaze_clears_haze_without_halos() {
     assert!(ground(&neg).abs() < ground(&plain).abs() + 1.0);
 }
 
+/// Linear green of the middle row of `src` rendered at `w` px wide with Dehaze `dz`.
+fn dehaze_row(src: &RgbFrame, dz: f64, w: usize) -> Vec<f32> {
+    let mut s = settings();
+    s.effects.dehaze = dz;
+    let req = RenderRequest { depth: crate::OutputDepth::F32Linear, space: crate::OutputSpace::Rec2020, ..RenderRequest::fit(w, w) };
+    let deep = render(src, &SourceInfo::default(), &s, &req).deep.expect("float output");
+    let crate::DeepSamples::F32(v) = deep.samples else { panic!("float samples") };
+    let y = deep.height / 2;
+    (0..deep.width).map(|x| v[(y * deep.width + x) * 3 + 1]).collect()
+}
+
+#[test]
+fn dehaze_keeps_shadows_beside_a_window_out_of_black() {
+    // A dark interior beside a bright window: no haze to remove, only shadows to keep.
+    let (w, h) = (960, 64);
+    let edge = w / 2;
+    let src = RgbFrame::from_fn(w, h, |x, _| [if x < edge { 0.015 } else { 0.9 }; 3]);
+    let neutral = dehaze_row(&src, 0.0, w);
+    let ev = |row: &[f32], x: usize| (row[x] / neutral[x]).log2();
+    let d50 = dehaze_row(&src, 50.0, w);
+    let far = ev(&d50, 100);
+    assert!(far > -1.0, "Dehaze +50 darkened the interior by {far} EV");
+    for x in 0..edge {
+        assert!(d50[x] > 0.0, "Dehaze +50 made x={x} black");
+    }
+    for x in edge - 16..edge {
+        assert!(ev(&d50, x) > far - 0.3, "Dehaze +50 left a dark fringe {} EV at x={x} (far interior {far})", ev(&d50, x));
+    }
+    let d100 = dehaze_row(&src, 100.0, w);
+    assert!(ev(&d100, 100) > -3.0, "Dehaze +100 took the interior to {} EV", ev(&d100, 100));
+    // A quarter-size preview shows the edge as the export does.
+    let (pn, p50) = (dehaze_row(&src, 0.0, w / 4), dehaze_row(&src, 50.0, w / 4));
+    for xp in edge / 4 - 8..edge / 4 {
+        let full = (4 * xp..4 * xp + 4).map(|x| d50[x]).sum::<f32>() / (4 * xp..4 * xp + 4).map(|x| neutral[x]).sum::<f32>();
+        let preview = p50[xp] / pn[xp];
+        assert!((preview.log2() - full.log2()).abs() < 0.2, "preview x={xp}: {} EV vs export {} EV", preview.log2(), full.log2());
+    }
+}
+
 #[test]
 fn previews_approximate_full_size() {
     let (clean, noisy) = texture_scene(240);
@@ -575,4 +614,51 @@ fn masking_preview_is_grey_even_when_sharpening_is_subpixel() {
     let image = render(&src, &SourceInfo::default(), &s, &req).image;
     // Zero masking is an all-white mask, including when Amount is zero.
     assert!(image.data.iter().all(|p| *p == [255; 4]));
+}
+
+// Noise reduction: independent sliders
+
+fn grey_noise(w: usize, sigma: f32) -> RgbFrame {
+    RgbFrame::from_fn(w, w, |x, y| std::array::from_fn(|c| 0.2 + sigma * 1.7 * noise(x, y, c as u32 + 7)))
+}
+
+/// Standard deviation of Rec.2020 luminance.
+fn luma_noise(img: &RgbFrame) -> f32 {
+    let y: Vec<f32> = img.data.iter().map(|c| li_color::luminance_2020(*c)).collect();
+    let mean = y.iter().sum::<f32>() / y.len() as f32;
+    (y.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / y.len() as f32).sqrt()
+}
+
+fn denoised(src: &RgbFrame, lum: f64, col: f64) -> RgbFrame {
+    let mut s = settings();
+    s.detail.nr_luminance = lum;
+    s.detail.nr_color = col;
+    let mut img = src.clone();
+    if let Some(p) = crate::detail::nr_params(&s, 1.0) {
+        crate::detail::denoise(&mut img, &p);
+    }
+    img
+}
+
+#[test]
+fn luminance_nr_does_not_depend_on_colour_nr() {
+    let src = grey_noise(256, 0.012);
+    let input = luma_noise(&src);
+    let at = |lum, col| luma_noise(&denoised(&src, lum, col)) / input;
+    let (c0, c25, c100) = (at(30., 0.), at(30., 25.), at(30., 100.));
+    eprintln!("relative luminance noise at Luminance 30: Color 0 {c0:.3}, 25 {c25:.3}, 100 {c100:.3}; Luminance 100 {:.3}", at(100., 0.));
+    for (name, v) in [("Color 25", c25), ("Color 100", c100)] {
+        assert!((v / c0 - 1.).abs() < 0.15, "Luminance 30 with {name} leaves {v:.3} of the noise, {c0:.3} without");
+    }
+    assert!(at(100., 0.) < 0.2, "Luminance 100 alone leaves {:.3} of the luminance noise", at(100., 0.));
+    let (l0, l1) = (at(0., 25.), at(1., 25.));
+    assert!((l1 / l0 - 1.).abs() < 0.1, "Luminance 1 jumps from {l0:.3} to {l1:.3}");
+}
+
+#[test]
+fn colour_nr_leaves_neutral_edges_neutral() {
+    let src = RgbFrame::from_fn(128, 64, |x, _| [if x < 64 { 0.05 } else { 0.4 }; 3]);
+    let out = denoised(&src, 30., 100.);
+    let worst = out.data.iter().map(|c| (c[0] - c[1]).abs().max((c[2] - c[1]).abs()) / c[1].max(1e-6)).fold(0f32, f32::max);
+    assert!(worst < 1e-3, "Color NR tinted a neutral edge by {worst}");
 }

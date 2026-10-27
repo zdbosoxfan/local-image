@@ -171,8 +171,34 @@ fn style(css: &Styles, n: roxmltree::Node<'_, '_>, dpi: f32) -> CharStyle {
     if paint == "none" {
         color.alpha = 0.0;
     }
+    let family = value(css, n, "font-family", "Inter");
+    let mut chars = family.trim().chars().peekable();
+    let quote = chars.next_if(|&c| matches!(c, '\'' | '"'));
+    let mut font_family = String::new();
+    let mut escaped = false;
+    for c in chars {
+        if escaped {
+            if !matches!(c, '\\' | '\'' | '"') {
+                font_family.push('\\');
+            }
+            font_family.push(c);
+            escaped = false;
+        } else if c == '\\' {
+            escaped = true;
+        } else if quote == Some(c) || quote.is_none() && c == ',' {
+            break;
+        } else {
+            font_family.push(c);
+        }
+    }
+    if escaped {
+        font_family.push('\\');
+    }
+    if quote.is_none() {
+        font_family = font_family.trim_end().to_owned();
+    }
     CharStyle {
-        font_family: value(css, n, "font-family", "Inter").split(',').next().unwrap_or("Inter").trim().trim_matches(['\'', '"']).to_string(),
+        font_family,
         size_pt: (em * 72.0 / f64::from(dpi)).max(0.01) as f32,
         weight: match value(css, n, "font-weight", "400").as_str() {
             "bold" => 700,

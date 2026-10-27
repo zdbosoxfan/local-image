@@ -8,7 +8,7 @@ pub const APP_PAGE: &str = "https://github.com/zdbosoxfan/local-image";
 /// This app's source repository.
 pub const GITHUB: &str = "https://github.com/zdbosoxfan/local-image";
 /// The user documentation (docs/ in the repository).
-pub const HELP: &str = "https://github.com/zdbosoxfan/local-image/tree/v2/docs";
+pub const HELP: &str = "https://github.com/zdbosoxfan/local-image/tree/main/docs";
 /// Where feedback and bug reports go.
 pub const FEEDBACK: &str = "https://github.com/zdbosoxfan/local-image/issues/new";
 
@@ -49,5 +49,6 @@ mod tests {
         for url in [APP_PAGE, GITHUB, HELP, FEEDBACK] {
             assert!(url.starts_with("https://github.com/zdbosoxfan/local-image"), "{url}");
         }
+        assert!(HELP.ends_with("/tree/main/docs"), "Help opens the live docs on main, not a frozen branch: {HELP}");
     }
 }

@@ -415,6 +415,26 @@ fn background_save_library_alias_uses_qualified_source_without_importing_duplica
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn background_save_library_hard_link_alias_imports_a_derivative() {
+    let (dir, path, mut library, photo) = library_with_photo("background-source-hard-link");
+    library.run("develop.set", json!({"control":"light.exposure","value":0.5})).unwrap();
+    let original = std::fs::read(&path).unwrap();
+    let mut host = host_with_round_trip(library, photo, &path);
+    let alias = dir.join("different-name.png");
+    std::fs::hard_link(&path, &alias).unwrap();
+    host.editor.services.prepare_save = Some(Arc::new(crate::services::prepare_document_save));
+    host.editor.background_jobs = true;
+    host.editor.save_as(Some(alias.to_string_lossy().into_owned())).unwrap();
+    settle_background_save(&mut host);
+    assert!(host.editor.ui.notices.iter().all(|notice| !notice.error), "{}", host.editor.ui.status);
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert_eq!(catalog(&host).catalog.photo(photo).unwrap().develop.light.exposure, 0.5);
+    assert_eq!(catalog(&host).catalog.len(), 2);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn background_save_library_rebound_master_invalidates_virtual_copy_capture() {
     let (dir, path, mut library, master) = library_with_photo("background-source-rebind");
@@ -3433,3 +3453,5 @@ fn shared_shell_background_export_completes_while_capture_owns_input() {
     previews.retire();
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+mod control_click;

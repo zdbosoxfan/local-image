@@ -4,9 +4,11 @@ use lightcraft_develop::{BrushStroke, LocalAdjustments, Mask, MaskComponent, Mas
 use lightcraft_geom::Point;
 use serde_json::{Value, json};
 
+use super::optional_index;
 use super::{CommandSpec, bad, bool_or, cmd, f64_or, has_active, ok, point, str_param};
 use crate::segment::{Click, MAX_CLICKS};
 use crate::{Result, Session};
+use lightcraft_pipeline::masks::MAX_COLOR_RANGE_SAMPLES;
 
 fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
     Ok(match kind {
@@ -23,12 +25,12 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             feather: f64_or(p, "feather", 50.0),
             invert: bool_or(p, "invert", false),
         },
-        "sky" => MaskShape::Sky { seg: None },
-        "subject" => MaskShape::Subject { seg: None },
-        "background" => MaskShape::Background { seg: None },
+        "sky" => MaskShape::Sky { seg: seg_param(p) },
+        "subject" => MaskShape::Subject { seg: seg_param(p) },
+        "background" => MaskShape::Background { seg: seg_param(p) },
         // local-image: near (0) … far (1) band of the depth model's distance map (`quick_segment`)
         "depth" | "depthRange" => {
-            MaskShape::DepthRange { lo: f64_or(p, "lo", 0.0), hi: f64_or(p, "hi", 0.45), feather: f64_or(p, "feather", 0.15), seg: None }
+            MaskShape::DepthRange { lo: f64_or(p, "lo", 0.0), hi: f64_or(p, "hi", 0.45), feather: f64_or(p, "feather", 0.15), seg: seg_param(p) }
         }
         "luminanceRange" => MaskShape::LuminanceRange {
             lo: f64_or(p, "lo", 0.6),
@@ -40,7 +42,12 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             let samples: Vec<[f64; 3]> = p
                 .get("samples")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|s| Some([s.get(0)?.as_f64()?, s.get(1)?.as_f64()?, s.get(2)?.as_f64()?])).collect())
+                .map(|a| {
+                    a.iter()
+                        .take(MAX_COLOR_RANGE_SAMPLES)
+                        .filter_map(|s| Some([s.get(0)?.as_f64()?, s.get(1)?.as_f64()?, s.get(2)?.as_f64()?]))
+                        .collect()
+                })
                 .unwrap_or_default();
             MaskShape::ColorRange { samples, refine: f64_or(p, "refine", 50.0) }
         }
@@ -166,8 +173,15 @@ pub(crate) fn global_wb(s: &Session, id: crate::PhotoId) -> (f64, f64) {
     lightcraft_pipeline::local::effective_wb(&s.source_info(id), &d)
 }
 
+fn opt_mask_id(p: &Value, c: &str) -> Result<Option<u32>> {
+    match p.get("id") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_u64().and_then(|n| u32::try_from(n).ok()).map(Some).ok_or_else(|| bad(c, "`id` must be a mask id")),
+    }
+}
+
 fn mask_id(p: &Value, active: Option<u32>, c: &str) -> Result<u32> {
-    p.get("id").and_then(Value::as_u64).map(|v| v as u32).or(active).ok_or_else(|| bad(c, "no mask selected (give `id`)"))
+    opt_mask_id(p, c)?.or(active).ok_or_else(|| bad(c, "no mask selected (give `id`)"))
 }
 
 fn find(masks: &mut [Mask], id: u32, c: &str) -> Result<usize> {
@@ -181,15 +195,13 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create New Mask",
             [],
             None,
-            "{kind: full|empty|brush|linear|radial|sky|subject|background|depth|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; object/prompt: seg? a stored segmentation, no model needed), name?} — AI kinds need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found",
+            "{kind: full|empty|brush|linear|radial|sky|subject|background|depth|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; sky/subject/background/depth/object/prompt: seg? a stored segmentation, no model needed), name?} — object and prompt need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found. A new model-made mask gets Refine Edges 30",
             has_active,
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
                 let mut shape = shape_from(&kind, p, "mask.add")?;
-                // local-image: Subject / Background / Sky from the quick models when installed.
-                if let Some(id) = s.active() {
-                    s.quick_segment(id, &mut shape);
-                }
+                // local-image: Subject / Background / Sky / Depth from the quick models when installed.
+                let quick = s.active().map(|id| s.quick_start(id, &mut shape));
                 let later = resolve_ai(s, &mut shape, "mask.add")?;
                 let (prefix, label) = match kind.as_str() {
                     "full" => ("Filled Layer", "New Filled Layer"),
@@ -217,16 +229,24 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Ok(json!({"pending": true}));
                 }
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
-                let out = masks_edit(s, "mask.add", label, |masks, active| {
+                let refine = if crate::quickseg::is_model_mask(&shape) { crate::quickseg::MODEL_EDGE_REFINE } else { 0.0 };
+                let mut out = masks_edit(s, "mask.add", label, |masks, active| {
                     masks.push(Mask {
                         id: next,
                         name,
                         components: if kind == "empty" { vec![] } else { vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }] },
+                        refine,
                         ..Default::default()
                     });
                     *active = Some(next);
                     Ok(())
                 })?;
+                if let Some(quick) = quick {
+                    quick.report(&mut out);
+                    if let (crate::quickseg::QuickStart::Later(run), Some(id)) = (quick, s.active()) {
+                        s.quick_segment_later(id, vec![(next, 0, *run)], true);
+                    }
+                }
                 queue_later(s, later, next, 0, out)
             }
         ),
@@ -248,7 +268,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Err(bad("mask.addComponent", format!("no mask {mid}")));
                 }
                 let mut shape = shape_from(&kind, p, "mask.addComponent")?;
-                s.quick_segment(id, &mut shape);
+                let quick = s.quick_start(id, &mut shape);
                 let later = resolve_ai(s, &mut shape, "mask.addComponent")?;
                 if let Later::Text(text) = &later {
                     let op = p.get("op").and_then(Value::as_str).unwrap_or("add");
@@ -256,12 +276,21 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Ok(json!({"pending": true}));
                 }
                 let mut comp = 0;
-                let out = masks_edit(s, "mask.addComponent", "Edit Mask", |masks, _| {
+                let model_made = crate::quickseg::is_model_mask(&shape);
+                let mut out = masks_edit(s, "mask.addComponent", "Edit Mask", |masks, _| {
                     let i = find(masks, mid, "mask.addComponent")?;
                     masks[i].components.push(MaskComponent { name: None, op, invert: bool_or(p, "invert", false), shape });
                     comp = masks[i].components.len() - 1;
+                    // an empty layer's first model-made shape: refined as a new model mask would be
+                    if comp == 0 && model_made && masks[i].refine == 0.0 {
+                        masks[i].refine = crate::quickseg::MODEL_EDGE_REFINE;
+                    }
                     Ok(())
                 })?;
+                quick.report(&mut out);
+                if let crate::quickseg::QuickStart::Later(run) = quick {
+                    s.quick_segment_later(id, vec![(mid, comp, *run)], true);
+                }
                 queue_later(s, later, mid, comp, out)
             }
         ),
@@ -291,7 +320,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     auto_mask: bool_or(p, "autoMask", false),
                 };
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
-                let want = p.get("id").and_then(Value::as_u64).map(|v| v as u32).or(s.active_mask);
+                let want = opt_mask_id(p, "mask.brushStroke")?.or(s.active_mask);
                 masks_edit(s, "mask.brushStroke", "Brush", |masks, active| {
                     let i = match want.and_then(|m| masks.iter().position(|x| x.id == m)) {
                         Some(i) => i,
@@ -319,9 +348,12 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         cmd!("mask.update", "Update Mask Shape", [], None, "{id?, component?: index (0), shape: MaskShape JSON}", has_active, |s, p| {
-            let shape: MaskShape =
+            let mut shape: MaskShape =
                 serde_json::from_value(p.get("shape").cloned().unwrap_or_default()).map_err(|e| bad("mask.update", e.to_string()))?;
-            let comp = p.get("component").and_then(Value::as_u64).unwrap_or(0) as usize;
+            if let MaskShape::ColorRange { samples, .. } = &mut shape {
+                samples.truncate(MAX_COLOR_RANGE_SAMPLES);
+            }
+            let comp = optional_index(p, "component", "mask.update")?.unwrap_or(0);
             let mid = mask_id(p, s.active_mask, "mask.update")?;
             masks_edit(s, "mask.update", "Edit Mask", |masks, _| {
                 let i = find(masks, mid, "mask.update")?;
@@ -349,7 +381,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let lab = lightcraft_pipeline::color_range_sample(&src, &info, &d, &req, lightcraft_geom::Point::new(x, y))
                     .ok_or_else(|| bad(c, "the point is outside the photo"))?;
                 let mid = mask_id(p, s.active_mask, c)?;
-                let comp = p.get("component").and_then(Value::as_u64).map(|v| v as usize);
+                let comp = optional_index(p, "component", c)?;
                 let mut out = Vec::new();
                 masks_edit(s, c, "Color Range", |masks, _| {
                     let i = find(masks, mid, c)?;
@@ -440,8 +472,8 @@ pub fn specs() -> Vec<CommandSpec> {
                 let mid = mask_id(p, s.active_mask, c)?;
                 let d = s.develop_of(id).unwrap_or_default();
                 let m = d.masks.iter().find(|m| m.id == mid).ok_or_else(|| bad(c, format!("no mask {mid}")))?;
-                let k = match p.get("component").and_then(Value::as_u64) {
-                    Some(k) => k as usize,
+                let k = match optional_index(p, "component", c)? {
+                    Some(k) => k,
                     None => m
                         .components
                         .iter()
@@ -653,7 +685,7 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         cmd!("mask.select", "Select Mask", [], None, "{id|null}", has_active, |s, p| {
-            s.active_mask = p.get("id").and_then(Value::as_u64).map(|v| v as u32);
+            s.active_mask = opt_mask_id(p, "mask.select")?;
             ok()
         }),
         cmd!("mask.delete", "Delete Mask", [], None, "{id?}", has_active, |s, p| {
@@ -735,7 +767,7 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let c = "mask.component";
                 let mid = mask_id(p, s.active_mask, c)?;
-                let k = p.get("component").and_then(Value::as_u64).ok_or_else(|| bad(c, "missing component"))? as usize;
+                let k = optional_index(p, "component", c)?.ok_or_else(|| bad(c, "missing component"))?;
                 let action = str_param(p, "action").ok_or_else(|| bad(c, "missing action"))?.to_string();
                 let op: Option<MaskOp> = match p.get("op") {
                     Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| bad(c, e.to_string()))?),
@@ -895,8 +927,8 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!("spot.select", "Select Spot", [], None, "{index|null}", has_active, |s, p| {
             let n = spots_len(s);
-            s.active_spot = match p.get("index").and_then(Value::as_u64) {
-                Some(i) if (i as usize) < n => Some(i as usize),
+            s.active_spot = match optional_index(p, "index", "spot.select")? {
+                Some(i) if i < n => Some(i),
                 Some(_) => return Err(bad("spot.select", "no such spot")),
                 None => None,
             };
@@ -1058,7 +1090,7 @@ fn spots_len(s: &Session) -> usize {
 
 /// `index` from the params, else the selected spot.
 fn spot_index(s: &Session, p: &Value, c: &str) -> Result<usize> {
-    let i = p.get("index").and_then(Value::as_u64).map(|v| v as usize).or(s.active_spot).ok_or_else(|| bad(c, "no spot selected (give `index`)"))?;
+    let i = optional_index(p, "index", c)?.or(s.active_spot).ok_or_else(|| bad(c, "no spot selected (give `index`)"))?;
     if i >= spots_len(s) {
         return Err(bad(c, "no such spot"));
     }

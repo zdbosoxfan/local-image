@@ -226,7 +226,7 @@ fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
     h.run_steps(3);
     assert_eq!(h.state().ui.ai.generate.denoise, 1.0);
     h.get_by_label("Refines by reference: the image guides the result");
-    h.get_by_value(&format!("{} · {}", ModelId::Klein4B.info().label, ModelId::Klein4B.info().family_label)).click();
+    h.get_by_value(&ModelId::Klein4B.info().label).click();
     h.run_steps(2);
     h.get_by_label("Edit models — refine by reference");
     h.get_by_label("Image models — refine by denoise");
@@ -238,7 +238,7 @@ fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
     assert_eq!(h.state().ui.ai.generate.denoise, 0.35);
     h.get_by_label("Refines by denoise: lower keeps more of the image");
     h.state_mut().ui.ai.generate.denoise = 0.72;
-    h.get_by_value(&format!("{} · {}", ModelId::ZImageTurbo.info().label, ModelId::ZImageTurbo.info().family_label)).click();
+    h.get_by_value(&ModelId::ZImageTurbo.info().label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).click();
     h.run_steps(3);
@@ -253,7 +253,7 @@ fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
     h.run_steps(3);
     assert_eq!(h.state().ui.ai.generate.refine_strength, 1.0);
     h.state_mut().ui.ai.generate.refine_strength = 0.72;
-    h.get_all_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).last().unwrap().click();
+    h.get_all_by_value(&ModelId::Klein9B.info().label).last().unwrap().click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
     h.run_steps(3);
@@ -992,4 +992,235 @@ mod bg_batch_tests {
         assert_eq!(batch(|b| b.as_ref().unwrap().format.clone()), "tiff");
         batch(|b| *b = None);
     }
+}
+
+const FLUX3_KEY: &str = "unet:flux3-image-klein-bf16.safetensors";
+const KREA_KEY: &str = "unet:krea2_turbo_bf16.safetensors";
+const FLUX3_FILES: &[(&str, &str)] = &[
+    ("diffusion_models/flux3-image-klein-bf16.safetensors", "owner__diffusion_models~flux3-image-klein-bf16"),
+    ("text_encoders/qwen3vl_4b_bf16.safetensors", "Comfy-Org_Krea-2__text_encoders~qwen3vl_4b_bf16"),
+    ("vae/flux2-vae.safetensors", "local__vae~flux2-vae"),
+];
+const KREA_FILES: &[(&str, &str)] = &[
+    ("diffusion_models/krea2_turbo_bf16.safetensors", "Comfy-Org_Krea-2__diffusion_models~krea2_turbo_bf16"),
+    ("text_encoders/qwen3vl_4b_bf16.safetensors", "Comfy-Org_Krea-2__text_encoders~qwen3vl_4b_bf16"),
+    ("vae/qwen_image_vae.safetensors", "Comfy-Org_Krea-2__vae~qwen_image_vae"),
+    ("loras/krea2_style_reference.safetensors", "Comfy-Org_Krea-2__loras~krea2_style_reference"),
+];
+const UPSAMPLER: (&str, &str) = ("text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "Comfy-Org_MOSS-Image__text_encoders~qwen3.5_9b_bf16");
+
+/// Models set up through their official templates against the mock ComfyUI 0.42.5 (header-only
+/// weights), in the catalogue until dropped.
+struct TemplateModels {
+    _mock: li_ai::mock::MockComfy,
+    dir: PathBuf,
+    server: li_ai::modelsetup::state::ServerState,
+}
+
+impl TemplateModels {
+    fn new(files: &[(&str, &str)]) -> Self {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("li-ui-setup-{}-{n}", std::process::id()));
+        for (file, fixture) in files {
+            li_ai::mock::write_header_only(&dir.join(file), &li_ai::mock::header_fixture(fixture)).unwrap();
+        }
+        let mock = li_ai::mock::MockComfy::start().unwrap();
+        mock.serve_comfy_0_42_5(&dir);
+        let opts = li_ai::modelsetup::Options {
+            host: mock.host().to_owned(),
+            model_dir: Some(dir.clone()),
+            state_path: dir.join("state/ai-models.json"),
+            cache_dir: None,
+            templates_dir: None,
+        };
+        let scan = li_ai::modelsetup::scan(&opts);
+        Self { _mock: mock, dir, server: scan.server }
+    }
+
+    fn status(&self) -> crate::ai_ui::EngineStatus {
+        crate::ai_ui::EngineStatus {
+            connected: true,
+            checked: true,
+            presets: catalog::presets().iter().map(|p| (p.id(), Ok(()))).collect(),
+            comfyui_version: "0.42.5".into(),
+            setup: li_ai::modelsetup::summary::summarise(Some(&self.server), &catalog::catalog().models, Some("0.42.5")),
+            ..Default::default()
+        }
+    }
+}
+
+impl Drop for TemplateModels {
+    fn drop(&mut self) {
+        catalog::set_templates(Default::default());
+        li_ai::inventory::refresh(&li_ai::comfy::ObjectInfo(json!({})), None);
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn panel_harness(app: PhotocraftApp, size: egui::Vec2) -> egui_kittest::Harness<'static, PhotocraftApp> {
+    let mut initialized = false;
+    let mut h = egui_kittest::Harness::builder().with_size(size).with_max_steps(64).build_ui_state(
+        move |ui, app: &mut PhotocraftApp| {
+            if !initialized {
+                PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                initialized = true;
+                ui.ctx().request_repaint();
+                return;
+            }
+            panel(app, ui);
+        },
+        app,
+    );
+    h.run_steps(4);
+    h
+}
+
+fn app_on(key: &str) -> PhotocraftApp {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.ui.ai.generate.mode = Mode::Create;
+    set_model(&mut app.ui.ai.generate, ModelId::from_key(key).unwrap());
+    app
+}
+
+#[test]
+fn template_models_refine_and_upscale_only_through_refine() {
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _models = TemplateModels::new(FLUX3_FILES);
+    let flux = ModelId::from_key(FLUX3_KEY).expect("set up from its template").info();
+    assert!(fits_mode(flux, Mode::Refine), "an image model refines");
+    assert!(!fits_mode_with(flux, Mode::Upscale, false), "Upscale offers the official upscalers first");
+    assert!(fits_mode_with(flux, Mode::Upscale, true), "Choose another model… refine-upscales with it");
+    assert!(!runs_as_enhance(flux, Mode::Upscale), "it never goes to ai.enhance");
+}
+
+#[test]
+fn template_models_carry_their_setup_chip_and_failed_ones_wait_for_setup() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    crate::model_setup::record_actions();
+    let models = TemplateModels::new(&[FLUX3_FILES, KREA_FILES].concat());
+    let flux = ModelId::from_key(FLUX3_KEY).expect("set up from its template").info();
+    assert!(flux.recipe.is_some() && fits_mode(flux, Mode::Create) && fits_mode(flux, Mode::Fill));
+    let mut st = models.status();
+    assert_eq!(st.setup.status(FLUX3_KEY), Some(li_ai::modelsetup::state::Status::Ready));
+    st.setup.models.get_mut(KREA_KEY).unwrap().status = li_ai::modelsetup::state::Status::Failed;
+    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(st));
+    let mut h = panel_harness(app_on(FLUX3_KEY), vec2(520.0, 1100.0));
+    h.get_by_value(&flux.label).click();
+    h.run_steps(3);
+    h.get_by_label("Not tested");
+    h.get_by_label("OTHER INSTALLED MODELS");
+    let krea = ModelId::from_key(KREA_KEY).unwrap().info();
+    assert!(h.get_by_label(&krea.label).accesskit_node().is_disabled(), "a model whose test failed can't be picked");
+    h.get_all_by_label("Set up…").last().unwrap().click();
+    h.run_steps(3);
+    assert!(crate::model_setup::is_open());
+    assert_eq!(crate::model_setup::selected().as_deref(), Some(KREA_KEY));
+}
+
+#[test]
+fn the_new_models_banner_opens_set_up_models() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    crate::model_setup::record_actions();
+    let mut st = crate::ai_ui::EngineStatus {
+        connected: true,
+        checked: true,
+        presets: catalog::presets().iter().map(|p| (p.id(), Ok(()))).collect(),
+        ..Default::default()
+    };
+    st.setup.new = vec![FLUX3_KEY.into(), KREA_KEY.into()];
+    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(st));
+    let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    let mut h = panel_harness(app, vec2(420.0, 900.0));
+    h.get_by_label("2 new models found");
+    h.get_by_label("Set up…").click();
+    h.run_steps(3);
+    assert!(crate::model_setup::is_open());
+    assert_eq!(crate::model_setup::selected().as_deref(), Some(FLUX3_KEY));
+}
+
+#[test]
+fn enhance_prompt_is_off_until_the_enhancer_is_installed_and_remembered_per_model() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    crate::model_setup::record_actions();
+    {
+        let models = TemplateModels::new(FLUX3_FILES);
+        crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(models.status()));
+        let mut h = panel_harness(app_on(FLUX3_KEY), vec2(420.0, 1100.0));
+        assert!(h.get_by_label("Enhance prompt").accesskit_node().is_disabled());
+        h.get_by_label("Get the prompt enhancer…").click();
+        h.run_steps(3);
+        assert_eq!(crate::model_setup::selected().as_deref(), Some(FLUX3_KEY));
+    }
+    let models = TemplateModels::new(&[FLUX3_FILES, &[UPSAMPLER]].concat());
+    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(models.status()));
+    let mut h = panel_harness(app_on(FLUX3_KEY), vec2(420.0, 1100.0));
+    assert!(h.query_by_label("Get the prompt enhancer…").is_none());
+    h.get_by_label("Enhance prompt").click();
+    h.run_steps(3);
+    let s = h.state().ui.ai.generate.clone();
+    assert_eq!(s.enhance_prompt.get(FLUX3_KEY), Some(&true));
+    let (req, _, _) = local_request(&s, "a house".into(), None, Vec::new()).unwrap();
+    assert!(req.enhance);
+    let saved: GenerateState = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+    assert_eq!(saved.enhance_prompt.get(FLUX3_KEY), Some(&true));
+    assert!(serde_json::from_value::<GenerateState>(json!({})).unwrap().enhance_prompt.is_empty(), "off by default");
+}
+
+#[test]
+fn a_style_reference_model_labels_its_references_as_styles() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    crate::model_setup::record_actions();
+    let models = TemplateModels::new(KREA_FILES);
+    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(models.status()));
+    let krea = ModelId::from_key(KREA_KEY).unwrap().info();
+    assert!(krea.max_references > 0, "the style template takes references");
+    let h = panel_harness(app_on(KREA_KEY), vec2(420.0, 1100.0));
+    assert!(h.query_by_label_contains("Style references · 0/").is_some());
+}
+
+#[test]
+fn an_unknown_checkpoint_is_offered_for_refine_without_a_builder_check() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let info = li_ai::comfy::ObjectInfo(json!({"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["mystery_model.safetensors"]]}}}}));
+    li_ai::inventory::refresh(&info, None);
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            li_ai::inventory::refresh(&li_ai::comfy::ObjectInfo(json!({})), None);
+        }
+    }
+    let _reset = Reset;
+    let id = ModelId::from_key("ckpt:mystery_model.safetensors").expect("listed as installed");
+    assert_eq!(id.info().family, "unknown");
+    let presets: std::collections::BTreeMap<String, Result<(), String>> = catalog::presets()
+        .iter()
+        .map(|p| {
+            let a = catalog::availability(p, &info);
+            (p.id(), if a.available { Ok(()) } else { Err(a.reason) })
+        })
+        .collect();
+    let st = crate::ai_ui::EngineStatus { connected: true, checked: true, presets, ..Default::default() };
+    assert_eq!(refine_readiness(&st, id, catalog::default_variant(id)), Ok(()), "no builder node check blocks it");
+    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(st));
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.ui.ai.generate.mode = Mode::Refine;
+    app.ui.ai.generate.model = id.key().into();
+    let mut h = panel_harness(app, vec2(420.0, 1000.0));
+    h.get_by_value(&format!("{} · {}", id.info().label, id.info().family_label)).click();
+    h.run_steps(3);
+    assert!(!h.get_by_role_and_label(egui::accesskit::Role::Button, &id.info().label).accesskit_node().is_disabled());
+    assert!(h.query_by_label_contains("missing the nodes").is_none());
+}
+
+#[test]
+fn the_picker_does_not_repeat_a_family_already_in_the_model_name() {
+    assert_eq!(family_suffix("FLUX.3 Klein Distilled · BF16", "FLUX.3 Klein"), None);
+    assert_eq!(family_suffix("Krea 2 Turbo · BF16", "Krea 2"), None);
+    assert_eq!(family_suffix("Model", "Other family"), Some("Other family"));
 }

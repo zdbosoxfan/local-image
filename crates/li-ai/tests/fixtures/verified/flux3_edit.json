@@ -1,0 +1,139 @@
+{
+ "1": {
+  "class_type": "UNETLoader",
+  "inputs": {
+   "unet_name": "flux3-image-klein-bf16.safetensors",
+   "weight_dtype": "default"
+  }
+ },
+ "10": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "filename_prefix": "flux3_edit_flux3-image-klein-bf16.s_44",
+   "images": [
+    "9",
+    0
+   ]
+  }
+ },
+ "11": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "li_test_house.png"
+  }
+ },
+ "12": {
+  "class_type": "ConditioningZeroOut",
+  "inputs": {
+   "conditioning": [
+    "4",
+    0
+   ]
+  }
+ },
+ "13": {
+  "class_type": "ReferenceMultiLatent",
+  "inputs": {
+   "images.image0": [
+    "11",
+    0
+   ],
+   "negative": [
+    "12",
+    0
+   ],
+   "positive": [
+    "4",
+    0
+   ],
+   "resolution": "resize",
+   "resolution.megapixels": 1.0,
+   "vae": [
+    "3",
+    0
+   ]
+  }
+ },
+ "2": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "qwen3vl_4b_bf16.safetensors",
+   "device": "default",
+   "type": "flux3"
+  }
+ },
+ "3": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "flux2-vae.safetensors"
+  }
+ },
+ "4": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "clip": [
+    "2",
+    0
+   ],
+   "text": "Change the scene to bright midday sun with a clear blue sky. Keep the house, framing and composition exactly the same."
+  }
+ },
+ "5": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "clip": [
+    "2",
+    0
+   ],
+   "text": ""
+  }
+ },
+ "7": {
+  "class_type": "EmptyFlux2LatentImage",
+  "inputs": {
+   "batch_size": 1,
+   "height": 1024,
+   "width": 1024
+  }
+ },
+ "8": {
+  "class_type": "KSampler",
+  "inputs": {
+   "cfg": 1.0,
+   "denoise": 1.0,
+   "latent_image": [
+    "7",
+    0
+   ],
+   "model": [
+    "1",
+    0
+   ],
+   "negative": [
+    "13",
+    1
+   ],
+   "positive": [
+    "13",
+    0
+   ],
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "seed": 44,
+   "steps": 16
+  }
+ },
+ "9": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "8",
+    0
+   ],
+   "vae": [
+    "3",
+    0
+   ]
+  }
+ }
+}

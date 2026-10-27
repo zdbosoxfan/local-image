@@ -73,6 +73,11 @@ pub fn intercept(app: &mut PhotocraftApp, id: &str, params: &Value) -> bool {
     if docs.is_empty() {
         return false;
     }
+    // A lost window device cannot draw the prompt while recovery saves keep failing.
+    if id == EXIT && app.window_lost {
+        log::warn!("quitting a window that lost its GPU device before its unsaved work could be saved for recovery");
+        return false;
+    }
     let waiting = docs.first().copied().filter(|doc| crate::save_worker::pending(app, *doc));
     let prompt = Prompt {
         id: id.to_string(),
@@ -655,5 +660,37 @@ mod tests {
         app.allow_close = true;
         assert!(!press_window_close(&mut app));
         assert!(app.discard.is_none());
+    }
+
+    #[test]
+    fn window_close_goes_through_once_the_window_device_is_lost() {
+        let mut app = app_with_docs(1);
+        make_dirty(&mut app, 0);
+        app.window_lost = true;
+        assert!(!press_window_close(&mut app), "the close isn't cancelled");
+        assert!(app.discard.is_none(), "no prompt opened");
+    }
+
+    /// The title bar's close button and File > Exit run `file.exit` through `menus::invoke`, which
+    /// parks it behind the prompt before any close request is made: once the window's device is
+    /// lost they must close instead.
+    #[test]
+    fn file_exit_quits_without_a_prompt_once_the_window_device_is_lost() {
+        let exit = |app: &mut PhotocraftApp| {
+            let mut out = egui::Context::default().run_ui(egui::RawInput::default(), |ui| {
+                crate::menus::invoke(app, ui.ctx(), EXIT, json!({})).unwrap();
+            });
+            out.textures_delta.clear();
+            let commands = out.viewport_output.remove(&egui::ViewportId::ROOT).map(|o| o.commands).unwrap_or_default();
+            commands.iter().any(|c| matches!(c, egui::ViewportCommand::Close))
+        };
+        let mut app = app_with_docs(1);
+        make_dirty(&mut app, 0);
+        assert!(!exit(&mut app), "a window that can draw asks first");
+        assert!(app.discard.is_some());
+        app.discard = None;
+        app.window_lost = true;
+        assert!(exit(&mut app), "the window is asked to close");
+        assert!(app.discard.is_none(), "no prompt opened");
     }
 }

@@ -193,6 +193,9 @@ fn floating_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Document>, u
             copy_pixels: false,
         });
     }
+    if offset == (0, 0) && app.move_preview.as_ref().is_none_or(|preview| preview.offsets.is_empty()) {
+        return None;
+    }
     let st = app.session.documents().get(idx)?;
     let shown = app.move_preview.as_ref()?.offsets.last() != Some(&offset);
     if shown {
@@ -318,5 +321,22 @@ mod tests {
     fn bounding_box_preference_keeps_the_live_drag() {
         assert!(live(false), "by default the layer follows the pointer");
         assert!(live(true), "a bounding box must never disable the live pixels");
+    }
+
+    #[test]
+    fn floating_selection_uses_the_original_until_the_first_nonzero_offset() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 64, "height": 64, "background": "transparent"})).unwrap();
+        app.sync_views();
+        app.session.execute("select.rect", json!({"x": 8, "y": 8, "width": 16, "height": 16})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("select.float", json!({})).unwrap();
+        assert!(super::display_doc(&mut app, 0).is_none());
+        assert!(!super::showing(&app));
+        app.session.execute("select.float", json!({"dx": 7})).unwrap();
+        assert!(super::display_doc(&mut app, 0).is_some());
+        assert!(super::showing(&app));
+        app.session.execute("select.float", json!({"dx": -7})).unwrap();
+        assert!(super::display_doc(&mut app, 0).is_some(), "returning to zero updates an existing preview");
     }
 }

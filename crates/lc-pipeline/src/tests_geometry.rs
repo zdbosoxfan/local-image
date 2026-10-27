@@ -519,3 +519,189 @@ fn bugfix_develop_rotation_preserves_manual_and_upright_perspective() {
         }
     }
 }
+
+/// A facade shot with a 16 mm lens (full frame) tilted 20° up: with the photo's focal length,
+/// Upright Vertical makes the verticals parallel and keeps the facade's proportions (an assumed
+/// 27 mm camera makes it about 10 % too tall), and Auto corrects it rather than only levelling.
+#[test]
+fn upright_uses_the_photos_focal_length() {
+    use crate::transform::{focal_from_35mm, recentre, rot_x, rotation_homography};
+    let (w, h) = (720usize, 480usize);
+    let f = focal_from_35mm(16.0, w as f64, h as f64).expect("a plausible focal length");
+    // source (centred) → facade grid: the camera's pitch undone with its own focal length
+    let shot = recentre(&rotation_homography(&rot_x(-20f64.to_radians()), f));
+    let src = keystoned_grid(w, h, shot, 48.0);
+    let to_source = shot.inverse().expect("invertible");
+    let info = SourceInfo { focal_35mm: Some(16.0), ..Default::default() };
+    for mode in [Upright::Vertical, Upright::Auto] {
+        let fix = crate::upright::auto_transform(&src, &info, &DevelopSettings::default(), mode);
+        // facade → corrected image: a similarity when the correction is right
+        let c = |x: f64, y: f64| fix.apply(to_source.apply(Point::new(x, y)));
+        // within the analysis's precision (its vanishing point is a few percent off here; Auto at
+        // the assumed focal length left the lines leaning by 0.34)
+        for x in [-0.8, 0.0, 0.8] {
+            let lean = c(x, -0.5).x - c(x, 0.5).x;
+            assert!(lean.abs() < 0.012, "{mode:?}: the facade line at {x} leans by {lean:.4}");
+        }
+        let (o, e) = (c(0.0, 0.0), 1e-3);
+        let aspect = c(0.0, e).dist(o) / c(e, 0.0).dist(o);
+        assert!((aspect - 1.0).abs() < 0.01, "{mode:?}: corrected facade aspect {aspect:.4}");
+    }
+}
+
+/// Segments of `n` lines through `(x, 0)` for `x` in `-half..=half`, converging to the vanishing
+/// point `v` (centred units), each spanning `y ∈ [-0.45, 0.45]`.
+fn converging_segments(v: Point, n: usize, half: f64) -> Vec<Segment> {
+    (0..n)
+        .map(|i| {
+            let x = -half + 2.0 * half * i as f64 / (n - 1) as f64;
+            let at = |y: f64| Point::new(x + (v.x - x) * y / v.y, y);
+            Segment { a: at(-0.45), b: at(0.45) }
+        })
+        .collect()
+}
+
+/// How far a corrected segment leans (x change over its run, centred units).
+fn lean(h: &lightcraft_geom::Homography, s: &Segment) -> f64 {
+    (h.apply(s.a).x - h.apply(s.b).x).abs()
+}
+
+/// A tall building from street level with a 16 mm lens tilted 26° up puts the verticals' vanishing
+/// point 1.8 half-long-edges above the centre, inside the cutoff that keeps sun rays and roads to
+/// the horizon from being "corrected". Explicit Vertical and Full still take a steep vanishing
+/// point beyond the frame and near the vertical axis; Auto stays moderate.
+#[test]
+fn upright_vertical_and_full_correct_steep_tilts() {
+    use lightcraft_develop::Upright;
+    let f = 16.0 / 18.0;
+    let v = Point::new(0.0, -f / 26f64.to_radians().tan());
+    let mut segs = converging_segments(v, 9, 0.9);
+    segs.extend([-0.4, 0.0, 0.4].map(|y| Segment { a: Point::new(-0.8, y), b: Point::new(0.8, y) }));
+    let a = crate::upright::Analysis { extent: Some([1.0, 2.0 / 3.0]), focal: Some(f), ..crate::upright::analyze(&segs) };
+    assert!(a.vertical_vp.is_none() && a.vertical_vp_steep.is_some(), "{a:?}");
+    for mode in [Upright::Vertical, Upright::Full] {
+        let h = crate::upright::solve(mode, &a);
+        for s in &segs[..9] {
+            assert!(lean(&h, s) < 1e-6, "{mode:?}: {s:?} leans {}", lean(&h, s));
+        }
+    }
+    let auto = crate::upright::solve(Upright::Auto, &a);
+    assert!(lean(&auto, &segs[0]) > 0.1, "Auto keeps to moderate tilts");
+    // a portrait frame: the same tilt, the frame's half height is the long edge
+    let a = crate::upright::Analysis { extent: Some([2.0 / 3.0, 1.0]), ..a };
+    assert!(lean(&crate::upright::solve(Upright::Vertical, &a), &segs[0]) < 1e-6);
+    // converging inside the frame (sun rays): not a camera tilt, Vertical only levels
+    let rays = converging_segments(Point::new(0.0, -0.7), 9, 0.3);
+    let a = crate::upright::Analysis { extent: Some([1.0, 2.0 / 3.0]), ..crate::upright::analyze(&rays) };
+    assert!(a.vertical.len() == 9 && a.vertical_vp_steep.is_some(), "{a:?}");
+    let h = crate::upright::solve(Upright::Vertical, &a);
+    assert!(lean(&h, &rays[0]) > 0.3, "sun rays are left alone");
+}
+
+/// The same steep tilt found in a rendered facade, landscape and portrait: Vertical corrects it.
+#[test]
+fn upright_finds_steep_tilts_in_a_rendered_facade() {
+    use crate::transform::{recentre, rot_x, rotation_homography};
+    let f = 16.0 / 18.0;
+    for (w, h) in [(720usize, 480usize), (480, 720)] {
+        let shot = recentre(&rotation_homography(&rot_x(-26f64.to_radians()), f));
+        let src = keystoned_grid(w, h, shot, 48.0);
+        let to_source = shot.inverse().expect("invertible");
+        let info = SourceInfo { focal_35mm: Some(16.0), ..Default::default() };
+        let a = crate::upright::analyze_source(&src, &info, &DevelopSettings::default());
+        assert!(a.vertical_vp.is_none() && a.vertical_vp_steep.is_some(), "{w}×{h}: {:?} {:?}", a.vertical_vp, a.vertical_vp_steep);
+        let fix = crate::upright::solve(Upright::Vertical, &a);
+        let c = |x: f64, y: f64| fix.apply(to_source.apply(Point::new(x, y)));
+        for x in [-0.5, 0.0, 0.5] {
+            let lean = c(x, -0.4).x - c(x, 0.4).x;
+            assert!(lean.abs() < 0.01, "{w}×{h}: the facade line at {x} leans by {lean:.4}");
+        }
+    }
+}
+
+/// A flat wall with the same sensor noise everywhere, darkened 2 stops in the corners by the lens
+/// and brightened back by the profile's vignetting correction before noise reduction. The noise
+/// model assumes one noise level per signal level, which leaves the brightened corners far more
+/// grain than the centre; with the gain divided out around the denoiser they match denoising
+/// before the gain.
+#[test]
+fn noise_reduction_sees_the_raw_noise_under_vignetting_correction() {
+    use lightcraft_develop::EmbeddedRadial;
+    let (w, h) = (480usize, 320usize);
+    let mut radial = EmbeddedRadial { vig_count: 2, center: Point::new(0.5, 0.5), radius: 0.6, ..Default::default() };
+    radial.vig_knots[..2].copy_from_slice(&[0.0, 1.0]);
+    radial.attenuation[..2].copy_from_slice(&[1.0, 0.25]);
+    let info = SourceInfo { lens: Some(EmbeddedLens { radial: Some(radial), ..Default::default() }), ..Default::default() };
+    let mut s = DevelopSettings::default();
+    s.optics.lens_profile = true;
+    s.detail.nr_luminance = 60.0;
+    let attenuation = |x: usize, y: usize| {
+        let r = (x as f64 + 0.5 - w as f64 / 2.0).hypot(y as f64 + 0.5 - h as f64 / 2.0) / (0.6 * w as f64);
+        1.0 - 0.75 * r.min(1.0)
+    };
+    // the same noise everywhere on the sensor (a deterministic sum of uniforms)
+    let src = RgbFrame::from_fn(w, h, |x, y| {
+        let n: f64 = (0..4u64)
+            .map(|k| {
+                let mut v = (x as u64 * 7919 + y as u64 * 104_729 + k * 15_485_863).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                v ^= v >> 31;
+                (v % 10_000) as f64 / 10_000.0 - 0.5
+            })
+            .sum();
+        [(0.18 * attenuation(x, y) + 0.01 * n) as f32; 3]
+    });
+    let frame = crate::frame_for(&src, &info, &s, true);
+    let gain = frame.vignette_gain(w, h).expect("the profile corrects vignetting");
+    let (src_long, ppl) = (w, w as f64);
+    let mut fixed = frame.sample(&src, w, h);
+    crate::denoise_sampled(&mut fixed, &frame, &s, src_long, ppl, &info);
+    let mut reference = src.clone();
+    crate::local::denoise_source(&mut reference, &s, src_long, ppl, &info);
+    let reference = reference.zip_map(&gain, |p, k| p.map(|v| v * k));
+    // residual noise in a corner box and in the centre (the signal there is flat after the gain)
+    let std = |img: &RgbFrame, x0: usize, y0: usize| {
+        let v: Vec<f64> = (y0..y0 + 30).flat_map(|y| (x0..x0 + 40).map(move |x| (x, y))).map(|(x, y)| f64::from(img.get(x, y)[1])).collect();
+        let m = v.iter().sum::<f64>() / v.len() as f64;
+        (v.iter().map(|a| (a - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+    };
+    for (x0, y0) in [(4, 4), (w - 44, h - 34)] {
+        let (got, want) = (std(&fixed, x0, y0), std(&reference, x0, y0));
+        assert!((got / want - 1.0).abs() < 0.15, "corner at {x0},{y0}: residual {got:.5}, denoised before the gain {want:.5}");
+    }
+}
+
+/// A "horizon" of `deg` degrees: sky above, below it bands of `band` px (0: one edge only).
+fn tilted_scene(deg: f32, band: f32) -> RgbFrame {
+    let (w, h) = (900usize, 600usize);
+    let t = deg.to_radians().tan();
+    RgbFrame::from_fn(w, h, |x, y| {
+        let yh = h as f32 / 2.0 + (x as f32 - w as f32 / 2.0) * t;
+        if (y as f32) < yh {
+            [0.6, 0.7, 0.9]
+        } else if band > 0.0 && (((y as f32 - yh) / band) as i32) % 2 == 1 {
+            [0.1, 0.2, 0.3]
+        } else {
+            [0.05, 0.1, 0.2]
+        }
+    })
+}
+
+/// Auto straighten acts on several agreeing lines only: one edge (the frame of a window, a branch)
+/// turned straight photos in a measurement on real ones, so it is left alone.
+#[test]
+fn auto_straighten_needs_more_than_one_line() {
+    let level = |src: &RgbFrame| crate::upright::level_degrees(src, &SourceInfo::default(), &DevelopSettings::default());
+    assert_eq!(level(&tilted_scene(4.0, 0.0)), None, "one edge");
+    let deg = level(&tilted_scene(4.0, 30.0)).expect("a horizon and the bands below it");
+    assert!((deg + 4.0).abs() < 0.5, "{deg}");
+}
+
+/// Auto straighten turns by at most `STRAIGHTEN_MAX_DEGREES`: larger "levels" came from texture
+/// (planks, a bird's wing) on photos that were straight.
+#[test]
+fn auto_straighten_leaves_steep_lines_alone() {
+    let level = |src: &RgbFrame| crate::upright::level_degrees(src, &SourceInfo::default(), &DevelopSettings::default());
+    assert_eq!(level(&tilted_scene(20.0, 30.0)), None, "20° is not a horizon to level");
+    let deg = level(&tilted_scene(8.0, 30.0)).expect("8° is");
+    assert!((deg + 8.0).abs() < 0.5, "{deg}");
+}

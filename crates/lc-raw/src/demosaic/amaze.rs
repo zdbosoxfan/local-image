@@ -73,19 +73,20 @@ fn clampnan(x: f32, a: f32, b: f32) -> f32 {
         x
     }
 }
-pub(crate) fn amaze(m: &Mosaic) -> RgbFrame {
+/// `clip_pt`: the lowest channel's clip level in the (balanced) mosaic, where AMaZE stops trusting
+/// interpolated values (darktable: the smallest processed maximum).
+pub(crate) fn amaze(m: &Mosaic, clip_pt: f32) -> RgbFrame {
     // Upstream's 16-pixel mirror padding requires a 33-pixel minimum extent.
     // Extend tiny crops with parity-preserving reflection, then crop the result.
     if m.w < 33 || m.h < 33 {
         let (w, h) = (m.w.max(34), m.h.max(34));
         let data: Vec<f32> = (0..w * h).map(|i| m.get((i % w) as isize, (i / w) as isize)).collect();
-        let padded = amaze(&Mosaic { w, h, data: &data, cfa: m.cfa });
+        let padded = amaze(&Mosaic { w, h, data: &data, cfa: m.cfa }, clip_pt);
         return RgbFrame::from_fn(m.w, m.h, |x, y| padded.get(x, y));
     }
     let width = m.w as i32;
     let height = m.h as i32;
     let input = m.data;
-    let clip_pt = 1.0f32;
     let mut out = vec![[0.0f32; 3]; m.w * m.h];
     let clip_pt8: f32 = (0.8f32 * clip_pt);
     let ts: i32 = 160;
@@ -1606,7 +1607,7 @@ mod tests {
             let cfa = crate::Cfa::bayer(pat).unwrap();
             let data: Vec<f32> =
                 (0u32..(w * h) as u32).map(|i| ((i.wrapping_mul(1664525).wrapping_add(1013904223) >> 8) & 65535) as f32 / 65536.0).collect();
-            let out = amaze(&Mosaic { w, h, data: &data, cfa: &cfa });
+            let out = amaze(&Mosaic { w, h, data: &data, cfa: &cfa }, 1.0);
             let actual: Vec<f32> = out
                 .data
                 .iter()

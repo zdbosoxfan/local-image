@@ -115,7 +115,7 @@ pub fn paint(
         if linked {
             paint_chain(painter, chain.center(), if resp.hovered() { t.text } else { t.icon });
         } else if resp.hovered() {
-            paint_chain(painter, chain.center(), t.text_faint);
+            paint_chain(painter, chain.center(), t.text_secondary_on_fill);
         }
         let (verb, what, name) = (if linked { "Unlink" } else { "Link" }, kind.label(), l.name.clone());
         let resp = resp.on_hover_text(if linked { tl!("Unlink the mask from the layer") } else { tl!("Link the mask to the layer") });

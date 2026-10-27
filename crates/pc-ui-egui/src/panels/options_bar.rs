@@ -316,9 +316,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                         let (fg, bg) = (app.session.tools.foreground, app.session.tools.background);
                         if classic {
-                            gradient_swatch(ui, fg, bg);
+                            gradient_swatch(ui, fg, bg, app.ui.tool_options.gradient_method);
                         } else {
-                            crate::gradient_ui::preset_swatch(ui, &app.session.presets.gradient.resolve(fg, bg));
+                            crate::gradient_ui::preset_swatch(ui, &app.session.presets.gradient, fg, bg, app.ui.tool_options.gradient_method);
                         }
                         widgets::vline(ui, 22.0);
                         ui.spacing_mut().item_spacing.x = 2.0;
@@ -336,6 +336,11 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                         ui.spacing_mut().item_spacing.x = 8.0;
                         widgets::vline(ui, 22.0);
+                        opt_label(ui, tl!("Method"));
+                        let methods =
+                            [(photocraft_doc::GradientMethod::Classic, tl!("Classic")), (photocraft_doc::GradientMethod::Perceptual, tl!("Perceptual"))];
+                        widgets::dropdown(ui, "gradient-method", &mut app.ui.tool_options.gradient_method, &methods, 104.0);
+                        ui.ctx().accesskit_node_builder(ui.make_persistent_id(egui::IdSalt::new("gradient-method")), |node| node.set_label(tl!("Method")));
                         opt_label(ui, tl!("Mode"));
                         let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
                         widgets::dropdown(ui, "gradient-blend-mode", &mut app.ui.tool_options.gradient_blend_mode, &opts, 96.0);
@@ -735,7 +740,13 @@ pub(super) fn brush_preset_chip(
     let c = pos2(r.left() + 14.0, r.top() + 11.0);
     brush_tip(ui.painter(), c, 7.0, b.hardness, Color32::WHITE);
     ui.painter().text(pos2(c.x, r.bottom() - 5.0), Align2::CENTER_CENTER, format!("{}", b.size.round() as i64), egui::FontId::proportional(9.5), t.text_dim);
-    icons::paint(ui, Rect::from_center_size(pos2(r.right() - 9.0, c.y), vec2(10.0, 10.0)), "chevron-down", 9.0, t.text_faint);
+    icons::paint(
+        ui,
+        Rect::from_center_size(pos2(r.right() - 9.0, c.y), vec2(10.0, 10.0)),
+        "chevron-down",
+        9.0,
+        if resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
+    );
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Brush Preset picker")));
     let resp = resp.on_hover_text(tl!("Brush Preset picker"));
     egui::Popup::from_toggle_button_response(&resp)
@@ -764,17 +775,21 @@ pub(super) fn selection_mode_buttons(app: &mut PhotocraftApp, ui: &mut egui::Ui)
 }
 
 /// Gradient picker swatch (foreground → background), Photoshop options-bar style.
-pub(super) fn gradient_swatch(ui: &mut egui::Ui, a: [f32; 4], b: [f32; 4]) {
+pub(super) fn gradient_swatch(ui: &mut egui::Ui, a: [f32; 4], b: [f32; 4], method: photocraft_doc::GradientMethod) {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(96.0, 20.0), Sense::click());
-    let mut mesh = egui::Mesh::default();
-    mesh.colored_vertex(r.left_top(), c32(a));
-    mesh.colored_vertex(r.right_top(), c32(b));
-    mesh.colored_vertex(r.right_bottom(), c32(b));
-    mesh.colored_vertex(r.left_bottom(), c32(a));
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(0, 2, 3);
-    ui.painter().add(mesh);
+    if method == photocraft_doc::GradientMethod::Perceptual {
+        crate::gradient_ui::paint_ramp(ui.painter(), r, |u| photocraft_vector::gradient_method::sample_stops(method, &[(0.0, a), (1.0, b)], &[], &[], u));
+    } else {
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(r.left_top(), c32(a));
+        mesh.colored_vertex(r.right_top(), c32(b));
+        mesh.colored_vertex(r.right_bottom(), c32(b));
+        mesh.colored_vertex(r.left_bottom(), c32(a));
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        ui.painter().add(mesh);
+    }
     ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
     let _ = resp.on_hover_text(tl!("Click to edit the gradient"));
 }

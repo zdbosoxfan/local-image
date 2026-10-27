@@ -3814,7 +3814,9 @@ dependencies = [
  "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",
+ "prost",
  "rayon",
+ "rustix 1.1.5",
  "serde_json",
  "sha2",
  "tract-linalg",
@@ -3920,6 +3922,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "crc32fast",
  "li-fs",
+ "li-i18n",
  "lightcraft-develop",
  "lightcraft-meta",
  "log",
@@ -4104,6 +4107,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "half",
  "jpeg-encoder",
+ "jxl-oxide",
  "li-color",
  "li-raster",
  "lightcraft-geom",
@@ -4299,6 +4303,7 @@ dependencies = [
 name = "local-image-cli"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-ai",
  "lightcraft-raw",
  "lightcraft-sysmem",
  "lightcraft-tiff",
@@ -5386,6 +5391,7 @@ dependencies = [
  "flate2",
  "image",
  "li-color",
+ "photocraft-cms",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
@@ -7670,6 +7676,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

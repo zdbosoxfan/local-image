@@ -737,6 +737,7 @@ pub struct ToolOptions {
     pub feather: f32,
     /// linear | radial | angle | reflected | diamond
     pub gradient_style: String,
+    pub gradient_method: photocraft_doc::GradientMethod,
     pub gradient_reverse: bool,
     /// Gradient tool: dither to reduce 8-bit banding (Photoshop default on).
     pub gradient_dither: bool,
@@ -871,6 +872,7 @@ impl Default for ToolOptions {
             wand_sample: 1,
             feather: 0.0,
             gradient_style: "linear".into(),
+            gradient_method: photocraft_doc::GradientMethod::Classic,
             gradient_reverse: false,
             gradient_dither: true,
             gradient_classic: false,

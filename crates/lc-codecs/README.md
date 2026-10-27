@@ -46,7 +46,7 @@ CRW, MRW, X3F) are detected so the engine can route them to `lightcraft-raw`; `d
 | PSD / PSB | merged composite: 8/16/32-bit gray, RGB, CMYK, indexed, duotone (as gray); raw/RLE | — | ICC (1039), EXIF (1058), XMP (1060); ZIP-compressed composite, Lab and 1-bit unsupported |
 | JPEG XL | yes (jxl-oxide, feature `jxl`, default on) | — | enum colour → rendered straight to linear Rec.2020; ICC → our ICC path; orientation applied by the decoder (reported as 1) |
 | AVIF | **no** | yes (ravif/rav1e, native only, feature `avif`) | 8-bit sRGB, EXIF; no ICC in the muxer |
-| HEIC/HEIF | **no** (sniff only) | — | see gaps |
+| HEIC/HEIF | yes (still images) | — | shared `photocraft-codecs` with `heif` enabled by this crate, via `photocraft-heif` / `heic-rs`; container transforms applied (orientation 1) |
 
 ## Colour
 
@@ -76,13 +76,14 @@ All pure Rust, verified with `cargo info` / `cargo tree`:
 | photocraft-cms | GPL-3.0-or-later (workspace) | shared ICC parse/write, CMS |
 | jxl-oxide | MIT OR Apache-2.0 | JPEG XL decode |
 | ravif (+ rav1e, avif-serialize) | BSD-3-Clause / BSD-2-Clause | AVIF encode (native only; heavy to compile) |
+| heic-rs (=0.1.4, via photocraft-heif) | MIT OR Apache-2.0 | HEIC/HEIF still-image decode |
 
 Deliberately **not** used: anything AGPL from imazen (heic, zenjpeg, jxl-encoder, rav1d-safe),
 jpegxl-rs / imagequant (GPL / C), dav1d / libheif (C).
 
 ## Performance (Apple M-series, release, synthetic 24 MP JPEG q90 4:2:0)
 
-Run `cargo test --release -p lightcraft-codecs --test bench -- --ignored --nocapture`.
+Run `cargo test --release -p lightcraft-codecs --test it bench::bench_24mp_jpeg -- --exact --ignored --nocapture`.
 
 | Operation | Time |
 |---|---|
@@ -95,9 +96,10 @@ Run `cargo test --release -p lightcraft-codecs --test bench -- --ignored --nocap
 
 ## Gaps / limitations
 
-- **AVIF and HEIC decode**: no permissively licensed, pure-Rust AV1/HEVC decoder exists today
-  (dav1d/libheif are C; rav1d-safe and imazen's heic are AGPL). Files are sniffed and rejected with
-  `Error::Unsupported`; a raw-style embedded-preview path could be added for HEIC thumbnails.
+- **AVIF decode**: no permissively licensed, pure-Rust AV1 decoder exists today
+  (dav1d is C; rav1d-safe is AGPL). Files are sniffed and rejected with `Error::Unsupported`.
+- HEIC/HEIF: still images only; image sequences, overlays and identity derivations are unsupported.
+  Thumbnails decode the primary image before resizing, subject to the source pixel budget.
 - JPEG: arithmetic coding unsupported (as in both decoders); extended XMP (> 64 KiB) neither read
   nor written; EXIF > 64 KiB not written. The encoder uses standard Huffman tables (interleaved
   baseline) for maximum compatibility.

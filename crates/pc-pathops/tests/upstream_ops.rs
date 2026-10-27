@@ -36,6 +36,17 @@ fn shape(p: PathData, key: u64) -> Shape {
     Shape::new(p, NZ, key)
 }
 
+#[test]
+fn pf_outline_has_no_sliver_where_an_anchor_is_the_crossing() {
+    let shapes = [shape(rect(0., 0., 100., 100.), 0), shape(circle(100., 100., 50.), 1)];
+    let out = pathfinder(PathfinderOp::Outline, &shapes);
+    assert_eq!(out.len(), 4, "outline piece count");
+    for piece in out {
+        let length = piece.path.length();
+        assert!(length > 1., "sliver length: {length}");
+    }
+}
+
 fn has_curves(p: &PathData) -> bool {
     p.anchors().any(|(_, _, a)| a.has_in() || a.has_out())
 }

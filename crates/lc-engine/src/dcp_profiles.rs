@@ -210,7 +210,7 @@ pub fn apply_selected(raw: &mut RawImage, key: u64) {
 }
 fn apply_from(raw: &mut RawImage, key: u64, reg: &Registry) {
     let (make, model) = (raw.metadata.make.as_deref().unwrap_or_default(), raw.metadata.model.as_deref().unwrap_or_default());
-    let profile = if key == 0 {
+    let picked = if key == 0 {
         // Automatic preserves the existing choice; an embedded DNG profile takes precedence.
         if !raw.color.profile.is_empty() {
             return;
@@ -218,8 +218,11 @@ fn apply_from(raw: &mut RawImage, key: u64, reg: &Registry) {
         reg.profiles.values().filter(|(i, _)| matches(&i.model, make, model)).min_by_key(|(i, _)| (&i.group, &i.name, &i.id)).map(|(_, p)| p.clone())
     } else {
         reg.profiles.iter().find(|(id, (i, _))| selection_key(id) == key && matches(&i.model, make, model)).map(|(_, (_, p))| p.clone())
-    }
-    .or_else(|| Dcp::bundled(make, model).map(Arc::new));
+    };
+    // A picked profile that is gone renders with the bundled colour model, but the Camera look
+    // must not take the bundled tone curve for the user's pick.
+    let lost = key != 0 && key != selection_key("bundled") && picked.is_none();
+    let profile = picked.or_else(|| Dcp::bundled(make, model).map(Arc::new));
     if let Some(d) = profile {
         raw.color.color_matrix = d.color.color_matrix;
         raw.color.illuminant = d.color.illuminant;
@@ -229,9 +232,14 @@ fn apply_from(raw: &mut RawImage, key: u64, reg: &Registry) {
         raw.color.color_matrix_3 = d.color.color_matrix_3;
         raw.color.forward_matrix_3 = d.color.forward_matrix_3;
         // CameraCalibration belongs to the input file, not a profile.
-        raw.color.baseline_exposure += d.color.baseline_exposure;
+        // The exposure offset belongs to the active profile: the new one replaces the embedded one's.
+        raw.color.baseline_exposure += d.color.baseline_exposure_offset - raw.color.baseline_exposure_offset;
+        raw.color.baseline_exposure_offset = d.color.baseline_exposure_offset;
         raw.color.profile_calibration_signature = d.color.profile_calibration_signature.clone();
         raw.color.profile = d.color.profile.clone();
+        if lost {
+            raw.color.profile.tone_curve = None;
+        }
     }
 }
 
@@ -374,5 +382,56 @@ mod tests {
         let old = raw.color.clone();
         apply_from(&mut raw, selection_key("dcp:a"), &reg);
         assert_eq!(old, raw.color);
+    }
+
+    /// DNG: total exposure = BaselineExposure + the selected profile's BaselineExposureOffset. A
+    /// DNG's embedded-profile offset must not survive a switch to another profile.
+    #[test]
+    fn colorprofiles_selection_replaces_the_embedded_exposure_offset() {
+        let d = Dcp::parse(include_bytes!("../../lc-raw/data/dcp/NIKON_D7500.dcp")).unwrap();
+        let mut reg = Registry::default();
+        for (id, offset) in [("dcp:minus", -0.2), ("dcp:none", 0.0)] {
+            let mut profile = d.clone();
+            profile.color.baseline_exposure = offset;
+            profile.color.baseline_exposure_offset = offset;
+            let info = ProfileInfo { id: id.into(), name: id.into(), model: d.model.clone(), group: "Test".into(), path: PathBuf::new() };
+            reg.profiles.insert(id.into(), (info, Arc::new(profile)));
+        }
+        let mut raw = lightcraft_raw::decode(&crate::tests_xmp::synthetic_dng_with(None, Default::default())).unwrap();
+        raw.metadata.make = Some("Nikon".into());
+        raw.metadata.model = Some("D7500".into());
+        // BaselineExposure 0.5 with an embedded profile offset of 0.3
+        raw.color.baseline_exposure = 0.8;
+        raw.color.baseline_exposure_offset = 0.3;
+        let exposure = |key: &str| {
+            let mut r = raw.clone();
+            apply_from(&mut r, selection_key(key), &reg);
+            let t = lightcraft_raw::color::camera_transform(&r, lightcraft_raw::color::as_shot_white_xy(&r));
+            t.baseline_exposure
+        };
+        assert!((exposure("dcp:minus") - 0.3).abs() < 1e-9, "{}", exposure("dcp:minus"));
+        assert!((exposure("dcp:none") - 0.5).abs() < 1e-9, "{}", exposure("dcp:none"));
+        let mut matrix = raw.clone();
+        apply_selected(&mut matrix, 1);
+        assert!((matrix.color.baseline_exposure - 0.8).abs() < 1e-9, "the matrix choice keeps the embedded profile's offset");
+    }
+
+    #[test]
+    fn a_missing_pick_renders_the_bundled_colour_without_its_tone_curve() {
+        let bundled = Dcp::bundled("Nikon", "D7500").expect("a bundled D7500 profile");
+        assert!(bundled.color.profile.tone_curve.is_some());
+        let mut raw = lightcraft_raw::decode(&crate::tests_xmp::synthetic_dng_with(None, Default::default())).unwrap();
+        raw.metadata.make = Some("Nikon".into());
+        raw.metadata.model = Some("D7500".into());
+        let decode = |id: &str| {
+            let mut r = raw.clone();
+            apply_from(&mut r, selection_key(id), &Registry::default());
+            r.color
+        };
+        let (auto, chosen, lost) = (decode(""), decode("bundled"), decode("dcp:removed"));
+        assert_eq!(auto.profile, bundled.color.profile);
+        assert_eq!(chosen.profile, bundled.color.profile);
+        assert_eq!(lost.forward_matrix, bundled.color.forward_matrix);
+        assert!(lost.profile.tone_curve.is_none());
     }
 }

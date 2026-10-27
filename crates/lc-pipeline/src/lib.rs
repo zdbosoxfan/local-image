@@ -46,10 +46,12 @@ pub mod colorcal;
 pub mod colorequal;
 pub mod colorops;
 pub mod cull;
+pub mod curve;
 pub mod detail;
 pub mod dust;
 pub mod eigf;
 pub mod finish;
+pub mod gamut;
 pub mod geometry;
 pub mod layers;
 pub mod lcp;
@@ -157,6 +159,9 @@ pub struct SourceInfo {
     /// Original Sony curves from the single lc-meta reader; converted only if no embedded map exists.
     pub sony_lens: Option<lightcraft_develop::SonyLensData>,
     pub source_orientation: lightcraft_geom::Orientation,
+    /// 35 mm-equivalent focal length (equivalent by the diagonal, as EXIF
+    /// FocalLengthIn35mmFormat), for Upright's camera model.
+    pub focal_35mm: Option<f64>,
     /// Linear camera -> working basis for calibrated per-plane CA.
     pub lens_camera_to_working: Option<li_color::Mat3>,
     /// Nonlinear fitted look is evaluated after lens geometry.
@@ -223,6 +228,7 @@ impl Default for SourceInfo {
             embedded_ca_baked: false,
             sony_lens: None,
             source_orientation: lightcraft_geom::Orientation::Normal,
+            focal_35mm: None,
             relative_wb: false,
             camera_color: None,
             camera_profile: None,
@@ -257,7 +263,8 @@ pub struct RenderRequest {
     pub apply_crop: bool,
     /// A diagnostic view drawn over the result (e.g. Point Color's "visualize range").
     pub overlay: Overlay,
-    /// Colour space of the result (exports; previews stay sRGB).
+    /// Colour space of the result: an export's, or for a view the narrowest one holding the
+    /// monitor's gamut (thumbnails stay sRGB).
     pub space: OutputSpace,
     /// Sample format: 8-bit only, or also a 16-bit / linear float [`Rendered::deep`] (exports).
     pub depth: OutputDepth,
@@ -311,6 +318,10 @@ pub(crate) struct Prepared {
     pub px_per_long: f64,
     /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
     pub tone_eq: Option<Arc<GrayFrame>>,
+    /// The image and log luminance range and brush masks select on when they are not `img`:
+    /// the primary stage's input, on which that stage evaluated the same masks, or under a layer
+    /// stack the Background's image.
+    pub selection: Option<(Arc<RgbFrame>, Arc<GrayFrame>)>,
     /// sharpening: `log_l` blurred once and twice, and the blur radius (output px).
     pub sharp: Option<(Arc<GrayFrame>, Arc<GrayFrame>, f32)>,
     pub layer_sharp: Vec<(usize, Arc<GrayFrame>, Arc<GrayFrame>, f32)>,
@@ -344,16 +355,17 @@ pub fn frame_for(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, apply_c
     let mut frame =
         geometry::Frame::with_lcp(src.width, src.height, &settings, apply_crop, embedded.as_ref(), info.lens_db.as_ref(), info.lcp.as_ref());
     let profile_ca = frame.warp.as_ref().is_some_and(|w| w.profile_ca());
-    if let Some(warp) = frame.warp.as_mut().filter(|_| profile_ca)
-        && let Some(forward) = info.lens_camera_to_working
-        && let Some(undo) = forward.inverse()
-    {
-        warp.camera_basis = Some([undo, forward]);
-    }
+    // Lateral CA displaces the sensor's own colour planes, which the raw loader has already mixed
+    // into working RGB: calibrated, estimated and manual CA alike are measured and corrected on
+    // camera planes, or a shifted plane drags the other planes' share of it along.
+    let basis = info.lens_camera_to_working.and_then(|forward| forward.inverse().map(|undo| [undo, forward]));
     // The estimator sees the uncorrected source. Applying it on top of a
     // calibrated CA profile would correct the same displacement twice.
     if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca && !info.embedded_ca_baked {
-        frame.add_lateral_ca(optics::estimate_lateral_ca(src));
+        frame.add_lateral_ca(optics::estimate_lateral_ca(src, basis.map(|[undo, _]| undo)));
+    }
+    if let Some(warp) = frame.warp.as_mut().filter(|w| w.per_channel()) {
+        warp.camera_basis = basis;
     }
     frame
 }
@@ -442,7 +454,7 @@ impl StageCache {
                 add(Arc::as_ptr(image) as usize, size(image));
             }
             let pl = &e.planes;
-            let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
+            let planes = pl.log_l.iter().chain(&pl.selection_log).chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
             for p in planes.chain(pl.texture.iter().map(|x| &x.1)) {
                 add(Arc::as_ptr(p) as usize, size(p));
             }
@@ -562,7 +574,12 @@ pub fn plan<'a>(src: &RgbFrame, info: &SourceInfo, s: &'a DevelopSettings, req: 
             info.source_hue_sat.as_ref().map(|p| Arc::as_ptr(p) as usize),
             info.camera_noise.map(|n| (n.a.map(f32::to_bits), n.b.map(f32::to_bits), n.camera_to_working.map(|r| r.map(f32::to_bits)))),
         ),
-        (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
+        (
+            info.baseline_gain.to_bits(),
+            info.sensor_scale.to_bits(),
+            // a profile's look table sees the exposed values
+            info.camera_profile.as_ref().filter(|p| p.look_table.is_some()).map(|_| s.light.exposure.to_bits()),
+        ),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }
@@ -594,11 +611,7 @@ pub fn layers_need_cpu(_s: &DevelopSettings) -> bool {
 /// the positive image.
 pub fn lin_cpu(img: &mut RgbFrame, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
-    if let Some(table) = info.source_hue_sat.as_ref()
-        && let Some(look) = source_color::HueSat::new(table)
-    {
-        img.map_in_place(|rgb| look.apply(rgb));
-    }
+    local::source_look(img, info);
     // AI removals first: their patches are in the source's own light (before white balance)
     patches::apply_spots(img, &s.spots, &p.frame);
     local::white_balance(img, info, s);
@@ -606,6 +619,31 @@ pub fn lin_cpu(img: &mut RgbFrame, info: &SourceInfo, p: &Plan<'_>) {
     optics::defringe(img, s, p.px_per_long / optics::DEFRINGE_REF_LONG);
     spots::apply(img, &s.spots, &p.frame, p.px_per_long);
     redeye::apply(img, &p.eyes);
+}
+
+/// Noise reduction of the resampled image ([`local::denoise_source`]). The lens warp has already
+/// brightened vignetted corners by up to a few stops, but the noise models assume one noise level
+/// per signal level across the frame, which would leave the corners up to twice their share of
+/// grain. The gain is divided out around the denoiser (a per-pixel scale, it commutes with white
+/// balance and the colour matrices), so the corners are denoised as their raw noise is.
+pub fn denoise_sampled(img: &mut RgbFrame, frame: &geometry::Frame, s: &DevelopSettings, src_long: usize, px_per_long: f64, info: &SourceInfo) {
+    let scale = detail::out_per_orig(px_per_long, src_long, info.sensor_scale);
+    let gain = detail::nr_params(s, scale).and_then(|_| frame.vignette_gain(img.width, img.height));
+    let scale_by = |img: &mut RgbFrame, k: &li_raster::GrayFrame, divide: bool| {
+        let w = img.width;
+        li_raster::par_rows(&mut img.data, w, |y, row| {
+            for (p, k) in row.iter_mut().zip(k.row(y)) {
+                *p = p.map(|v| if divide { v / k } else { v * k });
+            }
+        });
+    };
+    if let Some(k) = &gain {
+        scale_by(img, k, true);
+    }
+    local::denoise_source(img, s, src_long, px_per_long, info);
+    if let Some(k) = &gain {
+        scale_by(img, k, false);
+    }
 }
 
 /// Capture sharpening of a source with `info` under `s` (see [`capture`]): `None` when it is off,
@@ -766,7 +804,7 @@ fn render_impl(
             // Without a cache the resampled buffer is ours: work on it in place.
             let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
             lin_cpu(&mut img, info, &plan);
-            local::denoise_source(&mut img, s, src_long, px_per_long, info);
+            denoise_sampled(&mut img, &frame, s, src_long, px_per_long, info);
             Arc::new(img)
         }
     };
@@ -794,7 +832,9 @@ fn render_impl(
         Some(p) if p.key == planes_key => p,
         _ => local::Planes { key: planes_key, ..Default::default() },
     };
-    let prep = local::prepare(prepared_lin, s, info, &frame, px_per_long, src_long, req.quality, &mut planes);
+    // Masks, hidden ones included, select on the primary stage's input.
+    let selection = (primary.is_some() && !stack_settings.as_ref().unwrap_or(s).masks.is_empty()).then(|| lin.clone());
+    let prep = local::prepare(prepared_lin, selection, s, info, &frame, px_per_long, src_long, req.quality, &mut planes);
     lap("prepare", &mut t);
     let result = if let Some(original) = &stack_settings {
         let layers::Stacked { image, background_renders: background, layer_renders: layers, masks, diagnostic } =
@@ -803,6 +843,7 @@ fn render_impl(
             *c.stack_renders.lock().unwrap_or_else(|e| e.into_inner()) = (background, layers);
         }
         let mut p = prep.clone();
+        p.selection.get_or_insert_with(|| (prep.img.clone(), prep.log_l.clone()));
         p.img = image;
         p.masks = masks;
         p.masks.extend(prep.masks.clone());
@@ -821,41 +862,9 @@ fn render_impl(
     result
 }
 
-/// A CPU finish stage inside the GPU renderer, for the faithful EIGF tone equalizer.
-/// Geometry, white balance, and noise reduction have already run on the device.
-pub fn finish_scene_stage(mut img: Arc<RgbFrame>, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {
-    if layers::active(&plan.settings) {
-        let original = &*plan.settings;
-        let mut background = Plan { settings: Cow::Owned(layers::background(original)), ..plan.clone() };
-        let key = layers::background_key(&background, info, req.quality, primary::DEFAULT_HS_METHOD);
-        if primary::active(&background.settings) {
-            let proxy = if primary::needs_proxy(&background.settings) { (*img).clone() } else { RgbFrame::new(0, 0) };
-            img = Arc::new(primary::process(&img, &proxy, info, &background, primary::DEFAULT_HS_METHOD));
-            background.settings = Cow::Owned(visualize::remaining_for_overlay(req.overlay, &background.settings));
-        }
-        let mut prep = local::prepare(
-            img,
-            &background.settings,
-            info,
-            &background.frame,
-            background.px_per_long,
-            background.src_long,
-            req.quality,
-            &mut local::Planes::default(),
-        );
-        let stacked = layers::stack(&prep, &background, original, info, req, primary::DEFAULT_HS_METHOD, key, &mut layers::Cache::default());
-        prep.img = stacked.image;
-        let background_masks = std::mem::take(&mut prep.masks);
-        prep.masks = stacked.masks;
-        prep.masks.extend(background_masks);
-        return finish_stack(&prep, plan, info, req, stacked.diagnostic.as_ref());
-    }
-    let prep = local::prepare(img, &plan.settings, info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
-    finish_prepared(&prep, plan, info, req)
-}
-
 fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest, diagnostic: Option<&GrayFrame>) -> Rendered {
-    let neutral = DevelopSettings::default();
+    // the photo's LUT profile: the Output pass doesn't apply it again, but leaves out the output knee
+    let neutral = DevelopSettings { profile: plan.settings.profile.clone(), ..DevelopSettings::default() };
     let deep = (req.depth != OutputDepth::U8)
         .then(|| finish::finish_deep_mode(prep, &neutral, &plan.frame, info, req.space, req.depth, req.proof.clone(), finish::FinishMode::Output));
     let mut image = deep.as_ref().map_or_else(
@@ -868,12 +877,14 @@ fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &Rende
             None
         } else if let Some(m) = req.overlay.mask(&plan.settings)
             && masks::scalar_alpha(m).is_none()
+            && !m.tools.is_empty()
             && !prep.masks.iter().any(|mask| mask.id == m.id)
         {
+            // A hidden layer selects on the finished layers below it, approximated by the stack.
             let log = prep.img.map(local::log_lum);
             Some(masks::evaluate_one_tone(m, &plan.frame, plan.w, plan.h, &prep.img, &log, 0.0, Some(&ToneMap::working_identity())))
         } else {
-            overlay_alpha(req.overlay, plan, prep)
+            overlay_alpha(req.overlay, plan, prep, info)
         };
         visualize::apply(&mut image, req.overlay, plan, diagnostic.or(mask.as_ref()));
     }
@@ -892,7 +903,7 @@ fn finish_prepared(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &Re
     let image = finish::finish(prep, s, frame, info, req.space, req.proof.clone());
     let histogram = Histogram::of_srgb8(&image);
     let mut image = image;
-    let mask = overlay_alpha(req.overlay, plan, prep);
+    let mask = overlay_alpha(req.overlay, plan, prep, info);
     visualize::apply(&mut image, req.overlay, plan, mask.as_ref());
     Rendered { image, histogram, deep: None }
 }
@@ -916,7 +927,7 @@ pub fn color_range_sample(
         return None;
     }
     let gain = (s.light.exposure as f32).exp2();
-    let tone = tone2::tone_map(s, info, s.light.contrast, 0., 0.);
+    let tone = masks::selection_tone(s, info);
     let mut acc = [0f64; 3];
     let mut n = 0.0;
     for y in (cy - 1).max(0)..=(cy + 1).min(plan.h as i64 - 1) {
@@ -973,9 +984,10 @@ pub fn skin_reference_sample(
     Some([c[0] as f64, c[1] as f64, c[2].to_degrees().rem_euclid(360.) as f64])
 }
 
-/// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
-/// fresh evaluation. Full coverage is drawn scalarly and needs no diagnostic plane either.
-fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<GrayFrame> {
+/// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) the
+/// one it would select once shown. Full coverage is drawn scalarly and needs no diagnostic plane
+/// either.
+fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared, info: &SourceInfo) -> Option<GrayFrame> {
     if let Some(skin) = o.skin(&plan.settings).filter(|s| s.reference.is_some()) {
         return Some(visualize::skin_alpha(&prep.img, skin, (plan.settings.light.exposure as f32).exp2()));
     }
@@ -1002,7 +1014,8 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<GrayFra
         });
     }
     let ev = plan.settings.light.exposure as f32;
-    Some(masks::evaluate_one(m, &plan.frame, plan.w, plan.h, &prep.img, &prep.log_l, ev))
+    let (img, log) = prep.selection.as_ref().map_or((&prep.img, &prep.log_l), |(img, log)| (img, log));
+    Some(masks::evaluate_one_tone(m, &plan.frame, plan.w, plan.h, img, log, ev, Some(&masks::selection_tone(&plan.settings, info))))
 }
 
 /// Convenience: render a before/after pair side by side is up to the UI; this renders "before"
@@ -1080,8 +1093,8 @@ fn develop_c_full_overlay_keeps_scalar_alpha_even_when_hidden() {
     };
     let plan = plan(&src, &info, &s, &req);
     let img = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
-    let prep = local::prepare(img, &s, &info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
-    assert!(overlay_alpha(req.overlay, &plan, &prep).is_none(), "Full diagnostics must not expand scalar coverage into a plane");
+    let prep = local::prepare(img, None, &s, &info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
+    assert!(overlay_alpha(req.overlay, &plan, &prep, &info).is_none(), "Full diagnostics must not expand scalar coverage into a plane");
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
     s.masks[0].visible = false;
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));

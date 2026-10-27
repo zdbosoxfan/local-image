@@ -177,7 +177,13 @@ fn group_header(ui: &mut egui::Ui, label: &str, open: bool, count: usize) -> boo
     let folder = if open { "folder-open" } else { "folder" };
     icons::paint(ui, egui::Rect::from_min_size(pos2(x + 16.0, r.center().y - 8.0), vec2(16.0, 16.0)), folder, 14.0, t.icon);
     ui.painter().text(pos2(x + 37.0, r.center().y), egui::Align2::LEFT_CENTER, label, theme::semibold(12.0), t.text);
-    ui.painter().text(pos2(r.right() - 6.0, r.center().y), egui::Align2::RIGHT_CENTER, count.to_string(), theme::medium(11.0), t.text_faint);
+    ui.painter().text(
+        pos2(r.right() - 6.0, r.center().y),
+        egui::Align2::RIGHT_CENTER,
+        count.to_string(),
+        theme::medium(11.0),
+        if resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
+    );
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, label));
     resp.clicked()
 }

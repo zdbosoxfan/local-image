@@ -477,6 +477,58 @@ fn add_noise(p: &mut [f32], s: &Seg, id: usize, noise: f32) {
     }
 }
 
+/// White-balance a mosaic's samples into `input` (darktable's clip and opponent math work on
+/// balanced data); returns the number of samples at or above their balanced clip level.
+fn balanced_input(n: &Normalized, cfa: &Cfa, wb: [f32; 3], clips: [f32; 3], input: &mut [f32]) -> usize {
+    let w = n.width;
+    input
+        .par_chunks_mut(w)
+        .zip(n.data.par_chunks(w))
+        .enumerate()
+        .map(|(y, (out, row))| {
+            let mut count = 0;
+            for (x, (value, &v)) in out.iter_mut().zip(row).enumerate() {
+                let c = cfa.color_at(x, y) as usize;
+                *value = v * wb[c];
+                count += usize::from(*value >= clips[c]);
+            }
+            count
+        })
+        .sum()
+}
+
+/// Write the clipped samples of the balanced `output` back to camera values; unclipped samples
+/// stay bit-for-bit as they were.
+fn write_clipped(n: &mut Normalized, cfa: &Cfa, wb: [f32; 3], clips: [f32; 3], input: &[f32], output: &[f32]) {
+    let w = n.width;
+    n.data.par_iter_mut().enumerate().for_each(|(i, v)| {
+        let c = cfa.color_at(i % w, i / w) as usize;
+        if input[i] >= clips[c] {
+            *v = output[i] / wb[c];
+        }
+    });
+}
+
+/// darktable's "inpaint opposed" on the mosaic (`_process_opposed`), before demosaic: a clipped
+/// sample becomes the cube-root mean of the two other colours around it plus a chrominance offset
+/// measured near the clipped areas. Returns the number of clipped samples.
+pub fn opposed_cfa(n: &mut Normalized, wb: [f32; 3], clip: f32) -> usize {
+    let Some(cfa) = n.cfa.clone() else { return 0 };
+    let (w, h) = (n.width, n.height);
+    if n.cpp != 1 || w < 3 || h < 3 || n.data.len() != w * h {
+        return 0;
+    }
+    let wb = wb.map(|v| if v.is_finite() && v > 0.0 { v } else { 1.0 });
+    let clips = wb.map(|v| clip.max(0.1) * v);
+    let mut input = vec![0.0; w * h];
+    let count = balanced_input(n, &cfa, wb, clips, &mut input);
+    if count > 0 {
+        let output = opposed(&input, w, h, &cfa, clips);
+        write_clipped(n, &cfa, wb, clips, &input, &output);
+    }
+    count
+}
+
 /// Reconstruct normalized CFA samples before demosaic. Returns the number of clipped samples.
 /// Bayer and X-Trans are supported; linear RGB and monochrome inputs are left to the RGB stage.
 pub fn segmentation(n: &mut Normalized, wb: [f32; 3], clip: f32, opts: &SegmentationOptions) -> usize {
@@ -490,20 +542,7 @@ pub fn segmentation(n: &mut Normalized, wb: [f32; 3], clip: f32, opts: &Segmenta
     let clips = wb.map(|v| clip * v);
     let cubes = clips.map(f32::cbrt);
     let mut input = vec![0.0; w * h];
-    let count: usize = input
-        .par_chunks_mut(w)
-        .zip(n.data.par_chunks(w))
-        .enumerate()
-        .map(|(y, (out, row))| {
-            let mut count = 0;
-            for (x, (value, &v)) in out.iter_mut().zip(row).enumerate() {
-                let c = cfa.color_at(x, y) as usize;
-                *value = v * wb[c];
-                count += usize::from(*value >= clips[c]);
-            }
-            count
-        })
-        .sum();
+    let count = balanced_input(n, cfa, wb, clips, &mut input);
     if count == 0 {
         return 0;
     }
@@ -680,13 +719,8 @@ pub fn segmentation(n: &mut Normalized, wb: [f32; 3], clip: f32, opts: &Segmenta
             }
         }
     }
-    n.data.par_iter_mut().enumerate().for_each(|(i, v)| {
-        let c = cfa.color_at(i % w, i / w) as usize;
-        // Preserve unclipped samples bit-for-bit across the temporary WB conversion.
-        if input[i] >= clips[c] {
-            *v = output[i] / wb[c];
-        }
-    });
+    let cfa = cfa.clone();
+    write_clipped(n, &cfa, wb, clips, &input, &output);
     count
 }
 

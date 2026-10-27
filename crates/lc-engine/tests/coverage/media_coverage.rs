@@ -55,6 +55,43 @@ fn content_key_uses_hash_demo_and_file() {
 }
 
 #[test]
+fn upright_discards_results_for_replaced_content() {
+    use serde_json::json;
+    use std::time::{Duration, Instant};
+
+    let mut s = Session::new();
+    s.media.file_loader = Some(Arc::new(|_, _| Ok((RgbFrame::filled(64, 48, [0.5; 3]), SourceInfo::default()))));
+    for id in [PhotoId(1), PhotoId(2), PhotoId(3)] {
+        let path = format!("{}.tif", id.0);
+        let mut photo = Photo::new(id, Source::File { path: path.clone() }, &path, "TIFF", 64, 48, "2026-01-01");
+        photo.content_hash = Some(format!("original-{}", id.0));
+        if id == PhotoId(1) {
+            let mut settings = DevelopSettings::default();
+            settings.geometry.upright = lightcraft_develop::Upright::Level;
+            settings.geometry.upright_transform = Some(lightcraft_geom::Homography::IDENTITY);
+            photo.develop = Arc::new(settings);
+        }
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    }
+    s.execute("library.select", &json!({"ids": [1, 2, 3], "active": 1})).unwrap();
+    s.execute("develop.sync", &json!({"groups": ["geometry"]})).unwrap();
+    assert_eq!(s.upright.jobs().len(), 1);
+    let start = Instant::now();
+    while s.upright.busy() {
+        assert!(start.elapsed() < Duration::from_secs(60), "Upright analysis finishes before polling");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    s.catalog
+        .apply(Op::SetContent { id: PhotoId(2), width: 64, height: 48, file_size: 0, content_hash: Some("replacement".into()), preview_only: None })
+        .unwrap();
+    s.media.forget(PhotoId(2));
+
+    assert_eq!(s.upright_poll(), 1, "only the unchanged source receives its analysis");
+    assert!(s.develop_of(PhotoId(2)).unwrap().upright_unsolved(), "replacement pixels keep no transform from the old source");
+    assert!(s.develop_of(PhotoId(3)).unwrap().geometry.upright_transform.is_some(), "the unchanged source keeps its completed analysis");
+}
+
+#[test]
 fn source_info_demo_and_file() {
     let p_demo = Photo::new(PhotoId(1), Source::Demo { scene: 1 }, "demo", "RAW", 3000, 2000, "2026-01-01");
     assert!(media::source_info(&p_demo).raw);

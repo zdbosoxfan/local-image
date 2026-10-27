@@ -238,6 +238,52 @@ impl Gesture {
         let q = ops::geom::Point::new(p.x, p.y);
         Ok(self.face_map()?.hits.iter().position(|(bez, bounds)| bounds.contains(q) && bez.winding(q) != 0))
     }
+    /// Faces crossed by a pointer segment, in encounter order, including its endpoints.
+    pub fn faces_along(&self, a: Point, b: Point) -> Result<Vec<usize>> {
+        for p in [a, b] {
+            bounded(p.x, -MAX_COORD, MAX_COORD)?;
+            bounded(p.y, -MAX_COORD, MAX_COORD)?;
+        }
+        let start = ops::geom::Point::new(a.x, a.y);
+        let end = ops::geom::Point::new(b.x, b.y);
+        let bounds = ops::geom::Rect::from_points(start, end);
+        let len = start.distance(end);
+        if len == 0.0 {
+            return Ok(self.face_at(a)?.into_iter().collect());
+        }
+        let mut crossings: Vec<f64> = Vec::new();
+        for (path, hit_bounds) in &self.face_map()?.hits {
+            if hit_bounds.x0 > bounds.x1 || hit_bounds.x1 < bounds.x0 || hit_bounds.y0 > bounds.y1 || hit_bounds.y1 < bounds.y0 {
+                continue;
+            }
+            for segment in path.segments() {
+                crossings.extend(segment.intersect_line((start, end).into()).iter().map(|hit| hit.line_t));
+            }
+        }
+        crossings.retain(|t| t.is_finite() && *t > 0.0 && *t < 1.0);
+        crossings.sort_by(f64::total_cmp);
+        let mut probes = vec![a];
+        let mut from = 0.0;
+        for to in crossings.into_iter().chain([1.0]) {
+            // Coincident crossings are one place; every intervening stretch gets a probe.
+            if (to - from) * len > 1e-9 {
+                let t = (from + to) * 0.5;
+                probes.push(Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+                from = to;
+            }
+        }
+        probes.push(b);
+        let mut faces = Vec::new();
+        let mut seen = BTreeSet::new();
+        for probe in probes {
+            if let Some(face) = self.face_at(probe)?
+                && seen.insert(face)
+            {
+                faces.push(face);
+            }
+        }
+        Ok(faces)
+    }
     pub fn face_style(&self, face: usize) -> Result<LayerId> {
         let i = self.arrangement()?.regions.get(face).and_then(ops::Region::top).unwrap_or(0);
         self.inputs.get(i).map(|l| l.id).ok_or_else(|| error("face has no selected style source"))
@@ -341,7 +387,7 @@ impl Gesture {
                 }
                 for line in &map.lines {
                     let raw = ops::to_geometry(&line.path);
-                    let between = raw.subpaths.first().filter(|sp| sp.segment_count() > 0).is_some_and(|sp| {
+                    let between = if let Some(sp) = raw.subpaths.first().filter(|sp| sp.segment_count() > 0) {
                         let c = sp.segment(sp.segment_count() / 2);
                         let mid = c.eval(0.5);
                         let a = c.eval(0.49);
@@ -349,13 +395,18 @@ impl Gesture {
                         let d = b - a;
                         let len = d.hypot();
                         if len <= 1e-12 {
-                            return false;
+                            false
+                        } else {
+                            let mut sides = [None; 2];
+                            for (index, side) in [1.0, -1.0].into_iter().enumerate() {
+                                let q = Point::new(mid.x - d.y / len * 0.001 * side, mid.y + d.x / len * 0.001 * side);
+                                sides[index] = self.face_at(q)?;
+                            }
+                            matches!(sides, [Some(a), Some(b)] if a != b && chosen.contains(&a) && chosen.contains(&b))
                         }
-                        [1.0, -1.0].iter().all(|side| {
-                            let q = Point::new(mid.x - d.y / len * 0.001 * side, mid.y + d.x / len * 0.001 * side);
-                            self.face_at(q).ok().flatten().is_some_and(|i| chosen.contains(&i))
-                        })
-                    });
+                    } else {
+                        false
+                    };
                     if !between {
                         plan.add(line.key as usize, line.path.clone());
                     }

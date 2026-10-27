@@ -34,7 +34,9 @@ const FIELDS: &[(&str, usize)] = &[
     ("CURVE_OFF", 1),
     ("CURVES", 1),
     ("CURVE_LUM", 1),
-    ("SOFT_GAMUT", 1),
+    ("HARD_CLIP", 1),
+    ("HARD_CLIP_M", 9),
+    ("GAMUT_BAND", 1),
     ("GAIN", 1),
     ("EV", 1),
     ("AIR_PLANE", 1),
@@ -87,9 +89,6 @@ const FIELDS: &[(&str, usize)] = &[
     ("GRAIN_SEED", 1),
     ("GRAIN_AFF", 6),
     ("REFINE_SAT", 1),
-    ("CALIB", 1),
-    ("CALIB_M", 9),
-    ("SHADOW_TINT", 1),
     ("OUT_M", 9),
     ("OUT_Y", 3),
     ("OUT_TRC", 1),
@@ -97,6 +96,7 @@ const FIELDS: &[(&str, usize)] = &[
     // Unified tone stage (`lightcraft_pipeline::tone2`): on, hue preservation
     ("TONE_HUE", 1),
     ("TONE_LUM", 1),
+    ("TONE_SCENE_COMPRESSION", 1),
     // first row of a band dispatch (the kernel runs over rows Y0.., see `render`)
     ("Y0", 1),
     // 0: 8-bit preview, 1: also write exact 16-bit RGB, 2: linear float RGB.
@@ -210,7 +210,16 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
     p.u("CURVE_OFF", curve_off as u32);
     p.b("CURVES", fp.curves.is_some());
     p.b("CURVE_LUM", fp.curves.as_ref().is_some_and(|c| c.luminance));
-    p.b("SOFT_GAMUT", fp.soft_gamut);
+    p.u(
+        "GAMUT_BAND",
+        match fp.out_space {
+            lightcraft_pipeline::OutputSpace::Srgb => 1,
+            lightcraft_pipeline::OutputSpace::Rec2020 => 2,
+            _ => 0,
+        },
+    );
+    p.b("HARD_CLIP", fp.hard_clip.is_some());
+    p.fs("HARD_CLIP_M", fp.hard_clip.unwrap_or_default().as_flattened());
     p.f("REFINE_SAT", fp.refine_sat);
     p.f("GAIN", fp.gain);
     p.f("EV", fp.ev);
@@ -273,13 +282,9 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
             },
         );
     }
-    if let Some(m) = &fp.calib {
-        p.b("CALIB", true);
-        p.fs("CALIB_M", m.as_flattened());
-    }
-    p.f("SHADOW_TINT", fp.shadow_tint);
     p.f("TONE_HUE", fp.tone.method().hue);
     p.b("TONE_LUM", fp.tone.method().luminance);
+    p.b("TONE_SCENE_COMPRESSION", fp.tone.method().scene_compression);
     p.fs("OUT_M", fp.to_out.as_flattened());
     p.fs("OUT_Y", &fp.out_luma);
     let (trc, gamma) = fp.out_trc.code();

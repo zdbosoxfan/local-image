@@ -14,6 +14,7 @@ li-raster = { path = "../li-raster" }
 li-color = { workspace = true }
 li-fs = { workspace = true }
 tract-onnx = "0.23"
+prost = "0.14"
 tract-linalg = { version = "=0.23.8", features = ["multithread-mm"] }
 anyhow = { workspace = true }
 image = { workspace = true }
@@ -24,3 +25,6 @@ sha2 = { workspace = true }
 serde_json = { workspace = true }
 
 lightcraft-sysmem = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }

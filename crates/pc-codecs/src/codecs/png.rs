@@ -425,7 +425,7 @@ fn parallel_idat(data: &[u8], w: usize, h: usize, bpp: usize, level: PngCompress
 
 /// Raw deflate of one band: ends on a sync flush, or finishes the stream for the `last` band.
 /// The output buffer is sized past deflate's worst case so that one call takes the whole band
-/// and completes the flush: when a sync flush fills the buffer, miniz_oxide (flate2's Rust
+/// and completes the flush: when a sync flush fills the buffer, miniz_oxide (a flate2
 /// backend) can return before compressing the last lookahead bytes, and the next call only
 /// drains the pending output, so a resumed flush silently drops data. `None` (the caller then
 /// uses the serial encoder) if the single call did not finish.

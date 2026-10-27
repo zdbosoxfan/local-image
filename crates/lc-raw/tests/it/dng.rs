@@ -527,6 +527,20 @@ fn profile_look_tags_are_read_from_ifd0() {
     }
 }
 
+/// `BaselineExposureOffset` is part of the embedded camera profile: the decode keeps the total
+/// exposure and remembers the profile's share, so choosing another profile can replace it.
+#[test]
+fn baseline_exposure_offset_is_kept_as_the_profile_share() {
+    let bytes = profile_dng(ByteOrder::Little, |ifd0| {
+        ifd0.set(t::BASELINE_EXPOSURE, Value::SRational(vec![(1, 2)]));
+        ifd0.set(t::BASELINE_EXPOSURE_OFFSET, Value::SRational(vec![(3, 10)]));
+    });
+    let img = decode(&bytes).unwrap();
+    assert!((img.color.baseline_exposure - 0.8).abs() < 1e-9, "{}", img.color.baseline_exposure);
+    assert!((img.color.baseline_exposure_offset - 0.3).abs() < 1e-9, "{}", img.color.baseline_exposure_offset);
+    assert_eq!(lightcraft_raw::probe_info(&bytes).unwrap().color, img.color);
+}
+
 #[test]
 fn malformed_profile_look_tags_are_ignored() {
     let bytes = profile_dng(ByteOrder::Little, |ifd0| {
@@ -544,4 +558,66 @@ fn malformed_profile_look_tags_are_ignored() {
     // and without any of the tags there is nothing to apply
     let plain = decode(&profile_dng(ByteOrder::Little, |_| {})).unwrap();
     assert!(plain.color.profile.is_empty());
+}
+
+/// DNG 1.7 JPEG XL tiles decode natively, with every DNG tag (exposure, forward matrix, opcodes)
+/// kept. The fixtures are lossless 16-bit JPEG XL streams of the sample patterns below
+/// (`magick -size 16x16 -depth 16 gray:… -quality 100`).
+#[test]
+fn jpeg_xl_tiles_keep_every_dng_tag() {
+    let (w, h) = (16usize, 16usize);
+    let cfa_values: Vec<u16> = (0..w * h).map(|i| (1000 + (i * 7919) % 15000) as u16).collect();
+    let rgb_values: Vec<u16> = (0..w * h * 3).map(|i| (500 + (i * 104729) % 15000) as u16).collect();
+    let vignette = Opcode::FixVignetteRadial { k: [0.2, 0.0, 0.0, 0.0, 0.0], center: [0.5, 0.5] };
+    let jxl = |cpp: usize, stream: &[u8], compression: u16| {
+        let mut raw = base_ifd(w, h, 16, cpp, cpp == 1);
+        raw.set(t::COMPRESSION, Value::Short(vec![compression]));
+        raw.set_image(ImageData::Strips { rows_per_strip: h as u32, strips: vec![stream.to_vec()] });
+        raw.set(t::BASELINE_EXPOSURE, Value::SRational(vec![(1, 2)]));
+        raw.set(t::OPCODE_LIST_3, Value::Undefined(lightcraft_raw::opcodes::write_list(std::slice::from_ref(&vignette))));
+        dng_with(raw, ByteOrder::Little, |ifd0| {
+            ifd0.set(t::FORWARD_MATRIX_1, Value::SRational(vec![(7, 10), (2, 10), (1, 10), (3, 10), (6, 10), (1, 10), (0, 1), (1, 10), (8, 10)]));
+            ifd0.set(t::AS_SHOT_NEUTRAL, Value::Rational(vec![(1, 2), (1, 1), (2, 3)]));
+        })
+    };
+    for (cpp, stream, values) in [
+        (1, &include_bytes!("../fixtures/jxl/cfa-16x16-16bit.jxl")[..], &cfa_values),
+        (3, &include_bytes!("../fixtures/jxl/rgb-16x16-16bit.jxl")[..], &rgb_values),
+    ] {
+        let bytes = jxl(cpp, stream, compression::JPEG_XL);
+        let img = decode(&bytes).unwrap_or_else(|e| panic!("{cpp} samples: {e}"));
+        assert_eq!(img.format, RawFormat::Dng);
+        assert_eq!(img.data, RawData::U16(values.clone()), "{cpp} samples: lossless code values");
+        assert!((img.color.baseline_exposure - 0.5).abs() < 1e-9);
+        assert!(img.color.forward_matrix[0].is_some() && img.color.as_shot_neutral.is_some());
+        assert_eq!(img.opcodes.list3, vec![vignette.clone()]);
+        assert_eq!(lightcraft_raw::probe_info(&bytes).unwrap(), img.info());
+        // the same samples stored uncompressed decode to the same image
+        let plain: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let twin = decode(&jxl(cpp, &plain, 1)).unwrap();
+        assert_eq!(twin.data, img.data);
+        assert_eq!(twin.color, img.color);
+    }
+    let full = include_bytes!("../fixtures/jxl/cfa-16x16-16bit.jxl");
+    let with = |bits: u16, float: bool| {
+        let mut raw = base_ifd(w, h, bits, 1, true);
+        raw.set(t::COMPRESSION, Value::Short(vec![compression::JPEG_XL]));
+        if float {
+            raw.set(t::SAMPLE_FORMAT, Value::Short(vec![3]));
+        }
+        raw.set_image(ImageData::Strips { rows_per_strip: h as u32, strips: vec![full.to_vec()] });
+        decode(&dng(raw, ByteOrder::Little))
+    };
+    // the stream's own bit depth recovers the stored code values, whatever BitsPerSample says
+    assert_eq!(with(12, false).unwrap().data, RawData::U16(cfa_values));
+    // integer samples in a floating-point DNG, and a stream cut short, are refused
+    assert!(matches!(with(16, true), Err(lightcraft_raw::RawError::Corrupt(_))));
+    assert!(decode(&jxl(1, &full[..full.len() / 2], compression::JPEG_XL)).is_err());
+    // hostile streams: every truncation and single-byte corruption returns, never panics
+    for n in 0..full.len() {
+        let _ = decode(&jxl(1, &full[..n], compression::JPEG_XL));
+        let mut bad = full.to_vec();
+        bad[n] ^= 0xa5;
+        let _ = decode(&jxl(1, &bad, compression::JPEG_XL));
+    }
 }

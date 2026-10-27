@@ -29,25 +29,7 @@ pub fn curve_luts(c: &ToneCurve) -> Option<CurveTables> {
         return None;
     }
     const N: usize = 1024;
-    let (s1, s2, s3) = ((c.split_shadows / 100.0) as f32, (c.split_mid / 100.0) as f32, (c.split_highlights / 100.0) as f32);
-    let regions = [(0.0, s1, c.shadows), (s1, s2, c.darks), (s2, s3, c.lights), (s3, 1.0, c.highlights)];
-    let mut base = Lut1::from_fn(N, |x| {
-        let mut d = 0.0;
-        for (a, b, amt) in regions {
-            if amt == 0.0 {
-                continue;
-            }
-            let (ctr, half) = ((a + b) / 2.0, (b - a) * 0.75 + 0.05);
-            let t = ((x - ctr) / half).clamp(-1.0, 1.0);
-            let win = 0.5 + 0.5 * (t * std::f32::consts::PI).cos();
-            d += (amt / 100.0) as f32 * 0.22 * win;
-        }
-        (x + d * 4.0 * x * (1.0 - x)).clamp(0.0, 1.0)
-    });
-    // keep monotone
-    for i in 1..N {
-        base.v[i] = base.v[i].max(base.v[i - 1]);
-    }
+    let mut base = crate::curve::ParametricCurve::new(c).to_lut();
     let to_pts = |p: &[Point]| p.iter().map(|q| (q.x, q.y)).collect::<Vec<_>>();
     if master {
         base = MonotoneCurve::new(&to_pts(&c.master)).to_lut(N).compose(&base);
@@ -100,28 +82,6 @@ impl CurveTables {
         }
         std::array::from_fn(|i| srgb_to_linear(eval(&self.tables[i + 1], linear_to_srgb(if working { d[i] } else { d[i].max(0.0) }))))
     }
-}
-
-/// Soft compression of channel distances from the achromatic axis (threshold 0.8,
-/// input distance 1.3 maps to 1.0, power 1.2), followed by final gamut containment.
-pub fn soft_gamut(r: [f32; 3]) -> [f32; 3] {
-    let a = r[0].max(r[1]).max(r[2]);
-    if a <= 1e-9 {
-        return r;
-    }
-    let threshold = 0.8f32;
-    let power = 1.2f32;
-    let scale = (1.3f32 - threshold) / (((1.0 - threshold) / (1.3 - threshold)).powf(-power) - 1.0).powf(1.0 / power);
-    r.map(|x| {
-        let distance = (a - x) / a;
-        if distance <= threshold {
-            x
-        } else {
-            let u = (distance - threshold) / scale;
-            let compressed = threshold + scale * u / (1.0 + u.powf(power)).powf(1.0 / power);
-            a * (1.0 - compressed)
-        }
-    })
 }
 
 /// Position-hashed TPDF noise shared with WGSL; exactly representable 16-bit fractions.
@@ -263,24 +223,25 @@ pub struct FinishParams {
     pub mode: FinishMode,
     /// Developed-image contrast, independent of the Background tone map.
     pub layer_contrast: f32,
-    /// A LUT profile and its amount (0..2), applied to the display-encoded colour.
+    /// A LUT profile and its amount (0..2, `None` at 0), applied to sRGB display values in every
+    /// mode but [`FinishMode::Output`] and in every output space. Its result is inside sRGB, so the
+    /// output hard clip is left out after it (in the Output pass of a layered render too).
     pub lut: Option<(std::sync::Arc<crate::lut::Lut3d>, f32)>,
     pub tone: ToneMap,
     pub ops: ColorOps,
-    /// Calibration: primaries matrix (row-major, linear Rec.2020) and shadows tint (−1..1).
-    pub calib: Option<[[f32; 3]; 3]>,
-    pub shadow_tint: f32,
     /// Tone curves (parametric ∘ point, per channel) on encoded values, 1024 entries each.
     pub curves: Option<CurveTables>,
     /// Refine Saturation as 0..1 (1 = the curves' own saturation).
     pub refine_sat: f32,
-    pub soft_gamut: bool,
+    /// Relative colorimetric RAW output mapping: the gamut's [`crate::gamut::lms_to`] matrix.
+    pub hard_clip: Option<[[f32; 3]; 3]>,
     pub vig: Option<Vig>,
     /// Linear Rec.2020 → linear output RGB, the output's luminance weights (gamut mapping) and its
     /// encoding curve (see [`crate::output`]).
     pub to_out: [[f32; 3]; 3],
     pub out_luma: [f32; 3],
     pub out_trc: OutputTrc,
+    pub out_space: OutputSpace,
     /// Soft proofing (CPU only; the GPU path declines proof renders).
     pub proof: Option<std::sync::Arc<crate::output::ProofParams>>,
     pub hl: f32,
@@ -329,24 +290,22 @@ impl FinishParams {
         let ev = s.light.exposure as f32;
         let gain = 2f32.powf(ev);
         let grain = if effects { grain(s, px_per_long) } else { None };
-        let calibration = s.section_enabled("calibration");
         FinishParams {
             mode: FinishMode::Display,
             layer_contrast: 0.0,
-            calib: if calibration { crate::colorops::calibration_matrix(&s.calibration) } else { None },
-            shadow_tint: if calibration { (s.calibration.shadows_tint / 100.0) as f32 } else { 0.0 },
             tone: tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
             layers: crate::layers::resolve(s, info, px_per_long),
             tone_eq: crate::toneeq::of(s),
-            lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)),
+            lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)).filter(|(_, amount)| *amount > 0.0),
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
-            soft_gamut: info.raw,
+            hard_clip: info.raw.then(|| crate::gamut::lms_to(&space.from_working())),
             refine_sat: (s.curve.refine_saturation / 100.0).clamp(0.0, 1.0) as f32,
             vig: if effects { vignette(s) } else { None },
             to_out: space.from_working(),
             out_luma: space.luma(),
             out_trc: space.trc(),
+            out_space: space,
             proof: None,
             hl: (s.light.highlights / 100.0) as f32,
             sh: (s.light.shadows / 100.0) as f32,
@@ -510,7 +469,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
     store: impl Fn([f32; 3], usize, usize) -> T + Sync + Send,
 ) -> Vec<T> {
     let (w, h) = (p.img.width, p.img.height);
-    let p_lut = fp.lut.clone();
+    let p_lut = fp.lut.clone().filter(|_| fp.mode != FinishMode::Output).map(|(lut, amount)| (lut, amount, LutInput::new(fp.hard_clip.is_some())));
     let FinishParams { tone, ops, curves, vig, to_out, out_luma, hl, sh, clar, tex, dehaze, gain, ev, grain, .. } = fp;
     let (hl, sh, clar, tex, dehaze, gain, ev) = (*hl, *sh, *clar, *tex, *dehaze, *gain, *ev);
     let terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
@@ -604,7 +563,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 if dz != 0.0
                     && let Some(hz) = &p.haze
                 {
-                    c = crate::detail::dehaze_px(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
+                    c = crate::detail::dehaze_finish(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
                 }
                 // layers: their dehaze, then (below) their white balance and exposure
                 let mut layer_scene = false;
@@ -617,7 +576,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     if l.dehaze != 0.0
                         && let Some(hz) = &p.haze
                     {
-                        c = mix3(c, crate::detail::dehaze_px(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
+                        c = mix3(c, crate::detail::dehaze_finish(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
                     }
                 }
 
@@ -734,11 +693,6 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
 
-                // calibration (scene linear, before the tone map)
-                if fp.calib.is_some() || fp.shadow_tint != 0.0 {
-                    c = crate::colorops::calibrate(c, fp.calib.as_ref(), fp.shadow_tint);
-                }
-
                 // tone map on luminance, highlight desaturation
                 d = if fp.mode == FinishMode::Layer {
                     crate::layers::contrast(c, fp.layer_contrast)
@@ -796,17 +750,14 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
             }
+            if let Some((lut, amount, input)) = &p_lut {
+                d = input.apply(d, lut, *amount);
+            }
             if matches!(fp.mode, FinishMode::Working | FinishMode::Layer) {
-                // Grain and profile LUTs belong to this image/layer, before the next layer.
-                // Encode in working primaries without output clipping or quantization.
-                if grain.is_some() || p_lut.is_some() {
-                    let mut e = d.map(linear_to_srgb);
-                    if let Some(g) = *grain {
-                        e = grain_px(e, g, out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5)), fp, long);
-                    }
-                    if let Some((lut, k)) = &p_lut {
-                        e = mix3(e, lut.apply(e), *k);
-                    }
+                // Grain belongs to this image/layer, before the next layer. Encode in working
+                // primaries without output clipping or quantization.
+                if let Some(g) = *grain {
+                    let e = grain_px(d.map(linear_to_srgb), g, out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5)), fp, long);
                     d = e.map(li_color::transfer::srgb_to_linear);
                 }
                 *px = store(d, x, y);
@@ -819,7 +770,8 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 d
             } else {
                 let r = mul3(to_out, d);
-                gamut_map(if fp.soft_gamut { soft_gamut(r) } else { r }, *out_luma).0
+                let hard_clip = fp.hard_clip.as_ref().filter(|_| fp.lut.is_none());
+                hard_clip.map_or_else(|| gamut_map(r, *out_luma).0, |m| crate::gamut::output(d, r, m, fp.out_space).map(|v| v.clamp(0.0, 1.0)))
             };
 
             // encode, curves, grain
@@ -842,13 +794,6 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
             }
-            let e = match &p_lut {
-                Some((l, k)) => {
-                    let m = l.apply(e.map(|v| v.clamp(0.0, 1.0)));
-                    [e[0] + (m[0] - e[0]) * k, e[1] + (m[1] - e[1]) * k, e[2] + (m[2] - e[2]) * k]
-                }
-                None => e,
-            };
             let e = fp.proof.as_ref().map_or(e, |proof| proof.finish(e.map(li_color::transfer::srgb_to_linear)));
             *px = store(e, x, y);
         }
@@ -857,6 +802,39 @@ fn finish_with_mask<T: Copy + Default + Send>(
 }
 
 use crate::layers::mix3;
+
+/// Profile LUTs (`.cube`, `.3dl`, `.look`) are authored for sRGB / Rec. 709 display values, so
+/// they get that input in every mode and output space: the colour in sRGB primaries, clipped and
+/// mapped into the sRGB gamut as the sRGB output maps it, sRGB-encoded. The blended result returns
+/// to linear Rec. 2020, so exports, soft proofs and develop layers show the same look.
+struct LutInput {
+    to_srgb: [[f32; 3]; 3],
+    from_srgb: [[f32; 3]; 3],
+    hard_clip: Option<[[f32; 3]; 3]>,
+}
+
+impl LutInput {
+    fn new(hard_clip: bool) -> LutInput {
+        let to_srgb = OutputSpace::Srgb.from_working();
+        LutInput {
+            to_srgb,
+            from_srgb: li_color::SRGB.to_space(&li_color::REC2020).to_f32(),
+            hard_clip: hard_clip.then(|| crate::gamut::lms_to(&to_srgb)),
+        }
+    }
+
+    fn apply(&self, d: [f32; 3], lut: &crate::lut::Lut3d, amount: f32) -> [f32; 3] {
+        let r = mul3(&self.to_srgb, d);
+        let r = self.hard_clip.as_ref().map_or_else(
+            || gamut_map(r, OutputSpace::Srgb.luma()).0,
+            |m| crate::gamut::output(d, r, m, OutputSpace::Srgb).map(|v| v.clamp(0.0, 1.0)),
+        );
+        let e = r.map(|v| linear_to_srgb(v.clamp(0.0, 1.0)));
+        let m = lut.apply(e);
+        let e: [f32; 3] = std::array::from_fn(|i| e[i] + (m[i] - e[i]) * amount);
+        mul3(&self.from_srgb, e.map(li_color::transfer::srgb_to_linear))
+    }
+}
 
 /// The tone map on scene-linear `c`'s luminance, then the curve's chroma scale and highlight
 /// desaturation (display linear).
@@ -1054,10 +1032,12 @@ mod colour_tone_tests {
         // transmission rounds to 1, dehaze must be an identity even on negative
         // resampling/profile channels, which the tone stage desaturates later.
         for c in [[-0.004_114_710_3, 0.001_321_920_3, 0.004_300_609_7], [-0.1, 0.2, 0.3], [1.0, -0.2, 0.1]] {
-            for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
-                assert_eq!(crate::detail::dehaze_px(c, dz, 1.0, [1.0; 3], 1.0), c, "{c:?}, strength {dz}");
+            for dehaze in [crate::detail::dehaze_px, crate::detail::dehaze_finish] {
+                for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
+                    assert_eq!(dehaze(c, dz, 1.0, [1.0; 3], 1.0), c, "{c:?}, strength {dz}");
+                }
+                assert_eq!(dehaze(c, 0.4, 0.0, [1.0; 3], 1.0), c);
             }
-            assert_eq!(crate::detail::dehaze_px(c, 0.4, 0.0, [1.0; 3], 1.0), c);
         }
         // Actual veil removal still follows the existing dehaze formula.
         let c = [-0.1, 0.2, 0.3];
@@ -1073,7 +1053,8 @@ mod colour_tone_tests {
         // The resampled scene and masked adjustments from GPU equivalence's
         // "masks (cpu shapes, ops, amount)" failure. A small log-luminance change
         // models CPU/GPU rounding before the CPU-evaluated Sky/Background shapes.
-        let src = lightcraft_scenes::demo_library()[0].render(960, 640);
+        // Out-of-gamut blues give the scene negative channels.
+        let src = lightcraft_scenes::demo_library()[0].render(960, 640).map(|p| [p[0], p[1], p[2] - 0.01]);
         let info = SourceInfo { raw: true, ..Default::default() };
         let s = DevelopSettings {
             masks: vec![
@@ -1094,9 +1075,10 @@ mod colour_tone_tests {
         let req = crate::RenderRequest::fit(720, 720);
         let plan = crate::plan(&src, &info, &s, &req);
         let img = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
-        assert!(img.data.iter().any(|c| c.iter().any(|v| *v < 0.0)), "fixture must include negative resampling channels");
+        assert!(img.data.iter().any(|c| c.iter().any(|v| *v < 0.0)), "fixture must include negative scene channels");
         let mut prep = crate::local::prepare(
             img.clone(),
+            None,
             &s,
             &info,
             &plan.frame,
@@ -1148,22 +1130,89 @@ mod colour_tone_tests {
         assert!((sum as f64 / 16384. - 0.501 * 255.).abs() < 0.02);
         assert!(hi > lo && hi - lo <= 2, "TPDF quantization support: {lo}..{hi}");
     }
-    #[test]
-    fn soft_gamut_is_identity_interior_monotone_and_continuous() {
-        assert_eq!(soft_gamut([0.3; 3]), [0.3; 3]);
-        assert_eq!(soft_gamut([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
-        let mut previous = 1.0f32;
-        for i in 0..3000 {
-            let d = i as f32 / 1000.;
-            let mapped = soft_gamut([1., 1. - d, 0.8]);
-            assert!(mapped.iter().all(|v| v.is_finite()));
-            assert!(mapped[1] <= previous + 1e-6);
-            assert!((mapped[1] - previous).abs() < 0.0011);
-            previous = mapped[1];
+    /// Colours on the Rec. 2020 gamut's edge: mixes of two primaries at full level.
+    fn rec2020_edge() -> Vec<[f32; 3]> {
+        let mut edge = Vec::new();
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            for k in 0..=64 {
+                let t = k as f32 / 64.0;
+                let mut c = [0f32; 3];
+                c[i] = 1.0 - t;
+                c[j] = t;
+                edge.push(c);
+            }
         }
-        let e = 1e-5;
-        assert!((soft_gamut([1., 0.2 - e, 0.8])[1] - soft_gamut([1., 0.2 + e, 0.8])[1]).abs() < 3e-5);
+        edge
     }
+
+    #[test]
+    fn output_knee_is_identity_inside_and_lands_the_working_edge_on_the_output_edge() {
+        use li_color::perceptual::{lab_to_lch, lch_to_lab, oklab_from_2020, oklab_to_2020};
+        for space in [OutputSpace::Srgb, OutputSpace::DisplayP3, OutputSpace::AdobeRgb] {
+            let to_out = space.from_working();
+            let from_out = space.rgb_space().to_space(&li_color::REC2020).to_f32();
+            let m = crate::gamut::lms_to(&to_out);
+            let hard_clip = |r: [f32; 3]| crate::gamut::output(mul3(&from_out, r), r, &m, space);
+            assert_eq!(hard_clip([0.3; 3]), [0.3; 3]);
+            assert_eq!(hard_clip([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
+            let inside = |r: [f32; 3], n: f32, slack: f32| r.iter().all(|v| *v >= -slack * n && *v <= 1.0 + slack * (1.0 - n));
+            for d in rec2020_edge() {
+                let r = mul3(&to_out, d);
+                let out = crate::gamut::output(d, r, &m, space);
+                if inside(r, 0.0, 0.0) {
+                    // Display P3's red reaches a sliver past Rec. 2020's
+                    assert_eq!(out, r, "{}: {d:?}", space.label());
+                    continue;
+                }
+                let [l0, c0, h0] = lab_to_lch(oklab_from_2020(d));
+                let [l, c, h] = lab_to_lch(oklab_from_2020(mul3(&from_out, out)));
+                let hue_limit = if crate::gamut::blue_weight(space, h0) > 0.0 { 0.045 } else { 1e-3 };
+                assert!((l - l0).abs() < 1e-3 && (h - h0).abs() < hue_limit && c < c0, "{}: {d:?} -> {out:?}", space.label());
+                // it reaches the output's edge: no less chroma than where the line first leaves
+                // the output gamut (lines that fold back out and in again reach further)
+                let at = |chroma: f32| inside(mul3(&to_out, oklab_to_2020(lch_to_lab([l, chroma, h]))), 0.0, 0.0);
+                let first = (1..=4000).map(|i| i as f32 * c0 / 4000.0).find(|chroma| !at(*chroma)).unwrap_or(c0);
+                assert!(c >= first * 0.995, "{}: {d:?} -> {out:?} stops at chroma {c}, the edge is at {first}", space.label());
+            }
+        }
+    }
+
+    #[test]
+    fn output_knee_keeps_in_gamut_colours_in_every_output_space() {
+        use crate::metrics::{delta_e, lab};
+        let from_srgb = li_color::SRGB.to_space(&li_color::REC2020).to_f32();
+        let hard_clip = |space: OutputSpace, d: [f32; 3]| {
+            let to_out = space.from_working();
+            crate::gamut::output(d, mul3(&to_out, d), &crate::gamut::lms_to(&to_out), space)
+        };
+        let out = |space: OutputSpace, d: [f32; 3]| {
+            let r = gamut_map(hard_clip(space, d), space.luma()).0;
+            mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), r)
+        };
+        let patch = |rgb: [u8; 3]| mul3(&from_srgb, rgb.map(|v| li_color::transfer::srgb_to_linear(v as f32 / 255.0)));
+        // ColorChecker yellow and orange, and the sRGB primaries
+        for (rgb, tolerance) in [([231, 199, 31], 0.5), ([214, 126, 44], 0.5), ([255, 0, 0], 2.0), ([0, 255, 0], 2.0), ([0, 0, 255], 2.0)] {
+            let d = patch(rgb);
+            for space in OutputSpace::ALL {
+                let e = delta_e(lab(d), lab(out(space, d)));
+                assert!(e < tolerance, "{rgb:?} in {}: dE00 {e}", space.label());
+            }
+            let e = delta_e(lab(out(OutputSpace::Srgb, d)), lab(out(OutputSpace::ProPhoto, d)));
+            assert!(e < tolerance, "{rgb:?}: sRGB vs ProPhoto dE00 {e}");
+        }
+        // wider spaces hold (nearly) the whole working gamut: its edge keeps its OkLab hue and
+        // loses at most 1.2 % of its chroma (ProPhoto's blue face cuts 0.28 % into Rec. 2020's red
+        // corner, at a grazing angle to the OkLab hue line, and the final containment clips that
+        // sliver)
+        let lch = |c: [f32; 3]| li_color::perceptual::lab_to_lch(li_color::perceptual::oklab_from_2020(c));
+        for space in [OutputSpace::ProPhoto, OutputSpace::Rec2020] {
+            for d in rec2020_edge() {
+                let ([_, c0, h0], [_, c, h]) = (lch(d), lch(out(space, d)));
+                assert!(c >= c0 * 0.988 && (h - h0).abs() < 3e-3, "{}: {d:?} chroma x{}, hue {}", space.label(), c / c0, h - h0);
+            }
+        }
+    }
+
     #[test]
     fn luminance_master_keeps_channel_ratios_and_rgb_mode_refines_saturation() {
         use lightcraft_geom::Point;

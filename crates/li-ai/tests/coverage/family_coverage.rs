@@ -122,7 +122,7 @@ fn merge_scalar_overwrites_non_objects() {
 fn built_in_profiles_load_and_inherit() {
     let fams = build(&embedded_raw()).expect("embedded profiles build");
     assert_eq!(fams.len(), EMBEDDED.len());
-    let reg = Registry { families: fams, sources: BTreeMap::new() };
+    let reg = Registry { families: fams, ..Default::default() };
     let pony = reg.family("pony").expect("pony exists");
     let sdxl = reg.family("sdxl").expect("sdxl exists");
     assert_eq!(pony.pipeline.loader, Loader::Checkpoint);
@@ -143,7 +143,7 @@ fn built_in_profiles_load_and_inherit() {
 
 #[test]
 fn model_overrides_apply_to_family() {
-    let reg = Registry { families: build(&embedded_raw()).unwrap(), sources: BTreeMap::new() };
+    let reg = Registry { families: build(&embedded_raw()).unwrap(), ..Default::default() };
     let (f, m) = reg.model("klein-remove").expect("model exists");
     let r = f.resolved_for(m);
     assert_eq!(r.sampling.steps.default, 28.0);
@@ -296,7 +296,7 @@ fn family_lora_fits_checks_loader_and_compatibility() {
 
 #[test]
 fn registry_family_and_model_lookup() {
-    let reg = Registry { families: build(&embedded_raw()).unwrap(), sources: BTreeMap::new() };
+    let reg = Registry { families: build(&embedded_raw()).unwrap(), ..Default::default() };
     assert!(reg.family("sd15").is_some());
     assert!(reg.family("nonexistent").is_none());
     let (f, m) = reg.model("qwen").expect("qwen exists");
@@ -306,7 +306,7 @@ fn registry_family_and_model_lookup() {
 
 #[test]
 fn registry_groups_preserve_order_and_group_names() {
-    let reg = Registry { families: build(&embedded_raw()).unwrap(), sources: BTreeMap::new() };
+    let reg = Registry { families: build(&embedded_raw()).unwrap(), ..Default::default() };
     let groups = reg.groups();
     assert!(!groups.is_empty());
     assert_eq!(groups[0].0, "Stable Diffusion");
@@ -375,7 +375,7 @@ fn update_from_downloads_newer_profile() {
     };
 
     let updated = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
-    assert_eq!(updated, vec!["sd15".to_owned()]);
+    assert_eq!(updated.updated, vec!["sd15".to_owned()]);
     let reg = li_ai::family::load(&dir);
     assert_eq!(reg.family("sd15").unwrap().label, "SD 1.5 (updated)");
     assert_eq!(reg.sources["sd15"], "update");
@@ -399,7 +399,8 @@ fn update_from_rejects_bad_profile() {
     };
 
     let updated = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
-    assert!(updated.is_empty(), "invalid update should be skipped");
+    assert!(updated.updated.is_empty(), "invalid update should be skipped");
+    assert_eq!(updated.rejected.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["broken"]);
     assert!(!dir.join("broken.json").exists(), "no file should be written for invalid profile");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -450,4 +451,152 @@ fn family_kind_and_pipeline_defaults_are_consistent() {
     assert_eq!(f.capabilities, Capabilities::default());
     assert_eq!(f.lora, LoraRule::default());
     assert_eq!(f.prompt, PromptRules::default());
+}
+
+fn serve(files: Vec<(&'static str, Vec<u8>)>) -> impl Fn(&str) -> Result<Vec<u8>, Error> {
+    move |url: &str| files.iter().find(|(name, _)| url.ends_with(&format!("/{name}"))).map(|(_, b)| b.clone()).ok_or_else(|| anyhow::anyhow!("404 {url}"))
+}
+
+fn sd15_at(version: u64, label: &str) -> Value {
+    let mut v: Value = serde_json::from_str(EMBEDDED.iter().find(|(k, _)| *k == "sd15").unwrap().1).unwrap();
+    v["version"] = json!(version);
+    v["label"] = json!(label);
+    v
+}
+
+/// A profile for a newer schema is reported as needing a newer app and never
+/// written, so it is not "updated" again on every click.
+#[test]
+fn future_schema_profiles_need_a_newer_app() {
+    let dir = unique_dir("update-future");
+    let future = serde_json::to_vec(&json!({"schema": 99, "version": 1, "id": "future", "label": "F"})).unwrap();
+    let fetch = serve(vec![("index.json", br#"{"families": {"future": 1, "gated": 1}, "min_schema": {"gated": 7}}"#.to_vec()), ("future.json", future)]);
+    let report = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
+    assert!(report.updated.is_empty(), "{report:?}");
+    assert_eq!(report.needs_newer_app, ["future", "gated"]);
+    assert!(!dir.join("future.json").exists() && !dir.join("gated.json").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// One semantically broken user profile drops only itself; cached updates stay.
+#[test]
+fn a_broken_user_profile_keeps_the_other_updates() {
+    let dir = unique_dir("load-tolerant");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    std::fs::write(dir.join("sd15.json"), serde_json::to_vec(&sd15_at(999, "SD 1.5 (updated)")).unwrap()).unwrap();
+    std::fs::write(dir.join("user/x.json"), serde_json::to_vec(&json!({"schema": 1, "label": "X", "pipeline": {"sampler": "ksampler2"}})).unwrap()).unwrap();
+    let reg = li_ai::family::load(&dir);
+    assert_eq!(reg.sources.get("sd15").map(String::as_str), Some("update"));
+    assert_eq!(reg.family("sd15").unwrap().label, "SD 1.5 (updated)");
+    assert!(reg.family("x").is_none() && reg.errors.contains_key("x"), "{:?}", reg.errors);
+    // A cached profile for a newer schema never replaces the readable built-in copy.
+    std::fs::write(dir.join("sdxl.json"), serde_json::to_vec(&json!({"schema": 99, "version": 999, "id": "sdxl", "label": "future"})).unwrap()).unwrap();
+    let reg = li_ai::family::load(&dir);
+    assert_eq!(reg.sources.get("sdxl").map(String::as_str), Some("built-in"));
+    assert!(reg.family("pony").is_some(), "families based on sdxl keep loading");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A new base family and a family derived from it arrive in one update.
+#[test]
+fn new_base_and_derived_families_update_together() {
+    let dir = unique_dir("update-batch");
+    let base = sd15_at(1, "New base");
+    let mut base = base;
+    base["id"] = json!("newbase");
+    base["models"] = json!([]);
+    let derived = json!({"schema": 1, "version": 1, "id": "newderived", "label": "New derived", "base": "newbase"});
+    let fetch = serve(vec![
+        ("index.json", br#"{"families": {"newbase": 1, "newderived": 1}}"#.to_vec()),
+        ("newbase.json", serde_json::to_vec(&base).unwrap()),
+        ("newderived.json", serde_json::to_vec(&derived).unwrap()),
+    ]);
+    let report = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
+    assert_eq!(report.updated, ["newbase", "newderived"], "{report:?}");
+    let reg = li_ai::family::load(&dir);
+    assert_eq!(reg.family("newderived").unwrap().pipeline, reg.family("newbase").unwrap().pipeline);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A profile the user overrides is cached and reported as kept, and the next
+/// update finds nothing new.
+#[test]
+fn user_overrides_are_reported_once() {
+    let dir = unique_dir("update-user");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    std::fs::write(dir.join("user/sd15.json"), serde_json::to_vec(&sd15_at(1, "Mine")).unwrap()).unwrap();
+    let fetch = serve(vec![("index.json", br#"{"families": {"sd15": 5}}"#.to_vec()), ("sd15.json", serde_json::to_vec(&sd15_at(5, "Remote")).unwrap())]);
+    let first = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
+    assert_eq!((first.updated.len(), first.kept_user.as_slice()), (0, ["sd15".to_owned()].as_slice()), "{first:?}");
+    assert!(li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap().is_empty());
+    assert_eq!(li_ai::family::load(&dir).family("sd15").unwrap().label, "Mine");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A downloaded detect rule may not claim built-in tensors without `refines`.
+#[test]
+fn updates_cannot_take_built_in_tensors() {
+    let dir = unique_dir("update-detect");
+    let thief = json!({"schema": 2, "version": 1, "id": "thief", "label": "T", "kind": "template", "detect": {"tensors_all": ["double_stream_modulation_img.lin.weight"]}});
+    let fetch = serve(vec![("index.json", br#"{"families": {"thief": 1}}"#.to_vec()), ("thief.json", serde_json::to_vec(&thief).unwrap())]);
+    let report = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
+    assert_eq!(report.rejected.len(), 1, "{report:?}");
+    assert!(report.rejected[0].1.contains("refines"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The profile channel and Help point at the live `main` branch.
+#[test]
+fn profile_updates_come_from_main() {
+    assert!(li_ai::family::REMOTE_BASE.contains("/main/") && !li_ai::family::REMOTE_BASE.contains("/v2/"));
+}
+
+/// The published channel serves an index and every profile it lists, and they build together.
+#[test]
+#[ignore = "network: fetches the published profiles from GitHub"]
+fn published_profiles_download_and_build() {
+    use li_ai::browser::Net;
+    let net = li_ai::browser::HttpNet::new(li_ai::browser::Config::default());
+    let base = li_ai::family::REMOTE_BASE;
+    let index: Value = serde_json::from_slice(&net.get(&format!("{base}/index.json")).unwrap()).unwrap();
+    let mut raw = embedded_raw();
+    for id in index["families"].as_object().unwrap().keys() {
+        let body = net.get(&format!("{base}/{id}.json")).unwrap_or_else(|e| panic!("{id}: {e:#}"));
+        raw.insert(id.clone(), serde_json::from_slice(&body).unwrap());
+    }
+    let (families, errors) = li_ai::family::build_tolerant(&raw);
+    assert!(errors.values().all(|e| e.contains("newer Local Image")), "{errors:?}");
+    assert!(families.len() >= EMBEDDED.len() - 1);
+}
+
+/// `runtime.json` rides the profile channel: a newer valid copy is written, one that would
+/// substitute files that must never stand in for each other is rejected, and a newer format is
+/// left for a newer app.
+#[test]
+fn runtime_data_updates_with_the_profiles() {
+    let builtin: serde_json::Value = serde_json::from_str(li_ai::companions::EMBEDDED_RUNTIME).unwrap();
+    let at = |version: u64, schema: u64| {
+        let mut r = builtin.clone();
+        r["version"] = json!(version);
+        r["schema"] = json!(schema);
+        r
+    };
+    let index = |v: u64| format!(r#"{{"families": {{}}, "data": {{"runtime": {v}}}}}"#).into_bytes();
+    let dir = unique_dir("update-runtime");
+    let fetch = serve(vec![("index.json", index(7)), ("runtime.json", serde_json::to_vec(&at(7, 1)).unwrap())]);
+    let report = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
+    assert_eq!(report.updated, ["runtime"], "{report:?}");
+    assert_eq!(li_ai::companions::load(&dir).version, 7);
+    // Nothing newer: nothing fetched.
+    assert!(li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap().is_empty());
+    let mut bad = at(8, 1);
+    bad["equivalent"] = json!([{"folder": "vae", "stems": ["flux2-vae", "qwen_image_vae"]}]);
+    bad["never_substitute"] = json!([{"folder": "vae", "stems": ["flux2-vae", "qwen_image_vae"]}]);
+    let fetch = serve(vec![("index.json", index(8)), ("runtime.json", serde_json::to_vec(&bad).unwrap())]);
+    let report = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
+    assert_eq!(report.rejected.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["runtime"], "{report:?}");
+    assert_eq!(li_ai::companions::load(&dir).version, 7, "the rejected copy is not written");
+    let fetch = serve(vec![("index.json", index(9)), ("runtime.json", serde_json::to_vec(&at(9, 2)).unwrap())]);
+    assert_eq!(li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap().needs_newer_app, ["runtime"]);
+    let _ = std::fs::remove_dir_all(&dir);
 }

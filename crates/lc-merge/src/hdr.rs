@@ -82,6 +82,24 @@ pub struct HdrResult {
     pub orientation: lightcraft_geom::Orientation,
     pub metadata: lightcraft_meta::Metadata,
     pub baseline_exposure: f64,
+    /// Radiance at or above which a value was saturated in every input ([`Frame::clip`]).
+    pub clip: f32,
+}
+
+impl HdrResult {
+    /// The merge as an input frame, for example of a panorama.
+    pub fn into_frame(self) -> Frame {
+        Frame {
+            image: self.radiance,
+            clip: self.clip,
+            exposure: None,
+            raw: self.raw,
+            color: self.color,
+            orientation: self.orientation,
+            metadata: self.metadata,
+            baseline_exposure: self.baseline_exposure,
+        }
+    }
 }
 
 #[inline]
@@ -302,6 +320,8 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
         orientation: rf.orientation,
         metadata: rf.metadata.clone(),
         baseline_exposure: rf.baseline_exposure,
+        // A value saturated in every frame keeps only the darkest frame's weight.
+        clip: frames[darkest].clip / k[darkest],
     })
 }
 

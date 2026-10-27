@@ -356,6 +356,15 @@ pub fn style_paragraphs(t: &mut TextLayer, a: usize, b: usize, f: &dyn Fn(&mut P
     t.paragraphs = out.into_iter().map(|(len, style)| ParagraphRun { len, style }).collect();
 }
 
+/// The changed byte range after removing the common prefix and non-overlapping suffix,
+/// both on character boundaries.
+fn changed_span<'a>(old: &str, new: &'a str) -> (usize, usize, &'a str) {
+    let prefix = old.char_indices().zip(new.chars()).find(|((_, a), b)| a != b).map_or_else(|| old.len().min(new.len()), |((i, _), _)| i);
+    let (old_rest, new_rest) = (&old[prefix..], &new[prefix..]);
+    let suffix: usize = old_rest.chars().rev().zip(new_rest.chars().rev()).take_while(|(a, b)| a == b).map(|(a, _)| a.len_utf8()).sum();
+    (prefix, old.len() - suffix, &new[prefix..new.len() - suffix])
+}
+
 /// Replaces bytes `a..b` with `new`, keeping styles: inserted text takes the style of the
 /// character before it (or after it at the start).
 pub fn replace_text(t: &mut TextLayer, a: usize, b: usize, new: &str) {
@@ -634,8 +643,9 @@ pub fn specs() -> Vec<CommandSpec> {
                         });
                     }
                     if let Some(v) = p.get("text").and_then(Value::as_str) {
-                        let n = t.text.len();
-                        replace_text(t, 0, n, v);
+                        let v = norm_text(v);
+                        let (a, b, new) = changed_span(&t.text, &v);
+                        replace_text(t, a, b, new);
                     }
                     if let Some(r) = p.get("replace") {
                         let a = byte_at(&t.text, r.get("start").and_then(Value::as_u64).unwrap_or(0) as usize);
@@ -1201,5 +1211,40 @@ mod tests {
             s.execute("edit.undo", json!({})).unwrap();
             assert!(s.active().unwrap().doc.layer(LayerId(id)).is_none());
         }
+    }
+    #[test]
+    fn edit_text_keeps_the_styles_of_unchanged_text() {
+        // (characters, colour) per run.
+        fn runs(s: &Session, id: u64) -> Vec<(usize, [u8; 4])> {
+            let t = text_layer(s, id);
+            let mut at = 0;
+            t.char_runs()
+                .into_iter()
+                .map(|r| {
+                    let n = t.text[at..at + r.len].chars().count();
+                    at += r.len;
+                    (n, r.style.color.to_rgba8())
+                })
+                .collect()
+        }
+        let (dark, purple) = ([0x1b, 0x1f, 0x4b, 255], [0x5a, 0x3d, 0xf0, 255]);
+        let mut s = session();
+        let id = s.execute("type.create", json!({"x": 20, "y": 50, "text": "Craft Suite in Workshop", "size": 40, "color": "#1b1f4b"})).unwrap()["layer"]
+            .as_u64()
+            .unwrap();
+        s.execute("type.setStyle", json!({"layer": id, "range": [15, 23], "color": "#5a3df0"})).unwrap();
+        assert_eq!(runs(&s, id), [(15, dark), (8, purple)]);
+        s.execute("type.edit", json!({"layer": id, "text": "Craft Suite in Workshop!"})).unwrap();
+        assert_eq!(runs(&s, id), [(15, dark), (9, purple)], "the added character joins the last run");
+        s.execute("type.edit", json!({"layer": id, "text": "Craft Suite in Worksh\u{f6}p!"})).unwrap();
+        assert_eq!(runs(&s, id), [(15, dark), (9, purple)], "a change inside a run stays in it");
+        s.execute("type.edit", json!({"layer": id, "text": "Kraft Suite in Worksh\u{f6}p!"})).unwrap();
+        assert_eq!(runs(&s, id), [(15, dark), (9, purple)]);
+        // Replacing everything leaves one style, as before.
+        s.execute("type.edit", json!({"layer": id, "text": "Hello"})).unwrap();
+        assert_eq!(text_layer(&s, id).text, "Hello");
+        assert_eq!(runs(&s, id).iter().map(|r| r.0).sum::<usize>(), 5);
+        s.execute("type.edit", json!({"layer": id, "text": ""})).unwrap();
+        assert_eq!(text_layer(&s, id).text, "");
     }
 }

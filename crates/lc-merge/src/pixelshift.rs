@@ -4,7 +4,8 @@
 //! https://github.com/agriggio/make_arq/blob/master/make_arq.py (GPL-3.0-or-later).
 //! Four consecutive shots provide R/G/G/B; sixteen shots add four half-pixel phases.
 //! We use measured CFA samples, not demosaiced frame averaging. Repeated green disagreement
-//! detects motion; a dilated mask uses only the first source, demosaiced with the normal noise-adaptive Auto method.
+//! detects motion; a feathered mask blends in the first source, demosaiced with the normal
+//! noise-adaptive Auto method. Shot brightness is equalized first (flicker, changing light).
 //! Noise-aware disagreement follows RawTherapee `rtengine/pixelshift.cc`'s `greenDiff`
 //! (GPL-3.0-or-later, pin 5f486d3678b34c74ba0c63571c17babe20935019), using
 //! the existing camera noise profiles and Auto CFA estimator in normalized sensor space.
@@ -15,7 +16,9 @@ use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
 use lightcraft_raw::{RawImage, Rect};
+use rayon::prelude::*;
 
+use crate::frame::camera_color;
 use crate::{FrameColor, MergeError, Progress, Result, check};
 
 pub struct PixelShiftResult {
@@ -24,9 +27,23 @@ pub struct PixelShiftResult {
     pub orientation: Orientation,
     pub metadata: Metadata,
     pub baseline_exposure: f64,
+    /// Per output pixel, the weight of the single-shot fallback blended in for motion (0 = measured).
     pub motion: GrayFrame,
     pub shots: usize,
+    /// Value at or above which the sensor was saturated ([`crate::Frame::clip`]).
+    pub clip: f32,
 }
+
+/// Output rows per parallel batch between cancellation checks.
+const ROWS: usize = 64;
+
+/// Photo-response non-uniformity between photosites, relative (RawTherapee `pixelshift.cc`
+/// default `pixelShiftPrnu`, 1 %).
+const PRNU: f32 = 0.01;
+
+/// Shot gains closer to 1 than this are left alone: Sony's own composition does not equalize, and
+/// the residual grid is invisible.
+const EQUALIZE_MIN: f32 = 0.002;
 
 // (y, x), indexed by the camera's 1-based shot_number minus one.
 const WHOLE: [(usize, usize); 4] = [(0, 1), (1, 1), (1, 0), (0, 0)];
@@ -38,18 +55,100 @@ fn identity(raw: &RawImage) -> Result<&lightcraft_meta::SonyPixelShift> {
     })
 }
 
-/// Pixels have already been white-normalized, so carry the corresponding normalized
-/// camera matrices/balance and translate Sony's vendor WB multipliers into DNG neutral.
-fn merged_camera_color(raw: &RawImage) -> FrameColor {
-    let mut color = lightcraft_raw::color::normalized_color(raw);
-    if color.as_shot_neutral.is_none()
-        && color.as_shot_white_xy.is_none()
-        && let Some(wb) = raw.wb_multipliers.filter(|wb| wb.iter().all(|v| v.is_finite() && *v > 0.0))
-    {
-        let ratios = lightcraft_raw::color::normalization_ratios(raw);
-        color.as_shot_neutral = Some(std::array::from_fn(|c| ratios[c] / f64::from(wb[c])));
+/// The normalized value at which `raw`'s sensor saturates: the lowest colour plateau of
+/// [`RawImage::saturation_points`] (Pixel Shift decoding skips the white-level estimate that
+/// otherwise moves the white level onto it), else the white level.
+fn saturation(raw: &RawImage) -> f32 {
+    let points = raw.saturation_points();
+    let Some(cfa) = &raw.cfa else { return 1.0 };
+    let a = raw.active_area;
+    let (rows, cols) = (cfa.height.max(raw.black.repeat_rows), cfa.width.max(raw.black.repeat_cols));
+    let mut level = 1.0f32;
+    for y in 0..rows.min(a.height) {
+        for x in 0..cols.min(a.width) {
+            if let Some(point) = points[cfa.color_at(a.x + x, a.y + y).min(2) as usize] {
+                let normalized = raw.normalize_sample(f32::from(point), x, y, 0);
+                if normalized > 0.0 {
+                    level = level.min(normalized);
+                }
+            }
+        }
     }
-    FrameColor::Camera(Box::new(color))
+    level
+}
+
+/// Per shot and CFA colour, the gain that matches the shot's brightness to the first shot's
+/// (RawTherapee `pixelshift.cc` equalBrightChannel). LED flicker, or window light changing during a
+/// multi-second capture, otherwise leaves a fixed 2×2 grid over the frame, or trips motion
+/// detection everywhere. The ratio of the medians of well-exposed samples: the shots see the same
+/// scene shifted by at most a pixel, which moves the median of a whole frame negligibly.
+fn shot_gains(samples: &[lightcraft_raw::NormalizedSamples<'_>], clip: f32) -> Vec<[f32; 3]> {
+    let medians: Vec<[Option<f32>; 3]> = samples.par_iter().map(|s| colour_medians(s, clip)).collect();
+    medians
+        .iter()
+        .map(|shot| {
+            std::array::from_fn(|c| match (medians[0][c], shot[c]) {
+                (Some(first), Some(this)) if this > 0.0 && (first / this - 1.0).abs() > EQUALIZE_MIN => first / this,
+                _ => 1.0,
+            })
+        })
+        .collect()
+}
+
+/// Median of each CFA colour's well-exposed samples (above deep shadow, below near-clipping) on a
+/// bounded sparse grid of whole CFA tiles; `None` without enough samples for a stable median.
+fn colour_medians(samples: &lightcraft_raw::NormalizedSamples<'_>, clip: f32) -> [Option<f32>; 3] {
+    const MIN_SAMPLES: usize = 4096;
+    let Some(cfa) = &samples.cfa else { return [None; 3] };
+    let (tiles_x, tiles_y) = (samples.width / 2, samples.height / 2);
+    let step = ((tiles_x * tiles_y) as f64 / 250_000.0).sqrt().ceil().max(1.0) as usize;
+    let mut values: [Vec<f32>; 3] = Default::default();
+    for ty in (0..tiles_y).step_by(step) {
+        for tx in (0..tiles_x).step_by(step) {
+            for (x, y) in [(2 * tx, 2 * ty), (2 * tx + 1, 2 * ty), (2 * tx, 2 * ty + 1), (2 * tx + 1, 2 * ty + 1)] {
+                let v = samples.get(x, y, 0);
+                if v > 0.02 && v < 0.9 * clip {
+                    values[cfa.color_at(x, y).min(2) as usize].push(v);
+                }
+            }
+        }
+    }
+    values.map(|mut v| {
+        let middle = v.len() / 2;
+        (v.len() >= MIN_SAMPLES).then(|| *v.select_nth_unstable_by(middle, f32::total_cmp).1)
+    })
+}
+
+/// Fallback weights from per-pixel motion detections, after RawTherapee's defaults (blurred motion
+/// map, isolated detections dropped, smooth transitions): a detection with fewer than three within
+/// the colour lattice's reach is noise; the rest grow by the sampling footprint and fade over a
+/// Gaussian edge, instead of switching abruptly between sharp measured colour and the softer
+/// single-shot fallback.
+fn motion_weights(hits: GrayFrame, factor: usize) -> GrayFrame {
+    let (w, h) = (hits.width, hits.height);
+    let reach = 2 * factor;
+    let mut rows = GrayFrame::new(w, h);
+    rows.data.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
+        let line = &hits.data[y * w..(y + 1) * w];
+        for (x, count) in out.iter_mut().enumerate() {
+            *count = line[x.saturating_sub(reach)..=(x + reach).min(w - 1)].iter().filter(|v| **v > 0.0).count() as f32;
+        }
+    });
+    let mut kept = GrayFrame::new(w, h);
+    kept.data.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
+        for (x, keep) in out.iter_mut().enumerate() {
+            if hits.data[y * w + x] > 0.0 {
+                let count: f32 = (y.saturating_sub(reach)..=(y + reach).min(h - 1)).map(|yy| rows.data[yy * w + x]).sum();
+                *keep = if count >= 3.0 { 1.0 } else { 0.0 };
+            }
+        }
+    });
+    drop((rows, hits));
+    let grown = kept.max_filter(factor);
+    drop(kept);
+    let mut weights = grown.gaussian(factor as f32);
+    weights.map_in_place(|v| (2.0 * v).min(1.0));
+    weights
 }
 
 struct MotionNoise {
@@ -138,8 +237,11 @@ impl MotionNoise {
     fn difference_limit(&self, channel: usize, a: f32, b: f32) -> f32 {
         // RawTherapee pixelshift.cc's greenDiff: compare disagreement to independent
         // shot/read noise, rather than a percent-of-white heuristic. Four sigma is
-        // conservative against false motion; variances of two observations add.
-        4.0 * (self.variance(channel, a) + self.variance(channel, b)).sqrt()
+        // conservative against false motion; variances of two observations add. The two
+        // observations come from different photosites, whose gains differ (PRNU, and the
+        // G1/G2 split for greens), so greenDiff's photo-response term is added too.
+        let prnu = PRNU * 0.5 * (a + b).max(0.0);
+        4.0 * (self.variance(channel, a) + self.variance(channel, b) + prnu * prnu).sqrt()
     }
 }
 
@@ -164,11 +266,12 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
         return Ok(PixelShiftResult {
             motion: GrayFrame::new(image.width, image.height),
             image,
-            color: merged_camera_color(raw),
+            color: camera_color(raw),
             orientation: raw.orientation,
             metadata: raw.metadata.clone(),
             baseline_exposure: raw.color.baseline_exposure,
             shots: first_id.shot_count as usize,
+            clip: 1.0,
         });
     }
     if !matches!(n, 4 | 16) || first_id.shot_count as usize != n {
@@ -196,7 +299,6 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             || r.active_area != first.active_area
             || r.crop != first.crop
             || r.cfa != first.cfa
-            || r.orientation != first.orientation
             || r.metadata.make != first.metadata.make
             || r.metadata.model != first.metadata.model
             || r.metadata.exposure_time != first.metadata.exposure_time
@@ -205,10 +307,12 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             || r.color != first.color
         {
             return Err(MergeError::Mismatch(
-                "Pixel Shift sources must have matching Bayer layout, camera, crop, orientation, exposure and colour calibration".into(),
+                "Pixel Shift sources must have matching Bayer layout, camera, crop, exposure and colour calibration".into(),
             ));
         }
     }
+    // The shift pattern is in sensor coordinates; a tag that changed mid-capture is ignored.
+    let orientation = crate::frame::common_orientation(&raws, 0);
     let crop = first.crop.clipped(first.active_area.width, first.active_area.height);
     let crop = if crop.width == 0 || crop.height == 0 { Rect::new(0, 0, first.active_area.width, first.active_area.height) } else { crop };
     if crop.width < 4 || crop.height < 4 {
@@ -223,63 +327,78 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
     }
     // Validate the sample storage before allocating any full-resolution output buffers.
     let samples = raws.iter().map(|r| r.normalized_samples().map_err(|e| MergeError::Decode(e.to_string()))).collect::<Result<Vec<_>>>()?;
+    let clip = raws.par_iter().map(saturation).reduce(|| 1.0, f32::min);
     let noise = MotionNoise::new(first, &samples[0]);
-    let mut image = RgbFrame::new(w, h);
-    let mut motion = GrayFrame::new(w, h);
-    for y in 0..h {
-        check(progress, 0.1 + 0.65 * y as f32 / h as f32, "Reconstructing measured colour samples")?;
-        for x in 0..w {
-            let (sx, sy) = (origin_x + x / factor, origin_y + y / factor);
-            let group = if factor == 1 { 0 } else { HALF.iter().position(|&(dy, dx)| dy == y % 2 && dx == x % 2).unwrap_or(0) };
-            let mut values = [0.0; 3];
-            let mut greens = [0.0; 2];
-            let mut ng = 0;
-            for (i, &(dy, dx)) in WHOLE.iter().enumerate() {
-                let s = &samples[group * 4 + i];
-                let (px, py) = (sx - dx, sy - dy);
-                let channel = s.cfa.as_ref().map_or(0, |c| c.color_at(px, py)) as usize;
-                let v = s.get(px, py, 0);
-                if channel == 1 {
-                    greens[ng] = v;
-                    ng += 1;
-                    values[1] += v * 0.5;
-                } else {
-                    values[channel] = v;
-                }
-            }
-            image.data[y * w + x] = values;
-            // Read/shot noise tolerance. Disagreement is evaluated before WB: a neutral
-            // threshold must not be amplified by the red/blue white-balance multipliers.
-            let tolerance = noise.difference_limit(1, greens[0], greens[1]);
-            let reference = &samples[0];
-            // A second independent test catches motion with little green contrast.
-            // Use a neighbourhood interval, rather than demosaic residuals: a static
-            // high-contrast edge is allowed its local range without false colour ghosts.
-            let (rx, ry) = (sx - 1, sy);
-            let chromatic_motion = [0, 2].iter().any(|&channel| {
-                let mut lo = f32::INFINITY;
-                let mut hi = f32::NEG_INFINITY;
-                // A Bayer colour lies on a two-pixel lattice. A two-pixel
-                // radius brackets the first-shot half phase as well as whole shifts;
-                // a one-pixel radius can leave just one red/blue observation.
-                for yy in ry.saturating_sub(2)..=(ry + 2).min(reference.height - 1) {
-                    for xx in rx.saturating_sub(2)..=(rx + 2).min(reference.width - 1) {
-                        if reference.cfa.as_ref().is_some_and(|c| c.color_at(xx, yy) as usize == channel) {
-                            let v = reference.get(xx, yy, 0);
-                            lo = lo.min(v);
-                            hi = hi.max(v);
-                        }
-                    }
-                }
-                let tolerance = noise.difference_limit(channel, values[channel], (lo + hi) * 0.5);
-                !values[channel].is_finite() || values[channel] < lo - tolerance || values[channel] > hi + tolerance
-            });
-            if chromatic_motion || greens.iter().any(|v| !v.is_finite()) || (greens[0] - greens[1]).abs() > tolerance {
-                motion.data[y * w + x] = 1.0;
+    let gains = shot_gains(&samples, clip);
+    let reconstruct = |x: usize, y: usize| -> ([f32; 3], bool) {
+        let (sx, sy) = (origin_x + x / factor, origin_y + y / factor);
+        let group = if factor == 1 { 0 } else { HALF.iter().position(|&(dy, dx)| dy == y % 2 && dx == x % 2).unwrap_or(0) };
+        let mut values = [0.0; 3];
+        let mut greens = [0.0; 2];
+        let mut ng = 0;
+        for (i, &(dy, dx)) in WHOLE.iter().enumerate() {
+            let shot = group * 4 + i;
+            let s = &samples[shot];
+            let (px, py) = (sx - dx, sy - dy);
+            let channel = s.cfa.as_ref().map_or(0, |c| c.color_at(px, py)) as usize;
+            let v = s.get(px, py, 0);
+            // Saturated samples stay saturated.
+            let v = if v < clip { v * gains[shot][channel] } else { v };
+            if channel == 1 {
+                greens[ng] = v;
+                ng += 1;
+                values[1] += v * 0.5;
+            } else {
+                values[channel] = v;
             }
         }
+        // Read/shot noise tolerance. Disagreement is evaluated before WB: a neutral
+        // threshold must not be amplified by the red/blue white-balance multipliers.
+        let tolerance = noise.difference_limit(1, greens[0], greens[1]);
+        let reference = &samples[0];
+        // A second independent test catches motion with little green contrast.
+        // Use a neighbourhood interval, rather than demosaic residuals: a static
+        // high-contrast edge is allowed its local range without false colour ghosts.
+        let (rx, ry) = (sx - 1, sy);
+        let chromatic_motion = [0, 2].iter().any(|&channel| {
+            let mut lo = f32::INFINITY;
+            let mut hi = f32::NEG_INFINITY;
+            // A Bayer colour lies on a two-pixel lattice. A two-pixel
+            // radius brackets the first-shot half phase as well as whole shifts;
+            // a one-pixel radius can leave just one red/blue observation.
+            for yy in ry.saturating_sub(2)..=(ry + 2).min(reference.height - 1) {
+                for xx in rx.saturating_sub(2)..=(rx + 2).min(reference.width - 1) {
+                    if reference.cfa.as_ref().is_some_and(|c| c.color_at(xx, yy) as usize == channel) {
+                        let v = reference.get(xx, yy, 0);
+                        lo = lo.min(v);
+                        hi = hi.max(v);
+                    }
+                }
+            }
+            let tolerance = noise.difference_limit(channel, values[channel], (lo + hi) * 0.5);
+            !values[channel].is_finite() || values[channel] < lo - tolerance || values[channel] > hi + tolerance
+        });
+        (values, chromatic_motion || greens.iter().any(|v| !v.is_finite()) || (greens[0] - greens[1]).abs() > tolerance)
+    };
+    let mut image = RgbFrame::new(w, h);
+    let mut motion = GrayFrame::new(w, h);
+    // Row groups bound cancellation latency without invoking the callback from workers.
+    for (tile, (pixels, moved)) in image.data.chunks_mut(w * ROWS).zip(motion.data.chunks_mut(w * ROWS)).enumerate() {
+        check(progress, 0.1 + 0.65 * (tile * ROWS) as f32 / h as f32, "Reconstructing measured colour samples")?;
+        pixels.par_chunks_mut(w).zip(moved.par_chunks_mut(w)).enumerate().for_each(|(row, (pixels, moved))| {
+            let y = tile * ROWS + row;
+            for x in 0..w {
+                let (values, moving) = reconstruct(x, y);
+                pixels[x] = values;
+                if moving {
+                    moved[x] = 1.0;
+                }
+            }
+        });
     }
     drop(samples);
+    let motion = if motion.data.iter().any(|v| *v > 0.0) { motion_weights(motion, factor) } else { motion };
+    // Isolated detections weigh nothing: no fallback to develop.
     if motion.data.iter().any(|v| *v > 0.0) {
         check(progress, 0.8, "Developing motion fallback")?;
         // Do not apply geometry before merge; the normal Develop lens pipeline owns it.
@@ -291,67 +410,44 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             .retain(|o| !matches!(o, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. }));
         source.crop = Rect::new(0, 0, source.active_area.width, source.active_area.height);
         let fallback = source.develop(lightcraft_raw::Method::Auto).map_err(|e| MergeError::Decode(e.to_string()))?;
-        let mut expanded = GrayFrame::new(w, h);
-        let radius = 2 * factor;
-        // Separable sliding-window dilation costs O(pixels), independent of camera
-        // resolution and mask radius. Retain the original first pass until it completes.
-        for y in 0..h {
-            let mut count = (0..=radius.min(w - 1)).filter(|&x| motion.data[y * w + x] > 0.0).count();
-            for x in 0..w {
-                expanded.data[y * w + x] = if count > 0 { 1.0 } else { 0.0 };
-                if x >= radius && motion.data[y * w + x - radius] > 0.0 {
-                    count -= 1;
+        for (tile, (pixels, weights)) in image.data.chunks_mut(w * ROWS).zip(motion.data.chunks(w * ROWS)).enumerate() {
+            check(progress, 0.8 + 0.2 * (tile * ROWS) as f32 / h as f32, "Replacing moving areas")?;
+            pixels.par_chunks_mut(w).zip(weights.par_chunks(w)).enumerate().for_each(|(row, (pixels, weights))| {
+                let y = tile * ROWS + row;
+                for (x, (pixel, &weight)) in pixels.iter_mut().zip(weights).enumerate() {
+                    if weight > 0.0 {
+                        // First shot has (+1,0) displacement, plus the first half phase
+                        // (+0.5,0) in a sixteen-shot capture. Sample the uncropped fallback
+                        // so default crop margins remain available at the output edges.
+                        let px = origin_x as f32 - 1.0 + x as f32 / factor as f32 - if n == 16 { 0.5 } else { 0.0 };
+                        let py = origin_y as f32 + y as f32 / factor as f32;
+                        let single = fallback.sample_bilinear(px + 0.5, py + 0.5);
+                        *pixel = if weight >= 1.0 { single } else { std::array::from_fn(|c| pixel[c] + (single[c] - pixel[c]) * weight) };
+                    }
                 }
-                if x + radius + 1 < w && motion.data[y * w + x + radius + 1] > 0.0 {
-                    count += 1;
-                }
-            }
-        }
-        for x in 0..w {
-            let mut count = (0..=radius.min(h - 1)).filter(|&y| expanded.data[y * w + x] > 0.0).count();
-            for y in 0..h {
-                motion.data[y * w + x] = if count > 0 { 1.0 } else { 0.0 };
-                if y >= radius && expanded.data[(y - radius) * w + x] > 0.0 {
-                    count -= 1;
-                }
-                if y + radius + 1 < h && expanded.data[(y + radius + 1) * w + x] > 0.0 {
-                    count += 1;
-                }
-            }
-        }
-        drop(expanded);
-        for y in 0..h {
-            check(progress, 0.8 + 0.2 * y as f32 / h as f32, "Replacing moving areas")?;
-            for x in 0..w {
-                if motion.data[y * w + x] > 0.0 {
-                    // First shot has (+1,0) displacement, plus the first half phase
-                    // (+0.5,0) in a sixteen-shot capture. Sample the uncropped fallback
-                    // so default crop margins remain available at the output edges.
-                    let px = origin_x as f32 - 1.0 + x as f32 / factor as f32 - if n == 16 { 0.5 } else { 0.0 };
-                    let py = origin_y as f32 + y as f32 / factor as f32;
-                    image.data[y * w + x] = fallback.sample_bilinear(px + 0.5, py + 0.5);
-                }
-            }
+            });
         }
         return Ok(PixelShiftResult {
             image,
-            color: merged_camera_color(&source),
-            orientation: source.orientation,
+            color: camera_color(&source),
+            orientation,
             metadata: source.metadata,
             baseline_exposure: source.color.baseline_exposure,
             motion,
             shots: n,
+            clip,
         });
     }
     check(progress, 1.0, "Pixel Shift ready")?;
     Ok(PixelShiftResult {
         image,
-        color: merged_camera_color(first),
-        orientation: first.orientation,
+        color: camera_color(first),
+        orientation,
         metadata: first.metadata.clone(),
         baseline_exposure: first.color.baseline_exposure,
         motion,
         shots: n,
+        clip,
     })
 }
 
@@ -369,6 +465,10 @@ mod tests {
     }
 
     fn sources(count: usize) -> Vec<RawImage> {
+        sized_sources(count, 24, 20, scene)
+    }
+
+    fn sized_sources(count: usize, width: usize, height: usize, scene: impl Fn(f32, f32) -> [f32; 3]) -> Vec<RawImage> {
         (0..count)
             .map(|i| {
                 let cfa = Cfa::bayer("RGGB").unwrap();
@@ -395,25 +495,25 @@ mod tests {
                     (0.5, 0.5),
                 ];
                 let (dy, dx) = if count == 16 { SIXTEEN_ABSOLUTE[i] } else { FOUR_ABSOLUTE[i] };
-                let data = (0..24 * 20)
+                let data = (0..width * height)
                     .map(|p| {
-                        let (x, y) = (p % 24, p / 24);
+                        let (x, y) = (p % width, p / width);
                         scene(x as f32 + dx, y as f32 + dy)[cfa.color_at(x, y) as usize] * 1000.0 + 64.0
                     })
                     .collect();
                 RawImage {
                     vendor_lens: None,
                     format: RawFormat::Arw,
-                    width: 24,
-                    height: 20,
+                    width,
+                    height,
                     cpp: 1,
                     data: RawData::F32(data),
                     cfa: Some(cfa),
                     bits: 14,
                     black: BlackLevel::uniform(64.0),
                     white: vec![1064.0],
-                    active_area: Rect::new(0, 0, 24, 20),
-                    crop: Rect::new(2, 2, 20, 16),
+                    active_area: Rect::new(0, 0, width, height),
+                    crop: Rect::new(2, 2, width - 4, height - 4),
                     orientation: Orientation::Normal,
                     color: ColorData {
                         illuminant: [21, 0],
@@ -469,6 +569,7 @@ mod tests {
                 &result.metadata,
                 result.baseline_exposure,
                 crate::DngSamples::Float,
+                Some(result.clip),
             )
             .unwrap();
             let decoded = lightcraft_raw::decode(&dng).unwrap();
@@ -487,6 +588,22 @@ mod tests {
     }
 
     #[test]
+    fn pixelshift_reconstruction_spans_row_batches_exactly() {
+        let result = merge_pixel_shift(sized_sources(16, 72, 100, scene), &crate::no_progress).unwrap();
+        assert_eq!((result.image.width, result.image.height), (136, 192));
+        let mut max_error = 0.0f32;
+        for y in 0..result.image.height {
+            for x in 0..result.image.width {
+                let expected = scene(2.0 + x as f32 / 2.0, 2.0 + y as f32 / 2.0);
+                for (a, b) in result.image.get(x, y).iter().zip(expected) {
+                    max_error = max_error.max((a - b).abs());
+                }
+            }
+        }
+        assert!(max_error < 1e-6, "maximum camera RGB error {max_error}");
+    }
+
+    #[test]
     fn pixelshift_motion_uses_one_source_instead_of_false_colours() {
         let mut raws = sources(4);
         if let RawData::F32(data) = &mut raws[1].data {
@@ -499,11 +616,57 @@ mod tests {
         let mut fallback_raw = raws[0].clone();
         fallback_raw.crop = Rect::new(0, 0, 24, 20);
         let fallback = fallback_raw.develop(lightcraft_raw::Method::Auto).unwrap();
+        let measured = merge_pixel_shift(sources(4), &crate::no_progress).unwrap();
         let result = merge_pixel_shift(raws, &crate::no_progress).unwrap();
         assert!(result.motion.data.iter().filter(|v| **v > 0.0).count() > 25);
         assert_eq!(result.motion.get(7, 7), 1.0);
         assert_eq!(result.image.get(7, 7), fallback.get(8, 9));
         assert_eq!(result.motion.get(17, 13), 0.0);
+        // The fallback fades in over the motion's edge.
+        let (i, weight) = result.motion.data.iter().copied().enumerate().find(|(_, v)| *v > 0.05 && *v < 0.95).expect("feathered edge");
+        let (x, y) = (i % result.image.width, i / result.image.width);
+        let single = fallback.sample_bilinear(x as f32 + 1.5, y as f32 + 2.5);
+        for c in 0..3 {
+            let want = measured.image.get(x, y)[c] + (single[c] - measured.image.get(x, y)[c]) * weight;
+            assert!((result.image.get(x, y)[c] - want).abs() < 1e-6, "({x},{y}) blends measured and fallback by {weight}");
+        }
+    }
+
+    #[test]
+    fn pixelshift_equalizes_shot_brightness() {
+        let gentle = |x: f32, y: f32| [0.3 + 0.0002 * x + 0.0001 * y, 0.35 + 0.0001 * x + 0.0002 * y, 0.4 + 0.0002 * x - 0.0001 * y];
+        let clean = merge_pixel_shift(sized_sources(4, 160, 128, gentle), &crate::no_progress).unwrap();
+        let mut raws = sized_sources(4, 160, 128, gentle);
+        // The third shot caught a 3 % brighter phase of the room's LED lighting.
+        if let RawData::F32(data) = &mut raws[2].data {
+            data.iter_mut().for_each(|v| *v = (*v - 64.0) * 1.03 + 64.0);
+        }
+        let flickered = merge_pixel_shift(raws, &crate::no_progress).unwrap();
+        assert!(flickered.motion.data.iter().all(|v| *v == 0.0));
+        let largest =
+            flickered.image.data.iter().zip(&clean.image.data).flat_map(|(a, b)| (0..3).map(move |c| (a[c] / b[c] - 1.0).abs())).fold(0.0, f32::max);
+        assert!(largest < 0.002, "relative difference from the steady capture {largest}");
+        let exact = clean.image.data.iter().enumerate().all(|(i, p)| {
+            let expected = gentle(2.0 + (i % clean.image.width) as f32, 2.0 + (i / clean.image.width) as f32);
+            (0..3).all(|c| (p[c] - expected[c]).abs() < 1e-6)
+        });
+        assert!(exact, "a steady capture is not equalized");
+    }
+
+    #[test]
+    fn pixelshift_isolated_detection_is_not_motion() {
+        let mut raws = sources(4);
+        if let RawData::F32(data) = &mut raws[1].data {
+            data[9 * 24 + 11] += 300.0;
+        }
+        let stages = std::sync::Mutex::new(Vec::new());
+        let result = merge_pixel_shift(raws, &|_, stage| {
+            stages.lock().unwrap().push(stage.to_owned());
+            true
+        })
+        .unwrap();
+        assert!(result.motion.data.iter().all(|v| *v == 0.0), "a single outlying sample must not pull in the fallback");
+        assert!(!stages.lock().unwrap().iter().any(|s| s == "Developing motion fallback"), "nothing to blend, nothing to develop");
     }
 
     #[test]
@@ -536,8 +699,8 @@ mod tests {
     #[test]
     fn pixelshift_measured_noise_detects_subtle_green_motion() {
         let mut raws = sources(4);
-        // Independent noiseless integer sensor measurements. A five-DN temporal
-        // change is above quantization noise but below the former percentage limit.
+        // Independent noiseless integer sensor measurements. A 20-DN temporal change (6 %
+        // of the local green) is above quantization and the photosites' 1 % gain spread.
         for raw in &mut raws {
             let data = std::mem::replace(&mut raw.data, RawData::U16(Vec::new()));
             if let RawData::F32(values) = data {
@@ -548,7 +711,7 @@ mod tests {
             for y in 7..12 {
                 for x in 7..12 {
                     if (x + y) % 2 == 1 {
-                        data[y * 24 + x] += 5;
+                        data[y * 24 + x] += 20;
                     }
                 }
             }
@@ -566,10 +729,105 @@ mod tests {
     fn pixelshift_float_dng_preserves_negative_and_fractional_sensor_samples() {
         let image = RgbFrame::from_fn(12, 10, |x, y| [-0.001953125 - x as f32 * 0.00000003, 0.1234567 + y as f32 * 0.000001, 0.6]);
         let color = FrameColor::Camera(Box::default());
-        let bytes = crate::write_linear_dng(&image, &color, Orientation::Normal, &Metadata::default(), 0.0, crate::DngSamples::Float).unwrap();
+        let bytes = crate::write_linear_dng(&image, &color, Orientation::Normal, &Metadata::default(), 0.0, crate::DngSamples::Float, None).unwrap();
         let decoded = lightcraft_raw::decode(&bytes).unwrap();
         let developed = decoded.develop(lightcraft_raw::Method::Auto).unwrap();
         assert_eq!(developed, image, "FP32 linear DNG preserves negative sensor noise and fractional samples bit for bit");
+    }
+
+    #[test]
+    fn pixelshift_clipped_samples_land_on_the_dng_white_level() {
+        let mut raws = sources(4);
+        for raw in &mut raws {
+            if let RawData::F32(data) = &mut raw.data {
+                for y in 6..14 {
+                    for x in 6..16 {
+                        data[y * 24 + x] = 1064.0;
+                    }
+                }
+            }
+        }
+        let result = merge_pixel_shift(raws, &crate::no_progress).unwrap();
+        assert_eq!(result.clip, 1.0);
+        let dng = crate::write_linear_dng(
+            &result.image,
+            &result.color,
+            result.orientation,
+            &result.metadata,
+            result.baseline_exposure,
+            crate::DngSamples::Float,
+            Some(result.clip),
+        )
+        .unwrap();
+        let reopened = lightcraft_raw::decode(&dng).unwrap().normalized().unwrap();
+        let at = |x: usize, y: usize| -> [f32; 3] { std::array::from_fn(|c| reopened.data[(y * reopened.width + x) * 3 + c]) };
+        // Output (x, y) reads sensor (x + 2, y + 2) and its shifted neighbours.
+        for y in 7..10 {
+            for x in 7..12 {
+                assert!(at(x, y).iter().all(|v| (0.99..=1.0).contains(v)), "clipped block at {x},{y}: {:?}", at(x, y));
+            }
+        }
+        // Measured values keep their scale below the white level.
+        let scene_value = scene(2.0, 2.0);
+        for c in 0..3 {
+            assert!((at(0, 0)[c] - scene_value[c]).abs() < 1e-5, "{:?} vs {scene_value:?}", at(0, 0));
+        }
+    }
+
+    #[test]
+    fn pixelshift_saturation_reads_the_sensor_plateau_in_normalized_units() {
+        let (w, h) = (64, 64);
+        let cfa = Cfa::bayer("RGGB").unwrap();
+        // Half the frame measured (64..900 DN), half piled up 64 DN below the stated white.
+        let data = (0..w * h).map(|p| if p % w < w / 2 { 64 + ((p % w) * 26 + p / w) as u16 } else { 1000 }).collect();
+        let raw = RawImage {
+            data: RawData::U16(data),
+            width: w,
+            height: h,
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(0, 0, w, h),
+            cfa: Some(cfa),
+            ..sources(4).remove(0)
+        };
+        assert!((saturation(&raw) - 936.0 / 1000.0).abs() < 1e-6, "{}", saturation(&raw));
+        let unclipped = RawImage { data: RawData::U16(vec![500; w * h]), ..raw };
+        assert_eq!(saturation(&unclipped), 1.0);
+    }
+
+    #[test]
+    fn pixelshift_clip_is_where_every_clipped_sample_reads() {
+        let (w, h) = (64, 64);
+        // One white level with a black level that differs per CFA position: samples normalize by
+        // the white level less the mean black, so a plateau's level differs per position.
+        let black = BlackLevel { repeat_rows: 2, repeat_cols: 2, values: vec![60.0, 64.0, 66.0, 70.0], ..Default::default() };
+        let data = (0..w * h).map(|p| if p % w < w / 2 { 80 + ((p % w) * 26 + p / w) as u16 } else { 1000 }).collect();
+        let raw = RawImage {
+            data: RawData::U16(data),
+            width: w,
+            height: h,
+            black,
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(0, 0, w, h),
+            ..sources(4).remove(0)
+        };
+        let clip = saturation(&raw);
+        assert!(clip < 0.95, "{clip}");
+        let samples = raw.normalized_samples().unwrap();
+        for y in 0..h {
+            for x in w / 2..w {
+                assert!(samples.get(x, y, 0) >= clip, "clipped sample at {x},{y} reads {} below the clip {clip}", samples.get(x, y, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn pixelshift_ignores_an_orientation_tag_that_changed_mid_capture() {
+        let mut raws = sources(4);
+        raws[2].orientation = Orientation::Rotate90;
+        let result = merge_pixel_shift(raws, &crate::no_progress).unwrap();
+        assert_eq!(result.orientation, Orientation::Normal);
+        assert_eq!((result.image.width, result.image.height), (20, 16));
+        assert!(result.motion.data.iter().all(|v| *v == 0.0));
     }
 
     #[test]

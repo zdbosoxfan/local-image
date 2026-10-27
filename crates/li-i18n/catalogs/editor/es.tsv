@@ -3926,3 +3926,5 @@ ai	New	Nuevos
 	Put this command's shortcuts back as they were	Restaurar los métodos abreviados de este comando como estaban
 	Take the shortcut from the other command and select it	Quitar el método abreviado al otro comando y seleccionarlo
 	GPU Memory (MB, 0 = Automatic)	Memoria de GPU (MB, 0 = Automático)
+	{path} was saved over	Se ha sobrescrito {path}
+	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	«{doc}» ya no tiene un archivo asociado y está marcado como no guardado: guárdelo con un nombre nuevo para conservarlo.

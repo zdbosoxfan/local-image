@@ -79,6 +79,10 @@ pub struct PanoResult {
     pub metadata: lightcraft_meta::Metadata,
     pub raw: bool,
     pub baseline_exposure: f64,
+    /// Raw inputs: the level every input's saturated values were moved to after exposure
+    /// compensation, so a clip in any frame reads as one clip in the panorama ([`Frame::clip`]).
+    /// `None` when an input is not a raw file: rendered and float images keep their values.
+    pub clip: Option<f32>,
 }
 
 /// Field of view (degrees) of the cameras' union, measured in the spherical projection.
@@ -158,6 +162,63 @@ struct Tile {
     rgb: Vec<[f32; 3]>,
     /// Feather weight (0 = outside the image).
     wgt: Vec<f32>,
+}
+
+impl Tile {
+    fn project(fr: &Frame, c: Camera, projection: Projection, f_out: f64, origin: (f64, f64), size: (usize, usize), unit: usize) -> Option<Self> {
+        let (ox, oy) = origin;
+        let (pw, ph) = size;
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for (x, y) in border(fr.width(), fr.height(), 32) {
+            let (u, v) = projection.forward(c.ray(x, y), f_out)?;
+            x0 = x0.min(u - ox);
+            y0 = y0.min(v - oy);
+            x1 = x1.max(u - ox);
+            y1 = y1.max(v - oy);
+        }
+        let pad = 2.0 * unit as f64;
+        let tx0 = (((x0 - pad).max(0.0) as usize) / unit) * unit;
+        let ty0 = (((y0 - pad).max(0.0) as usize) / unit) * unit;
+        let tx1 = (((x1 + pad).max(0.0) as usize).min(pw)).div_ceil(unit) * unit;
+        let ty1 = (((y1 + pad).max(0.0) as usize).min(ph)).div_ceil(unit) * unit;
+        let (tw, th) = (tx1.min(pw).saturating_sub(tx0), ty1.min(ph).saturating_sub(ty0));
+        if tw == 0 || th == 0 {
+            return None;
+        }
+        let (fw, fh) = (fr.width() as f64, fr.height() as f64);
+        let in_frame = |(px, py): (f64, f64)| px.is_finite() && py.is_finite() && px >= 0.0 && py >= 0.0 && px <= fw && py <= fh;
+        let mut rgb = vec![[0f32; 3]; tw * th];
+        let mut wgt = vec![0f32; tw * th];
+        rgb.par_chunks_mut(tw).zip(wgt.par_chunks_mut(tw)).enumerate().for_each(|(ty, (row, wrow))| {
+            let v = (ty0 + ty) as f64 + 0.5 + oy;
+            let centre = tx0 as f64 + tw as f64 / 2.0 + ox;
+            let at = |u, v| c.project(projection.inverse(u, v, f_out));
+            // A seam-spanning tile's centre can project outside the source frame.
+            let column = std::iter::once(centre).chain((0..tw).map(|tx| (tx0 + tx) as f64 + 0.5 + ox)).find(|&u| at(u, v).is_some_and(in_frame));
+            // Widen along each source axis by the projected footprint of one output pixel.
+            let stretch = match column.map(|u| (at(u - 1.0, v), at(u + 1.0, v), at(u, v - 1.0), at(u, v + 1.0))) {
+                Some((Some(left), Some(right), Some(top), Some(bottom))) => {
+                    [((right.0 - left.0) / 2.0).hypot((bottom.0 - top.0) / 2.0), ((right.1 - left.1) / 2.0).hypot((bottom.1 - top.1) / 2.0)].map(
+                        |value| {
+                            if value.is_finite() { value.clamp(1.0, f64::from(li_raster::frame::CUBIC_MAX_STRETCH)) as f32 } else { 1.0 }
+                        },
+                    )
+                }
+                // An unknown footprint does not justify blurring source detail.
+                _ => [1.0; 2],
+            };
+            for tx in 0..tw {
+                let u = (tx0 + tx) as f64 + 0.5 + ox;
+                let Some((px, py)) = at(u, v).filter(|&point| in_frame(point)) else { continue };
+                let wx = 1.0 - (2.0 * px / fw - 1.0).abs();
+                let wy = 1.0 - (2.0 * py / fh - 1.0).abs();
+                let w = (wx * wy).max(1e-6) as f32;
+                row[tx] = fr.image.sample_cubic(px as f32, py as f32, stretch, 0.0);
+                wrow[tx] = w;
+            }
+        });
+        Some(Tile { x0: tx0, y0: ty0, w: tw, h: th, rgb, wgt })
+    }
 }
 
 /// Register the frames: cameras for the connected set.
@@ -257,43 +318,7 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         .map(|i| {
             let c = cams[i]?;
             let fr = &frames[i];
-            let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-            for (x, y) in border(fr.width(), fr.height(), 32) {
-                let (u, v) = projection.forward(c.ray(x, y), f_out)?;
-                x0 = x0.min(u - ox);
-                y0 = y0.min(v - oy);
-                x1 = x1.max(u - ox);
-                y1 = y1.max(v - oy);
-            }
-            let pad = 2.0 * unit as f64;
-            let tx0 = (((x0 - pad).max(0.0) as usize) / unit) * unit;
-            let ty0 = (((y0 - pad).max(0.0) as usize) / unit) * unit;
-            let tx1 = (((x1 + pad).max(0.0) as usize).min(pw)).div_ceil(unit) * unit;
-            let ty1 = (((y1 + pad).max(0.0) as usize).min(ph)).div_ceil(unit) * unit;
-            let (tw, th) = (tx1.min(pw).saturating_sub(tx0), ty1.min(ph).saturating_sub(ty0));
-            if tw == 0 || th == 0 {
-                return None;
-            }
-            let (fw, fh) = (fr.width() as f64, fr.height() as f64);
-            let mut rgb = vec![[0f32; 3]; tw * th];
-            let mut wgt = vec![0f32; tw * th];
-            rgb.par_chunks_mut(tw).zip(wgt.par_chunks_mut(tw)).enumerate().for_each(|(ty, (row, wrow))| {
-                let v = (ty0 + ty) as f64 + 0.5 + oy;
-                for tx in 0..tw {
-                    let u = (tx0 + tx) as f64 + 0.5 + ox;
-                    let d = projection.inverse(u, v, f_out);
-                    let Some((px, py)) = c.project(d) else { continue };
-                    if px < 0.0 || py < 0.0 || px > fw || py > fh {
-                        continue;
-                    }
-                    let wx = 1.0 - (2.0 * px / fw - 1.0).abs();
-                    let wy = 1.0 - (2.0 * py / fh - 1.0).abs();
-                    let w = (wx * wy).max(1e-6) as f32;
-                    row[tx] = fr.image.sample_bilinear(px as f32, py as f32);
-                    wrow[tx] = w;
-                }
-            });
-            Some(Tile { x0: tx0, y0: ty0, w: tw, h: th, rgb, wgt })
+            Tile::project(fr, c, projection, f_out, (ox, oy), (pw, ph), unit)
         })
         .collect();
     check(progress, 0.6, "Exposure compensation")?;
@@ -316,6 +341,14 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         }
     }
     check(progress, 0.7, "Blending")?;
+    // Raw frames clip at different compensated levels; saturated values all take the highest,
+    // and the seam owner's saturated channels stay exactly there through blending.
+    let clip = used
+        .iter()
+        .all(|&i| frames[i].raw)
+        .then(|| used.iter().map(|&i| frames[i].clip * gains[i] as f32).fold(0.0f32, f32::max))
+        .filter(|c| c.is_finite());
+    let mut saturated = vec![0u8; if clip.is_some() { pw * ph } else { 0 }];
     let mut blender = Blender::new(pw, ph, levels);
     for (i, t) in tiles.into_iter().enumerate() {
         let Some(t) = t else { continue };
@@ -325,12 +358,22 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         for ty in 0..t.h {
             for tx in 0..t.w {
                 let k = ty * t.w + tx;
+                let owned = label[(t.y0 + ty) * pw + t.x0 + tx] == i as u16;
                 if t.wgt[k] > 0.0 {
                     for c in 0..3 {
-                        vals.data[k * 3 + c] = (t.rgb[k][c] * g).max(1e-6).ln();
+                        let v = match clip {
+                            Some(clip) if t.rgb[k][c] >= frames[i].clip => {
+                                if owned {
+                                    saturated[(t.y0 + ty) * pw + t.x0 + tx] |= 1 << c;
+                                }
+                                clip
+                            }
+                            _ => t.rgb[k][c] * g,
+                        };
+                        vals.data[k * 3 + c] = v.max(1e-6).ln();
                     }
                 }
-                if label[(t.y0 + ty) * pw + t.x0 + tx] == i as u16 {
+                if owned {
                     mask.data[k] = 1.0;
                 }
             }
@@ -340,13 +383,16 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         check(progress, 0.7 + 0.2 * (i + 1) as f32 / n as f32, "Blending")?;
     }
     let out = blender.finish();
+    // Only raw panoramas pin samples (`saturated` is empty otherwise).
+    let pin = clip.unwrap_or_default();
     let mut image = RgbFrame::new(cw, ch);
     let mut alpha = GrayFrame::new(cw, ch);
     for y in 0..ch {
         for x in 0..cw {
             let k = y * pw + x;
             if label[k] != u16::MAX {
-                image.data[y * cw + x] = [0, 1, 2].map(|c| out.data[k * 3 + c].exp());
+                let pinned = saturated.get(k).copied().unwrap_or(0);
+                image.data[y * cw + x] = [0, 1, 2].map(|c| if pinned & (1 << c) != 0 { pin } else { out.data[k * 3 + c].exp() });
                 alpha.data[y * cw + x] = 1.0;
             }
         }
@@ -362,6 +408,16 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         image = finish::fill_edges(&image, &alpha);
     }
     let r = &frames[used[0]];
+    // The projection has no source lens geometry: no lens model may be applied to the panorama.
+    let mut metadata = r.metadata.clone();
+    metadata.lens_corrections_baked = true;
+    if let Some(sony) = &mut metadata.sony {
+        sony.lens_correction = None;
+    }
+    // The canvas's own 35 mm-equivalent focal length (by the diagonal, as EXIF; the projection's at
+    // its centre): the reference frame's describes a narrower view, and Upright takes this as the
+    // camera of the panorama.
+    metadata.focal_length_35mm = Some(f_out * 36f64.hypot(24.0) / (cw as f64).hypot(ch as f64));
     Ok(PanoResult {
         image,
         alpha,
@@ -376,9 +432,10 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         focal: f_out,
         origin: (ox, oy),
         color: r.color.clone(),
-        metadata: r.metadata.clone(),
+        metadata,
         raw: r.raw,
         baseline_exposure: r.baseline_exposure,
+        clip,
     })
 }
 
@@ -457,5 +514,51 @@ fn compensate_gains(tiles: &[Option<Tile>], gains: &mut [f64], frames: &[Frame])
         && g.iter().all(|v| v.is_finite() && *v > 0.0)
     {
         gains.copy_from_slice(&g);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn back_seam_frame_keeps_native_resampling_detail() {
+        let mut contrasts = Vec::new();
+        for (pitch, height, origin_y, output_height) in [(0.0_f64, 48, -24.0, 48), (45.0, 112, -360.0, 360)] {
+            let image = RgbFrame::from_fn(96, height, |x, _| [if x % 4 < 2 { 0.1 } else { 0.9 }; 3]);
+            let frame = Frame::from_linear_rec2020(image, None);
+            let (sin, cos) = pitch.to_radians().sin_cos();
+            let camera = Camera { f: 96.0, r: [[-1.0, 0.0, 0.0], [0.0, cos, -sin], [0.0, -sin, -cos]], cx: 48.0, cy: height as f64 / 2.0 };
+            // A full 360-degree canvas puts this backward-facing frame across both horizontal edges.
+            let origin = (-303.0, origin_y);
+            for projection in [Projection::Cylindrical, Projection::Spherical] {
+                let tile = Tile::project(&frame, camera, projection, 96.0, origin, (606, output_height), 2).unwrap();
+                let centre = tile.x0 as f64 + tile.w as f64 / 2.0 + origin.0;
+                assert!(camera.project(projection.inverse(centre, 0.0, 96.0)).is_none(), "the tile centre is behind the seam camera at the equator");
+                let mut samples = 0;
+                let mut contrast = 0.0;
+                for y in 0..tile.h {
+                    let v = (tile.y0 + y) as f64 + 0.5 + origin.1;
+                    if pitch > 0.0 {
+                        // The grazing centre is in front of the tilted camera, but outside its image.
+                        let Some((_, py)) = camera.project(projection.inverse(centre, v, 96.0)) else { continue };
+                        assert!(py < 0.0 || py > height as f64);
+                    }
+                    for x in 0..tile.w {
+                        let u = (tile.x0 + x) as f64 + 0.5 + origin.0;
+                        let Some((px, py)) = camera.project(projection.inverse(u, v, 96.0)) else { continue };
+                        if (24.0..72.0).contains(&px) && (height as f64 / 4.0..height as f64 * 0.75).contains(&py) {
+                            assert!(tile.wgt[y * tile.w + x] > 0.0);
+                            contrast += (tile.rgb[y * tile.w + x][0] - 0.5).abs();
+                            samples += 1;
+                        }
+                    }
+                }
+                assert!(samples > 500, "{projection:?}, pitch {pitch}: {samples} samples");
+                contrasts.push((projection, pitch, contrast / samples as f32));
+            }
+        }
+        // Native cubic retains the two-pixel bars; a 4x footprint averages them to grey.
+        assert!(contrasts.iter().all(|(_, _, contrast)| *contrast > 0.18), "seam-frame contrasts {contrasts:?}");
     }
 }

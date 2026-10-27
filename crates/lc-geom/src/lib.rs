@@ -6,10 +6,12 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod crop;
+mod crop_drag;
 mod homography;
 mod real;
 
 pub use crop::{CropGeometry, MIN_CROP_FRACTION, crop_fit_angle, max_inscribed_scale};
+pub use crop_drag::{CropHandle, MAX_RATIO, drag_crop};
 pub use homography::Homography;
 pub use real::{Interval, Real};
 
@@ -213,6 +215,12 @@ impl Affine {
     pub fn apply(&self, p: Point) -> Point {
         let (x, y) = self.apply_real(p.x, p.y);
         Point::new(x, y)
+    }
+
+    /// Transform a displacement without applying the translation.
+    pub fn apply_vec(&self, v: Vec2) -> Vec2 {
+        let [a, b, c, d, _, _] = self.0;
+        Vec2::new(a * v.x + c * v.y, b * v.x + d * v.y)
     }
     /// [`Affine::apply`] for any [`Real`] (e.g. [`Interval`] bounds over many points).
     pub fn apply_real<T: Real>(&self, x: T, y: T) -> (T, T) {

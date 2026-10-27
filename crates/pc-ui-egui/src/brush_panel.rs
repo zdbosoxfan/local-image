@@ -237,6 +237,7 @@ fn section_list(app: &mut PhotocraftApp, ui: &mut egui::Ui, b: &mut BrushSetting
             } else if resp.hovered() {
                 ui.painter().rect_filled(r, t.radius_sm, t.hover);
             }
+            let secondary = if sel || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint };
             let mut x = r.left() + 6.0;
             if *has_box && let Some(flag) = section_flag(b, i) {
                 let br = egui::Rect::from_center_size(egui::pos2(x + 6.0, r.center().y), vec2(13.0, 13.0));
@@ -251,7 +252,7 @@ fn section_list(app: &mut PhotocraftApp, ui: &mut egui::Ui, b: &mut BrushSetting
                     ui.painter().line_segment([a, m], Stroke::new(1.6, Color32::WHITE));
                     ui.painter().line_segment([m, c], Stroke::new(1.6, Color32::WHITE));
                 } else {
-                    ui.painter().rect_stroke(br, 2.0, Stroke::new(1.2, t.text_faint), egui::StrokeKind::Inside);
+                    ui.painter().rect_stroke(br, 2.0, Stroke::new(1.2, secondary), egui::StrokeKind::Inside);
                 }
                 let on_lock = resp.interact_pointer_pos().is_some_and(|p| p.x > r.right() - 22.0);
                 if box_resp.clicked() {
@@ -277,7 +278,7 @@ fn section_list(app: &mut PhotocraftApp, ui: &mut egui::Ui, b: &mut BrushSetting
                 let lresp = ui.interact(lr, ui.id().with(("brush-sec-lock", i)), Sense::click());
                 // Like Photoshop: the lock shows only when set or hovered.
                 if *lock || resp.hovered() || lresp.hovered() {
-                    let tint = if *lock { t.text } else { t.text_faint };
+                    let tint = if *lock { t.text } else { secondary };
                     icons::paint(ui, lr, if *lock { "lock" } else { "lock-open" }, 12.0, tint);
                 }
                 let tip =

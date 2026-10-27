@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(any(test, target_arch = "aarch64"), expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed"))]
+#![cfg_attr(test, expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
 
 extern crate self as photocraft_doc;
 
@@ -35,7 +36,7 @@ pub use blend_if::{BlendIf, BlendRange};
 pub use comps::{Artboard, ArtboardBackground, CompAppearance, CompLayerState, LayerComp};
 pub use effects::{
     Bevel, BevelContour, BevelStyle, BevelTechnique, BevelTexture, Contour, Effect, FxCommon, FxPaint, GlobalLight, Glow, GlowSource, GlowTechnique, Gradient,
-    GradientStyle, Satin, Shadow, StrokeFx, StrokePosition,
+    GradientMethod, GradientStyle, Satin, Shadow, StrokeFx, StrokePosition,
 };
 pub use mode::{ColorTable, Duotone, DuotoneInk, StackMode};
 pub use pattern::Pattern;
@@ -218,6 +219,8 @@ pub enum Fill {
         angle: f32,
         scale: f32,
         style: GradientStyle,
+        #[serde(default, skip_serializing_if = "GradientMethod::is_classic")]
+        method: GradientMethod,
         reverse: bool,
         /// Opacity stops `(location, opacity)` (both `0..=1`); empty = each colour stop's alpha.
         /// When set, a pixel's alpha is the colour's alpha times the opacity at that location.
@@ -259,7 +262,19 @@ impl Fill {
     /// A gradient fill with the classic settings: opaque stops at their alpha, 50 % midpoints,
     /// centred, no dither, aligned with the layer.
     pub fn gradient(stops: Vec<(f32, Color)>, angle: f32, scale: f32, style: GradientStyle, reverse: bool) -> Fill {
-        Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops: Vec::new(), midpoints: Vec::new(), offset: (0.0, 0.0), dither: false, align: true }
+        Fill::Gradient {
+            method: Default::default(),
+            stops,
+            angle,
+            scale,
+            style,
+            reverse,
+            opacity_stops: Vec::new(),
+            midpoints: Vec::new(),
+            offset: (0.0, 0.0),
+            dither: false,
+            align: true,
+        }
     }
 }
 

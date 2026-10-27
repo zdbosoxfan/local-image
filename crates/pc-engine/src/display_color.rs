@@ -23,7 +23,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use li_color::curve::Curve;
-use photocraft_cms::{Builtin, ColorSpace, Intent, Profile, Transform};
+use li_color::space::OutputSpace;
+use photocraft_cms::{Builtin, ColorSpace, Intent, Pcs, Profile, Transform};
 use photocraft_compose::Buffer;
 use photocraft_doc::Document;
 use photocraft_raster::Rgba8Image;
@@ -117,9 +118,9 @@ impl CanvasDisplay {
         img
     }
 
-    /// Library's already sRGB-encoded preview (including its existing soft proof) → display.
+    /// Library's 8-bit preview, encoded in `source` (including its existing soft proof) → display.
     /// Float evaluation preserves fractional destination codes until the display-only dither.
-    pub fn srgb8_to_display(&self, width: usize, bytes: &[u8]) -> Vec<u8> {
+    pub fn rgb8_to_display(&self, width: usize, bytes: &[u8]) -> Vec<u8> {
         if self.is_identity() {
             return bytes.to_vec();
         }
@@ -206,6 +207,60 @@ fn hash_of(v: impl std::hash::Hash) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     v.hash(&mut h);
     h.finish()
+}
+
+/// Output spaces a Library/Develop view can be rendered in, narrowest gamut first.
+const VIEW_SPACES: [OutputSpace; 5] = [OutputSpace::Srgb, OutputSpace::DisplayP3, OutputSpace::AdobeRgb, OutputSpace::Rec2020, OutputSpace::ProPhoto];
+
+/// How far (in linear channel values) a monitor primary may lie outside a view space and still
+/// count as inside it: measured profiles of standard panels scatter slightly around the standard
+/// primaries, and clipping that sliver is invisible.
+const VIEW_GAMUT_SLACK: f64 = 0.02;
+
+/// The narrowest built-in output space whose gamut holds `monitor`'s. Library and Develop render
+/// their views in it, gamut-mapped exactly as an export to that space, so colours the monitor can
+/// show are never clipped to sRGB on the way. sRGB when the monitor's primaries can't be read.
+///
+/// The primaries are read from the profile's own device-to-PCS model (the colorant matrix, or the
+/// AToB table) in float, never through an encoded Lab destination, whose a*/b* range stops short
+/// of greens beyond Adobe RGB.
+pub fn view_space(monitor: &Profile) -> OutputSpace {
+    if monitor.color_space != ColorSpace::Rgb {
+        return OutputSpace::Srgb;
+    }
+    let Ok((stages, pcs)) = monitor.device_to_pcs(Intent::RelativeColorimetric) else {
+        return OutputSpace::Srgb;
+    };
+    let to_pcs = photocraft_cms::pipeline::Pipeline::new(3, stages);
+    let primaries = [[1.0f32, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]].map(|rgb| {
+        let mut v = [0.0f32; 3];
+        to_pcs.eval(&rgb, &mut v);
+        let v = v.map(f64::from);
+        match pcs {
+            Pcs::Xyz => v,
+            Pcs::Lab => li_color::cms_math::lab_to_xyz(v, li_color::cms_math::D50),
+        }
+    });
+    VIEW_SPACES
+        .into_iter()
+        .find(|space| {
+            space.named().to_xyz_d50().inverse().is_some_and(|from_xyz| primaries.iter().all(|p| from_xyz.apply(*p).iter().all(|v| *v >= -VIEW_GAMUT_SLACK)))
+        })
+        .unwrap_or(OutputSpace::ProPhoto)
+}
+
+/// How Library/Develop pixels rendered in `space` reach `monitor` (relative colorimetric with
+/// black point compensation; nothing at all when `space` is the monitor's own).
+pub fn rendered_display(space: OutputSpace, monitor: Arc<Profile>) -> Result<Arc<CanvasDisplay>> {
+    let source = Arc::new(Builtin::from_named(space.named()).profile().clone());
+    let transform = if source.content_hash() == monitor.content_hash() {
+        None
+    } else {
+        let t = Transform::new(&source, &monitor, DISPLAY_INTENT, DISPLAY_BPC).map_err(|e| EngineError::Other(format!("colour management: {e}")))?;
+        (!is_identity(&t, false)).then(|| Arc::new(t))
+    };
+    let key = if space == OutputSpace::Srgb { monitor.content_hash() } else { hash_of((space, monitor.content_hash())) };
+    Ok(Arc::new(CanvasDisplay { encode_srgb: false, texture_key: source.content_hash(), key, source, monitor, transform }))
 }
 
 /// What the platform reported about the displays' profiles (Monitor Profile = `auto`; #569).
@@ -330,10 +385,7 @@ impl ColorState {
         if let Some(d) = cache.get(&key) {
             return Ok(d.clone());
         }
-        let source = Arc::new(Builtin::Srgb.profile().clone());
-        let t = Transform::new(&source, &monitor, DISPLAY_INTENT, DISPLAY_BPC).map_err(|e| EngineError::Other(format!("colour management: {e}")))?;
-        let transform = (!is_identity(&t, false)).then(|| Arc::new(t));
-        let d = Arc::new(CanvasDisplay { encode_srgb: false, texture_key: source.content_hash(), key, source, monitor, transform });
+        let d = rendered_display(OutputSpace::Srgb, monitor)?;
         if cache.len() >= 16 {
             cache.clear();
         }

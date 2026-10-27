@@ -358,6 +358,7 @@ fn outline_edges(arr: &Arrangement, shapes: &[Shape]) -> Vec<Shape> {
     let junctions = arr.junctions();
     let scale = shapes.iter().filter_map(|s| s.path.control_bounds()).map(|r| r.width().max(r.height())).fold(1.0, f64::max);
     let tol = scale * 1e-7;
+    let reach = tol.max(1e-6);
     // (chain, key, source index)
     let mut chains: Vec<(Vec<Seg>, u64)> = Vec::new();
     for s in shapes {
@@ -376,15 +377,23 @@ fn outline_edges(arr: &Arrangement, shapes: &[Shape]) -> Vec<Shape> {
                     .iter()
                     .filter_map(|&j| {
                         let nr = c.nearest(j, 1e-9);
-                        (nr.distance_sq.sqrt() <= tol.max(1e-6)).then_some(nr.t)
+                        (nr.distance_sq.sqrt() <= reach).then_some(nr.t)
                     })
                     .collect();
                 ts.sort_by(f64::total_cmp);
-                let start_is_junction = ts.first().is_some_and(|&t| t < 1e-9);
+                // Nearby parameters can still describe distinct points, and an anchor crossing
+                // can have slightly different parameters. Merge cuts by position instead.
+                let at = |t| ParamCurve::eval(&c, t);
+                let start_is_junction = ts.first().is_some_and(|&t| at(t).distance(c.p0) <= reach);
                 let mut cuts: Vec<f64> = vec![0.0];
-                cuts.extend(ts.into_iter().filter(|&t| t > 1e-9 && t < 1.0 - 1e-9));
+                for t in ts {
+                    let p = at(t);
+                    let last = at(cuts.last().copied().unwrap_or(0.0));
+                    if p.distance(last) > reach && p.distance(c.p3) > reach {
+                        cuts.push(t);
+                    }
+                }
                 cuts.push(1.0);
-                cuts.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
                 for (k, w) in cuts.windows(2).enumerate() {
                     let sub = c.subsegment(w[0]..w[1]);
                     let seg = if line { Seg::line(sub.p0, sub.p3) } else { Seg { c: sub, line: false } };

@@ -36,6 +36,7 @@ mod dng;
 pub mod dngwrite;
 pub mod embedded_lens;
 pub mod highlight;
+mod hotpixels;
 pub mod ljpeg;
 mod numerics;
 pub mod opcodes;
@@ -56,7 +57,7 @@ mod tiffraw;
 mod unpack;
 mod vendor;
 
-pub use demosaic::{DemosaicOptions, Method, demosaic, demosaic_with};
+pub use demosaic::{DemosaicOptions, Method, demosaic, demosaic_balanced, demosaic_with};
 pub use dngwrite::{DngCompression, DngWriteOptions, write_dng};
 pub use embedded_lens::VendorLens;
 pub use li_color::Mat3;
@@ -513,8 +514,12 @@ pub struct ColorData {
     pub analog_balance: Option<[f64; 3]>,
     pub as_shot_neutral: Option<[f64; 3]>,
     pub as_shot_white_xy: Option<Xy>,
-    /// EV to add for a "normal" rendering (`BaselineExposure` + `BaselineExposureOffset`).
+    /// EV to add for a "normal" rendering (`BaselineExposure` + the active profile's `BaselineExposureOffset`).
     pub baseline_exposure: f64,
+    /// The active camera profile's `BaselineExposureOffset`, already included in `baseline_exposure`.
+    /// Selecting another profile replaces this share of the total.
+    #[serde(default)]
+    pub baseline_exposure_offset: f64,
     /// The file's own camera-profile look (`ProfileHueSatMap*`, `ProfileLookTable*`,
     /// `ProfileToneCurve`), applied by [`color`]'s users at render time.
     #[serde(default)]
@@ -761,8 +766,10 @@ impl RawImage {
         Ok(Normalized { width: a.width, height: a.height, cpp, data: out, cfa })
     }
 
-    /// Full "raw → camera RGB" path: normalise, demosaic with `method`, apply `OpcodeList3`, then the default crop.
-    /// The result is camera RGB (not white balanced), white level = 1.0, not oriented.
+    /// Full "raw → camera RGB" path: normalise, demosaic with `method` (on the mosaic balanced by
+    /// [`Self::as_shot_wb`]), apply `OpcodeList3`, then the default crop. The result is camera RGB
+    /// (not white balanced, sensor white = 1.0; `OpcodeList3` gains can lift values above it), not
+    /// oriented.
     pub fn develop(&self, method: Method) -> Result<RgbFrame> {
         self.develop_with(method, &DemosaicOptions::default())
     }
@@ -775,16 +782,47 @@ impl RawImage {
     /// Develop with a CFA-stage operation after normalization/opcodes 1/2 and before demosaic.
     /// The callback sees the active area; opcodes 3 and the default crop are applied afterwards.
     pub fn develop_with_cfa(&self, method: Method, opts: &DemosaicOptions, hook: impl FnOnce(&mut Normalized)) -> Result<RgbFrame> {
+        self.develop_stages(method, opts, self.as_shot_wb(), hook, |_| {})
+    }
+
+    /// The development pipeline with its two sensor-domain stages: `cfa` on the normalised mosaic
+    /// (active area, after opcode lists 1/2) before the demosaic, `rgb` on the demosaiced camera RGB
+    /// before `OpcodeList3` (whose gains and warps would move values off the sensor's clip level).
+    /// The mosaic is demosaiced balanced by `wb` ([`demosaic_balanced`]); then `OpcodeList3` and
+    /// the default crop.
+    pub fn develop_stages(
+        &self,
+        method: Method,
+        opts: &DemosaicOptions,
+        wb: [f32; 3],
+        cfa: impl FnOnce(&mut Normalized),
+        rgb: impl FnOnce(&mut RgbFrame),
+    ) -> Result<RgbFrame> {
         let mut n = self.normalized()?;
-        hook(&mut n);
-        let mut rgb = demosaic_with(&n, method, opts);
-        drop(n);
-        opcodes::apply_list3(&self.opcodes.list3, &mut rgb);
-        let c = self.crop.clipped(rgb.width, rgb.height);
-        if c.width == 0 || c.height == 0 || (c.x == 0 && c.y == 0 && c.width == rgb.width && c.height == rgb.height) {
-            return Ok(rgb);
+        cfa(&mut n);
+        let mut img = demosaic_balanced(n, method, opts, wb);
+        rgb(&mut img);
+        opcodes::apply_list3(&self.opcodes.list3, &mut img);
+        let c = self.crop.clipped(img.width, img.height);
+        if c.width == 0 || c.height == 0 || (c.x == 0 && c.y == 0 && c.width == img.width && c.height == img.height) {
+            return Ok(img);
         }
-        Ok(rgb.into_crop(c.x, c.y, c.width, c.height))
+        Ok(img.into_crop(c.x, c.y, c.width, c.height))
+    }
+
+    /// Full development with highlight handling `h` in the sensor domain: on the mosaic before
+    /// demosaic (or, for data without one, on camera RGB right after), always before
+    /// `OpcodeList3`. The mosaic is demosaiced balanced by `h.wb`.
+    pub fn develop_with_highlights(&self, method: Method, opts: &DemosaicOptions, h: &highlight::Highlights) -> Result<RgbFrame> {
+        let pending = std::cell::RefCell::new(highlight::Pending::Nothing);
+        self.develop_stages(method, opts, h.wb, |n| *pending.borrow_mut() = h.mosaic(n, 1), |img| h.demosaiced(img, pending.take()))
+    }
+
+    /// As-shot white-balance multipliers (camera → balanced, green = 1): the balance the mosaic
+    /// is demosaiced with when the caller has none of its own.
+    pub fn as_shot_wb(&self) -> [f32; 3] {
+        let wb = color::camera_transform(self, color::as_shot_white_xy(self)).wb;
+        if wb.iter().all(|v| v.is_finite() && *v > 0.0) { wb.map(|v| v / wb[1]) } else { [1.0; 3] }
     }
 }
 

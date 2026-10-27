@@ -5,6 +5,11 @@
 use super::*;
 use photocraft_text::render::{OutlineVisitError, OutlineVisitLimits, PaintedOutlineEvent, PathEl};
 
+fn css_font_family(name: &str) -> String {
+    let bare = name.chars().next().is_some_and(|c| !c.is_ascii_digit() && c != '-') && name.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_'));
+    if bare { name.to_owned() } else { format!("'{}'", name.replace('\\', "\\\\").replace('\'', "\\'")) }
+}
+
 impl Writer<'_, '_, '_> {
     fn outline_run(&mut self, data: &mut String, color: photocraft_doc::Color) -> Result<()> {
         if !data.is_empty() {
@@ -115,7 +120,7 @@ impl Writer<'_, '_, '_> {
                 let text = t.text.get(cluster.range.clone()).ok_or_else(|| invalid("text cluster range is invalid"))?;
                 let family = if st.font_family.is_empty() { "Inter" } else { &st.font_family };
                 let italic = if st.italic { "italic" } else { "normal" };
-                self.line(&format!("<tspan x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{italic}\" fill=\"{}\" fill-opacity=\"{}\">{}</tspan>",self.n(f64::from(cluster.x)),self.n(f64::from(line.baseline-st.baseline_shift_pt*layout.px_per_pt)),escape(family),self.n(f64::from(st.size_pt*layout.px_per_pt)),st.weight,paint::color(&st.color),self.n(f64::from(st.color.alpha)),escape(text)))?;
+                self.line(&format!("<tspan x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{italic}\" fill=\"{}\" fill-opacity=\"{}\">{}</tspan>",self.n(f64::from(cluster.x)),self.n(f64::from(line.baseline-st.baseline_shift_pt*layout.px_per_pt)),escape(&css_font_family(family)),self.n(f64::from(st.size_pt*layout.px_per_pt)),st.weight,paint::color(&st.color),self.n(f64::from(st.color.alpha)),escape(text)))?;
             }
             self.line("</text>")?;
         }
@@ -140,6 +145,29 @@ impl Writer<'_, '_, '_> {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod dsfix_tests {
     use super::*;
+    #[test]
+    fn font_family_quoted_unless_plain_identifier() {
+        for (name, expected) in [
+            ("Source Sans 3", "'Source Sans 3'"),
+            ("Helvetica Neue LT Std 55 Roman", "'Helvetica Neue LT Std 55 Roman'"),
+            ("04b03", "'04b03'"),
+            ("a;b", "'a;b'"),
+            ("a\"b", "'a\"b'"),
+            ("a(b", "'a(b'"),
+            ("a'b\\c", "'a\\'b\\\\c'"),
+            ("Arial", "Arial"),
+        ] {
+            let mut doc = Document::new("type", photocraft_doc::Size::new(128, 128), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+            doc.layers
+                .push(Layer::new("type", LayerContent::Text(photocraft_doc::TextLayer { text: "H".into(), font_family: name.into(), ..Default::default() })));
+            let output = export(&doc, &ExportScope::Document, &ExportOptions { text_as_curves: false, ..Default::default() }).unwrap();
+            let xml = String::from_utf8(output.bytes).unwrap();
+            let parsed = roxmltree::Document::parse(&xml).unwrap();
+            let span = parsed.descendants().find(|n| n.has_tag_name("tspan")).unwrap();
+            assert_eq!(span.attribute("font-family"), Some(expected), "{name}");
+        }
+    }
+
     #[test]
     fn dsfix_warped_decorations_fail_before_curve_output() {
         let mut doc = Document::new("warped text", photocraft_doc::Size::new(128, 128), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);

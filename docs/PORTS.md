@@ -154,12 +154,12 @@ All darktable references below are pinned to `733bd69f32cac7ff5e41025115942772ad
 | Rust stage | Upstream kernels | Integration / deliberate extensions |
 |---|---|---|
 | `ucs.rs` | `colorspaces_inline_conversions.h`, `darktable_ucs_22_helpers.h` | D65 Rec.2020 directly; once-built 512-bin gamut LUT; fill any empty sampled bins from neighbours. |
-| `llf.rs` | `common/locallaplacian.c` | Same padded reductions, remap, interpolation and reconstruction. Tiny images return identity; the unused fourth SIMD lane is bounded rather than reading beyond the row. Weighted log detail extension subtracts weighted identity. |
+| `llf.rs` | `common/locallaplacian.c` | Same padded reductions, remap, interpolation and reconstruction. Tiny images return identity; the unused fourth SIMD lane is bounded rather than reading beyond the row. LI extensions: the γ sample count is a parameter, and samples bracketing no input value are skipped (exact); Clarity uses 48 γ samples over −12..+12 EV of log luminance with per-level weights and a 0.38 detail gain, computed in one pass as the Laplacians of upstream's midtone detail term on a zero residual (equal to the filter with and without that term, differenced). |
 | `eigf.rs` | `common/eigf.h`, `gaussian.c`, `fast_guided_filter.h` | Quantized/self-guided paths, Deriche endpoints/clamps, upstream bilinear coordinates, normalized variance/covariance and linear/geometric final blend. Zero-size downsample protection. |
 | `balance.rs` | `iop/colorbalancergb.c`, `common/math.h` | Full selected pixel algorithm: Yrg chroma/vibrance, masked wheels, polynomial power, UCS and alternate Jz saturation/brilliance, hue rotation and gamut mapping. LR slider calibration is our own. Jz PQ is evaluated in f64 to avoid neutral cancellation; C HDR vectors check it. |
-| `colorequal.rs` | `iop/colorequal.c`, `iop/choleski.h` | UCS chromaticity prefilter, complete 2×2 covariance, correction filter, saturation weights, Scharr halo suppression and periodic cosine RBF. LR eight hue nodes replace upstream's evenly spaced nodes. The f64 direct solve avoids squaring the matrix condition number and is fixture checked. |
+| `colorequal.rs` | `iop/colorequal.c` | UCS chromaticity prefilter, complete 2×2 covariance, correction filter, saturation weights and Scharr halo suppression. LR eight hue nodes replace upstream's evenly spaced nodes, interpolated by a periodic monotone cubic instead of upstream's cosine RBF (which overshoots on uneven nodes); brightness is a bounded EV change instead of upstream's linear factor. |
 | `toneeq.rs` | `iop/toneequal.c`, `common/luminance_mask.h`, `common/eigf.h` | The formerly simplified log mask now uses compensated linear norm, quantized EIGF and geometric blend. Existing fitted/interpolated exposure curve remains. |
-| `primary.rs` | vkdt `llap/reduce.comp`, `assemble.comp`, sampled Laplacian construction | vkdt `afc34256fb22bcaf6dcf6503d19d5f9a6f477af5`, BSD-2-Clause. Ten gamma samples; log-EV remap, Hermite tone bands, clamp-edge rectangular pyramid to 1 px, fixed 2 MP proxy, guided gain upsampling and sensor clipping protection are LI extensions. |
+| `primary.rs` | vkdt `llap/reduce.comp`, `assemble.comp`, sampled Laplacian construction | vkdt `afc34256fb22bcaf6dcf6503d19d5f9a6f477af5`, BSD-2-Clause. A fixed 19-sample γ grid from −14 to +8 EV (1.22 EV apart); log-EV remap, Hermite tone bands, clamp-edge rectangular pyramid to 1 px, fixed 2 MP proxy, guided gain upsampling and sensor clipping protection are LI extensions. |
 
 See [vkdt notice](../licenses/vkdt-NOTICE.md), [darktable notice](../licenses/darktable-NOTICE.md),
 [reference fixtures](../crates/lc-pipeline/tests/fixtures/sliders/README.md). Skin Tone is our own UCS low-frequency
@@ -284,18 +284,22 @@ The inherited PhotoCraft licence notices remain in `licenses/photocraft-*`.
 | `crates/pc-pdf/src/import/paint.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pdf/src/import_shading.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-pdf/src/import/geometry.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/path.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/access.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/access.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
-| `crates/pc-affinity/src/container.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/container.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-affinity/src/container.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/container.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/src/geometry.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/geometry.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/lib.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/lib.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
-| `crates/pc-affinity/src/model.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/model.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
-| `crates/pc-affinity/src/paint.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/paint.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-affinity/src/import.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/cmd/fileio/affinity.rs` (local native scene adaptation) | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
+| `crates/pc-affinity/src/import/scene.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/cmd/fileio/affinity.rs` (local native scene adaptation) | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
+| `crates/pc-affinity/src/import/text.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/text.rs` (local native scene adaptation) | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
+| `crates/pc-affinity/src/import/effects.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/overlay.rs` (local native scene adaptation) | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
+| `crates/pc-affinity/src/model.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/model.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` mask extent) | MIT OR Apache-2.0 | 2026-10-26 |
+| `crates/pc-affinity/src/paint.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/paint.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/src/preview.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/preview.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
-| `crates/pc-affinity/src/raster.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/raster.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-affinity/src/raster.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/raster.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` cropped masks) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/src/shapes.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/shapes.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/stream.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/stream.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/synth.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/synth.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/tests.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/tests.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
-| `crates/pc-affinity/src/text.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/text.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-affinity/src/text.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/text.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/tests/text.rs` | VectorCraft | `crates/affinity/tests/text.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/tests/support/text_fixture.rs` | VectorCraft | `crates/affinity/tests/support/text_fixture.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | crates/pc-trace/src/centerline.rs | [VectorCraft](https://github.com/storytold/vectorcraft) | crates/trace/src/centerline.rs | d522c1d7be4035bd4f4a84cd6ebfca44f5155092 | MIT OR Apache-2.0 | 2026-10-10 |
@@ -342,6 +346,26 @@ The inherited PhotoCraft licence notices remain in `licenses/photocraft-*`.
 | `crates/pc-vecfx/src/path_effects/distort.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/effects/src/distort.rs`, `crates/effects/src/util.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-engine/src/vector_packages/path_effects.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/cmd/effectcmd.rs` (transaction semantics) | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | crates/pc-engine/src/vector_toolbar_layout.rs | [VectorCraft](https://github.com/storytold/vectorcraft) | crates/tools/src/catalog.rs (order and Illustrator keymap adapted to Local Image IDs) | d522c1d7be4035bd4f4a84cd6ebfca44f5155092 | MIT OR Apache-2.0 | 2026-10-10 |
+
+### Affinity AF.5 provenance (2026-10-26)
+
+The file rows above reconcile the AF.5 reader and local native scene adapters. The following
+security adaptations are recorded by local commit `d0014628`.
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`7c07280b660ca937529a97f4e9176c79861e2667`](https://github.com/storytold/photocraft/commit/7c07280b660ca937529a97f4e9176c79861e2667) | security(affinity): bound raw child-slot traversal work | `crates/pc-affinity/src/access.rs`, `crates/pc-affinity/src/model.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`b11ecc6ebf6699f53d0982c3f6c37a975ea9b17d`](https://github.com/storytold/photocraft/commit/b11ecc6ebf6699f53d0982c3f6c37a975ea9b17d) | security(affinity): charge shared-object expansion against document-wide budgets (#8938) | `crates/pc-affinity/src/model.rs`, `crates/pc-affinity/src/geometry.rs`, `crates/pc-affinity/src/raster.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`29e555c2f655676c71c26ccea20e6371da9248b2`](https://github.com/storytold/photocraft/commit/29e555c2f655676c71c26ccea20e6371da9248b2) | security(affinity): index live-corner radii by record | `crates/pc-affinity/src/geometry.rs` | MIT OR Apache-2.0 |
+| [storytold/vectorcraft@`4c82749b08575cec1e6a0fe2e2bca1ef157151e7`](https://github.com/storytold/vectorcraft/commit/4c82749b08575cec1e6a0fe2e2bca1ef157151e7) | Security: Affinity import and brush expansion bounds (#3887) | `crates/pc-affinity/src/geometry.rs`, `crates/pc-affinity/src/stream.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`5adebc5d6df46a104547f1b9d872ee314ae1945c`](https://github.com/storytold/photocraft/commit/5adebc5d6df46a104547f1b9d872ee314ae1945c) | security(affinity): index object fields for O(1) lookup | `crates/pc-affinity/src/stream.rs`, `crates/pc-affinity/src/access.rs`, `crates/pc-affinity/src/shapes.rs` | MIT OR Apache-2.0 |
+| [storytold/vectorcraft@`fd50bd6f843e80e80b4db1ad7c25c863bff90a33`](https://github.com/storytold/vectorcraft/commit/fd50bd6f843e80e80b4db1ad7c25c863bff90a33) | AF.5: Affinity import — strokes, text decoration, text placement, outline effects, CMYK photos | `crates/pc-affinity/src/paint.rs` | MIT OR Apache-2.0 |
+| [storytold/vectorcraft@`2d7004f972fc3e97feda7775853026c63c922331`](https://github.com/storytold/vectorcraft/commit/2d7004f972fc3e97feda7775853026c63c922331) | AF.5: cap dash patterns at 64 lengths | `crates/pc-affinity/src/paint.rs` | MIT OR Apache-2.0 |
+
+Local adaptations: `4c82749b` contributes corner-radius indexing and zero-width record guards
+only; `fd50bd6f` contributes None-style stroke suppression here. `2d7004f9` imports longer dash
+patterns as solid with a warning. The native scene adapters use Local Image layers and budgets;
+font metadata retains the local 16 KiB limit rather than the upstream 256-byte limit.
 
 ### Bounded PDF CCITT admission (2026-10-12)
 
@@ -990,3 +1014,36 @@ design and have no strict parameter validator), VectorCraft `025ce255` and `32db
 exporter writes no CMYK images or output intents). The DesignCraft breaker changes since
 `66c7ce7e` build on CJK composition structures `pc-text` doesn't have (mojikumi, kinsoku priority,
 locked advances), so the re-sync is left for a feature port.
+
+## Selection snapping (2026-10-26)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`5c039af58161a13b0472ac711b5ca0490438b305`](https://github.com/storytold/photocraft/commit/5c039af58161a13b0472ac711b5ca0490438b305) | Selection: moving a selection outline snaps its bounds, not the pointer (#2736) (#2740) | `crates/pc-ui-egui/src/snap_ui.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`5f13491411c0f0eb76d37192c77efd46841d916b`](https://github.com/storytold/photocraft/commit/5f13491411c0f0eb76d37192c77efd46841d916b) | Fix Fixed Size marquee positioning while dragging | `crates/pc-ui-egui/src/canvas.rs`, `crates/pc-ui-egui/src/marquee_tests.rs`; `crates/pc-ui-egui/src/snap_ui.rs` adapted in `57db1c64` | MIT OR Apache-2.0 |
+
+Local adaptation `488d2e4c` uses selection bounds for outline drags and retains contained
+objects as snap targets. Lasso outline drags now snap too; Lasso was not a snapping tool on main.
+
+## Perceptual gradients (2026-10-26)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`2bad6468213d`](https://github.com/storytold/vectorcraft/commit/2bad6468213df3250963f69a5d6488af2868725e) | Gradients: a Perceptual gradient mixes its colours in OKLab, and SVG and PDF write it as an image | `crates/pc-doc/src/effects.rs` (native methods), `crates/pc-doc/src/lib.rs` (method persistence), `crates/pc-doc/tests/coverage/doc_model_coverage.rs` (persistence regression), `crates/pc-vector/src/gradient_method.rs` (OKLab mixing, non-finite RGB guard and bounded expansion), `crates/pc-vector/src/gradient_method/tests.rs` (mixing and expansion regressions), `crates/pc-vector/src/lib.rs` (method-aware paints), `crates/pc-vector/src/tests.rs` (shared sampler adaptation), `crates/pc-compose/src/gradient_fill.rs` (method-aware ramps), `crates/pc-compose/src/gradient_fill/tests_method.rs` (shape/fill parity), `crates/pc-compose/src/shape_split.rs` (method cache identity and regression), `crates/pc-engine/src/gradient_fill_cmds.rs` (method preservation and description), `crates/pc-export-common/src/gradient.rs` (bounded vector expansion and regression), `crates/pc-svg/tests/export/main.rs` (Perceptual vector export), `crates/pc-pdf/tests/export/main.rs` (Perceptual vector export), `crates/pc-gpu/tests/gpu/parity.rs` (parity module registration), `crates/pc-gpu/tests/gpu/parity/gradient_methods.rs` (CPU/GPU parity), `crates/pc-io/src/blocks.rs` (editable Perceptual stops and round-trip regressions) | MIT OR Apache-2.0 |
+| [`9237a8bdde35`](https://github.com/storytold/photocraft/commit/9237a8bdde35f5365154b9eaf713bd5bb66fe0da) | PSD gradients: read the interpolation method Photoshop writes; add Smooth (#3442) | `crates/pc-io/src/blocks.rs` (current-key precedence, Smooth baking and regressions), `crates/pc-io/src/effects_map.rs` (current method key for effects), `crates/pc-io/src/gradient_bake.rs` (baked Smooth easing, measured Smooth test and module documentation) | MIT OR Apache-2.0 |
+| [`78ae50f7b2c4`](https://github.com/storytold/photocraft/commit/78ae50f7b2c470a062506cce8ddb429db802c606) | security: bisect flat-table and gradient-stop lookups; charge ICC curve samples; bound PSD planes, RAW ljpeg retention and TIFF dump preview | `crates/pc-vector/src/gradient_method.rs` (colour-stop bisection), `crates/pc-vector/src/lib.rs` (opacity-stop bisection), `crates/pc-vector/src/gradient_method/tests.rs` (bisection and hard-stop regressions), `crates/pc-vector/src/tests.rs` (shared bisected sampler adaptation), `crates/pc-compose/src/gradient_fill.rs` (shared bisected ramp lookup) | MIT OR Apache-2.0 |
+| [`6beb68f934c4`](https://github.com/storytold/vectorcraft/commit/6beb68f934c49f792e2d05560c692e04b3c1af98) | Gradients: the Gradient panel's Method menu and paint.editGradient's `method` choose Classic or Perceptual | `crates/pc-engine/src/gradient_fill_cmds.rs` (live method commands), `crates/pc-engine/src/gradient_fill_cmds/tests.rs` (command regressions), `crates/pc-engine/src/paint_cmds.rs` (destructive method and validation), `crates/pc-engine/src/vector_cmds.rs` (shape paint method), `crates/pc-ui-egui/src/canvas/tools.rs` (drag method), `crates/pc-ui-egui/src/gradient_ui.rs` (Properties and previews), `crates/pc-ui-egui/src/gradient_ui/method_tests.rs` (method controls and drags), `crates/pc-ui-egui/src/i18n_tests.rs` (Method label coverage), `crates/pc-ui-egui/src/panels/options_bar.rs` (Method control), `crates/pc-ui-egui/src/state.rs` (Classic tool default), `crates/pc-ui-egui/src/vector_packages/appearance.rs` (Method control), `crates/pc-ui-egui/src/vector_packages/appearance/method_tests.rs` (keyboard and undo regression) | MIT OR Apache-2.0 |
+
+These four commits form the Perceptual gradients feature port under decision D10: upstream's two
+native methods only, Classic and Perceptual. Local adaptations keep SVG and PDF vector and fail
+expansion rather than truncating; take only gradient colour and opacity bisection from 78ae50f7,
+current-key precedence and baked Smooth from 9237a8bd, and place 6beb68f9 on Local Image's existing
+surfaces and command names. Unsupported Linear appearances retain their existing baking.
+The literal/pattern-only method-field adaptations in dc209948 are local: `crates/pc-affinity/src/import/paint.rs`,
+`crates/pc-compose/src/tests.rs`, `crates/pc-engine/src/vector_packages/brushes/tests.rs`,
+`crates/pc-engine/tests/coverage/gradient_fill_cmds_coverage.rs`, `crates/pc-export-common/cases/clipping.rs`,
+`crates/pc-format/tests/it/common/mod.rs`, `crates/pc-pdf/src/import/paint.rs`,
+`crates/pc-svg/src/import/paint.rs`, `crates/pc-svg/tests/export/roundtrip.rs`,
+`crates/pc-ui-egui/src/vector_packages/appearance.rs`, `crates/pc-ui-egui/tests/gpu/vector_integration.rs`
+and `crates/pc-vector/src/profile_tests.rs`.
+The Smooth measurements retain upstream's black-to-white and red-to-blue rows and two-level tolerance.

@@ -119,7 +119,12 @@ fn candidate_step_order_detail_hue_and_clip_protection() {
 }
 #[test]
 fn modes_structure_skin_layers_and_cache_changes() {
-    let src = Arc::new(RgbFrame::from_fn(80, 60, |x, y| [0.3 + 0.02 * (x as f32 * 0.6).sin(), 0.15 + 0.007 * (y as f32 * 0.7).cos(), 0.08]));
+    // A bright, saturated, textured band (Natural restrains its saturation, Punch raises it with
+    // Clarity's detail) above a dim skin-like area.
+    let src = Arc::new(RgbFrame::from_fn(80, 60, |x, y| {
+        let t = 1. + 0.3 * (x as f32 * 0.6).sin();
+        if y < 20 { [2.4 * t, 0.35 * t, 0.12 * t] } else { [0.3 + 0.02 * (x as f32 * 0.6).sin(), 0.15 + 0.007 * (y as f32 * 0.7).cos(), 0.08] }
+    }));
     let info = SourceInfo::default();
     let req = RenderRequest::fit(80, 60);
     let cache = StageCache::default();
@@ -228,17 +233,6 @@ fn extracted_c_jz_hdr_roundtrips_and_neutral_stability() {
 }
 
 #[test]
-fn extracted_c_colour_equalizer_periodic_rbf() {
-    let positions = std::array::from_fn(|i| -std::f32::consts::PI + i as f32 * std::f32::consts::TAU / 8.);
-    for mode in 0..2 {
-        let nodes = std::array::from_fn(|i| 0.2 * (i as f32 * 1.1).cos() + if mode == 1 { 1. } else { 0. });
-        let lut = colorequal::rbf(nodes, positions, std::f32::consts::PI, mode == 1);
-        let max = rows("colorequal-rbf.csv").iter().filter(|r| r[0] as usize == mode).map(|r| (lut[r[1] as usize] - r[2]).abs()).fold(0., f32::max);
-        assert!(max < 8e-6, "RBF {mode}: {max}");
-    }
-}
-
-#[test]
 fn clipping_metadata_compresses_losslessly_and_defaults_for_old_sources() {
     let info =
         SourceInfo { clip_confidence: Some(Arc::new(ClipConfidence { width: 512, height: 384, data: vec![0.; 512 * 384] })), ..Default::default() };
@@ -303,11 +297,9 @@ fn every_neutral_primary_control_skips_its_stage() {
     s.skin_tone.hue_range = 30.;
     assert_eq!(primary::Stages::of(&s), primary::Stages::default());
     assert!(!primary::active(&s));
-    let controls: [fn(&mut DevelopSettings, f64); 13] = [
+    let controls: [fn(&mut DevelopSettings, f64); 11] = [
         |s, v| s.light.highlights = v,
         |s, v| s.light.shadows = v,
-        |s, v| s.light.whites = v,
-        |s, v| s.light.blacks = v,
         |s, v| s.effects.clarity = v,
         |s, v| s.effects.texture = v,
         |s, v| s.effects.structure = v,
@@ -325,6 +317,12 @@ fn every_neutral_primary_control_skips_its_stage() {
         assert_eq!(primary::Stages::of(&s), primary::Stages::default());
         assert!(!primary::active(&s));
     }
+    // Whites and Blacks reshape the global tone map in the finish stage, never this one.
+    s.light.whites = 30.;
+    s.light.blacks = -30.;
+    assert!(!primary::active(&s));
+    s.light.whites = 0.;
+    s.light.blacks = 0.;
     let src = RgbFrame::from_fn(19, 13, |x, y| [0.002 + (x as f32 / 18.).exp2(), 0.02 + y as f32 / 40., 0.1]);
     let info = SourceInfo::default();
     let req = RenderRequest::fit(19, 13);
@@ -354,4 +352,379 @@ fn every_neutral_primary_control_skips_its_stage() {
     s.masks[0].adjust.clarity = 70.;
     assert!(!primary::active(&s));
     assert!(!primary::needs_proxy(&s));
+}
+
+/// Mean 8-bit green level of column `x` (averages the dither over the rows).
+fn column_level(img: &Rgba8, x: usize) -> f32 {
+    (0..img.height).map(|y| img.get(x, y)[1] as f32).sum::<f32>() / img.height as f32
+}
+
+#[test]
+fn whites_and_blacks_move_the_white_and_black_points() {
+    let (w, h) = (512, 8);
+    let (lo, hi) = (0.003f32.ln(), 1.2f32.ln());
+    let src = RgbFrame::from_fn(w, h, |x, _| [(lo + (hi - lo) * x as f32 / (w - 1) as f32).exp(); 3]);
+    let column = |v: f32| ((v.ln() - lo) / (hi - lo) * (w - 1) as f32).round() as usize;
+    let shot = |info: &SourceInfo, highlights: f64, whites: f64, blacks: f64| {
+        let mut s = DevelopSettings::default();
+        s.light.highlights = highlights;
+        s.light.whites = whites;
+        s.light.blacks = blacks;
+        render(&src, info, &s, &RenderRequest::fit(w, h)).image
+    };
+    let level = |img: &Rgba8, v: f32| column_level(img, column(v));
+    let raw = SourceInfo { raw: true, ..Default::default() };
+    // With Highlights set too, the primary stage runs and must leave Whites to the finish.
+    for highlights in [0., -30.] {
+        let neutral = shot(&raw, highlights, 0., 0.);
+        let up = shot(&raw, highlights, 100., 0.);
+        let down = shot(&raw, highlights, -100., 0.);
+        for v in [0.7, 1.0] {
+            assert!(level(&up, v) - level(&neutral, v) >= 6., "Whites +100 at {v} (highlights {highlights})");
+            assert!(level(&neutral, v) - level(&down, v) >= 10., "Whites -100 at {v} (highlights {highlights})");
+        }
+        for img in [&up, &down] {
+            assert!((level(img, 0.05) - level(&neutral, 0.05)).abs() <= 1., "Whites moved the shadows (highlights {highlights})");
+        }
+        let crushed = shot(&raw, highlights, 0., -100.);
+        assert!(level(&neutral, 0.01) - level(&crushed, 0.01) >= 8., "Blacks -100 (highlights {highlights})");
+        assert!((level(&crushed, 0.7) - level(&neutral, 0.7)).abs() <= 1., "Blacks moved the highlights (highlights {highlights})");
+    }
+    let rendered = SourceInfo::default();
+    let neutral = shot(&rendered, 0., 0., 0.);
+    assert!(level(&shot(&rendered, 0., 100., 0.), 0.7) > level(&neutral, 0.7) + 2.);
+    assert!(level(&shot(&rendered, 0., -100., 0.), 0.7) < level(&neutral, 0.7) - 2.);
+    assert!(level(&shot(&rendered, 0., 0., -100.), 0.01) < level(&neutral, 0.01) - 2.);
+}
+
+#[test]
+fn clarity_strength_is_even_across_tones() {
+    let (w, h) = (1000, 48);
+    let mut s = DevelopSettings::default();
+    s.effects.clarity = 100.;
+    s.effects.clarity_mode = ClarityMode::Neutral;
+    let info = SourceInfo::default();
+    let amplitude = |img: &RgbFrame| {
+        let row = &img.data[(h / 2) * w + 200..(h / 2) * w + 800];
+        let l: Vec<f32> = row.iter().map(|c| c[1].log2()).collect();
+        l.iter().copied().fold(f32::MIN, f32::max) - l.iter().copied().fold(f32::MAX, f32::min)
+    };
+    let mut excess = Vec::new();
+    for k in -8..=8 {
+        let e = k as f32 * 0.25;
+        let src = RgbFrame::from_fn(w, h, |x, _| [0.18 * (e + 0.15 * (std::f32::consts::TAU * x as f32 / 48.).sin()).exp2(); 3]);
+        let plan = crate::plan(&src, &info, &s, &RenderRequest::fit(w, h));
+        let out = primary::process(&src, &src, &info, &plan, primary::DEFAULT_HS_METHOD);
+        let ratio = amplitude(&out) / amplitude(&src);
+        assert!(ratio > 1.08, "Clarity +100 at {e:+} EV: local contrast ratio {ratio}");
+        excess.push((ratio - 1.) / (-(e / 3.5).powi(2)).exp());
+    }
+    let (lo, hi) = excess.iter().fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+    assert!((hi - lo) / hi < 0.1, "Clarity strength varies with tone: {excess:?}");
+}
+
+/// Linear Rec.2020 of an 8-bit sRGB output pixel.
+fn decoded_2020(c: [u8; 4]) -> [f32; 3] {
+    let lin = [c[0], c[1], c[2]].map(|v| li_color::transfer::srgb_to_linear(v as f32 / 255.));
+    li_color::SRGB.to_space(&li_color::REC2020).apply_f32(lin)
+}
+
+#[test]
+fn hsl_luminance_darkens_saturated_blues_without_reaching_black() {
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let deep_blue = li_color::SRGB.to_space(&li_color::REC2020).apply_f32([40., 90., 200.].map(|v| li_color::transfer::srgb_to_linear(v / 255.)));
+    for patch in [[0.08, 0.14, 0.32], [0.03, 0.07, 0.30], deep_blue] {
+        let src = RgbFrame::filled(32, 24, patch);
+        let shot = |lum: f64| {
+            let mut s = DevelopSettings::default();
+            s.mixer.blue.lum = lum;
+            decoded_2020(render(&src, &info, &s, &RenderRequest::fit(32, 24)).image.get(16, 12))
+        };
+        let lab = |c: [f32; 3]| li_color::perceptual::oklab_from_2020(c);
+        let neutral = shot(0.);
+        let mut previous = li_color::luminance_2020(neutral);
+        for lum in [-30., -60., -100.] {
+            let c = shot(lum);
+            let y = li_color::luminance_2020(c);
+            assert!(y > 0. && y < previous, "{patch:?} Blue Luminance {lum}: Y {y} after {previous}");
+            let (a, b) = (lab(c), lab(neutral));
+            let dh = (a[2].atan2(a[1]) - b[2].atan2(b[1])).abs();
+            assert!(dh < 0.05, "{patch:?} Blue Luminance {lum} turned the hue by {dh} rad");
+            previous = y;
+        }
+        assert!(previous >= li_color::luminance_2020(neutral) * 2f32.powf(-2.5), "{patch:?} Blue Luminance -100 is darker than -2.5 EV");
+        let up = li_color::luminance_2020(shot(100.)) / li_color::luminance_2020(neutral);
+        assert!((1.5..=2f32.powf(1.5)).contains(&up), "{patch:?} Blue Luminance +100 gives {up}x luminance");
+    }
+}
+
+#[test]
+fn hsl_saturation_and_luminance_keep_the_oklab_hue() {
+    // UCS 22 hue lines bend away from OkLab's: before the equalizer held the hue, these edits
+    // turned deep blues by up to 0.29 rad and yellows and greens by up to 0.2 rad.
+    let lch = |c: [f32; 3]| li_color::perceptual::lab_to_lch(li_color::perceptual::oklab_from_2020(c));
+    let deep_blue = li_color::SRGB.to_space(&li_color::REC2020).apply_f32([40., 90., 200.].map(|v| li_color::transfer::srgb_to_linear(v / 255.)));
+    for patch in [[0.08, 0.14, 0.32], [0.03, 0.07, 0.30], deep_blue, [0.4, 0.1, 0.05], [0.1, 0.35, 0.05], [0.5, 0.35, 0.05], [0.3, 0.05, 0.25]] {
+        let [_, c0, h0] = lch(patch);
+        for value in [-100., -50., 50., 100.] {
+            for luminance in [false, true] {
+                let mut s = DevelopSettings::default();
+                let m = &mut s.mixer;
+                for band in [&mut m.red, &mut m.orange, &mut m.yellow, &mut m.green, &mut m.aqua, &mut m.blue, &mut m.purple, &mut m.magenta] {
+                    if luminance { band.lum = value } else { band.sat = value }
+                }
+                let mut img = RgbFrame::filled(16, 12, patch);
+                colorequal::apply(&mut img, &s, 1000.);
+                let [_, c, h] = lch(img.get(8, 6));
+                if c < 0.02 * c0 {
+                    continue; // desaturated to grey: no hue left
+                }
+                let turn = (h - h0 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                let what = if luminance { "Luminance" } else { "Saturation" };
+                assert!(turn.abs() < 3e-3, "{patch:?} {what} {value} turned the hue by {turn} rad");
+                assert!((c - c0).abs() > 1e-3 * c0 || value == 0., "{patch:?} {what} {value} changed nothing");
+            }
+        }
+    }
+}
+
+#[test]
+fn hue_band_curves_stay_between_their_nodes() {
+    let hues = colorequal::hues();
+    let at = |lut: &[f32], hue: f32| crate::ucs::lookup_gamut(lut, hue);
+    for band in 0..8 {
+        for value in [-100., 100.] {
+            let mut s = DevelopSettings::default();
+            let set: [&mut lightcraft_develop::Hsl; 8] = [
+                &mut s.mixer.red,
+                &mut s.mixer.orange,
+                &mut s.mixer.yellow,
+                &mut s.mixer.green,
+                &mut s.mixer.aqua,
+                &mut s.mixer.blue,
+                &mut s.mixer.purple,
+                &mut s.mixer.magenta,
+            ];
+            set.into_iter().nth(band).unwrap().lum = value;
+            let [_, _, bright, _] = colorequal::luts(&s);
+            let node = 1. + value as f32 / 200.;
+            assert!((at(&bright, hues[band]) - node).abs() < 2e-3, "band {band} {value}: its own hue misses the node");
+            let (lo, hi) = (node.min(1.), node.max(1.));
+            assert!(bright.iter().all(|v| (lo - 1e-6..=hi + 1e-6).contains(v)), "band {band} {value} overshoots its node");
+            // Beyond the neighbouring bands the curve is untouched.
+            let mut sorted: Vec<f32> = hues.to_vec();
+            sorted.sort_by(f32::total_cmp);
+            let k = sorted.iter().position(|h| *h == hues[band]).unwrap();
+            let (before, after) = (sorted[(k + 7) % 8], sorted[(k + 1) % 8]);
+            for i in 0..512 {
+                let hue = i as f32 * std::f32::consts::TAU / 512. - std::f32::consts::PI;
+                let inside = |a: f32, b: f32| (hue - a).rem_euclid(std::f32::consts::TAU) <= (b - a).rem_euclid(std::f32::consts::TAU);
+                if !inside(before, after) {
+                    assert!((bright[i] - 1.).abs() < 1e-6, "band {band} {value} changed hue {hue}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn calibration_precedes_the_colour_tools() {
+    let src = RgbFrame::filled(24, 16, [0.05, 0.08, 0.3]);
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings::default();
+    s.calibration.blue_sat = 60.;
+    s.mixer.blue.sat = -60.;
+    let plan = crate::plan(&src, &info, &s, &RenderRequest::fit(24, 16));
+    let out = primary::process(&src, &src, &info, &plan, primary::DEFAULT_HS_METHOD);
+    let m = colorops::calibration_matrix(&s.calibration);
+    let mut expected = src.map(|c| colorops::calibrate(c, m.as_ref(), 0.));
+    colorequal::apply(&mut expected, &s, plan.px_per_long);
+    for (a, b) in out.data.iter().zip(&expected.data) {
+        for k in 0..3 {
+            assert!((a[k] - b[k]).abs() <= 1e-3 * b[k].abs().max(1e-3), "{a:?} != calibrated then HSL {b:?}");
+        }
+    }
+    // The finish stage must not calibrate a second time.
+    assert!(primary::remaining(&s).calibration == Default::default());
+}
+
+#[test]
+fn calibration_shapes_black_and_white_and_its_shadows_tint_stays_neutral() {
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(24, 16);
+    let mut s = DevelopSettings { treatment: lightcraft_develop::Treatment::Bw, ..Default::default() };
+    let blue = RgbFrame::filled(24, 16, [0.04, 0.06, 0.25]);
+    let grey = |s: &DevelopSettings, src: &RgbFrame| render(src, &info, s, &req).image.get(12, 8);
+    let plain = grey(&s, &blue);
+    s.calibration.blue_sat = 60.;
+    let calibrated = grey(&s, &blue);
+    assert!(plain[1].abs_diff(calibrated[1]) >= 2, "Blue Primary Saturation does not shape the B&W mix: {plain:?} {calibrated:?}");
+    s.calibration = Default::default();
+    s.calibration.shadows_tint = 100.;
+    let dark = grey(&s, &RgbFrame::filled(24, 16, [0.01; 3]));
+    assert!(dark[0].abs_diff(dark[1]) <= 1 && dark[2].abs_diff(dark[1]) <= 1, "B&W shadows picked up a tint: {dark:?}");
+}
+
+#[test]
+fn calibration_edits_reach_cached_renders() {
+    let src = Arc::new(RgbFrame::from_fn(40, 30, |x, y| [0.05 + 0.01 * x as f32, 0.1 + 0.005 * y as f32, 0.2]));
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(40, 30);
+    let cache = StageCache::default();
+    let mut s = DevelopSettings::default();
+    s.color.vibrance = 30.;
+    let before = render_cached(&src, &info, &s, &req, &cache).image;
+    s.calibration.red_hue = 60.;
+    let after = render_cached(&src, &info, &s, &req, &cache).image;
+    assert_ne!(before, after);
+    assert_eq!(after, render(&src, &info, &s, &req).image);
+}
+
+#[test]
+fn highlights_and_shadows_ignore_unrelated_dark_corners() {
+    let (w, h) = (512, 256);
+    let scene = |patch: Option<(usize, f32)>| {
+        RgbFrame::from_fn(w, h, |x, y| match patch {
+            Some((size, v)) if x < size && y < size => [v; 3],
+            _ => [if x < w / 2 { 0.015 } else { 0.9 }; 3],
+        })
+    };
+    let mut s = DevelopSettings::default();
+    s.light.highlights = -100.;
+    s.light.shadows = 100.;
+    let info = SourceInfo::default();
+    let develop = |src: &RgbFrame| {
+        let plan = crate::plan(src, &info, &s, &RenderRequest::fit(w, h));
+        primary::process(src, src, &info, &plan, primary::DEFAULT_HS_METHOD)
+    };
+    let clean = develop(&scene(None));
+    // One black or blown pixel must not move the tone grid. A dark area only shifts the
+    // pyramid's global level in proportion to its share of the frame (0.05% here).
+    for (patch, bound) in [((1, 0.), 0.01), ((1, 1000.), 0.01), ((8, 2e-5), 0.04)] {
+        let out = develop(&scene(Some(patch)));
+        let worst = (0..w * h).filter(|i| i % w >= 32 || i / w >= 32).map(|i| (out.data[i][1] / clean.data[i][1]).log2().abs()).fold(0f32, f32::max);
+        assert!(worst < bound, "a {patch:?} corner moved Highlights/Shadows elsewhere by {worst} EV");
+    }
+}
+
+fn mask_of(shape: MaskShape, adjust: lightcraft_develop::LocalAdjustments) -> Mask {
+    Mask { id: 1, components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }], adjust, ..Default::default() }
+}
+
+#[test]
+fn range_masks_select_before_the_primary_stage_in_every_stage() {
+    // A dark interior beside a bright window; global Shadows lifts the interior out of the range.
+    let (w, h) = (96, 48);
+    let src = RgbFrame::from_fn(w, h, |x, _| [if x < w / 2 { 0.02 } else { 0.9 }; 3]);
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(w, h);
+    let mut s = DevelopSettings::default();
+    s.light.shadows = 80.;
+    let shape = MaskShape::LuminanceRange { lo: 0.3, hi: 0.45, lo_feather: 0.05, hi_feather: 0.05 };
+    s.masks.push(mask_of(shape, lightcraft_develop::LocalAdjustments { shadows: 50., exposure: 0.5, ..Default::default() }));
+    let plan = crate::plan(&src, &info, &s, &req);
+    let mut lin = plan.frame.sample(&src, plan.w, plan.h);
+    lin_cpu(&mut lin, &info, &plan);
+    let log = lin.map(local::log_lum);
+    let expected = masks::evaluate_with_tone(&s.masks, &plan.frame, plan.w, plan.h, &lin, &log, 0., &masks::selection_tone(&s, &info));
+    let overlay = Overlay::Mask { id: 1, view: crate::visualize::MaskView::WhiteOnBlack, color: [255; 3], opacity: 100 };
+    let shown = render(&src, &info, &s, &RenderRequest { overlay, ..req }).image;
+    for y in 0..h {
+        for x in 0..w {
+            let a = (expected[0].alpha.at(y * w + x) * 255.).round() as u8;
+            assert!(
+                shown.get(x, y)[1].abs_diff(a) <= 1,
+                "({x}, {y}): finish-stage alpha {} differs from the primary stage's {a}",
+                shown.get(x, y)[1]
+            );
+        }
+    }
+    assert_eq!(shown.get(10, 24)[1], 255, "the interior is selected");
+}
+
+#[test]
+fn colour_range_masks_keep_their_selection_after_global_colour_changes() {
+    // A blue sky above a grey wall; B&W and Saturation change colours in the primary stage.
+    let src = RgbFrame::from_fn(64, 48, |_, y| if y < 24 { [0.05, 0.09, 0.3] } else { [0.12; 3] });
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(64, 48);
+    let mut s = DevelopSettings::default();
+    let sample = color_range_sample(&src, &info, &s, &req, Point::new(0.5, 0.2)).unwrap();
+    s.treatment = Treatment::Bw;
+    s.color.saturation = 40.;
+    let base = render(&src, &info, &s, &req).image;
+    s.masks.push(mask_of(
+        MaskShape::ColorRange { samples: vec![sample], refine: 50. },
+        lightcraft_develop::LocalAdjustments { exposure: 1.0, ..Default::default() },
+    ));
+    let masked = render(&src, &info, &s, &req).image;
+    assert!(masked.get(32, 10)[1] >= base.get(32, 10)[1] + 20, "the picked sky lost its selection: {:?} {:?}", masked.get(32, 10), base.get(32, 10));
+    assert!(masked.get(32, 40)[1].abs_diff(base.get(32, 40)[1]) <= 1, "the wall was selected");
+}
+
+#[test]
+fn hidden_masks_overlay_the_selection_they_make_when_shown() {
+    // A blue sky over a grey wall; Shadows runs the primary stage and Contrast, Whites and Blacks
+    // shape the tone colour selection compares under.
+    let src = RgbFrame::from_fn(64, 48, |x, y| if y < 24 { [0.05, 0.09, 0.3].map(|v| v * (0.3 + x as f32 / 32.)) } else { [0.12; 3] });
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(64, 48);
+    let mut s = DevelopSettings::default();
+    s.light.shadows = 60.;
+    s.light.contrast = 40.;
+    s.light.whites = 60.;
+    s.light.blacks = -40.;
+    let sample = color_range_sample(&src, &info, &s, &req, Point::new(0.5, 0.2)).unwrap();
+    s.masks.push(mask_of(
+        MaskShape::ColorRange { samples: vec![sample], refine: 30. },
+        lightcraft_develop::LocalAdjustments { exposure: 0.5, ..Default::default() },
+    ));
+    let overlay = Overlay::Mask { id: 1, view: crate::visualize::MaskView::WhiteOnBlack, color: [255; 3], opacity: 100 };
+    let req = RenderRequest { overlay, ..req };
+    for stacked in [false, true] {
+        if stacked {
+            let light = lightcraft_develop::Light { exposure: 2., ..Default::default() };
+            s.masks.push(Mask {
+                id: 2,
+                components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Full }],
+                tools: lightcraft_develop::LayerTools { light: Some(light), ..Default::default() },
+                ..Default::default()
+            });
+        }
+        s.masks[0].visible = true;
+        let shown = render(&src, &info, &s, &req).image;
+        assert!(shown.data.iter().any(|p| p[1] > 200) && shown.data.iter().any(|p| p[1] < 50), "the sample must select part of the sky");
+        s.masks[0].visible = false;
+        let hidden = render(&src, &info, &s, &req).image;
+        let worst = shown.data.iter().zip(&hidden.data).map(|(a, b)| a[1].abs_diff(b[1])).max().unwrap();
+        assert!(worst <= 1, "stacked {stacked}: the hidden mask's overlay differs from the shown one by {worst}");
+    }
+}
+
+#[test]
+fn whites_blacks_and_contrast_reach_the_primary_stage_only_through_mask_selection() {
+    let src = Arc::new(RgbFrame::from_fn(48, 32, |x, y| [0.01 + x as f32 / 40., 0.02 + y as f32 / 60., 0.05]));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(48, 32);
+    let key = |s: &DevelopSettings| primary::key(&crate::plan(&src, &info, s, &req), &info);
+    let mut s = DevelopSettings::default();
+    s.light.shadows = 40.;
+    s.masks.push(mask_of(
+        MaskShape::ColorRange { samples: vec![[0.5, 0.0, -0.05]], refine: 50. },
+        lightcraft_develop::LocalAdjustments { exposure: 0.5, ..Default::default() },
+    ));
+    let mut dragged = s.clone();
+    dragged.light.whites = 60.;
+    dragged.light.blacks = -30.;
+    dragged.light.contrast = 20.;
+    assert_eq!(key(&s), key(&dragged), "a Whites, Blacks or Contrast drag re-ran the primary stage");
+    let cache = crate::StageCache::default();
+    crate::render_cached(&src, &info, &s, &req, &cache);
+    let warm = crate::render_cached(&src, &info, &dragged, &req, &cache).image;
+    assert_eq!(warm, render(&src, &info, &dragged, &req).image, "the reused primary stage changed the render");
+    // A mask with local Shadows selects in this stage, under the tone those sliders shape.
+    for m in [&mut s.masks[0], &mut dragged.masks[0]] {
+        m.adjust.shadows = 30.;
+    }
+    assert_ne!(key(&s), key(&dragged));
 }

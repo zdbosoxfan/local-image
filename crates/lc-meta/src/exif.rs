@@ -268,11 +268,19 @@ pub(crate) mod tests {
     }
 }
 
+/// Preserve integral reciprocal shutter speeds that decimal denominators approximate.
+fn reciprocal(value: Option<f64>) -> Option<lightcraft_tiff::Value> {
+    let value = value.filter(|value| value.is_finite() && *value > 0.0 && *value < 1.0)?;
+    let inverse = 1.0 / value;
+    ((inverse - inverse.round()).abs() < 1e-6 && inverse.round() <= f64::from(u32::MAX))
+        .then(|| lightcraft_tiff::Value::Rational(vec![(1, inverse.round() as u32)]))
+}
+
 /// Serialise the interchange subset of `meta` as a TIFF-structured Exif block (little-endian, no
 /// `Exif\0\0` prefix): IFD0 (make, model, software, artist, copyright, description, orientation,
 /// date), the Exif IFD (capture settings, lens) and, when present, the GPS IFD.
 pub fn write_exif(meta: &Metadata) -> Vec<u8> {
-    use lightcraft_tiff::writer::{rational, srational};
+    use lightcraft_tiff::writer::rational;
     use lightcraft_tiff::{ByteOrder, IfdBuilder, TiffWriter, Value};
     let ascii = |s: &Option<String>| s.as_ref().filter(|v| !v.is_empty()).map(|v| Value::Ascii(v.clone()));
     let mut ifd0 = IfdBuilder::new();
@@ -290,33 +298,7 @@ pub fn write_exif(meta: &Metadata) -> Vec<u8> {
             ifd0.set(tag, v);
         }
     }
-    let mut ex = IfdBuilder::new();
-    ex.set(t::EXIF_VERSION, Value::Undefined(b"0232".to_vec()));
-    let r = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0).map(|v| Value::Rational(vec![rational(v)]));
-    for (tag, v) in [
-        (t::DATE_TIME_ORIGINAL, meta.capture_time.map(|d| Value::Ascii(d.to_exif()))),
-        (t::EXPOSURE_TIME, r(meta.exposure_time)),
-        (t::F_NUMBER, r(meta.f_number)),
-        (t::FOCAL_LENGTH, r(meta.focal_length)),
-        (
-            t::FOCAL_LENGTH_35MM,
-            meta.focal_length_35mm.filter(|v| v.is_finite() && *v > 0.0 && *v <= f64::from(u16::MAX)).map(|v| Value::Short(vec![v.round() as u16])),
-        ),
-        (t::ISO_SPEED, meta.iso.map(|i| Value::Short(vec![i.min(65_535) as u16]))),
-        (t::LENS_MAKE, ascii(&meta.lens_make)),
-        (t::LENS_MODEL, ascii(&meta.lens_model)),
-        (t::EXPOSURE_BIAS, meta.exposure_bias.map(|v| Value::SRational(vec![srational(v)]))),
-    ] {
-        if let Some(v) = v {
-            ex.set(tag, v);
-        }
-    }
-    if let Some(iso) = meta.iso.filter(|i| *i > u32::from(u16::MAX)) {
-        // Exif 2.32: 65535 in PhotographicSensitivity plus a LONG ISO Speed.
-        ex.set(t::SENSITIVITY_TYPE, Value::Short(vec![3]));
-        ex.set(t::ISO_SPEED_RATINGS_EXT, Value::Long(vec![iso]));
-    }
-    ifd0.set_child(t::EXIF_IFD, ex);
+    ifd0.set_child(t::EXIF_IFD, exif_ifd(meta));
     if let Some(g) = meta.gps {
         let dms = |v: f64| {
             let v = v.abs();
@@ -340,9 +322,56 @@ pub fn write_exif(meta: &Metadata) -> Vec<u8> {
     TiffWriter::new(ByteOrder::Little, false).write(&[ifd0]).unwrap_or_default()
 }
 
+/// The Exif IFD of [`write_exif`] (capture settings, lens and capture time; no serial numbers and
+/// no location), for writers that build their own IFD0 such as DNG.
+pub fn exif_ifd(meta: &Metadata) -> lightcraft_tiff::IfdBuilder {
+    use lightcraft_tiff::writer::{rational, srational};
+    use lightcraft_tiff::{IfdBuilder, Value};
+    let ascii = |s: &Option<String>| s.as_ref().filter(|v| !v.is_empty()).map(|v| Value::Ascii(v.clone()));
+    let mut ex = IfdBuilder::new();
+    ex.set(t::EXIF_VERSION, Value::Undefined(b"0232".to_vec()));
+    let r = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0).map(|v| Value::Rational(vec![rational(v)]));
+    for (tag, v) in [
+        (t::DATE_TIME_ORIGINAL, meta.capture_time.map(|d| Value::Ascii(d.to_exif()))),
+        (t::OFFSET_TIME_ORIGINAL, meta.capture_time.and_then(|d| d.offset()).map(Value::Ascii)),
+        (t::SUBSEC_TIME_ORIGINAL, meta.capture_time.filter(|d| d.millis != 0).map(|d| Value::Ascii(format!("{:03}", d.millis)))),
+        (t::EXPOSURE_TIME, reciprocal(meta.exposure_time).or_else(|| r(meta.exposure_time))),
+        (t::F_NUMBER, r(meta.f_number)),
+        (t::FOCAL_LENGTH, r(meta.focal_length)),
+        (
+            t::FOCAL_LENGTH_35MM,
+            meta.focal_length_35mm.filter(|v| v.is_finite() && *v > 0.0 && *v <= f64::from(u16::MAX)).map(|v| Value::Short(vec![v.round() as u16])),
+        ),
+        (t::ISO_SPEED, meta.iso.map(|i| Value::Short(vec![i.min(65_535) as u16]))),
+        (t::LENS_MAKE, ascii(&meta.lens_make)),
+        (t::LENS_MODEL, ascii(&meta.lens_model)),
+        (t::EXPOSURE_BIAS, meta.exposure_bias.map(|v| Value::SRational(vec![srational(v)]))),
+    ] {
+        if let Some(v) = v {
+            ex.set(tag, v);
+        }
+    }
+    if let Some(iso) = meta.iso.filter(|i| *i > u32::from(u16::MAX)) {
+        // Exif 2.32: 65535 in PhotographicSensitivity plus a LONG ISO Speed.
+        ex.set(t::SENSITIVITY_TYPE, Value::Short(vec![3]));
+        ex.set(t::ISO_SPEED_RATINGS_EXT, Value::Long(vec![iso]));
+    }
+    ex
+}
+
 #[cfg(test)]
 mod write_tests {
     use super::*;
+
+    #[test]
+    fn fast_shutter_speeds_round_trip_exactly() {
+        for den in [640.0, 3200.0, 6400.0, 8000.0, 12800.0, 16000.0, 32000.0] {
+            let metadata = Metadata { exposure_time: Some(1.0 / den), ..Default::default() };
+            let bytes = write_exif(&metadata);
+            let back = read_exif(&bytes);
+            assert_eq!(back.exposure_time, metadata.exposure_time, "1/{den}");
+        }
+    }
 
     #[test]
     fn exif_round_trips() {
@@ -372,5 +401,15 @@ mod write_tests {
         assert_eq!(back.lens_model, m.lens_model);
         let g = back.gps.unwrap();
         assert!((g.latitude - 43.7904).abs() < 1e-5 && (g.longitude + 110.6818).abs() < 1e-5, "{g:?}");
+    }
+
+    #[test]
+    fn capture_time_keeps_its_offset_and_milliseconds() {
+        for iso in ["2026-10-14T12:00:00.250-04:00", "2026-10-14T12:00:00.005+05:30", "2026-10-14T12:00:00"] {
+            let m = Metadata { capture_time: DateTime::parse_iso(iso), ..Default::default() };
+            let back = read_exif(&write_exif(&m)).capture_time;
+            assert_eq!(back, m.capture_time, "{iso}");
+            assert_eq!(back.map(|d| d.to_iso()).as_deref(), Some(iso));
+        }
     }
 }

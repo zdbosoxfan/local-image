@@ -442,6 +442,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 _ => &mut e.lock_guides,
             };
             *slot = !*slot;
+            if id == "view.show.grid" && *slot {
+                app.ui.view.extras = true;
+            }
             Ok(json!(*slot))
         }
         "edit.freeTransform"
@@ -731,6 +734,7 @@ pub(crate) fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         "li.panel.generate" => p.generate,
         "li.draftRefine" => app.draft_refine.open,
         "li.browseModels" => crate::model_browser::is_open(),
+        "li.modelSetup" => crate::model_setup::is_open(),
         "window.toggle.layers" => p.layers,
         "window.toggle.history" => p.history,
         "window.toggle.properties" => p.properties,
@@ -1734,7 +1738,10 @@ mod open_recent_tests {
         assert_eq!(app.ui.recent_files.first().map(String::as_str), Some(p.as_str()));
         // Re-open via the recent entry.
         invoke(&mut app, &ctx, "file.openRecent.0", json!({})).unwrap();
-        assert_eq!(app.session.documents().len(), 2);
+        assert_eq!(app.session.documents().len(), 1);
+        app.session.close(0);
+        invoke(&mut app, &ctx, "file.openRecent.0", json!({})).unwrap();
+        assert_eq!(app.session.documents().len(), 1);
         let _ = std::fs::remove_file(&path);
     }
 }
@@ -1742,3 +1749,7 @@ mod open_recent_tests {
 #[cfg(test)]
 #[path = "menus/conventions_tests.rs"]
 mod conventions_tests;
+
+#[cfg(test)]
+#[path = "menus/grid_tests.rs"]
+mod grid_tests;

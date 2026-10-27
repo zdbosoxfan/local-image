@@ -131,11 +131,14 @@ pub struct ExportOptions {
     /// Which part of the document's XMP packet a flat export embeds (PSD/PSB/`.pcraft`
     /// always keep everything). Everything by default, as Save As does; Export As offers None.
     pub xmp: XmpEmbed,
+    /// PSD/PSB and layered TIFF: read and embed the files linked smart objects name (see
+    /// [`PsdExportOptions::read_linked_files`]). On by default; automation turns it off.
+    pub read_linked_files: bool,
 }
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All }
+        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All, read_linked_files: true }
     }
 }
 
@@ -234,7 +237,7 @@ fn export_with_projection_inner(
     }
     if ext == "psd" || ext == "psb" {
         psd_generation::admit(doc)?;
-        let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", ..Default::default() };
+        let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", read_linked_files: opts.read_linked_files, ..Default::default() };
         let prepared = vector_map::fallback::prepare(doc, projection)?;
         psd_generation::admit(&prepared)?;
         let (file, mut warnings) = document_to_psd_with(&prepared, &o);
@@ -260,8 +263,10 @@ fn export_with_projection_inner(
 /// with the document pixel model and un-matted from white (Photoshop mattes
 /// the merged image of transparent documents). Used as the compositing oracle.
 pub fn merged_composite(file: &PsdFile) -> Result<Vec<[f32; 4]>, IoError> {
-    let img = file.composite_rgba8().ok();
     let h = &file.header;
+    // The preview loses signed/HDR precision; float references use the full-depth model path.
+    // Missing integer previews also fall through to that decoder.
+    let img = if h.depth == 32 { None } else { file.composite_rgba8().ok() };
     // CMYK goes through the colour-managed model conversion (the PSD crate's RGBA preview is a
     // naive, profile-free conversion).
     if let (Some(img), false) = (img, matches!(h.color_mode, photocraft_psd::ColorMode::Lab | photocraft_psd::ColorMode::Cmyk)) {
@@ -283,7 +288,9 @@ pub fn merged_composite(file: &PsdFile) -> Result<Vec<[f32; 4]>, IoError> {
             .collect());
     }
     // Generic path (Lab, CMYK and others) via the raster model conversion.
-    let (doc, _) = psd_to_document(&PsdFile { layer_info: None, ..file.clone() })?;
+    // Preserve the merged-alpha decision so an opaque spot channel stays separate.
+    let layer_info = Some(photocraft_psd::LayerInfo { merged_alpha: file.merged_has_alpha(), layers: Vec::new(), padding: None });
+    let (doc, _) = psd_to_document(&PsdFile { layer_info, ..file.clone() })?;
     // Multichannel documents keep their channels apart (no layer): composite them.
     if doc.layers.is_empty() && doc.mode == photocraft_color::ColorMode::Multichannel {
         return Ok(photocraft_compose::flatten(&doc).px);

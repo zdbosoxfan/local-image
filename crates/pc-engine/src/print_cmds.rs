@@ -430,13 +430,13 @@ fn package(s: &mut Session, p: &Value) -> Result<Value> {
                     fname = format!("{}-{}", copied.len(), fname);
                 }
                 let t = join(&links_dir, &fname);
-                match read_file(path) {
-                    Ok(bytes) => {
+                match read_file(path).ok().filter(|bytes| crate::file_cmds::import(&fname, bytes).is_ok()) {
+                    Some(bytes) => {
                         write_file(&t, &bytes)?;
                         copied.push((path.clone(), t.clone()));
                         t
                     }
-                    Err(_) => {
+                    None => {
                         missing.push(path.clone());
                         continue;
                     }

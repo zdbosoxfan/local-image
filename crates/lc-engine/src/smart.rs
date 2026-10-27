@@ -235,7 +235,13 @@ pub fn is_valid(path: &Path) -> bool {
 /// Load the proxy at `path`.
 pub fn load(path: &Path) -> Result<crate::media::DecodedSource, String> {
     let b = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    decode_with_info(&b).map(|(image, camera_tone, info)| crate::media::DecodedSource { image: Arc::new(image), info, camera_tone, raw_key: 0 })
+    decode_with_info(&b).map(|(image, camera_tone, info)| crate::media::DecodedSource {
+        image: Arc::new(image),
+        info,
+        camera_tone,
+        raw_key: 0,
+        proxy: true,
+    })
 }
 
 #[cfg(test)]

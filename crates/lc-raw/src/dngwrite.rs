@@ -13,6 +13,7 @@ pub enum DngCompression {
     Uncompressed,
     /// Lossless JPEG tiles of `tile × tile` pixels (`tile` even). CFA tiles are encoded as two interleaved
     /// components of half the tile width (the common DNG layout), linear data with one component per sample.
+    /// Floating-point data, which lossless JPEG cannot hold, is written as 32-bit [`Self::Deflate`] tiles.
     Lj92 {
         tile: u32,
     },
@@ -121,12 +122,24 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
             ifd.set(0x7035, prefixed(2 * n, &ca));
         }
     }
+    // Capture settings and lens let other raw editors match lens profiles and ISO-adaptive
+    // defaults. Location stays in the XMP packet, which honours "Remove Location Info". A given
+    // packet's capture time (the library's, possibly edited) is the file's: Exif-first readers
+    // must see the same time.
+    let edited = opts
+        .xmp
+        .as_deref()
+        .and_then(|x| lightcraft_meta::parse_xmp(x).ok()?.metadata.capture_time)
+        .filter(|time| raw.metadata.capture_time != Some(*time))
+        .map(|time| lightcraft_meta::Metadata { capture_time: Some(time), ..raw.metadata.clone() });
+    ifd.set_child(t::EXIF_IFD, lightcraft_meta::exif_ifd(edited.as_ref().unwrap_or(&raw.metadata)));
     let xmp = opts.xmp.clone().unwrap_or_else(|| lightcraft_meta::write_xmp(&raw.metadata, None));
     ifd.set(t::XMP, Value::Byte(xmp.into_bytes()));
 
     if let Some(cfa) = &raw.cfa {
         ifd.set(t::CFA_REPEAT_PATTERN_DIM, Value::Short(vec![cfa.height as u16, cfa.width as u16]));
-        ifd.set(t::CFA_PATTERN_EP, Value::Byte(cfa.pattern.clone()));
+        // DNG CFAPattern is relative to the ActiveArea
+        ifd.set(t::CFA_PATTERN_EP, Value::Byte(cfa.shifted(raw.active_area.x, raw.active_area.y).pattern));
         ifd.set(t::CFA_PLANE_COLOR, Value::Byte(vec![0, 1, 2]));
         ifd.set(t::CFA_LAYOUT, Value::Short(vec![1]));
     }
@@ -262,7 +275,13 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
         }
     }
 
-    match (&raw.data, opts.compression) {
+    let compression = match (&raw.data, opts.compression) {
+        // Lossless JPEG codes integers only; float data stays bit-exact with Deflate and the
+        // floating-point predictor.
+        (RawData::F32(_), DngCompression::Lj92 { tile }) => DngCompression::Deflate { tile, half: false },
+        (_, compression) => compression,
+    };
+    match (&raw.data, compression) {
         (RawData::F32(v), DngCompression::Deflate { tile, half }) => {
             let tile = (tile.max(16) & !15) as usize;
             let bp = if half { 2 } else { 4 };
@@ -302,22 +321,22 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
             ifd.set(t::BITS_PER_SAMPLE, Value::Short(vec![32; cpp]));
             ifd.set(t::SAMPLE_FORMAT, Value::Short(vec![3; cpp]));
             ifd.set(t::COMPRESSION, Value::Short(vec![compression::NONE]));
-            let mut bytes = Vec::with_capacity(v.len() * 4);
-            for &x in v {
-                let mut tmp = Vec::with_capacity(4);
-                opts.order.put_u32(&mut tmp, x.to_bits());
-                bytes.extend_from_slice(&tmp);
-            }
-            ifd.set_image(ImageData::Strips { rows_per_strip: h as u32, strips: vec![bytes] });
+            let rows = (65536 / (w * cpp * 4)).clamp(1, h);
+            let strips = v
+                .chunks(rows * w * cpp)
+                .map(|s| {
+                    let mut b = Vec::with_capacity(s.len() * 4);
+                    s.iter().for_each(|&x| opts.order.put_u32(&mut b, x.to_bits()));
+                    b
+                })
+                .collect();
+            ifd.set_image(ImageData::Strips { rows_per_strip: rows as u32, strips });
         }
         (RawData::U16(v), _) => {
             let maxv = v.iter().copied().max().unwrap_or(0);
             let bits = (16 - maxv.leading_zeros()).max(raw.bits.min(16)).max(2) as u8;
-            ifd.set(
-                t::BITS_PER_SAMPLE,
-                Value::Short(vec![if matches!(opts.compression, DngCompression::Uncompressed) { 16 } else { bits as u16 }; cpp]),
-            );
-            match opts.compression {
+            ifd.set(t::BITS_PER_SAMPLE, Value::Short(vec![if matches!(compression, DngCompression::Uncompressed) { 16 } else { bits as u16 }; cpp]));
+            match compression {
                 DngCompression::Uncompressed => {
                     ifd.set(t::COMPRESSION, Value::Short(vec![compression::NONE]));
                     let rows = (65536 / (w * cpp * 2)).clamp(1, h);
@@ -395,6 +414,114 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
         }
     }
     Ok(TiffWriter::new(opts.order, false).write(&[ifd])?)
+}
+
+#[cfg(test)]
+mod float_compression_tests {
+    use super::*;
+
+    pub(super) fn float_raw() -> RawImage {
+        let (w, h) = (512, 512);
+        // Smooth signal with signed noise and headroom above white, as merges and denoised files hold.
+        let data = (0..w * h * 3).map(|i| (i % 3) as f32 * 0.2 + (i / 3 % w) as f32 * 0.003 - 0.01 + ((i * 7919) % 13) as f32 * 1e-4).collect();
+        RawImage {
+            vendor_lens: None,
+            format: crate::RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 3,
+            data: RawData::F32(data),
+            cfa: None,
+            bits: 32,
+            black: crate::BlackLevel::uniform(0.0),
+            white: vec![1.0],
+            active_area: crate::Rect::new(0, 0, w, h),
+            crop: crate::Rect::new(0, 0, w, h),
+            orientation: crate::Orientation::Normal,
+            color: Default::default(),
+            wb_multipliers: None,
+            linearized: false,
+            opcodes: Default::default(),
+            metadata: Default::default(),
+        }
+    }
+
+    #[test]
+    fn lossless_float_dngs_are_deflate_compressed_and_bit_exact() {
+        let raw = float_raw();
+        let bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Lj92 { tile: 256 }, ..Default::default() }).unwrap();
+        let parsed = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        assert_eq!(parsed.ifds[0].u16(t::COMPRESSION), Some(compression::ADOBE_DEFLATE));
+        assert!(bytes.len() < 512 * 512 * 3 * 4 / 2, "{} bytes", bytes.len());
+        assert_eq!(crate::decode(&bytes).unwrap().data, raw.data);
+    }
+
+    #[test]
+    fn uncompressed_float_dngs_use_bounded_strips() {
+        let raw = float_raw();
+        let bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Uncompressed, ..Default::default() }).unwrap();
+        let parsed = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        assert_eq!(parsed.ifds[0].u16(t::COMPRESSION), Some(compression::NONE));
+        assert!(parsed.ifds[0].u32(t::ROWS_PER_STRIP).is_some_and(|rows| rows < 512), "one strip per image");
+        assert_eq!(crate::decode(&bytes).unwrap().data, raw.data);
+    }
+}
+
+#[cfg(test)]
+mod exif_tests {
+    use super::*;
+
+    #[test]
+    fn dngs_carry_capture_settings_and_lens_in_exif() {
+        let metadata = lightcraft_meta::Metadata {
+            make: Some("SONY".into()),
+            model: Some("ILCE-1".into()),
+            exposure_time: Some(1.0 / 125.0),
+            f_number: Some(8.0),
+            iso: Some(100),
+            focal_length: Some(16.0),
+            focal_length_35mm: Some(16.0),
+            lens_model: Some("FE 16-35mm F2.8 GM II".into()),
+            gps: Some(lightcraft_meta::Gps { latitude: 43.79, longitude: -71.07, altitude: None }),
+            ..Default::default()
+        };
+        let raw = RawImage { metadata, ..float_compression_tests::float_raw() };
+        // An export packet without location, as "Remove Location Info" writes it.
+        let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { rating: Some(3), ..Default::default() }, None);
+        let bytes = write_dng(&raw, &DngWriteOptions { xmp: Some(packet), ..Default::default() }).unwrap();
+        let back = lightcraft_meta::extract(&bytes);
+        assert_eq!(back.exposure_time, Some(1.0 / 125.0));
+        assert_eq!(back.f_number, Some(8.0));
+        assert_eq!(back.iso, Some(100));
+        assert_eq!(back.focal_length, Some(16.0));
+        assert_eq!(back.focal_length_35mm, Some(16.0));
+        assert_eq!(back.lens_model.as_deref(), Some("FE 16-35mm F2.8 GM II"));
+        assert_eq!(back.rating, Some(3));
+        assert!(back.gps.is_none(), "location is written only through the packet");
+    }
+
+    #[test]
+    fn dng_capture_time_keeps_its_offset_and_milliseconds() {
+        let capture_time = lightcraft_meta::DateTime::parse_iso("2026-10-14T12:00:00.250-04:00");
+        let raw = RawImage { metadata: lightcraft_meta::Metadata { capture_time, ..Default::default() }, ..float_compression_tests::float_raw() };
+        let bytes = write_dng(&raw, &DngWriteOptions::default()).unwrap();
+        assert_eq!(lightcraft_meta::extract(&bytes).capture_time, capture_time);
+    }
+
+    #[test]
+    fn dng_exif_capture_time_follows_the_embedded_packet() {
+        let camera = lightcraft_meta::DateTime::parse_iso("2026-10-14T12:00:00.250-04:00");
+        let edited = lightcraft_meta::DateTime::parse_iso("2026-10-15T09:30:05-04:00");
+        let raw =
+            RawImage { metadata: lightcraft_meta::Metadata { capture_time: camera, ..Default::default() }, ..float_compression_tests::float_raw() };
+        let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { capture_time: edited, ..Default::default() }, None);
+        let bytes = write_dng(&raw, &DngWriteOptions { xmp: Some(packet), ..Default::default() }).unwrap();
+        let tiff = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        let exif = tiff.exif().unwrap();
+        assert_eq!(exif.string(t::DATE_TIME_ORIGINAL).as_deref().map(str::trim), Some("2026:10:15 09:30:05"));
+        assert_eq!(exif.string(t::OFFSET_TIME_ORIGINAL).as_deref().map(str::trim), Some("-04:00"));
+        assert_eq!(lightcraft_meta::extract(&bytes).capture_time, edited);
+    }
 }
 
 #[cfg(test)]

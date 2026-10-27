@@ -70,6 +70,18 @@ fn edit_version(s: &mut Session, p: &Value, c: &str, label: &str, f: impl FnOnce
     ok()
 }
 
+/// What Reset returns photo `id` to: what import gave it (a raw's camera defaults, or its default
+/// preset's look), with As Shot labelled by the as-shot white balance the source reports now (a
+/// catalog made by an older inference may hold another).
+fn reset_base(s: &Session, id: PhotoId) -> Option<DevelopSettings> {
+    let mut base = s.catalog.photo(id)?.import_defaults();
+    if base.wb.mode == WbMode::AsShot {
+        let info = s.source_info(id);
+        (base.wb.temp, base.wb.tint) = (info.as_shot_temp, info.as_shot_tint);
+    }
+    Some(base)
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
@@ -110,8 +122,7 @@ pub fn specs() -> Vec<CommandSpec> {
                         }
                     }
                 };
-                if let Some(ids) = p.get("ids").and_then(Value::as_array) {
-                    let ids: Vec<PhotoId> = ids.iter().filter_map(Value::as_u64).map(PhotoId).collect();
+                if let Some(ids) = super::photo_ids(p, "develop.set")? {
                     let ops = ids
                         .iter()
                         .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
@@ -161,26 +172,7 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("develop.reset", "Reset Edits", ["Photo"], Some("Cmd+Shift+R"), "{ids?}", has_selection, |s, p| {
             let ids = s.targets(p)?;
-            let ops = ids
-                .iter()
-                .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                .filter_map(|(id, _d)| {
-                    // back to the photo's import defaults when a default preset gave it its look
-                    let look = s.catalog.photo(id).and_then(|p| p.import_look.clone());
-                    let fresh = match look {
-                        Some(l) => (*l).clone(),
-                        None => {
-                            let info = s.source_info(id);
-                            DevelopSettings {
-                                wb: lightcraft_develop::WhiteBalance { mode: WbMode::AsShot, temp: info.as_shot_temp, tint: info.as_shot_tint },
-                                look: s.catalog.photo(id).map(|p| p.look).unwrap_or_default(),
-                                ..Default::default()
-                            }
-                        }
-                    };
-                    s.develop_op(id, fresh, "Reset")
-                })
-                .collect();
+            let ops = ids.iter().filter_map(|id| reset_base(s, *id).and_then(|fresh| s.develop_op(*id, fresh, "Reset"))).collect();
             s.commit("Reset", Op::Batch { ops })?;
             ok()
         }),
@@ -228,8 +220,9 @@ pub fn specs() -> Vec<CommandSpec> {
             has_active,
             |s, p| {
                 let sec = section_param(p, "develop.resetSection")?;
+                let base = reset_base(s, active(s, "develop.resetSection")?).unwrap_or_default();
                 edit(s, "develop.resetSection", &format!("Reset {}", sec.label()), |d| {
-                    d.reset_section(sec);
+                    d.reset_section_to(sec, &base);
                     Ok(())
                 })
             }
@@ -237,8 +230,30 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("develop.resetControl", "Reset Control", [], None, "{control}", has_active, |s, p| {
             let c = str_param(p, "control").ok_or_else(|| bad("develop.resetControl", "missing control"))?.to_string();
             let spec = controls::find(&c).ok_or_else(|| bad("develop.resetControl", "unknown control"))?;
+            let id = active(s, "develop.resetControl")?;
+            let (base, info) = (reset_base(s, id).unwrap_or_default(), s.source_info(id));
             edit(s, "develop.resetControl", spec.label, |d| {
-                controls::set(d, &c, spec.default);
+                let value = controls::get(&base, &c).unwrap_or(spec.default);
+                let other = match c.as_str() {
+                    "wb.temp" => "wb.tint",
+                    "wb.tint" => "wb.temp",
+                    _ => {
+                        controls::set(d, &c, value);
+                        return Ok(());
+                    }
+                };
+                // white balance: the photo's own balance comes back whole (As Shot, say) while it
+                // is still in its own mode or the other value is its own too; else a custom
+                // balance with only this value reset
+                if (d.wb.mode == base.wb.mode && base.wb.mode != WbMode::Custom) || controls::get(d, other) == controls::get(&base, other) {
+                    d.wb = base.wb;
+                } else {
+                    if d.wb.mode == WbMode::AsShot {
+                        (d.wb.temp, d.wb.tint) = (info.as_shot_temp, info.as_shot_tint);
+                    }
+                    controls::set(d, &c, value);
+                    d.wb.mode = WbMode::Custom;
+                }
                 Ok(())
             })
         }),
@@ -307,18 +322,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
                 let info = s.source_info(id);
                 let (mut t, mut tint) = match mode {
-                    WbMode::AsShot => (info.as_shot_temp, info.as_shot_tint),
                     WbMode::Auto => {
                         let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.wb", e))?;
                         lightcraft_pipeline::auto::auto_wb(&src, &info)
                     }
-                    m => m
-                        .preset()
-                        .map(|(t, ti)| {
-                            // presets are relative to daylight for rendered files
-                            if info.raw && !info.relative_wb { (t, ti) } else { (6500.0 * t / 5500.0, ti) }
-                        })
-                        .unwrap_or((info.as_shot_temp, info.as_shot_tint)),
+                    m => lightcraft_pipeline::local::mode_wb(&info, m).unwrap_or((info.as_shot_temp, info.as_shot_tint)),
                 };
                 if let Some(name) = str_param(p, "preset") {
                     let preset = info
@@ -328,17 +336,23 @@ pub fn specs() -> Vec<CommandSpec> {
                         .ok_or_else(|| bad("develop.wb", format!("unknown camera WB preset `{name}`")))?;
                     (t, tint) = (preset.temp, preset.tint);
                     mode = WbMode::Custom;
-                } else if let Some(preset) = info.camera_wb_presets.iter().find(|v| {
+                } else if let Some(preset) = info.camera_wb_presets.iter().filter(|_| mode.preset().is_some()).find(|v| {
                     v.name.eq_ignore_ascii_case(mode.label())
                         || (mode == WbMode::Tungsten && v.name == "Incandescent")
                         || (mode == WbMode::Daylight && v.name == "Direct Sunlight")
                 }) {
+                    // the camera's own preset is a custom white: a named mode renders Lightroom's
+                    // values, which XMP sidecars and presets mean by it
                     (t, tint) = (preset.temp, preset.tint);
+                    mode = WbMode::Custom;
+                }
+                if p.get("temp").is_some() || p.get("tint").is_some() {
+                    mode = WbMode::Custom;
                 }
                 t = f64_or(p, "temp", t);
                 tint = f64_or(p, "tint", tint);
-                // The resolved temperature/tint is stored, so rendering never depends on the mode; the
-                // mode is kept for the UI's WB dropdown.
+                // The stored temperature/tint is what renders; the mode is kept for the UI's WB
+                // dropdown.
                 edit(s, "develop.wb", "White Balance", |d| {
                     d.wb.mode = mode;
                     d.wb.temp = t.clamp(2000.0, 50000.0);
@@ -356,13 +370,20 @@ pub fn specs() -> Vec<CommandSpec> {
             "{x, y, mask?: layerId} normalized image coords of a neutral point",
             has_active,
             |s, p| {
+                use lightcraft_pipeline::auto::{WbTarget, wb_pick};
                 let (x, y) = (f64_req(p, "x", "develop.wbPick")?, f64_req(p, "y", "develop.wbPick")?);
                 let id = active(s, "develop.wbPick")?;
-                let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.wbPick", e))?;
+                let src = s.source_now(id, SourceLevel::Preview).map_err(|e| bad("develop.wbPick", e))?;
                 let info = s.source_info(id);
                 let d = s.develop_of(id).unwrap_or_default();
-                let (t, tint) = crate::sample_white_balance(&src, &info, d.orientation, x, y);
-                if let Some(mid) = p.get("mask").and_then(Value::as_u64) {
+                let mask = p.get("mask").and_then(Value::as_u64);
+                let target = match mask {
+                    Some(m) => WbTarget::Mask(u32::try_from(m).map_err(|_| bad("develop.wbPick", format!("unknown mask {m}")))?),
+                    None => WbTarget::Global,
+                };
+                let (t, tint) = wb_pick(&src, &info, &d, Point::new(x, y), target)
+                    .ok_or_else(|| bad("develop.wbPick", "pick a point inside the photo that is not black"))?;
+                if let Some(mid) = mask {
                     s.execute(
                         "mask.setTools",
                         &json!({"id": mid, "tools": {"wb": {"mode":"custom", "temp": t, "tint": tint}}, "label":"White Balance"}),
@@ -586,11 +607,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let d = s.develop_of(id).unwrap_or_default();
                 let transform = match mode {
                     Upright::Off | Upright::Guided => None,
-                    m => {
-                        let src = s.source_now(id, SourceLevel::Preview).map_err(|e| bad("geometry.upright", e))?;
-                        let info = s.source_info(id);
-                        Some(lightcraft_pipeline::upright::auto_transform(&src, &info, &d, m))
-                    }
+                    m => Some(s.upright_transform(id, &d, m).map_err(|e| bad("geometry.upright", e))?),
                 };
                 edit(s, "geometry.upright", "Upright", |d| {
                     d.geometry.upright = mode;
@@ -836,7 +853,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 .filter_map(|id| {
                     let d = s.develop_of(*id)?;
                     let mut settings = preset.apply(&d, amount);
+                    s.resolve_transferred_wb(*id, &preset.settings, &mut settings);
                     s.refresh_transferred_masks(*id, &mut settings, d.masks.len());
+                    if preset.settings.get("geometry").is_some() {
+                        s.queue_upright(*id, &settings);
+                    }
                     s.develop_op(*id, settings, &format!("Preset: {}", preset.name))
                 })
                 .collect::<Vec<_>>();

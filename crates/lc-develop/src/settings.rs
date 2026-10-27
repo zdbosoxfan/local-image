@@ -125,8 +125,9 @@ pub enum Look {
     Adobe,
     /// darktable's sigmoid: a neutral scene-referred log-logistic curve, hue preserving.
     Sigmoid,
-    /// The camera's own rendition: a curve fitted to the file's embedded JPEG (or the maker's
-    /// base curve when the file has no usable preview).
+    /// The camera's own rendition: the tone curve of a camera profile (DCP) the user picked, else
+    /// a curve fitted to the file's embedded JPEG (or the maker's base curve when the file has no
+    /// usable preview).
     Camera,
 }
 
@@ -1632,7 +1633,7 @@ impl<'de> Deserialize<'de> for AiKey {
 }
 
 /// A photo's AI Denoise result in the library's AI store (local-image).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DenoiseRef {
     #[serde(default)]
     pub model: DenoiseModel,
@@ -1642,6 +1643,18 @@ pub struct DenoiseRef {
     pub key: AiKey,
     /// Content hash of the photo it was made from (never applied to another photo).
     pub source: AiKey,
+    /// Identifies the raw decoding the result was made from (0: the default decoding); a result
+    /// made under other raw settings is not applied.
+    #[serde(default, skip_serializing_if = "is_default_decoding")]
+    pub raw: u64,
+    /// A preview's area, `[x0, y0, x1, y1]` normalized in the decoded source (`None`: the whole
+    /// photo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<[f64; 4]>,
+}
+
+fn is_default_decoding(raw: &u64) -> bool {
+    *raw == 0
 }
 
 impl DenoiseModel {
@@ -1671,7 +1684,17 @@ fn ds2_denoise_references_reject_invalid_non_null_values() {
         assert!(serde_json::from_value::<Enhance>(json!({"ai": ai})).is_err());
     }
     assert!(serde_json::from_value::<Enhance>(json!({"ai":null})).unwrap().ai.is_none());
-    let value = Enhance { ai: Some(DenoiseRef { model: DenoiseModel::Raw, preview: false, key: AiKey(7), source: AiKey(9) }), ..Default::default() };
+    let value = Enhance {
+        ai: Some(DenoiseRef {
+            model: DenoiseModel::Raw,
+            preview: false,
+            key: AiKey(7),
+            source: AiKey(9),
+            raw: 5,
+            region: Some([0.1, 0.2, 0.3, 0.4]),
+        }),
+        ..Default::default()
+    };
     assert_eq!(serde_json::from_value::<Enhance>(serde_json::to_value(value).unwrap()).unwrap(), value);
 }
 

@@ -299,7 +299,7 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
                     Some(sel) => {
                         let (lifted, mut rest) = split_selected(surf, sel);
                         let moved = warp_surface_map(&lifted, lifted.content_bounds(), m, interp);
-                        composite_over(&mut rest, &moved);
+                        composite_over(&mut rest, &moved)?;
                         rest.prune();
                         rest
                     }
@@ -382,15 +382,126 @@ pub(crate) fn refresh_text(doc: &Document, l: &mut Layer) -> Result<()> {
 }
 
 /// Normal-blend `top` over `dst` (both straight alpha, same format).
-pub(crate) fn composite_over(dst: &mut Surface, top: &Surface) {
+pub(crate) fn composite_over(dst: &mut Surface, top: &Surface) -> Result<()> {
+    use photocraft_color::{SampleType, read_sample};
+    use photocraft_geom::TileCoord;
+    use photocraft_raster::Tile;
+    use rayon::prelude::*;
+    use std::sync::Arc;
+
+    let fmt = dst.format();
+    let n = fmt.channels();
+    let a = n - 1;
+    if top.default_pixel().get(a).is_none_or(|&ta| ta <= 0.0) {
+        let mut top_tiles = crate::allocation::capacity(top.tile_count(), "compositing selected pixels")?;
+        top_tiles.extend(top.tiles().map(|(&tc, tile)| (tc, tile.clone())));
+        if top_tiles.is_empty() {
+            return Ok(());
+        }
+        let bpp = fmt.bytes_per_pixel();
+        let sb = fmt.sample.bytes();
+        let alpha_off = bpp - sb;
+        let dst_empty_default = dst.default_bytes().iter().all(|&b| b == 0);
+        let dst_ref = &*dst;
+        let mut results = crate::allocation::capacity(top_tiles.len(), "compositing selected pixels")?;
+        top_tiles
+            .into_par_iter()
+            .map(|(tc, top_tile)| -> Result<Option<(TileCoord, Arc<Tile>)>> {
+                let tb = top_tile.bytes();
+                let all_opaque = match fmt.sample {
+                    SampleType::U8 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off) == Some(&u8::MAX)),
+                    SampleType::U16 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off..bpp) == Some(&[u8::MAX, u8::MAX])),
+                    SampleType::F32 => tb.chunks_exact(bpp).all(|px| read_sample(px, SampleType::F32, a) == 1.0),
+                };
+                if all_opaque {
+                    return Ok(Some((tc, top_tile)));
+                }
+                let all_transparent = match fmt.sample {
+                    SampleType::U8 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off) == Some(&0)),
+                    SampleType::U16 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off..bpp) == Some(&[0, 0])),
+                    SampleType::F32 => tb.chunks_exact(bpp).all(|px| read_sample(px, SampleType::F32, a) <= 0.0),
+                };
+                if all_transparent {
+                    return Ok(None);
+                }
+                if dst_ref.tile(tc).is_none() && dst_empty_default {
+                    let clean_zero = match fmt.sample {
+                        SampleType::U8 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off) != Some(&0) || px.iter().all(|&b| b == 0)),
+                        SampleType::U16 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off..bpp) != Some(&[0, 0]) || px.iter().all(|&b| b == 0)),
+                        SampleType::F32 => tb.chunks_exact(bpp).all(|px| read_sample(px, SampleType::F32, a) > 0.0 || px.iter().all(|&b| b == 0)),
+                    };
+                    if clean_zero {
+                        return Ok(Some((tc, top_tile)));
+                    }
+                }
+                let mut out_tile = match dst_ref.tile(tc) {
+                    Some(dt) => dt.try_clone().map_err(|error| crate::allocation::error("compositing selected pixels", &error.to_string()))?,
+                    None => dst_ref.try_default_tile().map_err(|error| crate::allocation::error("compositing selected pixels", &error.to_string()))?,
+                };
+                let mut tp = [0.0f32; 8];
+                let mut dp = [0.0f32; 8];
+                for (out_px, top_px) in out_tile.bytes_mut().chunks_exact_mut(bpp).zip(tb.chunks_exact(bpp)) {
+                    match fmt.sample {
+                        SampleType::U8 => {
+                            let ta_b = top_px[alpha_off];
+                            if ta_b == 0 {
+                                continue;
+                            }
+                            if ta_b == u8::MAX {
+                                out_px.copy_from_slice(top_px);
+                                continue;
+                            }
+                        }
+                        SampleType::U16 => {
+                            if top_px[alpha_off..bpp] == [0, 0] {
+                                continue;
+                            }
+                            if top_px[alpha_off..bpp] == [u8::MAX, u8::MAX] {
+                                out_px.copy_from_slice(top_px);
+                                continue;
+                            }
+                        }
+                        SampleType::F32 => {
+                            let ta = read_sample(top_px, SampleType::F32, a);
+                            if ta <= 0.0 {
+                                continue;
+                            }
+                            if ta == 1.0 {
+                                out_px.copy_from_slice(top_px);
+                                continue;
+                            }
+                        }
+                    }
+                    for c in 0..n {
+                        tp[c] = read_sample(top_px, fmt.sample, c);
+                        dp[c] = read_sample(out_px, fmt.sample, c);
+                    }
+                    let (ta, da) = (tp[a], dp[a]);
+                    let oa = ta + da * (1.0 - ta);
+                    if oa > 0.0 {
+                        for c in 0..a {
+                            dp[c] = (tp[c] * ta + dp[c] * da * (1.0 - ta)) / oa;
+                        }
+                    }
+                    dp[a] = oa;
+                    photocraft_raster::encode_pixel(&fmt, &dp[..n], out_px);
+                }
+                Ok(Some((tc, Arc::new(out_tile))))
+            })
+            .collect_into_vec(&mut results);
+        let mut edits = crate::allocation::capacity(results.len(), "compositing selected pixels")?;
+        for result in results {
+            edits.extend(result?);
+        }
+        dst.put_tiles(edits);
+        return Ok(());
+    }
     let b = top.content_bounds();
     if b.is_empty() {
-        return;
+        return Ok(());
     }
-    let n = dst.format().channels();
-    let a = n - 1;
-    let t = top.read_region(b);
-    let mut d = dst.read_region(b);
+    let t = crate::allocation::read_region(top, b, "compositing selected pixels")?;
+    let mut d = crate::allocation::read_region(dst, b, "compositing selected pixels")?;
     for (dp, tp) in d.chunks_exact_mut(n).zip(t.chunks_exact(n)) {
         let (ta, da) = (tp[a], dp[a]);
         let oa = ta + da * (1.0 - ta);
@@ -401,7 +512,8 @@ pub(crate) fn composite_over(dst: &mut Surface, top: &Surface) {
         }
         dp[a] = oa;
     }
-    dst.write_region(b, &d);
+    dst.try_write_region(b, &d).map_err(|error| crate::allocation::error("compositing selected pixels", &error.to_string()))?;
+    Ok(())
 }
 
 fn quad_param(p: &Value) -> Option<[[f64; 2]; 4]> {
@@ -1045,5 +1157,61 @@ mod tests {
         assert_eq!(m.sample_channel(42, 15, 0), 1.);
         assert_eq!(m.sample_channel(47, 15, 0), 1.);
         assert_eq!(m.sample_channel(17, 15, 0), 0.);
+    }
+
+    #[test]
+    fn tile_compositing_matches_dense_straight_alpha_and_shares_opaque_tiles() {
+        use photocraft_color::{ColorMode, SampleType};
+        use photocraft_geom::TileCoord;
+        for mode in [ColorMode::Rgb, ColorMode::Grayscale, ColorMode::Cmyk, ColorMode::Lab] {
+            for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+                let format = PixelFormat::new(mode, sample, true);
+                for default_alpha in [0.0, 0.3] {
+                    let default = photocraft_raster::from_rgba(&format, [0.2, 0.4, 0.6, default_alpha]);
+                    let mut top = Surface::with_default(format, &default);
+                    let opaque = photocraft_raster::from_rgba(&format, [0.8, 0.2, 0.4, 1.0]);
+                    top.fill_rect(Rect::new(256, 0, 512, 256), &opaque);
+                    top.fill_rect(Rect::new(-5, -2, 3, 3), &photocraft_raster::from_rgba(&format, [0.3, 0.7, 0.1, 0.4]));
+                    let mut actual = Surface::new(format);
+                    actual.fill_rect(Rect::new(-10, -10, 260, 260), &photocraft_raster::from_rgba(&format, [0.2, 0.5, 0.9, 0.6]));
+                    let mut expected = actual.clone();
+                    let bounds = top.content_bounds();
+                    let channels = format.channels();
+                    let alpha = channels - 1;
+                    let pixels = top.read_region(bounds);
+                    let mut destination = expected.read_region(bounds);
+                    for (dst, src) in destination.chunks_exact_mut(channels).zip(pixels.chunks_exact(channels)) {
+                        let output_alpha = src[alpha] + dst[alpha] * (1.0 - src[alpha]);
+                        if output_alpha > 0.0 {
+                            for channel in 0..alpha {
+                                dst[channel] = (src[channel] * src[alpha] + dst[channel] * dst[alpha] * (1.0 - src[alpha])) / output_alpha;
+                            }
+                        }
+                        dst[alpha] = output_alpha;
+                    }
+                    expected.write_region(bounds, &destination);
+                    composite_over(&mut actual, &top).unwrap();
+                    for (a, b) in actual.read_region(bounds).iter().zip(expected.read_region(bounds)) {
+                        assert!((a - b).abs() <= 2e-6, "{mode:?}/{sample:?}: {a} vs {b}");
+                    }
+                    if default_alpha == 0.0 {
+                        let coordinate = TileCoord { tx: 1, ty: 0 };
+                        assert!(std::sync::Arc::ptr_eq(actual.tile(coordinate).unwrap(), top.tile(coordinate).unwrap()));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compositing_allocation_failure_leaves_the_destination_unchanged() {
+        let mut top = Surface::new(PixelFormat::RGBA8);
+        top.fill_rect(Rect::new(0, 0, 2, 2), &[1.0, 0.0, 0.0, 0.5]);
+        let mut destination = Surface::new(PixelFormat::RGBA8);
+        let before = destination.clone();
+        crate::allocation::fail_next_for_test();
+        let error = composite_over(&mut destination, &top).unwrap_err();
+        assert!(error.to_string().contains("not enough memory for compositing selected pixels"));
+        assert_eq!(destination, before);
     }
 }

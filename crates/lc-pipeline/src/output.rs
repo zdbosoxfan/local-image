@@ -1,11 +1,13 @@
 //! Output encoding: the colour space (primaries + transfer curve) and sample format a render is
-//! delivered in. Previews are always 8-bit sRGB; exports may ask for a wide-gamut space and/or
-//! 16-bit or linear float samples.
+//! delivered in. Previews are 8-bit, in sRGB or (views on a wide-gamut monitor) the space holding
+//! the monitor's gamut; exports may ask for a wide-gamut space and/or 16-bit or linear float
+//! samples.
 //!
 //! The per-pixel stage works in scene-linear Rec.2020 and ends by converting to the target's
-//! primaries, gamut mapping into the *target* gamut, and encoding. Tone curves and grain operate on
-//! sRGB-curve-encoded values of the target primaries (identical to the sRGB path when the target is
-//! sRGB); afterwards the values are re-encoded with the target's own curve.
+//! primaries, gamut mapping into the *target* gamut, and encoding. Profile LUTs see sRGB display
+//! values in every target; grain operates on sRGB-curve-encoded values of the target primaries
+//! (identical to the sRGB path when the target is sRGB); afterwards the values are re-encoded with
+//! the target's own curve.
 
 pub use li_color::space::{OutputSpace, OutputTrc};
 use serde::{Deserialize, Serialize};

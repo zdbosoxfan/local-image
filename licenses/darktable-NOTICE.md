@@ -173,10 +173,14 @@ No NLMeans, neural model or camera noise database is included.
 
 Host mapping: image-tile 2x2 diagonal high-pass MAD estimates the Poisson slope;
 read-noise intercept is zero, with generic a=1e-4 fallback. WB is unity after the
-pipeline's working-RGB conversion. Let L/C be Amount/100 and M=max(L,C).
-Strength is 0.4+1.6M, multiplied by upstream's 2.5 and preview scale.
-Y force is sqrt(L/M * band multiplier); U/V force is half sqrt(C/M * multiplier).
-The Y factor is calibrated for the amplified upstream Y0 row. Luminance Detail
+pipeline's working-RGB conversion. Let L/C be Amount/100. Modified 2026-10-24: the
+analysis rows are a Rec.2020 luminance row (in camera-profiled NR, the working
+luminance gradient in the stabilized camera channels) with upstream Y0's gain on
+neutral, and upstream's U0/V0 rows kept orthogonal to neutral; the inverse is solved
+exactly. The Y row's strength is 0.4+1.6L and the U/V rows' 0.4+1.6C, each multiplied
+by upstream's 2.5 and preview scale; the backtransform bias uses max(L,C). Y force is
+sqrt(band multiplier) and U/V force half sqrt(multiplier), each faded in over its
+slider's first 10 units. The Y factor is calibrated for the amplified upstream Y0 row. Luminance Detail
 sets the first two multipliers to 1.2-0.8D and 1.1-0.6D; Contrast sets remaining
 multipliers to 1-0.85K. Colour Detail similarly sets the first two chroma bands;
 Smoothness sets the remaining chroma bands to 0.5+1.5S. Preview scale shifts the
@@ -188,8 +192,12 @@ summation replaces upstream's parallel f32 sum. Tiny images use safe clamped tap
 colour-only output preserves Rec.2020 luminance, luminance-only preserves RGB ratios.
 
 Haze retains the modern percentile indices and 95% dark/brightness airlight selection,
-depth estimate, adaptive windows, normalized dark channel, transmission closing,
-RGB covariance/Cramer's solve, cropped Kahan boxes and scene-linear inversion.
+depth estimate, normalized dark channel, transmission closing, RGB covariance/Cramer's
+solve, cropped Kahan boxes and scene-linear inversion. Modified 2026-10-24: the window
+radii are upstream's full-size 6 and 9 px scaled with the output (upstream adapts them as
+2+⌈4s⌉ and 3+⌈6s⌉), and the finish stage bounds positive Dehaze: the dark value is capped
+at the pixel's own, and each channel darkens by at most 1.5·strength stops through a
+smooth floor.
 `Dehaze/100` maps to strength; its absolute value maps to distance. Both signs'
 dark-channel planes are cached. Linearity of RGB guidance lets the normalized
 plane be filtered before applying strength. Airlight summation uses f64; zero
@@ -217,7 +225,7 @@ files at `733bd69f32cac7ff5e41025115942772add1f088`, GPL-3.0-or-later:
 | `lc-pipeline/src/llf.rs` | `common/locallaplacian.c/.h` | darktable developers; local Laplacian by Johannes Hanika |
 | `lc-pipeline/src/eigf.rs`, `toneeq.rs` | `common/eigf.h`, `common/fast_guided_filter.h`, `common/gaussian.c`, `common/luminance_mask.h` | darktable developers, including Copyright (C) 2019–2024 for EIGF |
 | `lc-pipeline/src/balance.rs` | `iop/colorbalancergb.c`, `common/math.h` | Copyright (C) 2020–2026 darktable developers |
-| `lc-pipeline/src/colorequal.rs` | `iop/colorequal.c`, `iop/choleski.h` | Copyright (C) 2022–2026 darktable developers |
+| `lc-pipeline/src/colorequal.rs` | `iop/colorequal.c` | Copyright (C) 2022–2026 darktable developers |
 
 Out-of-build C reference harnesses are generated in ignored `target/refvec/sliders/`.
 No C/C++ kernels or new dependencies enter the Rust workspace build. The separately

@@ -1,4 +1,5 @@
 #![cfg(feature = "synth")]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
 use photocraft_affinity::{
     Error, import,
     synth::{self, F, Method, tag},
@@ -243,3 +244,6 @@ fn dsfix_stack_channel_decode_preserves_rgba_grey_and_cmyk_pixels() {
         assert_eq!(surface.rgba(2, 1), [0.; 4]);
     }
 }
+
+#[path = "scene/af5.rs"]
+mod af5;

@@ -25,7 +25,7 @@ use std::sync::Arc;
 /// images, and Photoshop brushes/gradients (which go to the preset libraries).
 const OPEN_EXTS: &[&str] = photocraft_codecs::PHOTO_EXTENSIONS;
 
-fn open_extensions() -> Vec<&'static str> {
+pub(crate) fn open_extensions() -> Vec<&'static str> {
     ["pcraft", "psdt", "svg", "svgz", "pdf", "abr", "grd"]
         .into_iter()
         .chain(OPEN_EXTS.iter().copied().filter(|ext| photocraft_codecs::is_readable_extension(ext, true)))
@@ -722,6 +722,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                 opts.encode.webp_quality = q;
             }
             opts.tiff_layers = settings.tiff_layers;
+            opts.read_linked_files = settings.read_linked_files;
             opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
             crate::crash_guard::guard("Export", || {
                 photocraft_engine::vector_integration::export_document(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string())
@@ -1488,6 +1489,7 @@ pub(crate) fn prepare_document_save(
         options.encode.webp_quality = value;
     }
     options.tiff_layers = settings.tiff_layers;
+    options.read_linked_files = settings.read_linked_files;
     options.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
     let progress = |fraction| interrupt.progress(fraction * 0.8);
     let cancel = || interrupt.cancelled();

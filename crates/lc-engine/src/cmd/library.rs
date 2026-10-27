@@ -1,7 +1,7 @@
 //! Library commands: view source, filter/sort, selection, ratings/flags/labels, rotate, delete,
 //! metadata, albums, import.
 
-use lightcraft_catalog::{Album, AlbumId, ColorLabel, CopyrightStatus, Flag, GroupBy, Op, PhotoId, Sort, SortKey};
+use lightcraft_catalog::{Album, AlbumId, ColorLabel, CopyrightStatus, Filter, Flag, GroupBy, Op, PhotoId, Sort, SortKey};
 use serde_json::{Value, json};
 
 use super::{CommandSpec, always, bad, bool_or, cmd, has_active, has_selection, ok, str_param};
@@ -124,10 +124,6 @@ fn album_param(p: &Value, key: &str, c: &str) -> Result<AlbumId> {
 
 fn strs(p: &Value, key: &str) -> Vec<String> {
     p.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default()
-}
-
-fn ids_param(p: &Value) -> Option<Vec<PhotoId>> {
-    p.get("ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).map(PhotoId).collect())
 }
 
 /// Apply one op per target as a single undo step.
@@ -318,13 +314,35 @@ pub fn specs() -> Vec<CommandSpec> {
                 let mut v = serde_json::to_value(&s.filter).unwrap_or_default();
                 lightcraft_develop::presets::deep_merge(&mut v, p);
                 s.filter = serde_json::from_value(v).map_err(|e| bad("library.filter", e.to_string()))?;
+                s.shelved_filter = None;
                 Ok(json!({"count": s.visible().len()}))
             }
         ),
         cmd!("library.clearFilter", "Clear Filters", ["View"], None, "{}", always, |s, _| {
             s.filter = Default::default();
+            s.shelved_filter = None;
             Ok(json!({"count": s.visible().len()}))
         }),
+        cmd!(
+            "library.toggleFilters",
+            "Enable Filters",
+            ["View"],
+            Some("Cmd+L"),
+            "{} - puts the current filter aside or restores it; setting or clearing a filter forgets it -> {enabled, count}",
+            always,
+            |s, _| {
+                if s.filter != Filter::default() {
+                    s.shelved_filter = Some(std::mem::take(&mut s.filter));
+                } else if let Some(mut filter) = s.shelved_filter.take() {
+                    // The currently browsed folder owns the source, including after a source change.
+                    if s.source == LibrarySource::Folder {
+                        filter.folder = None;
+                    }
+                    s.filter = filter;
+                }
+                Ok(json!({"enabled": s.shelved_filter.is_none(), "count": s.visible().len()}))
+            }
+        ),
         cmd!(
             "library.sort",
             "Sort",
@@ -387,7 +405,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         // selection
         cmd!("library.select", "Select Photos", [], None, "{ids: [id], active?: id, mode?: replace|add|toggle|range}", always, |s, p| {
-            let ids = ids_param(p).unwrap_or_default();
+            let ids = super::photo_ids(p, "library.select")?.unwrap_or_default();
             let mode = str_param(p, "mode").unwrap_or("replace");
             s.end_interaction()?;
             match mode {
@@ -476,8 +494,8 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("library.previous", "Previous Photo", [], Some("Left"), "{}", always, |s, _| step(s, -1)),
         // rating / flags / labels
         cmd!("photo.rate", "Set Rating", ["Photo", "Set Rating"], None, "{rating: 0..5, ids?, advance?: bool}", has_selection, |s, p| {
-            let r = super::f64_req(p, "rating", "photo.rate")? as i64;
-            if !(0..=5).contains(&r) {
+            let r = super::index_req(p, "rating", "photo.rate")?;
+            if r > 5 {
                 return Err(bad("photo.rate", "rating must be 0..5"));
             }
             let v = for_targets(s, p, "Set Rating", |id| Some(Op::SetRating { id, rating: r as u8 }))?;
@@ -507,9 +525,12 @@ pub fn specs() -> Vec<CommandSpec> {
             "{label: red|yellow|green|blue|purple|none, ids?}",
             has_selection,
             |s, p| {
-                let l = match str_param(p, "label") {
-                    None | Some("none") => None,
-                    Some(x) => Some(ColorLabel::parse(x).ok_or_else(|| bad("photo.label", "unknown label"))?),
+                let l = match p.get("label") {
+                    Some(Value::Null) => None,
+                    Some(Value::String(x)) if x == "none" => None,
+                    Some(Value::String(x)) => Some(ColorLabel::parse(x).ok_or_else(|| bad("photo.label", "unknown label"))?),
+                    None => return Err(bad("photo.label", "missing `label` (red|yellow|green|blue|purple|none)")),
+                    Some(_) => return Err(bad("photo.label", "label must be red|yellow|green|blue|purple|none")),
                 };
                 for_targets(s, p, "Set Color Label", |id| Some(Op::SetLabel { id, label: l }))
             }
@@ -528,8 +549,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "{id?, index} — remove one face / pet region (by its position in the photo's regions) from the photo in the catalog; undoable. The XMP sidecar is never rewritten for this, even with auto-write on, so reading the metadata from the file brings the region back",
             always,
             |s, p| {
-                let id =
-                    p.get("id").and_then(Value::as_u64).map(PhotoId).or_else(|| s.active()).ok_or_else(|| bad("photo.removeRegion", "no photo"))?;
+                let id = super::photo_id(p, "photo.removeRegion")?.or_else(|| s.active()).ok_or_else(|| bad("photo.removeRegion", "no photo"))?;
                 let index = p
                     .get("index")
                     .and_then(Value::as_u64)
@@ -555,7 +575,7 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 const C: &str = "photo.setRegion";
                 // a drag is one undo step however many frames it took: the caller commits once, on release
-                let id = p.get("id").and_then(Value::as_u64).map(PhotoId).or_else(|| s.active()).ok_or_else(|| bad(C, "no photo"))?;
+                let id = super::photo_id(p, C)?.or_else(|| s.active()).ok_or_else(|| bad(C, "no photo"))?;
                 let index = p
                     .get("index")
                     .and_then(Value::as_u64)
@@ -800,7 +820,7 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("album.addPhotos", "Add to Album", ["Photo"], None, "{id: albumId, ids?: [photoIds]} (default: selection)", has_selection, |s, p| {
             let id = album_param(p, "id", "album.addPhotos")?;
-            let targets = ids_param(p).unwrap_or_else(|| s.selected());
+            let targets = super::photo_ids(p, "album.addPhotos")?.unwrap_or_else(|| s.selected());
             let al = s.catalog.album(id).ok_or_else(|| bad("album.addPhotos", "no such album"))?;
             if al.is_smart() || al.folder {
                 return Err(bad("album.addPhotos", "smart albums and folders can't hold photos"));
@@ -825,7 +845,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "{ids?} — B: adds the photos to the target album (the Quick Collection unless one is set), or removes them when they're all in it → {album, added}",
             has_selection,
             |s, p| {
-                let targets = ids_param(p).unwrap_or_else(|| s.selected());
+                let targets = super::photo_ids(p, "album.toggleTarget")?.unwrap_or_else(|| s.selected());
                 let target = s.target_album.filter(|a| s.catalog.album(*a).is_some_and(|al| !al.is_smart() && !al.folder));
                 let id = match target.or_else(|| s.catalog.quick_collection()) {
                     Some(id) => id,
@@ -853,16 +873,16 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         cmd!("album.setTarget", "Set as Target Album", [], None, "{id: albumId | null} (null = the Quick Collection)", always, |s, p| {
-            s.target_album = match p.get("id").and_then(Value::as_u64) {
-                Some(a) => {
-                    let id = AlbumId(a);
+            s.target_album = match p.get("id") {
+                None | Some(Value::Null) => None,
+                Some(_) => {
+                    let id = album_param(p, "id", "album.setTarget")?;
                     let al = s.catalog.album(id).ok_or_else(|| bad("album.setTarget", "no such album"))?;
                     if al.is_smart() || al.folder {
                         return Err(bad("album.setTarget", "smart albums and folders can't hold photos"));
                     }
                     Some(id)
                 }
-                None => None,
             };
             Ok(json!({"target": s.target_album.map(|a| a.0)}))
         }),
@@ -966,7 +986,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!("album.removePhotos", "Remove from Album", [], None, "{id: albumId, ids?}", has_selection, |s, p| {
             let id = album_param(p, "id", "album.removePhotos")?;
-            let targets = ids_param(p).unwrap_or_else(|| s.selected());
+            let targets = super::photo_ids(p, "album.removePhotos")?.unwrap_or_else(|| s.selected());
             let al = s.catalog.album(id).ok_or_else(|| bad("album.removePhotos", "no such album"))?;
             if al.is_smart() {
                 return Err(bad("album.removePhotos", "smart albums update automatically: change their rules"));
@@ -1137,6 +1157,11 @@ fn view_rules(s: &Session) -> lightcraft_catalog::Filter {
 }
 
 impl Session {
+    /// Whether Enable Filters has put a nonempty filter aside.
+    pub fn filters_off(&self) -> bool {
+        self.shelved_filter.is_some()
+    }
+
     /// The current view (source + filter) as smart-album rules (see `album.createSmart`).
     pub fn view_rules(&self) -> lightcraft_catalog::Filter {
         view_rules(self)
@@ -1191,3 +1216,7 @@ mod gps_tests {
         assert_eq!(p("hello"), None);
     }
 }
+
+#[cfg(test)]
+#[path = "library/tests_enable_filters.rs"]
+mod enable_filters_tests;

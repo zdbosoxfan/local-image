@@ -251,6 +251,9 @@ pub struct UiState {
     /// The Build Previews run last announced (its identity, finished?).
     #[serde(skip)]
     pub preview_build_seen: Option<(usize, bool)>,
+    /// The background Upright analysis last announced (its identity).
+    #[serde(skip)]
+    pub upright_seen: Option<usize>,
     /// Saving the library is failing (announced with a toast; the top bar shows a warning until
     /// a later save succeeds).
     #[serde(skip)]
@@ -328,6 +331,8 @@ pub struct UiState {
     /// Mirroring of the triangle / spiral crop guides (0..4).
     pub crop_overlay_orient: u8,
     pub crop_overlay: CropOverlay,
+    #[serde(skip)]
+    pub selected_guide: Option<(u64, usize)>,
     pub show_filenames: bool,
     /// What the square grid's caption shows: `filename`, `exposure` (shutter · aperture · ISO ·
     /// focal length) or `date`.
@@ -681,6 +686,7 @@ impl Default for UiState {
             people: Default::default(),
             language: li_i18n::env_language(),
             preview_build_seen: None,
+            upright_seen: None,
             unsaved_seen: false,
             luminance_map_restore: None,
             view: ViewMode::Detail,
@@ -723,6 +729,7 @@ impl Default for UiState {
             mask_overlay_opacity: 50.0,
             mask_pins: true,
             crop_overlay: CropOverlay::Thirds,
+            selected_guide: None,
             crop_overlay_orient: 0,
             show_filenames: true,
             grid_info: "filename".into(),

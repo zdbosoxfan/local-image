@@ -16,6 +16,7 @@ flate2.workspace = true
 image.workspace = true
 # RUSTSEC-2026-0344: window/output limits outside the decoder cannot bound a block.
 ruzstd = "=0.9.1"
+photocraft-cms.workspace = true
 photocraft-doc.workspace = true
 photocraft-geom.workspace = true
 photocraft-color.workspace = true

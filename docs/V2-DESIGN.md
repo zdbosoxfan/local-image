@@ -154,8 +154,17 @@ the PhotoCraft Pro theme (one dark window, no extra chrome).
   exact files, their folders and sizes, and asks to accept the licence; then downloads each file
   verified by size and SHA-256 into ComfyUI's folders, with progress and Stop, and refreshes ComfyUI.
   The model appears in Generate's picker straight away.
-* A template for a family Local Image doesn't know yet installs its files and becomes a custom
-  workflow with a **Basic controls** badge (prompt, negative, seed, size, images).
+* A Hugging Face card places each file in the folder its repository path names
+  (`split_files/text_encoders/…` → `text_encoders/`), leaves out diffusers layouts and shards, and,
+  when the repository holds several files of the model (precisions, GGUF quantisations), installs
+  one: a **Version** choice in the install dialog, defaulting to the highest precision this GPU
+  runs (never NVFP4 off Blackwell), with the text encoder and VAE precisions closest to it.
+* A template card is checked against the connected ComfyUI (version, nodes, options) before any
+  file is planned; a template this ComfyUI can't run says why and downloads nothing. Cards whose
+  template needs a newer ComfyUI carry a **Needs ComfyUI {version}** badge.
+* A template for a family Local Image doesn't know yet installs its files; model setup then runs
+  the model through that template with its full controls (see the open model system below), and
+  the card offers **Set up and test**.
 * *Update Model Profiles* fetches newer family profiles from this repository.
 * Nothing goes online until the window is open; every catalogue is cached so it works offline.
 
@@ -166,15 +175,29 @@ the PhotoCraft Pro theme (one dark window, no extra chrome).
   defaults, capabilities, LoRA rules, prompt conventions, component files and the Civitai/Hugging
   Face names that mean it; derived families inherit (`base`). 0.7's curated models live in the
   profiles unchanged (same files and hashes).
-* **Detection** (`arch.rs`): installed files are classified from `/object_info` plus their
-  safetensors/GGUF headers (tensor names and shapes, ModelSpec metadata), then the file name for
-  what weights can't tell apart (Pony vs Illustrious, Kontext vs Krea).
+* **Detection** (`identify.rs`, `detect.rs`, `arch.rs`): installed files are classified from
+  `/object_info` plus their safetensors/GGUF headers (tensor names and logical shapes, ModelSpec
+  metadata), with profile `detect` rules first; the file name decides only what weights can't
+  tell apart (Pony vs Illustrious, Kontext vs Krea), and never maps a generation nothing
+  describes to an older family.
 * **Workflow builders** (`builders.rs`): one generic builder for every family and task (create,
   refine, inpaint, edit, references, LoRAs), Draft → Refine and tiled upscale-refine (`ops.rs`).
 * **Custom workflows** (`custom.rs`): any ComfyUI workflow, editor or API format (subgraphs
   flattened), becomes a model when its nodes are titled `li:prompt`, `li:negative`, `li:image`,
   `li:image2`…, `li:mask`, `li:seed`, `li:steps`, `li:cfg`, `li:denoise`, `li:width`, `li:height`,
   `li:output`.
+* **Template models** (`template/`, `modelsetup/`; [MODEL-SETUP.md](MODEL-SETUP.md),
+  [ADR 0005](adr/0005-template-native-ai-runtime.md)): a model without a builder runs through the
+  connected ComfyUI's own official template, matched to the installed file at any precision, with
+  every tool derived from the template's graph. Setup checks version, nodes, options, companion
+  files, GPU and licence before anything runs, and verification (on request) tests small renders
+  through the same generation path. `local-image-cli ai doctor` prints the same report.
+* **Set Up Models** (Window menu; `model_setup.rs`): the setup results per model with their fixes
+  (download, use another file, move a misplaced file, choose a template, copy update commands,
+  ignore), verification with progress and Cancel, and Use in Generate. Generate's picker shows a
+  setup chip on template models and lists models that can't run yet, with the reason, under
+  *Other installed models*; a banner announces new models and re-checks after a ComfyUI update.
+  Templates with a local prompt enhancer get an opt-in **Enhance prompt** switch.
 * **Guardrails**: downloads only from allow-listed hosts (Hugging Face and its CDNs, Civitai and its
   R2/B2 delivery buckets, GitHub), only `.safetensors` and `.gguf`, never without a published size
   and SHA-256, tokens sent only to their own site, licence shown before downloading.

@@ -9,6 +9,10 @@ the conditions under which it should be revisited.
 | Number | Title | Status |
 |---|---|---|
 | [0001](0001-journal-catalog.md) | Library catalog: in-memory maps with a JSON snapshot and an operation log | Accepted (recorded retroactively) |
+| [0002](0002-output-gamut-clipping.md) | Output gamut clipping and scene compression | Superseded by 0003 |
+| [0003](0003-blue-band-output-clipping.md) | Blue-band output clipping | Accepted |
+| [0004](0004-rendered-source-gamut-identity.md) | Rendered-source gamut identity | Accepted |
+| [0005](0005-template-native-ai-runtime.md) | Official ComfyUI templates are the recipe for models without a builder | Accepted |
 
 ## Conventions
 

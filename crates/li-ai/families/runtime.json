@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "version": 3,
+  "upsampler": "optional",
+  "equivalent": [
+    {
+      "folder": "vae",
+      "stems": ["flux2-vae", "flux2-vae_small", "full_encoder_small_decoder"],
+      "verified": "MOSS-Image SFT bf16 rendered with flux2-vae on an RTX 5090, 2026-10-24",
+      "note": "FLUX.2 latent VAEs (32 channels)"
+    },
+    {
+      "folder": "text_encoders",
+      "stems": ["qwen_3_4b", "qwen_3_4b_fp4_flux2"],
+      "verified": "Comfy-Org repositories ship both for FLUX.2 Klein 4B and Z-Image",
+      "note": "Qwen3-4B"
+    }
+  ],
+  "never_substitute": [
+    {"folder": "text_encoders", "stems": ["qwen3vl_4b", "qwen_3_4b"], "note": "different models of the same width"},
+    {"folder": "vae", "stems": ["qwen_image_vae", "ming_image_vae"], "note": "same channel count, different VAEs"}
+  ],
+  "vae_latent_channels": {
+    "ae": 16,
+    "flux2-vae": 32,
+    "flux2-vae_small": 32,
+    "full_encoder_small_decoder": 32,
+    "qwen_image_vae": 16,
+    "qwen_image_2.1_vae": 64,
+    "ming_image_vae": 16
+  },
+  "mirrors": [
+    {
+      "name": "qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 4858559240,
+      "sha256": "32de113cbf8282b02cbff0794b637b9d6676da09314a1db5a30bcea9bf4ee01c",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/1171f4dc7e325bf3734586942e737872506c73e1/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "repo": "Comfy-Org/Krea-2"
+    },
+    {
+      "name": "flux2-vae.safetensors",
+      "bytes": 336211292,
+      "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
+      "url": "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/24147db865fcdc207270f844777587223fed8d6e/vae/flux2-vae.safetensors",
+      "repo": "Comfy-Org/MOSS-Image"
+    }
+  ],
+  "quant": [
+    {"class": "nvfp4", "needs": "blackwell", "label": "NVFP4", "block": true},
+    {"class": "fp4mixed", "needs": "blackwell", "label": "FP4", "block": true},
+    {"class": "mxfp8", "needs": "blackwell", "label": "MXFP8", "block": false},
+    {"class": "gguf", "needs_nodes": ["UnetLoaderGGUF"], "pack": "comfyui-gguf", "label": "GGUF"}
+  ],
+  "gpus": [
+    {
+      "generation": "blackwell",
+      "name_contains": ["RTX 5050", "RTX 5060", "RTX 5070", "RTX 5080", "RTX 5090", "RTX PRO 6000 Blackwell", "RTX PRO 5000 Blackwell", "RTX PRO 4500 Blackwell", "RTX PRO 4000 Blackwell", "B100", "B200", "B300", "GB10", "GB200", "GB300", "Thor"]
+    },
+    {"generation": "ada", "name_contains": ["RTX 40", "L40", "L4", "RTX 6000 Ada", "RTX 5000 Ada", "RTX 4000 Ada", "RTX 2000 Ada"]}
+  ],
+  "packs": [
+    {
+      "id": "comfyui-gguf",
+      "name": "ComfyUI-GGUF (city96)",
+      "manager": "ComfyUI-GGUF",
+      "repo": "https://github.com/city96/ComfyUI-GGUF",
+      "classes": ["UnetLoaderGGUF", "CLIPLoaderGGUF", "DualCLIPLoaderGGUF", "TripleCLIPLoaderGGUF"]
+    }
+  ],
+  "zero_classes": ["ConditioningZeroOut"],
+  "error_patterns": [
+    {"contains": ["could not detect model type"], "classes": ["UNETLoader", "UnetLoaderGGUF", "CheckpointLoaderSimple"], "code": "ComfyCantReadModel"},
+    {"contains": ["out of memory", "allocation on device"], "code": "OutOfMemory"},
+    {"contains": ["mat1 and mat2 shapes cannot be multiplied", "channels, but got", "must match the size of tensor b", "size mismatch", "error(s) in loading state_dict"], "code": "ComponentMismatch"},
+    {"contains": ["no kernel image is available", "requires sm_", "not supported on this gpu"], "code": "QuantUnsupported"},
+    {"contains": ["safetensorerror", "invalid header", "unexpected eof", "headertoolarge", "incomplete metadata"], "code": "FileDamaged"},
+    {"contains": ["value not in list"], "file_input": true, "code": "ComfyCantSeeFile"},
+    {"contains": ["value not in list"], "file_input": false, "code": "ValueNotOffered"},
+    {"contains": ["required input is missing", "return type mismatch"], "code": "TemplateUnusable"}
+  ]
+}

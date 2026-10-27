@@ -188,6 +188,7 @@ pub(super) fn mirror(p: &Paint<'_>, path: &photocraft_doc::Path) -> Result<Optio
     }
     let center = if *axial { Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0) } else { a };
     Ok(Some(Fill::Gradient {
+        method: Default::default(),
         stops,
         angle: angle.to_degrees() as f32,
         scale: ((b - a).hypot() / length.max(1e-6)) as f32,

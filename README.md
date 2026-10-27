@@ -387,7 +387,7 @@ Builds are published on [GitHub Releases](https://github.com/zdbosoxfan/local-im
 | Apple Silicon macOS 13+ | `local-image-2.0.0-alpha.1-macos-arm64.dmg` | Drag **Local Image** to Applications. Metal accelerates rendering and supported processing. |
 | | `local-image-2.0.0-alpha.1-macos-arm64.pkg` | Installer for `/Applications/Local Image.app`, with the `local-image-cli` link inside the bundle. |
 | Linux x86_64 | `local-image-2.0.0-alpha.1-linux-x86_64.AppImage` | `chmod +x` and run. Vulkan graphics with CPU fallbacks; Ubuntu 22.04 sets the glibc baseline. |
-| | `local-image-2.0.0-alpha.1-linux-x86_64.tar.gz` | The app and CLI; run `local-image --install` to link them into your `bin` folder. |
+| | `local-image-2.0.0-alpha.1-linux-x86_64.tar.gz` | From the unpacked folder, run `./local-image --install`: it copies the app to `~/.local/bin`, links `local-image-cli` to it and adds the menu entry. Use `sudo ./local-image --install --system` for `/usr/local`, `local-image --uninstall` to remove a user install, or `sudo /usr/local/bin/local-image --uninstall --system` to remove a system install. |
 | Windows | none | Experimental: build from source. Windows releases are not validated. |
 
 Each file has a `.sha256` beside it; check it with `shasum -a 256 -c <file>.sha256` (macOS) or `sha256sum -c <file>.sha256` (Linux). Debug-symbol files (`.dSYM.zip`, `.debug`) are for symbolicating crash reports and are not needed to run the app. AI models are separate downloads from inside the app, each with its own licence.
@@ -424,7 +424,7 @@ local-image-cli library commands --filter develop
 
 The CLI is the app's own executable started under the name `local-image-cli`: packages ship it as a
 symlink beside the app (on macOS, `Local Image.app/Contents/MacOS/local-image-cli`; on Linux,
-`local-image --install` links it into the same `bin` folder). See [Coming from Lightroom Classic](docs/COMING-FROM-LIGHTROOM-CLASSIC.md) or [Coming from Photoshop / Affinity](docs/COMING-FROM-PHOTOSHOP-AFFINITY.md) for familiar workflows.
+`./local-image --install` from the unpacked folder copies the app into `~/.local/bin` and links the CLI to it). See [Coming from Lightroom Classic](docs/COMING-FROM-LIGHTROOM-CLASSIC.md) or [Coming from Photoshop / Affinity](docs/COMING-FROM-PHOTOSHOP-AFFINITY.md) for familiar workflows.
 
 ## Licence
 

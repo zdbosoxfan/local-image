@@ -92,14 +92,20 @@ fn mask_f32(img: &RgbFrame, p: &CaptureParams) -> (Vec<f32>, Vec<f32>) {
         let weight = 1.0 / (1.0 + (offset - 200.0 * t).exp());
         (1.01011 * (weight - 0.01)).clamp(0.0, 1.0)
     });
-    let blurred = modified.gaussian_with_policy(2.0, li_raster::blur::GaussianPolicy::Boxes);
+    let blurred = modified.gaussian_with_policy(lightcraft_pipeline::capture::MASK_SIGMA, li_raster::blur::GaussianPolicy::Boxes);
+    let r = lightcraft_pipeline::capture::mask_reach();
+    let near = |i: usize| {
+        let (y, x) = (i / w, i % w);
+        (y.saturating_sub(r)..=(y + r).min(h - 1)).any(|yy| (x.saturating_sub(r)..=(x + r).min(w - 1)).any(|xx| modified.data[yy * w + xx] > 0.0))
+    };
     let blend = modified
         .data
         .iter()
         .zip(blurred.data)
-        .map(|(u, b)| {
+        .enumerate()
+        .map(|(i, (u, b))| {
             let wt = 1.0 / (1.0 + (5.0 - 10.0 * (u - b)).exp());
-            (wt * u + (1.0 - wt) * b).clamp(0.0, 1.0)
+            if near(i) { (wt * u + (1.0 - wt) * b).clamp(0.0, 1.0) } else { 0.0 }
         })
         .collect();
     (lum, blend)
@@ -213,6 +219,36 @@ fn wgsl_f32_rl_matches_independent_upstream_estimates() {
     }
     assert_eq!((0.66f32 / 0.01) as u32, 66);
     assert!(kernels()[30][0] > 0.98);
+}
+
+#[test]
+fn gpu_mask_is_zero_beyond_the_blur_support() {
+    let device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
+    let gpu = &*device;
+    let _scope = crate::ctx::RenderScope::new(gpu);
+    let (w, h) = (257, 97);
+    let reach = lightcraft_pipeline::capture::mask_reach();
+    for base in [0.07, 0.12, 0.18, 0.3] {
+        let src = RgbFrame::from_fn(w, h, |x, y| {
+            let v = if (20..40).contains(&x) && (25..65).contains(&y) {
+                0.06 + 0.6 * (0.5 + 0.5 * (x as f32 * 0.47 + y as f32 * 0.11).sin())
+            } else {
+                base
+            };
+            [v * 0.9, v, v * 1.1]
+        });
+        let p = CaptureParams { sigma: 1.4, threshold: 0.6, iterations: 50, ..Default::default() };
+        let mut cx = Cx::new(gpu);
+        let uploaded = gpu.upload(crate::render::rgb_words(&src));
+        let prep = prepare(&mut cx, &uploaded, &src, &p);
+        let mask = cx.read::<f32>(&prep.blend, w * h);
+        assert!(mask.iter().any(|v| *v > 0.5));
+        for y in 0..h {
+            for x in 42 + reach..w {
+                assert_eq!(mask[y * w + x], 0.0, "base {base}, ({x}, {y})");
+            }
+        }
+    }
 }
 
 #[test]

@@ -8,7 +8,48 @@ use lightcraft_geom::Orientation;
 
 use crate::blur::GaussianPolicy;
 use crate::par_rows;
-use crate::resample::{Filter, Pixel, half_pixels, resize_pixels};
+use crate::resample::{Filter, Pixel, antiring, antiring_taper, half_pixels, resize_antiring, resize_pixels};
+
+/// Widest kernel of [`Frame::sample_cubic`]: minification beyond this is a prefilter's job.
+pub const CUBIC_MAX_STRETCH: f32 = 4.0;
+/// Most taps per axis of [`Frame::sample_cubic`] (support ±2 at [`CUBIC_MAX_STRETCH`]).
+pub const CUBIC_TAPS: usize = 17;
+
+/// One axis of [`Frame::sample_cubic`] at continuous coordinate `x` (pixel centres at +0.5) over `n`
+/// pixels.
+struct CubicAxis {
+    /// First source index and tap count.
+    j0: isize,
+    n: usize,
+    /// Normalized Catmull-Rom weights.
+    w: [f32; CUBIC_TAPS],
+    /// How far each tap counts toward the ringing clamp's range ([`crate::resample::antiring_taper`]).
+    taper: [f32; CUBIC_TAPS],
+}
+
+#[inline]
+fn cubic_axis(x: f32, n: usize, stretch: f32) -> CubicAxis {
+    let s = if stretch.is_finite() { stretch.clamp(1.0, CUBIC_MAX_STRETCH) } else { 1.0 };
+    // A coordinate held past the edge reads the edge, as in `sample_bilinear`.
+    let f = x.clamp(-1.0, n as f32 + 1.0) - 0.5;
+    let j0 = (f - 2.0 * s).floor() + 1.0;
+    let count = (((f + 2.0 * s).ceil() - 1.0 - j0) as usize + 1).min(CUBIC_TAPS);
+    let mut a = CubicAxis { j0: j0 as isize, n: count, w: [0.0; CUBIC_TAPS], taper: [0.0; CUBIC_TAPS] };
+    let mut sum = 0.0f32;
+    for k in 0..count {
+        a.w[k] = Filter::CatmullRom.eval((j0 + k as f32 - f) / s);
+        sum += a.w[k];
+    }
+    let mut w_max = 0.0f32;
+    for k in 0..count {
+        a.w[k] /= sum;
+        w_max = w_max.max(a.w[k]);
+    }
+    for k in 0..count {
+        a.taper[k] = antiring_taper(a.w[k], w_max);
+    }
+    a
+}
 
 /// How samples outside a frame (or an area of it) are read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -243,10 +284,12 @@ impl<T: Pixel> Frame<T> {
     }
     /// Fit within `max_w × max_h` preserving aspect (never upscales).
     pub fn fit(&self, max_w: usize, max_h: usize, filter: Filter) -> Self {
-        let s = (max_w as f64 / self.width as f64).min(max_h as f64 / self.height as f64).min(1.0);
-        let w = ((self.width as f64 * s).round() as usize).max(1);
-        let h = ((self.height as f64 * s).round() as usize).max(1);
+        let (w, h) = self.fit_size(max_w, max_h);
         self.resize(w, h, filter)
+    }
+    fn fit_size(&self, max_w: usize, max_h: usize) -> (usize, usize) {
+        let s = (max_w as f64 / self.width as f64).min(max_h as f64 / self.height as f64).min(1.0);
+        (((self.width as f64 * s).round() as usize).max(1), ((self.height as f64 * s).round() as usize).max(1))
     }
     /// 2× box reduction.
     pub fn half(&self) -> Self {
@@ -286,6 +329,20 @@ impl Frame<[f32; 3]> {
     pub fn clamp01(&mut self) {
         self.map_in_place(|p| p.map(|v| v.clamp(0.0, 1.0)));
     }
+    /// [`Frame::fit`] for scene-linear light: Mitchell with ringing suppressed (no slack: the
+    /// result is a source that is resampled again), so a bright edge leaves no dark outline.
+    pub fn fit_antiring(&self, max_w: usize, max_h: usize) -> Self {
+        let (w, h) = self.fit_size(max_w, max_h);
+        if (w, h) == (self.width, self.height) {
+            return self.clone();
+        }
+        self.resample_antiring(&crate::resample::weights(self.width, w, Filter::Mitchell), &crate::resample::weights(self.height, h, Filter::Mitchell), 0.0)
+    }
+    /// Separable resample of scene-linear light through precomputed taps (`wx` per output column,
+    /// `wy` per output row), with ringing suppressed: [`crate::resample::resize_antiring`].
+    pub fn resample_antiring(&self, wx: &[(usize, Vec<f32>)], wy: &[(usize, Vec<f32>)], slack: f32) -> Self {
+        Self { width: wx.len(), height: wy.len(), data: resize_antiring(&self.data, self.width, self.height, wx, wy, slack) }
+    }
     /// Bilinear sample at continuous pixel coordinates (pixel centres at +0.5).
     #[inline]
     pub fn sample_bilinear(&self, x: f32, y: f32) -> [f32; 3] {
@@ -308,6 +365,51 @@ impl Frame<[f32; 3]> {
             let bot = c[i] + (d[i] - c[i]) * tx;
             top + (bot - top) * ty
         })
+    }
+    /// Catmull-Rom sample at continuous pixel coordinates (pixel centres at +0.5, clamped edges) for
+    /// scene-linear light. `stretch` widens the kernel per axis (1 to [`CUBIC_MAX_STRETCH`]) where
+    /// one output pixel spans that many source pixels, so a minifying map does not alias. Ringing at
+    /// high-contrast edges is suppressed ([`crate::resample::antiring`] with `slack`) to the range
+    /// of the taps in the kernel's positive lobe: the 2×2 nearest at stretch 1.
+    pub fn sample_cubic(&self, x: f32, y: f32, stretch: [f32; 2], slack: f32) -> [f32; 3] {
+        let (ax, ay) = (cubic_axis(x, self.width, stretch[0]), cubic_axis(y, self.height, stretch[1]));
+        let at = |kx: usize, ky: usize| self.get_clamped(ax.j0 + kx as isize, ay.j0 + ky as isize);
+        let (mut acc, mut lobe, mut lobe_w) = ([0.0f32; 3], [0.0f32; 3], 0.0f32);
+        for ky in 0..ay.n {
+            let (mut row, mut lobe_row, mut lobe_row_w) = ([0.0f32; 3], [0.0f32; 3], 0.0f32);
+            for kx in 0..ax.n {
+                let (p, c) = (at(kx, ky), ax.w[kx] * ax.taper[kx]);
+                for ch in 0..3 {
+                    row[ch] += p[ch] * ax.w[kx];
+                    lobe_row[ch] += p[ch] * c;
+                }
+                lobe_row_w += c;
+            }
+            let c = ay.w[ky] * ay.taper[ky];
+            for ch in 0..3 {
+                acc[ch] += row[ch] * ay.w[ky];
+                lobe[ch] += lobe_row[ch] * c;
+            }
+            lobe_w += lobe_row_w * c;
+        }
+        if lobe_w <= 0.0 {
+            return acc;
+        }
+        let mean = lobe.map(|v| v / lobe_w);
+        let mut core = [(0.0f32, 0.0f32); 3];
+        for ky in 0..ay.n {
+            for kx in 0..ax.n {
+                let t = ax.taper[kx] * ay.taper[ky];
+                if t > 0.0 {
+                    let p = at(kx, ky);
+                    for ch in 0..3 {
+                        let d = (p[ch] - mean[ch]) * t;
+                        core[ch] = (core[ch].0.min(d), core[ch].1.max(d));
+                    }
+                }
+            }
+        }
+        std::array::from_fn(|ch| antiring(acc[ch], (mean[ch] + core[ch].0, mean[ch] + core[ch].1), slack))
     }
     /// Rec.2020 luminance of linear colour.
     pub fn luminance(&self) -> Frame<f32> {
@@ -631,6 +733,23 @@ mod tests {
         assert_eq!((hh.width, hh.height), (32, 32));
         let m3 = hh.data.iter().sum::<f32>() / hh.len() as f32;
         assert!((mean - m3).abs() < 1e-5);
+    }
+
+    /// A dark wall beside a window 9 stops brighter, reduced: no pixel rings below the wall (the
+    /// plain Mitchell fit goes negative there), and a small image is left as it is.
+    #[test]
+    fn scene_linear_fit_keeps_the_dark_side() {
+        let img = RgbFrame::from_fn(1000, 40, |x, _| if x < 503 { [0.002, 0.003, 0.004] } else { [1.0; 3] });
+        assert!(img.fit(300, 300, Filter::Mitchell).data.iter().any(|p| p[0] < 0.0));
+        let fit = img.fit_antiring(300, 300);
+        assert_eq!((fit.width, fit.height), (300, 12));
+        assert!(
+            fit.data.iter().all(|p| p[0] >= 0.002 * 0.999 && p[2] >= 0.004 * 0.999 && p[1] <= 1.0 + 1e-6),
+            "{:?}",
+            fit.data.iter().map(|p| p[0]).fold(f32::MAX, f32::min)
+        );
+        let small = RgbFrame::from_fn(5, 4, |x, y| [x as f32, y as f32, 0.5]);
+        assert_eq!(small.fit_antiring(300, 300), small);
     }
 
     #[test]

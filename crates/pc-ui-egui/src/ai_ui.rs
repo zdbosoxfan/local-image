@@ -16,6 +16,11 @@
 mod enhance_settings;
 mod lan_discovery;
 mod owned_engine;
+mod status_ui;
+pub(crate) use status_ui::short_gpu;
+#[cfg(test)]
+use status_ui::status_controls_with;
+pub use status_ui::{ai_jobs, status_controls, status_pill, stop_generation};
 pub(crate) mod settings_ui;
 
 use std::collections::BTreeMap;
@@ -111,6 +116,10 @@ pub struct EngineStatus {
     /// The sampler limits the connected ComfyUI reports (steps, guidance, denoise).
     pub limits: Option<li_ai::comfy::SamplerLimits>,
     pub object_info: Option<Arc<li_ai::comfy::ObjectInfo>>,
+    /// The version ComfyUI reports (`0.42.5`; empty when it doesn't say).
+    pub comfyui_version: String,
+    /// Model setup for this server: new models, models to re-check, each model's status.
+    pub setup: li_ai::modelsetup::summary::Summary,
 }
 
 impl EngineStatus {
@@ -163,7 +172,7 @@ fn shared() -> &'static Arc<Shared> {
 
 /// The current engine status (cheap).
 pub fn status() -> EngineStatus {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "snapshot-fixtures"))]
     if let Some(status) = TEST_STATUS.with(|s| s.borrow().clone()) {
         return status;
     }
@@ -175,7 +184,7 @@ pub(crate) static AI_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 // UI tests use the real mock server for commands, with deterministic readiness on their
 // own thread rather than racing the asynchronous status poller.
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! {
     pub(crate) static TEST_STATUS: std::cell::RefCell<Option<EngineStatus>> = const { std::cell::RefCell::new(None) };
 }
@@ -198,6 +207,7 @@ pub fn refresh() {
 
 fn poll_loop(s: Arc<Shared>) {
     let mut last_inventory: Option<Instant> = None;
+    let mut last_setup_versions = (String::new(), String::new());
     let mut last = Instant::now() - Duration::from_secs(60);
     loop {
         let forced = s.refresh.swap(false, std::sync::atomic::Ordering::SeqCst);
@@ -233,35 +243,44 @@ fn poll_loop(s: Arc<Shared>) {
         let mut presets = s.status.lock().map(|x| x.presets.clone()).unwrap_or_default();
         let mut limits = s.status.lock().ok().and_then(|x| x.limits);
         let mut object_info = s.status.lock().ok().and_then(|x| x.object_info.clone());
+        let mut setup = s.status.lock().map(|x| x.setup.clone()).unwrap_or_default();
+        let comfyui_version = stats.as_ref().map(li_ai::modelsetup::version_of).unwrap_or_default();
         let mut error = String::new();
-        if connected && (forced || !connected_before || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30))) {
-            match ai.client.object_info() {
-                Ok(info) => {
-                    // Installed models (by header, metadata or name) join the catalogue first.
-                    let settings = AiSettings::load();
-                    let model_dir = settings.model_dir();
-                    li_ai::inventory::refresh(&info, (!settings.is_remote() && model_dir.is_dir()).then_some(model_dir.as_path()));
-                    li_ai::refine::checker().invalidate_changed_files();
-                    limits = info.sampler_limits();
-                    presets = catalog::presets()
-                        .iter()
-                        .map(|p| {
-                            (p.id(), {
-                                let a = catalog::availability(p, &info);
-                                if a.available { Ok(()) } else { Err(a.reason) }
+        if let Some(stats) = &stats {
+            let mut snapshot = li_ai::modelsetup::Snapshot::from_parts(&host, stats, Default::default());
+            let setup_versions = (comfyui_version.clone(), snapshot.templates_version.clone());
+            if forced || !connected_before || setup_versions != last_setup_versions || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30)) {
+                match ai.client.object_info() {
+                    Ok(info) => {
+                        let settings = AiSettings::load();
+                        let opts = li_ai::modelsetup::Options::for_host(&host, (!settings.is_remote()).then(|| settings.model_dir()));
+                        snapshot.info = info.clone();
+                        let scan = li_ai::modelsetup::scan_snapshot(&opts, snapshot);
+                        setup = li_ai::modelsetup::summary::summarise(Some(&scan.server), &catalog::catalog().models, Some(&comfyui_version));
+                        li_ai::refine::checker().invalidate_changed_files();
+                        limits = info.sampler_limits();
+                        presets = catalog::presets()
+                            .iter()
+                            .map(|p| {
+                                (p.id(), {
+                                    let a = catalog::availability(p, &info);
+                                    if a.available { Ok(()) } else { Err(a.reason) }
+                                })
                             })
-                        })
-                        .collect();
-                    object_info = Some(Arc::new(info));
-                    last_inventory = Some(Instant::now());
+                            .collect();
+                        object_info = Some(Arc::new(info));
+                        last_setup_versions = setup_versions;
+                        last_inventory = Some(Instant::now());
+                    }
+                    Err(e) => error = format!("{e:#}"),
                 }
-                Err(e) => error = format!("{e:#}"),
             }
         }
         if !connected {
             presets.clear();
             limits = None;
             object_info = None;
+            setup = Default::default();
             last_inventory = None;
         }
         let child_alive = match CHILD.is_running() {
@@ -275,8 +294,21 @@ fn poll_loop(s: Arc<Shared>) {
         };
         let changed;
         if let Ok(mut st) = s.status.lock() {
-            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits, object_info };
+            let new = EngineStatus {
+                checked: true,
+                connected,
+                host,
+                gpu,
+                presets,
+                error,
+                starting: child_alive && !connected,
+                limits,
+                object_info,
+                comfyui_version,
+                setup,
+            };
             changed = pressure_changed
+                || st.setup != new.setup
                 || st.host != new.host
                 || st.connected != new.connected
                 || st.presets != new.presets
@@ -435,23 +467,75 @@ fn set_custom_job(dir: &std::path::Path, group: li_seg::Group, job: Option<Custo
 struct SegOpts {
     denoise_linear: bool,
     open: bool,
-    /// Subject: U²-Net / ImageNet normalisation (else IS-Net style).
-    imagenet: bool,
+    /// Subject, sky and depth: the input normalisation (`None`: the function's usual one).
+    norm: Option<li_seg::Norm>,
     /// Sky: the class index of the sky for class-logit models (default 2, ADE20K).
     sky_class: Option<usize>,
+    /// Depth: the model outputs metric depth (farther = larger).
+    depth_metric: bool,
 }
 
 impl SegOpts {
-    fn options(&self) -> li_seg::CustomOptions {
+    fn options(&self, group: li_seg::Group) -> li_seg::CustomOptions {
         li_seg::CustomOptions {
-            norm: if self.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet },
+            norm: self.norm.unwrap_or(li_seg::Norm::default_for(group)),
             sky_class: self.sky_class.unwrap_or(2),
             denoise_linear: self.denoise_linear,
+            depth_metric: self.depth_metric,
         }
     }
 }
 
-#[cfg(test)]
+/// The depth output choices: (metric, label).
+const DEPTH_OUTPUTS: [(bool, &str); 2] = [(false, "Inverse depth (nearer = larger)"), (true, "Metric depth (farther = larger)")];
+
+/// An input-style picker; true when `norm` changed.
+fn norm_picker(ui: &mut egui::Ui, id: (&str, &str), norm: &mut li_seg::Norm) -> bool {
+    let before = *norm;
+    egui::ComboBox::from_id_salt(id).selected_text(tl!(norm.label())).show_ui(ui, |ui| {
+        for n in li_seg::Norm::ALL {
+            ui.selectable_value(norm, n, tl!(n.label()));
+        }
+    });
+    *norm != before
+}
+
+/// A depth-output picker; true when `metric` changed.
+fn depth_output_picker(ui: &mut egui::Ui, id: (&str, &str), metric: &mut bool) -> bool {
+    let before = *metric;
+    let shown = DEPTH_OUTPUTS.iter().find(|(m, _)| *m == *metric).map_or("", |(_, l)| *l);
+    egui::ComboBox::from_id_salt(id).selected_text(tl!(shown)).show_ui(ui, |ui| {
+        for (m, label) in DEPTH_OUTPUTS {
+            ui.selectable_value(metric, m, tl!(label));
+        }
+    });
+    *metric != before
+}
+
+/// How the function's custom model `c` runs (input style, depth output), changeable in place.
+fn custom_model_options(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: li_seg::Group, c: &li_seg::Custom) {
+    if !matches!(group, li_seg::Group::Subject | li_seg::Group::Sky | li_seg::Group::Depth) {
+        return;
+    }
+    let mut opts =
+        li_seg::CustomOptions { norm: c.norm, sky_class: c.class, depth_metric: group == li_seg::Group::Depth && c.class == 1, ..Default::default() };
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(tl!("Model input:")).color(t.text_dim).size(11.5));
+        changed |= norm_picker(ui, ("seg-custom-norm", group.key()), &mut opts.norm);
+    });
+    if group == li_seg::Group::Depth {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(tl!("Model output:")).color(t.text_dim).size(11.5));
+            changed |= depth_output_picker(ui, ("seg-custom-depth", group.key()), &mut opts.depth_metric);
+        });
+    }
+    if changed && let Err(e) = li_seg::set_custom_options(dir, group, opts) {
+        set_custom_job(dir, group, Some(CustomJob::Failed(format!("{e:#}"))));
+    }
+}
+
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! {
     /// The file the next "Choose an ONNX file…" click picks, in place of a real dialog.
     pub(crate) static TEST_PICK: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
@@ -496,7 +580,6 @@ fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
             tl!("The model's input is {height}×{width}; a square input (or a flexible size) is needed"),
             &[("height", &height.to_string()), ("width", &width.to_string())],
         ),
-        li_seg::CustomModelError::NotSkyModel => tl!("Not a sky model").to_owned(),
         li_seg::CustomModelError::NotSkyModelOutput { shape } => {
             li_i18n::fmt(tl!("Not a sky model: its output {shape} should be 1 map or one map per class"), &[("shape", &format!("{shape:?}"))])
         }
@@ -506,6 +589,7 @@ fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
         ),
         li_seg::CustomModelError::NotSubjectModel => tl!("Not a subject model: it must output one foreground map").to_owned(),
         li_seg::CustomModelError::NotDepthModel => tl!("Not a depth model: it must output one depth map").to_owned(),
+        li_seg::CustomModelError::UnsupportedRestoration { reason } => format!("{} ({reason})", tl!(li_seg::RESTORATION_UNSUPPORTED)),
         li_seg::CustomModelError::Other(msg) => msg.clone(),
     }
 }
@@ -519,14 +603,18 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
     set_custom_job(&dir, group, Some(CustomJob::Testing));
     // the drawing language is per thread: translate the reason in the UI's language
     let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("seg-custom".into()).spawn(move || {
-        let job = match li_seg::add_custom(&dir, group, &src, opts, &dispose) {
-            Ok(_) => CustomJob::Done,
-            Err(e) => {
+    let job_dir = dir.clone();
+    let started = std::thread::Builder::new().name("seg-custom".into()).spawn(move || {
+        // a model file is untrusted: a panic while testing it fails the test, it doesn't hang it
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| li_seg::add_custom(&dir, group, &src, opts, &dispose)));
+        let job = match result {
+            Ok(Ok(_)) => CustomJob::Done,
+            Ok(Err(e)) => {
                 let reason =
                     li_i18n::with_language(lang, || e.downcast_ref::<li_seg::CustomModelError>().map(custom_model_reason)).unwrap_or_else(|| e.to_string());
                 CustomJob::Failed(reason)
             }
+            Err(_) => CustomJob::Failed(li_i18n::with_language(lang, || tl!("The model crashed while it was being tested.").to_owned())),
         };
         set_custom_job(&dir, group, Some(job));
         refresh();
@@ -534,6 +622,9 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
             ctx.request_repaint();
         }
     });
+    if let Err(e) = started {
+        set_custom_job(&job_dir, group, Some(CustomJob::Failed(e.to_string())));
+    }
 }
 
 /// Settings › Local AI › On-device models: one row per function, including Smart Sort tagging.
@@ -610,6 +701,7 @@ fn model_function_row(
                 .color(t.text_faint)
                 .size(11.0),
             );
+            custom_model_options(ui, t, dir, group, c);
             if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
                 let size = c.path(dir).metadata().map(|m| li_ai::download::human_bytes(m.len())).unwrap_or_default();
                 ui.label(
@@ -714,16 +806,21 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
                 .color(t.text_faint)
                 .size(11.0),
         );
+        if matches!(group, li_seg::Group::Subject | li_seg::Group::Sky | li_seg::Group::Depth) {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(tl!("Input style:")).color(t.text_dim).size(11.5));
+                let mut norm = o.norm.unwrap_or(li_seg::Norm::default_for(group));
+                if norm_picker(ui, ("seg-norm", group.key()), &mut norm) {
+                    o.norm = Some(norm);
+                }
+            });
+        }
         match group {
-            li_seg::Group::Subject => {
+            li_seg::Group::Subject => {}
+            li_seg::Group::Depth => {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(tl!("Input style:")).color(t.text_dim).size(11.5));
-                    let shown = if o.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet };
-                    egui::ComboBox::from_id_salt(("seg-norm", group.key())).selected_text(tl!(shown.label())).show_ui(ui, |ui| {
-                        for n in li_seg::Norm::ALL {
-                            ui.selectable_value(&mut o.imagenet, n == li_seg::Norm::ImageNet, tl!(n.label()));
-                        }
-                    });
+                    ui.label(RichText::new(tl!("Depth output:")).color(t.text_dim).size(11.5));
+                    depth_output_picker(ui, ("seg-depth-output", group.key()), &mut o.depth_metric);
                 });
             }
             li_seg::Group::Sky => {
@@ -742,7 +839,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
             li_seg::Group::RawDenoise => {
                 ui.label(tl!("Custom Raw Denoise models use three-channel linear Rec.2020 input and output."));
             }
-            li_seg::Group::Depth | li_seg::Group::Tagging | li_seg::Group::Faces | li_seg::Group::Remove => {}
+            li_seg::Group::Tagging | li_seg::Group::Faces | li_seg::Group::Remove => {}
         }
         if job == Some(CustomJob::Testing) {
             ui.horizontal(|ui| {
@@ -750,7 +847,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
                 ui.label(RichText::new(tl!("Testing the model…")).color(t.text_dim).size(11.5));
             });
         } else if widgets::secondary_button(ui, tl!("Choose an ONNX file…"), 0.0).clicked() {
-            let (models, options) = (dir.to_path_buf(), o.options());
+            let (models, options) = (dir.to_path_buf(), o.options(group));
             pick_onnx(ui.ctx(), move |src| {
                 set_custom_job(&models, group, None);
                 start_custom(models, group, src, options);
@@ -1023,7 +1120,7 @@ pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
 ];
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! { pub(crate) static TEST_LAMA_READY: std::cell::RefCell<Option<bool>> = const { std::cell::RefCell::new(None) }; }
 
 /// Resolve Automatic from the background connection status. Explicit choices persist.
@@ -1153,120 +1250,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
     }
 }
 
-// Status pill
-
-/// The AI engine status in the status bar (right-to-left layout); click opens Local AI.
-pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    if let Ok(mut c) = shared().ctx.lock()
-        && c.is_none()
-    {
-        *c = Some(ui.ctx().clone());
-    }
-    let t = Tokens::get(ui.ctx());
-    let st = status();
-    let (dot, text) = if !st.checked {
-        (t.text_faint, tl!("AI").to_owned())
-    } else if st.starting {
-        (t.warning, tl!("AI starting…").to_owned())
-    } else if !st.connected {
-        (t.text_faint, tl!("AI off").to_owned())
-    } else if !st.any_ready() {
-        (t.warning, tl!("AI · no models").to_owned())
-    } else {
-        let gpu = st.gpu.as_ref().map(|g| {
-            let used = g.vram_used.map(|u| format!(" · {:.0}/{:.0} GB", u as f64 / 1e9, g.vram_total as f64 / 1e9)).unwrap_or_default();
-            format!(" · {}{used}", short_gpu(&g.name))
-        });
-        (Color32::from_rgb(70, 190, 110), li_i18n::fmt(tl!("AI ready{gpu}"), &[("gpu", &gpu.unwrap_or_default())]))
-    };
-    let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(11.5), t.text_dim);
-    let size = vec2(galley.size().x + 26.0, 18.0);
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    if resp.hovered() {
-        ui.painter().rect_filled(r, 9.0, t.hover);
-    }
-    ui.painter().circle_filled(egui::pos2(r.left() + 10.0, r.center().y), 3.5, dot);
-    ui.painter().galley(egui::pos2(r.left() + 18.0, r.center().y - galley.size().y / 2.0), galley, t.text_dim);
-    let resp = resp.on_hover_text(if st.connected {
-        li_i18n::fmt(tl!("ComfyUI at {host} — click for Local AI settings"), &[("host", &st.host)])
-    } else {
-        tl!("Local AI is off — click to set it up").into()
-    });
-    if resp.clicked() {
-        open_local_ai(app);
-    }
-    if !st.checked || st.starting {
-        ui.ctx().request_repaint_after(Duration::from_millis(500));
-    }
-}
-
-/// The status bar's AI controls, drawn just left of [`status_pill`] (right-to-left layout):
-/// a red Stop while AI jobs run, and Eject (unload the models from GPU memory) while the
-/// engine is connected.
-pub fn status_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    status_controls_with(app, ui, &status());
-}
-
-/// AI jobs running in the session (Generate, AI Remove, Enhance, …).
-pub fn ai_jobs(app: &PhotocraftApp) -> Vec<photocraft_engine::jobs::JobId> {
-    app.session.jobs().into_iter().filter(|j| j.command.starts_with("ai.")).map(|j| j.id).collect()
-}
-
-/// A small status-bar icon button with an accessible name; disabled ones are faint and inert.
-fn bar_icon(ui: &mut egui::Ui, icon: &str, tint: Color32, enabled: bool, tip: &str) -> egui::Response {
-    let t = Tokens::get(ui.ctx());
-    let sense = if enabled { Sense::click() } else { Sense::hover() };
-    let (r, resp) = ui.allocate_exact_size(vec2(20.0, 18.0), sense);
-    if enabled && resp.hovered() {
-        ui.painter().rect_filled(r, t.radius_sm, t.hover);
-    }
-    crate::icons::paint(ui, r, icon, 13.0, if enabled { tint } else { t.text_faint });
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tip));
-    resp.on_hover_text(tip)
-}
-
-pub(crate) fn status_controls_with(app: &mut PhotocraftApp, ui: &mut egui::Ui, st: &EngineStatus) {
-    let t = Tokens::get(ui.ctx());
-    let jobs = ai_jobs(app);
-    if !jobs.is_empty() && bar_icon(ui, "circle-stop", t.danger, true, tl!("Stop generation")).clicked() {
-        stop_generation(app, &jobs);
-    }
-    let tip = if st.connected { tl!("Unload AI models from GPU memory") } else { tl!("Unload AI models from GPU memory (the AI engine is off)") };
-    if bar_icon(ui, "eject", t.text_dim, st.connected, tip).clicked() {
-        app.ui.status = tl!("Unloading AI models…").into();
-        app.ui.status_error = false;
-        let lang = li_i18n::current();
-        let ctx = ui.ctx().clone();
-        let _ = std::thread::Builder::new().name("ai-unload".into()).spawn(move || {
-            li_i18n::set_current(lang);
-            let note = match li_ai::service().client.free_memory() {
-                Ok(()) => (tl!("Models unloaded.").to_owned(), false),
-                Err(e) => (format!("{e:#}"), true),
-            };
-            if let Ok(mut n) = REMOVE_NOTE.lock() {
-                *n = Some(note);
-            }
-            refresh();
-            ctx.request_repaint();
-        });
-    }
-}
-
-/// Cancel only the requested jobs. Each worker's bridged control owns its ComfyUI
-/// prompt and handles targeted cancellation/retry; a process-wide prompt snapshot
-/// could interrupt another feature's job.
-pub fn stop_generation(app: &mut PhotocraftApp, jobs: &[photocraft_engine::jobs::JobId]) {
-    for id in jobs {
-        crate::jobs_ui::cancel(app, *id);
-    }
-    app.ui.status = tl!("Stopping generation…").into();
-    app.ui.status_error = false;
-}
-
-fn short_gpu(name: &str) -> String {
-    name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Laptop GPU", "Laptop")
-}
-
 // Dialogs
 
 #[derive(Default)]
@@ -1302,6 +1285,10 @@ pub fn open_local_ai(app: &mut PhotocraftApp) {
 /// Floating windows: Local AI, Generate Background, Generative Fill, AI Enhance, batch.
 pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     li_seg::init_executor();
+    // the saved on-device subject tier, until one is picked in this session
+    if dialogs_mut(|d| d.subject_quality.is_none()) && app.ui.ai.cutout_engine == "fast" && li_seg::subject_quality(&photocraft_engine::seg::models_dir()) {
+        app.ui.ai.cutout_engine = "better".into();
+    }
     let changed = dialogs_mut(|d| subject_quality_changed(&mut d.subject_quality, &app.ui.ai.cutout_engine));
     if changed && matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "better") {
         li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
@@ -1319,6 +1306,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::generate_ui::batch_window(app, ctx);
     crate::generate_ui::cloud_confirm_window(app, ctx);
     crate::model_browser::window(app, ctx);
+    crate::model_setup::window(app, ctx);
     remove_confirm(app, ctx);
 }
 
@@ -1570,6 +1558,7 @@ const IDS: &[&str] = &[
     "li.draftRefine",
     "li.localAi",
     "li.browseModels",
+    "li.modelSetup",
     crate::context_bar::TOGGLE_ID,
     "li.filmstrip",
     crate::develop_layer::DEVELOP_ID,
@@ -1638,6 +1627,8 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
             (Some("lora"), Some(f)) => crate::model_browser::open_loras(f),
             _ => crate::model_browser::open(),
         },
+        // `{"model": key}` opens it on that model.
+        "li.modelSetup" => crate::model_setup::open(params.get("model").and_then(Value::as_str)),
         _ => {}
     }
     Some(Ok(Value::Null))
@@ -1921,15 +1912,19 @@ mod tests {
         let mut h = seg_harness(&dir, Some(li_seg::Group::Depth));
         h.get_by_label("Custom model…").click();
         h.run_steps(2);
-        assert!(h.query_by_label("Input style:").is_none() && h.query_by_label("Sky class:").is_none());
+        // depth models start ImageNet-normalised, as inverse depth
+        h.get_by_label("Input style:");
+        h.get_by_value("U²-Net / ImageNet style");
+        h.get_by_value("Inverse depth (nearer = larger)");
+        assert!(h.query_by_label("Sky class:").is_none());
         h.get_by_label("Choose an ONNX file…");
         let mut h = seg_harness(&dir, Some(li_seg::Group::Subject));
         h.get_by_label("Custom model…").click();
         h.run_steps(2);
         h.get_by_value("IS-Net style");
-        assert!(h.query_by_label("Sky class:").is_none());
+        assert!(h.query_by_label("Sky class:").is_none() && h.query_by_label("Depth output:").is_none());
         // the U²-Net / ImageNet choice is what gets stored
-        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Subject).unwrap().imagenet = true);
+        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Subject).unwrap().norm = Some(li_seg::Norm::ImageNet));
         h.run_steps(2);
         h.get_by_value("U²-Net / ImageNet style");
         will_pick(Some(pick_file(&dir, "u2.onnx", MAP_32)));
@@ -1941,7 +1936,7 @@ mod tests {
         h.get_by_label("Custom model…").click();
         h.run_steps(2);
         h.get_by_label("Sky class:");
-        assert!(h.query_by_label("Input style:").is_none());
+        h.get_by_value("U²-Net / ImageNet style");
         dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Sky).unwrap().sky_class = Some(7));
         will_pick(Some(pick_file(&dir, "sky.onnx", ECHO_32)));
         h.get_by_label("Choose an ONNX file…").click();

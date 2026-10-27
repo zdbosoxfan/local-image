@@ -127,6 +127,12 @@ fn cases() -> Vec<(&'static str, Edit)> {
             s.light.whites = 30.0;
             s.light.blacks = -25.0;
         }),
+        ("whites/blacks with highlights/shadows", |s| {
+            s.light.highlights = -50.0;
+            s.light.shadows = 40.0;
+            s.light.whites = 60.0;
+            s.light.blacks = -45.0;
+        }),
         ("vibrance/saturation", |s| {
             s.color.vibrance = 40.0;
             s.color.saturation = -20.0;
@@ -135,6 +141,12 @@ fn cases() -> Vec<(&'static str, Edit)> {
             s.mixer.blue.sat = -60.0;
             s.mixer.orange.hue = 30.0;
             s.mixer.green.lum = 40.0;
+        }),
+        ("colour mixer luminance extremes", |s| {
+            s.mixer.blue.lum = -100.0;
+            s.mixer.aqua.lum = 70.0;
+            s.mixer.orange.lum = -100.0;
+            s.mixer.red.sat = 100.0;
         }),
         ("point color", |s| {
             use lightcraft_develop::PointColor;
@@ -310,6 +322,26 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 },
             ];
         }),
+        ("range masks after primary tools", |s| {
+            s.light.shadows = 60.0;
+            s.color.saturation = 30.0;
+            s.treatment = Treatment::Bw;
+            let range = |shape, adjust| Mask {
+                components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }],
+                adjust,
+                ..Default::default()
+            };
+            s.masks = vec![
+                range(
+                    MaskShape::LuminanceRange { lo: 0.2, hi: 0.5, lo_feather: 0.1, hi_feather: 0.1 },
+                    lightcraft_develop::LocalAdjustments { exposure: 0.5, shadows: 30.0, ..Default::default() },
+                ),
+                range(
+                    MaskShape::ColorRange { samples: vec![[0.6, -0.05, -0.08]], refine: 60.0 },
+                    lightcraft_develop::LocalAdjustments { exposure: -0.5, dehaze: 20.0, ..Default::default() },
+                ),
+            ];
+        }),
         ("masks (cpu shapes, ops, amount)", |s| {
             s.masks = vec![
                 Mask {
@@ -400,6 +432,13 @@ fn cases() -> Vec<(&'static str, Edit)> {
             s.calibration.green_hue = -40.0;
             s.calibration.blue_sat = 60.0;
             s.calibration.blue_hue = 25.0;
+        }),
+        ("calibration + HSL + b&w", |s| {
+            s.calibration.shadows_tint = -50.0;
+            s.calibration.blue_sat = 60.0;
+            s.calibration.red_hue = -30.0;
+            s.mixer.blue.sat = -60.0;
+            s.treatment = Treatment::Bw;
         }),
         ("spots + defringe (cpu stage)", |s| {
             s.spots = vec![Spot { points: vec![Point::new(0.3, 0.3)], size: 0.03, source_offset: Some(Point::new(0.1, 0.0)), ..Default::default() }];
@@ -709,6 +748,64 @@ fn output_spaces_match() {
     }
 }
 
+/// The scene knee past the Rec. 2020 edge and each output space's knee, on colours from inside the
+/// output gamut out to well past the working gamut.
+#[test]
+fn gamut_knees_match_in_every_output_space() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    use lightcraft_pipeline::OutputSpace;
+    let src = Arc::new(RgbFrame::from_fn(256, 96, |x, y| {
+        let k = x as f32 / 255.0 * 0.7;
+        let c = match y / 16 {
+            0 => [0.3 + k, 0.3, 0.3 - k],
+            1 => [0.3 - k, 0.3 + k, 0.3],
+            2 => [0.3, 0.3 - k, 0.3 + k],
+            3 => [0.63, 0.07, 0.02 - 0.05 * k],
+            4 => [0.04, 0.01 - 0.05 * k, 0.9],
+            _ => [0.05 - 0.1 * k, 0.6, 0.12],
+        };
+        c.map(|v| v * 0.8)
+    }));
+    let raw = SourceInfo { raw: true, ..Default::default() };
+    for space in OutputSpace::ALL {
+        let req = RenderRequest { space, ..RenderRequest::fit(256, 96) };
+        check(&format!("gamut knees {space:?}"), &src, &raw, &DevelopSettings::default(), &req);
+        let mut s = DevelopSettings::default();
+        saturated(&mut s);
+        check(&format!("gamut knees saturated {space:?}"), &src, &raw, &s, &req);
+    }
+}
+
+/// The hue-preserving knees (`lightcraft_pipeline::gamut`, `gamut_*` in WGSL) and the colour
+/// mixer's hue hold, on constant OkLab hue and lightness sweeps from neutral to far past Rec. 2020.
+#[test]
+fn hue_preserving_knees_and_mixer_hue_hold_match() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    use lightcraft_pipeline::OutputSpace;
+    let (w, h) = (240, 144);
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
+        let hue = (y / 4) as f32 * std::f32::consts::TAU / 36.0;
+        let l = [0.35, 0.55, 0.7, 0.85][y % 4];
+        let c = x as f32 / (w - 1) as f32 * 0.45;
+        li_color::perceptual::oklab_to_2020([l, c * hue.cos(), c * hue.sin()])
+    }));
+    let mut mixer = DevelopSettings::default();
+    for band in [&mut mixer.mixer.red, &mut mixer.mixer.yellow, &mut mixer.mixer.aqua, &mut mixer.mixer.blue, &mut mixer.mixer.magenta] {
+        band.sat = 80.0;
+        band.lum = -60.0;
+    }
+    mixer.mixer.orange.hue = 40.0;
+    for (kind, info) in [("raw", SourceInfo { raw: true, ..Default::default() }), ("rendered", SourceInfo::default())] {
+        for space in OutputSpace::ALL {
+            let req = RenderRequest { space, ..RenderRequest::fit(w, h) };
+            check(&format!("hue knees {kind} {space:?}"), &src, &info, &DevelopSettings::default(), &req);
+            check(&format!("hue knees mixer {kind} {space:?}"), &src, &info, &mixer, &req);
+        }
+    }
+}
+
 /// All combinations use the common uploaded tone tables and the per-channel hue kernel.
 #[test]
 fn colour_tone_looks_bases_hue_and_rolloff() {
@@ -866,6 +963,88 @@ fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
 }
 
 #[test]
+fn clarity_on_textured_grey_matches_across_tones() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    let (w, h) = (640, 360);
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
+        let e = -3.0 + 6.0 * y as f32 / h as f32 + 0.15 * (x as f32 / 7.0).sin() * (y as f32 / 5.0).cos();
+        [0.18 * e.exp2(); 3]
+    }));
+    for clarity in [100.0, -60.0] {
+        let mut s = DevelopSettings::default();
+        s.effects.clarity = clarity;
+        check(&format!("clarity {clarity} textured grey"), &src, &SourceInfo { raw: true, ..Default::default() }, &s, &RenderRequest::fit(w, h));
+    }
+}
+
+#[test]
+fn dehaze_beside_a_window_matches() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    let (w, h) = (480, 160);
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
+        let v = if x < w / 2 { 0.015 * (1.0 + 0.2 * (y as f32 / 9.0).sin()) } else { 0.9 };
+        [v, v * 0.95, v * 1.05]
+    }));
+    for dehaze in [25.0, 60.0, 100.0] {
+        let mut s = DevelopSettings::default();
+        s.effects.dehaze = dehaze;
+        check(&format!("dehaze {dehaze} window edge"), &src, &SourceInfo { raw: true, ..Default::default() }, &s, &RenderRequest::fit(w, h));
+    }
+}
+
+/// Exact black has no OkLab hue: colour ops must treat it as hue 0, as the CPU does, on every
+/// backend (WGSL leaves atan2(0, 0) undefined).
+#[test]
+fn exact_black_through_colour_ops_matches() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    let (w, h) = (320, 200);
+    let src =
+        Arc::new(RgbFrame::from_fn(
+            w,
+            h,
+            |x, y| if x < 96 { [0.0; 3] } else { [0.02 + 0.6 * x as f32 / w as f32, 0.1 + 0.2 * y as f32 / h as f32, 0.08] },
+        ));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let lift = |s: &mut DevelopSettings| {
+        s.curve.master = vec![Point::new(0.0, 0.06), Point::new(1.0, 1.0)];
+        s.grain.amount = 20.0;
+    };
+    let mut point = DevelopSettings::default();
+    lift(&mut point);
+    point.point_colors = vec![lightcraft_develop::PointColor {
+        lum: 0.4,
+        chroma: 0.05,
+        hue: 30.0,
+        hue_shift: 20.0,
+        sat_shift: -30.0,
+        range: 100.0,
+        ..Default::default()
+    }];
+    let mut masked = DevelopSettings::default();
+    lift(&mut masked);
+    masked.masks = vec![Mask {
+        components: vec![MaskComponent {
+            name: None,
+            op: MaskOp::Add,
+            invert: false,
+            shape: MaskShape::Linear { start: Point::new(0.0, 0.0), end: Point::new(1.0, 0.0) },
+        }],
+        adjust: lightcraft_develop::LocalAdjustments { saturation: -30.0, hue: 20.0, ..Default::default() },
+        ..Default::default()
+    }];
+    for (name, s) in [("black + point color", &point), ("black + masked hue/saturation", &masked)] {
+        check(name, &src, &info, s, &RenderRequest::fit(w, h));
+        let req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::F32Linear, ..RenderRequest::fit(w, h) };
+        let deep = lightcraft_gpu::render(&src, &info, s, &req, None).expect("float GPU render").deep.expect("float output");
+        let lightcraft_pipeline::DeepSamples::F32(v) = deep.samples else { panic!("float samples") };
+        assert!(v.iter().all(|v| v.is_finite()), "{name}: non-finite float output");
+    }
+}
+
+#[test]
 fn eigf_tone_equalizer_matches_including_mask_preview() {
     let _gpu = crate::support::lock();
     require_gpu();
@@ -953,6 +1132,35 @@ fn deep_output_matches_cpu() {
             let mean = a.iter().zip(&b).map(|(p, q)| p.abs_diff(*q) as f64).sum::<f64>() / a.len() as f64;
             eprintln!("{space:?}, edited {edited}: mean {mean:.4}, max {max} U16 LSB");
             assert!(max <= 3 && mean < 0.5, "{space:?}: mean {mean:.4}, max {max} U16 LSB");
+        }
+    }
+}
+
+#[test]
+fn parametric_regions_and_all_curve_channels_match_cpu() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    eprintln!("adapter: {}", lightcraft_gpu::adapter_name().expect("available GPU has an adapter name"));
+    let src = scene(2, 160, 96);
+    for raw in [false, true] {
+        for mode in [lightcraft_develop::CurveMode::Rgb, lightcraft_develop::CurveMode::Luminance] {
+            let mut settings = DevelopSettings::default();
+            settings.curve.mode = mode;
+            settings.curve.shadows = 25.0;
+            settings.curve.darks = -30.0;
+            settings.curve.lights = 40.0;
+            settings.curve.highlights = -20.0;
+            settings.curve.master = vec![Point::new(0.0, 0.02), Point::new(0.5, 0.6), Point::new(1.0, 0.98)];
+            settings.curve.red = vec![Point::new(0.0, 0.0), Point::new(0.5, 0.55), Point::new(1.0, 1.0)];
+            settings.curve.green = vec![Point::new(0.0, 0.03), Point::new(0.5, 0.47), Point::new(1.0, 1.0)];
+            settings.curve.blue = vec![Point::new(0.0, 0.01), Point::new(0.5, 0.53), Point::new(1.0, 0.99)];
+            check(
+                &format!("all curves {mode:?} raw={raw}"),
+                &src,
+                &SourceInfo { raw, ..Default::default() },
+                &settings,
+                &RenderRequest::fit(160, 96),
+            );
         }
     }
 }

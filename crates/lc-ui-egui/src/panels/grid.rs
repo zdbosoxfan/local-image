@@ -653,7 +653,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         let at = pos2(img_rect.left() + 6.0, img_rect.bottom() - 30.0 - 16.0);
         let br = Rect::from_min_size(at, vec2(g.size().x + 24.0, 16.0));
         p.rect_filled(br, 8.0, Color32::from_black_alpha(170));
-        paint(p, Rect::from_center_size(pos2(br.left() + 9.0, br.center().y), vec2(12.0, 12.0)), Icon::Info, t.caution);
+        paint(p, Rect::from_center_size(pos2(br.left() + 9.0, br.center().y), vec2(12.0, 12.0)), Icon::Info, t.overlay_caution);
         p.galley(pos2(br.left() + 17.0, br.center().y - g.size().y / 2.0), g, Color32::WHITE);
         register(ui.ctx(), format!("badge:previewOnly:{}", id.0), br);
         ui.interact(br, egui::Id::new(("preview-only-badge", id.0)), Sense::hover())
@@ -886,8 +886,13 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         super::people_workspace::finder(app, id);
         ui.close();
     }
-    if ui.button(li_i18n::library::t("Set as Reference Photo")).clicked() {
-        let _ = run_context(app, id, "photo.setReference", json!({"id": id.0}));
+    let set_reference = ui
+        .add_enabled(super::compare::live(app, id), egui::Button::new(li_i18n::library::t("Set as Reference Photo")))
+        .on_disabled_hover_text(li_i18n::library::t("Restore the photo to use it as the reference"));
+    if set_reference.clicked()
+        && let Err(error) = run_context(app, id, "photo.setReference", json!({"id": id.0}))
+    {
+        app.toast_error(ui.ctx(), error);
     }
     ui.separator();
     ui.menu_button(li_i18n::library::t("Set Rating"), |ui| {

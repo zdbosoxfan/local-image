@@ -21,6 +21,8 @@ const MODULES: &[Module] = &[
     },
     #[cfg(test)]
     Module { src: include_str!("wgsl/toneeq_test.wgsl"), bindings: &[("a", false, "f32"), ("dst", true, "f32")], entries: &["teq_round_probe"] },
+    #[cfg(test)]
+    Module { src: include_str!("wgsl/gamut_test.wgsl"), bindings: &[("a", false, "f32"), ("dst", true, "f32")], entries: &["gamut_probe"] },
     Module {
         src: include_str!("wgsl/haze_select.wgsl"),
         bindings: &[("a", false, "f32"), ("b", true, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
@@ -55,6 +57,7 @@ const MODULES: &[Module] = &[
             "p_transpose",
             "p_clip",
             "p_scale",
+            "p_calibrate",
             "p_stack_anchors",
             "p_log",
             "p_biased",
@@ -145,7 +148,7 @@ const MODULES: &[Module] = &[
     },
     Module {
         src: include_str!("wgsl/resize.wgsl"),
-        bindings: &[("src", false, "f32"), ("table", false, "u32"), ("dst", true, "f32")],
+        bindings: &[("src", false, "f32"), ("table", false, "u32"), ("dst", true, "f32"), ("exact", true, "f32")],
         entries: &["resize_h", "resize_v"],
     },
     Module {
@@ -200,7 +203,7 @@ const MODULES: &[Module] = &[
     Module {
         src: include_str!("wgsl/geom.wgsl"),
         bindings: &[("src", false, "f32"), ("dst", true, "f32"), ("coverage", false, "u32")],
-        entries: &["orient", "sample_affine", "sample_warp"],
+        entries: &["orient", "sample_affine", "sample_warp", "vignette_gain"],
     },
 ];
 
@@ -468,7 +471,13 @@ fn constants() -> String {
     use lightcraft_pipeline::tone::{CHROMA_N, LUT_MAX_EV, LUT_MIN_EV, LUT_N};
     let mut s = String::new();
     let [to_lms, from_lms, to_lab, from_lab] = li_color::perceptual::oklab_matrices();
-    for (name, m) in [("OK_TO_LMS", to_lms), ("OK_FROM_LMS", from_lms), ("OK_TO_LAB", to_lab), ("OK_FROM_LAB", from_lab)] {
+    for (name, m) in [
+        ("OK_TO_LMS", to_lms),
+        ("OK_FROM_LMS", from_lms),
+        ("OK_TO_LAB", to_lab),
+        ("OK_FROM_LAB", from_lab),
+        ("GAMUT_FROM_SRGB", li_color::SRGB.to_space(&li_color::REC2020).to_f32()),
+    ] {
         let rows: Vec<String> = m.iter().map(|r| format!("vec3<f32>({:?}, {:?}, {:?})", r[0], r[1], r[2])).collect();
         s += &format!("const {name} = array<vec3<f32>, 3>({});\n", rows.join(", "));
     }
@@ -492,6 +501,11 @@ fn constants() -> String {
     let b = lightcraft_pipeline::geometry::BLANK;
     s += &format!("const BLANK_R: f32 = {:?};\nconst BLANK_G: f32 = {:?};\nconst BLANK_B: f32 = {:?};\n", b[0], b[1], b[2]);
     s += &format!(
+        "const CUBIC_MAX_STRETCH: f32 = {:?};\nconst CUBIC_TAPS: u32 = {}u;\n",
+        li_raster::frame::CUBIC_MAX_STRETCH,
+        li_raster::frame::CUBIC_TAPS
+    );
+    s += &format!(
         "const SRGB_N: u32 = {SRGB_LUT_N}u;\nconst CURVE_N: u32 = {}u;\nconst MASK_TERMS: u32 = {MASK_TERMS}u;\nconst MASK_SUMS: u32 = {MASK_SUMS}u;\n",
         crate::params::CURVE_N
     );
@@ -500,6 +514,17 @@ fn constants() -> String {
     use lightcraft_pipeline::masks::{AUTO_TOL_CHROMA, AUTO_TOL_EV};
     s += &format!("const AUTO_TOL_EV: f32 = {AUTO_TOL_EV:?};\nconst AUTO_TOL_CHROMA: f32 = {AUTO_TOL_CHROMA:?};\n");
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
+    s += &format!("const DEHAZE_FLOOR_EV: f32 = {:?};\n", lightcraft_pipeline::detail::haze::SHADOW_FLOOR_EV);
+    use lightcraft_pipeline::gamut::{ENDPOINT_EPS, MAX_CHROMA, OUTPUT_EPS, OUTPUT_STEPS, STEPS};
+    s += &format!(
+        "const GAMUT_OUTPUT_EPS: f32 = {OUTPUT_EPS:?};\nconst GAMUT_ENDPOINT_EPS: f32 = {ENDPOINT_EPS:?};\nconst GAMUT_OUTPUT_STEPS: u32 = {OUTPUT_STEPS}u;\nconst GAMUT_MAX_CHROMA: f32 = {MAX_CHROMA:?};\nconst GAMUT_STEPS: u32 = {STEPS}u;\n"
+    );
+    use lightcraft_pipeline::gamut::{BLUE_REC2020, BLUE_SRGB};
+    for (name, [lo, hi]) in [("GAMUT_BLUE_SRGB", BLUE_SRGB), ("GAMUT_BLUE_REC2020", BLUE_REC2020)] {
+        s += &format!("const {name} = vec2<f32>({lo:?}, {hi:?});\n");
+    }
+    use lightcraft_pipeline::tone2::{SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT};
+    s += &format!("const SCENE_GAMUT_KNEE: f32 = {SCENE_GAMUT_KNEE:?};\nconst SCENE_GAMUT_LIMIT: f32 = {SCENE_GAMUT_LIMIT:?};\n");
     for (i, h) in GRAIN_HASH.iter().enumerate() {
         s += &format!("const GRAIN_H{i}: u32 = {h}u;\n");
     }
@@ -527,6 +552,9 @@ fn module_source(m: &Module, consts: &str) -> String {
     }
     if m.entries.first().is_some_and(|e| e.starts_with("p_")) {
         s += include_str!("wgsl/ucs.wgsl");
+    }
+    if m.src.contains("gamut_") {
+        s += include_str!("wgsl/gamut.wgsl");
     }
     s += m.src;
     s

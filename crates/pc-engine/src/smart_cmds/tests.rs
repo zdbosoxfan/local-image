@@ -58,6 +58,48 @@ fn convert(s: &mut Session) -> u64 {
 }
 
 #[test]
+fn displace_file_maps_are_embedded_replaced_and_survive_source_removal() {
+    let dir = std::env::temp_dir().join(format!("pcraft-displace-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("map.png");
+    let write_map = |value| {
+        let image = photocraft_codecs::Image::from_u8(2, 2, photocraft_codecs::ChannelLayout::Rgb, vec![value; 12]).unwrap();
+        let bytes = photocraft_codecs::encode(&image, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+    };
+    write_map(255);
+    let mut s = session(8);
+    paint(&mut s);
+    convert(&mut s);
+    let original = flat(&s);
+    s.execute("filter.distort.displace", json!({"mapPath":path,"horizontal":10,"vertical":0})).unwrap();
+    let white = flat(&s);
+    assert_ne!(white, original);
+    let params = active_smart(&s).smart_filters[0].params.clone();
+    assert!(params.get("mapPath").is_none());
+    assert_eq!(photocraft_io::smart_map::displace_embedded_map(&params).unwrap().data[0], 1.0);
+    write_map(0);
+    let history = s.active().unwrap().history.past_len();
+    let mut replacement = params;
+    replacement["mapPath"] = json!(path);
+    s.execute("layer.smartFilter.setParams", json!({"params":replacement})).unwrap();
+    let black = flat(&s);
+    assert_ne!(black, white);
+    assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+    assert_eq!(photocraft_io::smart_map::displace_embedded_map(&active_smart(&s).smart_filters[0].params).unwrap().data[0], 0.0);
+    std::fs::remove_file(&path).unwrap();
+    s.undo();
+    assert_eq!(flat(&s), white);
+    s.redo();
+    assert_eq!(flat(&s), black);
+    s.execute("layer.smartFilter.setVisible", json!({"visible":false})).unwrap();
+    assert_eq!(flat(&s), original);
+    s.execute("layer.smartFilter.setVisible", json!({"visible":true})).unwrap();
+    assert_eq!(flat(&s), black);
+    std::fs::remove_dir(&dir).unwrap();
+}
+
+#[test]
 fn conversion_is_pixel_identical_at_every_depth() {
     for depth in DEPTHS {
         let mut s = session(depth);
@@ -987,4 +1029,40 @@ fn smart_resource_nested_psd_linked_source_remains_editable() {
     assert_eq!(name, "source.png");
     assert_eq!(bytes.as_ref(), &png);
     assert_eq!(decode_source(&name, &bytes).unwrap().size, Size::new(10, 8));
+}
+
+/// Exported contents are a fresh document whose own linked smart objects name stored paths: an
+/// untrusted session's PSD of them embeds none of those files, a trusted one embeds them.
+#[test]
+fn gated_contents_exports_embed_no_file_a_nested_link_names() {
+    use photocraft_color::SampleType;
+    let dir = std::env::temp_dir().join(format!("pcraft-smart-gated-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let image = Document::with_background("blue", Size::new(8, 8), ColorMode::Rgb, SampleType::U8, photocraft_color::Color::rgba(0.0, 0.0, 1.0, 1.0));
+    let png = photocraft_io::export(&image, "png", &Default::default()).unwrap().bytes;
+    let outside = dir.join("outside.png");
+    std::fs::write(&outside, &png).unwrap();
+    let mut inner = Document::new("inner", Size::new(8, 8), ColorMode::Rgb, SampleType::U8);
+    let link = SmartObject::new(SmartSource::Linked { path: outside.to_string_lossy().into_owned() }, Affine::IDENTITY, image.layers[0].surface().cloned());
+    inner.layers.push(Layer::new("link", LayerContent::Smart(link)));
+    let contents = encode_source(&inner).unwrap();
+    let mut s = session(8);
+    paint(&mut s);
+    convert(&mut s);
+    s.edit("nest", |doc, active| {
+        let Some(LayerContent::Smart(sm)) = doc.layer_mut(active.unwrap()).map(|l| &mut l.content) else { panic!("smart") };
+        sm.source = SmartSource::Embedded { file_name: "inner.pcraft".into(), bytes: Arc::new(contents) };
+        Ok(())
+    })
+    .unwrap();
+    let has_png = |bytes: &[u8]| bytes.windows(png.len()).any(|w| w == png.as_slice());
+    let out = dir.join("contents.psd");
+    let export = |s: &mut Session| {
+        s.execute("layer.smartObjects.exportContents", json!({"path": out.to_str().unwrap()})).unwrap();
+        std::fs::read(&out).unwrap()
+    };
+    assert!(has_png(&export(&mut s)), "a trusted export embeds the linked file");
+    s.authorize = Some(|_, _| Ok(()));
+    assert!(!has_png(&export(&mut s)), "an untrusted export does not");
+    std::fs::remove_dir_all(dir).unwrap();
 }

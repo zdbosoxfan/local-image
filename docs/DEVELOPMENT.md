@@ -31,10 +31,11 @@ The earlier 0.7 Python/WebView implementation remains available in Git history.
 
 TLS uses rustls with the ring provider because the pure-Rust rustls-rustcrypto provider carried
 unfixed RustSec advisories. Under the 2026-10-25 TLS security decision, ring (`Apache-2.0 AND ISC`)
-is the only allowed C/assembly dependency, and only under rustls (directly or via rustls-webpki).
-The `deps-pure` check enforces this exception: `ring` is allowed only under `rustls` or
-`rustls-webpki`, and its `cc` build dependency only under `ring`; existing known `cc` parents
-are listed separately in xtask.
+is the one C/assembly dependency added for TLS, and only under rustls (directly or via
+rustls-webpki). The `deps-pure` check enforces this: `ring` is allowed only under `rustls` or
+`rustls-webpki`, and its `cc` build dependency only under `ring`. Older C/assembly code is still
+allowed through xtask's `CC_KNOWN` list: tract-linalg's assembly kernels (used by li-seg's ONNX
+inference), wayland-backend's log shim, and platform-only crates.
 
 ## Build and run
 
@@ -110,6 +111,11 @@ cargo run -p photocraft-ui-egui --example snapshot -- --out browser.png --size 1
   --script '[["ui.menu.invoke", {"id": "li.browseModels"}], ["sleep", {"ms": 1500}]]'
 ```
 
+For synthetic Set Up Models states, build the `snapshot` example with `snapshot-fixtures` and
+pass `--model-setup-scene ready-check` (or a scene listed in `model_setup/snapshots.rs`). This
+uses the real window and shared widgets without a server or model renders; `ui.set` can select
+`pro` or `studioLight` for the usual 1440x900 and 1024x700 comparisons.
+
 ## Model family profiles
 
 A family is a JSON file in `crates/li-ai/families/` (schema in `crates/li-ai/src/family.rs`).
@@ -118,7 +124,21 @@ Derived families set `base` and override only what differs. To add or change one
 1. Edit or add the profile; bump its `version` and the matching entry in `index.json`.
 2. `cargo test -p li-ai` checks every profile (files need a 64-hex SHA-256, a size, and a
    `.safetensors` or `.gguf` name) and builds every family's graphs against the mock.
-3. Once merged to `v2`, apps pick it up with **Model Browser › Update Model Profiles**.
+3. Once merged to `main`, apps pick it up with **Model Browser › Update Model Profiles**.
+   A profile with a newer `schema` than the released app reads is skipped by that app (it keeps
+   its built-in copy), so publish schema-2 profiles to `main` only after the app release that
+   reads them.
+
+A model that ComfyUI ships an official template for needs no profile to run (see
+[MODEL-SETUP.md](MODEL-SETUP.md)). A profile then adds polish: a `detect` block (tensor rules for
+a new architecture; a block that claims a built-in architecture's tensors must name it in
+`refines`), variants, LoRA rules and a `template` block (stems for renamed files, preferred
+templates, value fixes by role such as `"edit.cfg": 3.5`, the negative prompt and fill method).
+`families/runtime.json` holds the data model setup shares across models (equivalent files, VAE
+latent channels, pinned mirrors, precision and GPU rules, custom-node packs, error patterns); bump
+its `version` with each change. The template fixtures under
+`crates/li-ai/tests/fixtures/comfy-0.42.5/` are refreshed with `cargo test -p li-ai --test
+ai_fixtures -- --ignored` (see that test for its inputs) when a ComfyUI release changes templates.
 
 ## Packaging
 
@@ -129,8 +149,11 @@ Packaging is Rust too (`xtask/`, run through the `cargo xtask` alias):
 * **Linux:** `cargo xtask package linux` writes
   `dist/release/local-image-<version>-linux-<arch>.tar.gz` and its `.sha256` (app, CLI, README,
   licences and all referenced attribution texts). Run `cargo xtask attributions` after changing
-  the curated credits, port records or dependency graph. After unpacking, `./local-image --install` adds it to the application menu for the
-  current user (`--install --system` for `/usr/local`, `--uninstall` to remove it).
+  the curated credits, port records or dependency graph. From the unpacked folder, run
+  `./local-image --install`: it copies the app to `~/.local/bin`,
+  links `local-image-cli` to it and adds the menu entry. Use `sudo ./local-image --install --system`
+  for `/usr/local`, `local-image --uninstall` to remove a user install, or
+  `sudo /usr/local/bin/local-image --uninstall --system` to remove a system install.
 * **Windows:** `cargo xtask package windows --arch x64` builds with a static CRT, checks the PE
   headers, and writes an MSI (WiX v5: `dotnet tool install -g wix`) and a portable zip
   (`portable.txt` keeps settings in `LocalImageData\` beside the exe). Both are signed when

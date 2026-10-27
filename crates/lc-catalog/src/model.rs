@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use lightcraft_develop::DevelopSettings;
+use lightcraft_develop::{DevelopSettings, WbMode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -165,6 +165,9 @@ pub struct Meta {
     pub camera: String,
     pub lens: String,
     pub focal_mm: Option<f32>,
+    /// EXIF FocalLengthIn35mmFormat (Upright's camera model on any sensor size).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focal_35mm: Option<f32>,
     pub aperture: Option<f32>,
     pub shutter: String,
     pub iso: Option<u32>,
@@ -397,9 +400,21 @@ impl Photo {
     pub fn in_library(&self) -> bool {
         !self.deleted && !self.local
     }
-    /// Edited by the user: settings differ from what import gave the photo.
+    /// Edited by the user: settings differ from what import gave the photo. As Shot renders the
+    /// white balance the source reports, so the numbers stored with it (they label the sliders)
+    /// don't count.
     pub fn is_edited(&self) -> bool {
-        *self.develop != self.import_defaults() && !self.develop.is_unedited()
+        let base = self.import_defaults();
+        if *self.develop == base || self.develop.is_unedited() {
+            return false;
+        }
+        let (wb, base_wb) = (self.develop.wb, base.wb);
+        if wb.mode == WbMode::AsShot && base_wb.mode == WbMode::AsShot && wb != base_wb {
+            let mut same_wb = (*self.develop).clone();
+            same_wb.wb = base_wb;
+            return same_wb != base;
+        }
+        true
     }
     /// Capture time if known, else import time (sort key).
     pub fn date(&self) -> &str {
@@ -456,6 +471,20 @@ mod edited_tests {
         assert!(p.is_edited());
         p.develop = Arc::new(DevelopSettings::default());
         assert!(!p.is_edited(), "a full reset is unedited too");
+    }
+
+    #[test]
+    fn as_shot_slider_labels_are_not_an_edit() {
+        let mut p = Photo::new(PhotoId(1), Source::Demo { scene: 0 }, "a.dng", "DNG", 10, 10, "2026-10-01T00:00:00");
+        p.kind = MediaKind::Raw;
+        p.as_shot_wb = Some((5200.0, 4.0));
+        let mut d = p.import_defaults();
+        (d.wb.temp, d.wb.tint) = (5213.0, 3.0);
+        p.develop = Arc::new(d.clone());
+        assert!(!p.is_edited(), "As Shot from the decoder's numbers is still the import look");
+        d.wb.mode = WbMode::Custom;
+        p.develop = Arc::new(d);
+        assert!(p.is_edited(), "a custom balance is an edit");
     }
 
     #[test]

@@ -41,3 +41,17 @@ fn opening_another_library_drops_the_old_librarys_cached_panels() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn reference_photo_ids_do_not_cross_library_boundaries() {
+    let dir = std::env::temp_dir().join(format!("li-reference-switch-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo().with_fs(), Services::default());
+    app.run("photo.setReference", json!({})).unwrap();
+    app.run("view.reference", json!({})).unwrap();
+    app.run("app.openLibrary", json!({"path":dir.to_string_lossy()})).unwrap();
+    assert_eq!(app.ui.reference, None);
+    assert_eq!(app.ui.view, crate::state::ViewMode::PhotoGrid);
+    app.session.close_library().unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}

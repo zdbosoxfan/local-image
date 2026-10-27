@@ -236,26 +236,39 @@ pub struct Detected {
     pub family: Option<String>,
     /// Why: the deciding tensor, shape or metadata key (shown in the model manager).
     pub evidence: String,
+    /// What the weights say beyond the family (`4b`, `9b` for FLUX.2 Klein).
+    pub variant: Option<String>,
 }
 
 impl Detected {
     fn new(kind: FileKind, family: Option<&str>, evidence: impl Into<String>) -> Self {
-        Self { kind, family: family.map(str::to_owned), evidence: evidence.into() }
+        Self { kind, family: family.map(str::to_owned), evidence: evidence.into(), variant: None }
+    }
+    fn with_variant(mut self, variant: Option<&str>) -> Self {
+        self.variant = variant.map(str::to_owned);
+        self
     }
 }
 
 /// The family a `modelspec.architecture` value names (SAI model spec; also written by kohya and
-/// most trainers), e.g. `stable-diffusion-xl-v1-base`, `flux-1-dev`, `qwen-image`.
+/// most trainers), e.g. `stable-diffusion-xl-v1-base`, `flux-1-dev`, `qwen-image`. A value naming a
+/// generation nothing describes (`flux-3-…`, `hidream-o1`) maps to nothing.
 pub fn family_from_modelspec(arch: &str) -> Option<&'static str> {
     let a = arch.to_ascii_lowercase();
     let a = a.split('/').next().unwrap_or("");
+    let generation = crate::detect::generation(a);
+    if let crate::detect::Gen::Unknown(_) = generation {
+        return None;
+    }
     Some(match a {
         _ if a.starts_with("stable-diffusion-xl") || a.starts_with("sdxl") => "sdxl",
         _ if a.starts_with("stable-diffusion-v1") || a == "sd1" || a.starts_with("sd-1") => "sd15",
         _ if a.starts_with("stable-diffusion-v3") || a.starts_with("sd3") => "sd35",
-        _ if a.starts_with("flux-2") || a.starts_with("flux.2") || a.starts_with("flux2") => "flux2",
+        _ if generation == crate::detect::Gen::Known("flux2") && a.contains("klein") => "flux2-klein",
+        _ if generation == crate::detect::Gen::Known("flux2") => "flux2",
         _ if a.starts_with("flux") => "flux1",
         _ if a.starts_with("qwen-image-edit") => "qwen-edit",
+        _ if generation == crate::detect::Gen::Known("qwen-image-21") => "qwen-image-21",
         _ if a.starts_with("qwen-image") || a.starts_with("qwen_image") => "qwen-image",
         _ if a.starts_with("hidream") => "hidream",
         _ if a.starts_with("z-image") || a.starts_with("zimage") => "z-image",
@@ -266,15 +279,22 @@ pub fn family_from_modelspec(arch: &str) -> Option<&'static str> {
     })
 }
 
-/// kohya's `ss_base_model_version` (`sd_v1`, `sdxl_base_v1-0`, `flux1`, `sd3`…).
+/// kohya's `ss_base_model_version` (`sd_v1`, `sdxl_base_v1-0`, `flux1`, `flux2_klein_4b`, `sd3`…),
+/// with the same generation veto as [`family_from_modelspec`].
 fn family_from_kohya(v: &str) -> Option<&'static str> {
     let v = v.to_ascii_lowercase();
+    let generation = crate::detect::generation(&v);
+    if let crate::detect::Gen::Unknown(_) = generation {
+        return None;
+    }
     Some(match v.as_str() {
         _ if v.starts_with("sdxl") => "sdxl",
         _ if v.starts_with("sd_v1") || v.starts_with("sd1") => "sd15",
         _ if v.starts_with("sd3") => "sd35",
-        _ if v.starts_with("flux2") || v.starts_with("flux_2") => "flux2",
+        _ if generation == crate::detect::Gen::Known("flux2") && v.contains("klein") => "flux2-klein",
+        _ if generation == crate::detect::Gen::Known("flux2") => "flux2",
         _ if v.starts_with("flux") => "flux1",
+        _ if generation == crate::detect::Gen::Known("qwen-image-21") => "qwen-image-21",
         _ if v.contains("qwen") => "qwen-image",
         _ if v.contains("hidream") => "hidream",
         _ if v.contains("lumina") || v.contains("z_image") || v.contains("zimage") => "z-image",
@@ -296,17 +316,26 @@ fn sdxl_flavour(h: &Header, file_name: &str) -> &'static str {
     }
 }
 
-/// Name hints for what the weights alone cannot tell apart.
-fn refine_by_name(family: &str, file_name: &str) -> String {
+/// Name hints for what the weights alone cannot tell apart. `None` when the name names a
+/// generation nothing describes; callers whose weights already decided keep their family.
+fn refine_by_name(family: &str, file_name: &str) -> Option<String> {
     let n = file_name.to_ascii_lowercase();
-    match family {
+    let generation = crate::detect::generation(&n);
+    if let crate::detect::Gen::Unknown(_) = generation {
+        return None;
+    }
+    Some(match family {
         "qwen-image" if n.contains("edit") => "qwen-edit".into(),
-        "qwen-image" if n.contains("2.1") || n.contains("2_1") || n.contains("21") && n.contains("qwen_image_2") => "qwen-image-21".into(),
+        "qwen-image" if generation == crate::detect::Gen::Known("qwen-image-21") => "qwen-image-21".into(),
         "flux2" if n.contains("klein") => "flux2-klein".into(),
         "flux1" if n.contains("kontext") => "flux1-kontext".into(),
-        "flux1" if n.contains("schnell") => "flux1".into(),
         f => f.to_owned(),
-    }
+    })
+}
+
+/// [`refine_by_name`] where the weights decided: a contradicting name keeps the weights' family.
+fn refined(family: &str, file_name: &str) -> String {
+    refine_by_name(family, file_name).unwrap_or_else(|| family.to_owned())
 }
 
 /// Identifies a file from its header (and name, for the cases weights cannot decide).
@@ -316,7 +345,7 @@ pub fn classify(h: &Header, file_name: &str) -> Detected {
         let kind = if a.to_ascii_lowercase().contains("lora") || is_lora(h) { FileKind::Lora } else { kind_of(h) };
         if let Some(fam) = family_from_modelspec(a) {
             let fam = if fam == "sdxl" { sdxl_flavour(h, file_name) } else { fam };
-            return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("modelspec.architecture = {a}"));
+            return Detected::new(kind, Some(&refined(fam, file_name)), format!("modelspec.architecture = {a}"));
         }
     }
     if let Some(v) = h.meta("ss_base_model_version")
@@ -324,9 +353,15 @@ pub fn classify(h: &Header, file_name: &str) -> Detected {
     {
         let fam = if fam == "sdxl" { sdxl_flavour(h, file_name) } else { fam };
         let kind = if is_lora(h) { FileKind::Lora } else { kind_of(h) };
-        return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("ss_base_model_version = {v}"));
+        return Detected::new(kind, Some(&refined(fam, file_name)), format!("ss_base_model_version = {v}"));
     }
     if h.gguf {
+        // GGUF tools tag FLUX.1, FLUX.2, Klein and Chroma all as `flux` (and Z-Image and Lumina 2
+        // as `lumina2`), so the tensors decide first and the tag only fills in.
+        let w = classify_weights(h, file_name);
+        if w.family.is_some() && w.evidence != "file name" {
+            return Detected { kind: FileKind::DiffusionModel, evidence: format!("GGUF {}", w.evidence), ..w };
+        }
         let arch = h.meta("general.architecture").unwrap_or("");
         let fam = match arch {
             "flux" if h.any_contains("double_stream_modulation") => Some("flux2"),
@@ -337,11 +372,10 @@ pub fn classify(h: &Header, file_name: &str) -> Detected {
             "hidream" => Some("hidream"),
             "lumina2" => Some("z-image"),
             "qwen_image" => Some("qwen-image"),
-            "chroma" => Some("chroma"),
             _ => None,
         };
         if let Some(f) = fam {
-            return Detected::new(FileKind::DiffusionModel, Some(&refine_by_name(f, file_name)), format!("GGUF general.architecture = {arch}"));
+            return Detected::new(FileKind::DiffusionModel, refine_by_name(f, file_name).as_deref(), format!("GGUF general.architecture = {arch}"));
         }
     }
     if is_lora(h) {
@@ -353,7 +387,16 @@ pub fn classify(h: &Header, file_name: &str) -> Detected {
 fn is_lora(h: &Header) -> bool {
     h.tensors.iter().any(|t| {
         let n = &t.name;
-        n.contains("lora_down") || n.contains("lora_up") || n.contains("lora_A.") || n.contains("lora_B.") || n.ends_with(".lokr_w1") || n.contains(".hada_w1")
+        n.contains("lora_down")
+            || n.contains("lora_up")
+            || n.contains("lora_A.")
+            || n.contains("lora_B.")
+            || n.ends_with(".lora_A")
+            || n.ends_with(".lora_B")
+            || n.contains(".lora.down.")
+            || n.contains(".lora.up.")
+            || n.ends_with(".lokr_w1")
+            || n.contains(".hada_w1")
     })
 }
 
@@ -368,6 +411,23 @@ fn kind_of(h: &Header) -> FileKind {
         _ if h.any_contains("decoder.conv_in.weight") || h.any_contains("decoder.up_blocks") || h.any_contains("decoder.up.") => FileKind::Vae,
         _ if h.any_contains("text_model.encoder.layers") || h.any_contains("encoder.block.") || h.any_contains("model.layers.") => FileKind::TextEncoder,
         _ => FileKind::Unknown,
+    }
+}
+
+/// What a file listed by a loader of kind `listed` is. A LoRA is a LoRA wherever it sits; a
+/// unified multimodal checkpoint (HiDream-O1: a language model plus diffusion heads) is a
+/// checkpoint although its layers look like a text encoder's; a layout the kind rules don't
+/// know keeps the loader's kind.
+pub fn kind_for(h: &Header, listed: FileKind) -> FileKind {
+    if is_lora(h) || h.meta("modelspec.architecture").is_some_and(|a| a.to_ascii_lowercase().contains("lora")) {
+        return FileKind::Lora;
+    }
+    if h.any_prefix("model.language_model.") && (h.any_contains("t_embedder") || h.any_contains("final_layer")) {
+        return FileKind::Checkpoint;
+    }
+    match kind_of(h) {
+        FileKind::Unknown => listed,
+        k => k,
     }
 }
 
@@ -399,20 +459,23 @@ fn classify_weights(h: &Header, file_name: &str) -> Detected {
     if h.any_contains("double_stream_blocks.0.block.") || h.any_contains("caption_projection.0.linear") {
         return Detected::new(kind, Some("hidream"), "double_stream_blocks (HiDream)");
     }
-    // FLUX.2 (modulation shared across blocks). Its size (SwarmUI's rule): the modulation's
-    // output width is 36864 for dev, 24576 for Klein 9B, 18432 for Klein 4B.
-    if h.any_contains("double_stream_modulation_img") || h.any_contains("single_stream_modulation") {
-        let width = h.find_suffix("double_stream_modulation_img.lin.weight").map(|t| t.shape.iter().copied().max().unwrap_or(0)).unwrap_or(0);
-        let fam = match width {
-            18432 | 24576 => "flux2-klein",
-            36864 => "flux2",
-            // Unknown width: the text input (3 × the text encoder's width) tells Klein from dev.
-            _ => match h.find_suffix("txt_in.weight").and_then(|t| t.shape.get(1).copied()) {
-                Some(7680) | Some(12288) => "flux2-klein",
-                _ => "flux2",
-            },
+    // FLUX.2 (modulation shared across blocks), by its exact tensor names: FLUX.3's plural
+    // `single_stream_modulations.*` is another network. Its size (SwarmUI's rule): the
+    // modulation's output width is 36864 for dev, 24576 for Klein 9B, 18432 for Klein 4B.
+    let flux2_modulation = h.find_suffix("double_stream_modulation_img.lin.weight");
+    if flux2_modulation.is_some() || h.find_suffix("single_stream_modulation.lin.weight").is_some() {
+        let width = flux2_modulation.map(|t| crate::identify::logical_shape(h, t).into_iter().max().unwrap_or(0)).unwrap_or(0);
+        // Unknown width: the text input (3 × the text encoder's width) tells Klein from dev.
+        let text_in = h.find_suffix("txt_in.weight").and_then(|t| crate::identify::logical_shape(h, t).get(1).copied());
+        let (fam, variant) = match (width, text_in) {
+            (24576, _) | (0, Some(12288)) => ("flux2-klein", Some("9b")),
+            (18432, _) | (0, Some(7680)) => ("flux2-klein", Some("4b")),
+            (36864, _) => ("flux2", None),
+            (_, Some(12288)) => ("flux2-klein", Some("9b")),
+            (_, Some(7680)) => ("flux2-klein", Some("4b")),
+            _ => ("flux2", None),
         };
-        return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("FLUX.2 modulation {width}"));
+        return Detected::new(kind, Some(&refined(fam, file_name)), format!("FLUX.2 modulation {width}")).with_variant(variant);
     }
     // Qwen Image 2.1 (its own text norm and modulation).
     if h.any_contains("txt_in.text_norm.weight") && h.any_contains("modulation.1.weight") {
@@ -436,7 +499,7 @@ fn classify_weights(h: &Header, file_name: &str) -> Detected {
         };
         let guidance = h.any_contains("guidance_in.");
         let what = if guidance { "dev" } else { "schnell" };
-        return Detected::new(kind, Some(&refine_by_name(fam, file_name)), format!("double_blocks, img_in {img_in} (FLUX.1 {what})"));
+        return Detected::new(kind, Some(&refined(fam, file_name)), format!("double_blocks, img_in {img_in} (FLUX.1 {what})"));
     }
     // Qwen Image (MMDiT with img_mod/txt_mod). Edit 2511 carries a marker key; plain Edit and
     // 2509 match the text-to-image weights, so the name decides.
@@ -444,14 +507,20 @@ fn classify_weights(h: &Header, file_name: &str) -> Detected {
         if h.has("__index_timestep_zero__") {
             return Detected::new(kind, Some("qwen-edit"), "__index_timestep_zero__ (Qwen Image Edit 2511)");
         }
-        return Detected::new(kind, Some(&refine_by_name("qwen-image", file_name)), "img_mod + txt_norm (Qwen Image)");
+        return Detected::new(kind, Some(&refined("qwen-image", file_name)), "img_mod + txt_norm (Qwen Image)");
     }
     // Z-Image and Lumina 2 (NextDiT): the caption embedder's width is 3840 for Z-Image, 2304 for
-    // Lumina 2.
+    // Lumina 2. Z-Image has a plain `x_embedder` and fused attention `qkv`; Ming-Image shares the
+    // caption width but has neither.
     if h.any_contains("cap_embedder.") && h.any_contains("noise_refiner.") {
         let cap = h.find_suffix("cap_embedder.1.weight").and_then(|t| t.shape.first().copied()).unwrap_or(0);
-        let fam = if cap == 2304 { "lumina2" } else { "z-image" };
-        return Detected::new(kind, Some(fam), format!("cap_embedder {cap} (NextDiT)"));
+        if cap == 2304 {
+            return Detected::new(kind, Some("lumina2"), format!("cap_embedder {cap} (NextDiT)"));
+        }
+        let plain_embedder = h.tensors.iter().any(|t| t.name == "x_embedder.weight" || t.name.ends_with(".x_embedder.weight"));
+        if plain_embedder && h.find_suffix("layers.0.attention.qkv.weight").is_some() {
+            return Detected::new(kind, Some("z-image"), format!("cap_embedder {cap} (NextDiT)"));
+        }
     }
     let n = file_name.to_ascii_lowercase();
     if n.contains("ernie") {
@@ -463,13 +532,21 @@ fn classify_weights(h: &Header, file_name: &str) -> Detected {
     Detected::new(kind, None, "no known layout")
 }
 
+/// The width (in-features) of a LoRA's first matching down/A projection.
+fn lora_width(h: &Header, module: &str) -> Option<u64> {
+    h.tensors
+        .iter()
+        .find(|t| t.name.contains(module) && (t.name.contains("lora_down") || t.name.contains("lora_A") || t.name.contains(".lora.down")))
+        .and_then(|t| t.shape.get(1).copied())
+}
+
 fn classify_lora(h: &Header, file_name: &str) -> Detected {
     let lora = |fam: &str, why: &str| Detected::new(FileKind::Lora, Some(fam), why.to_owned());
     if let Some(v) = h.meta("ss_base_model_version")
         && let Some(f) = family_from_kohya(v)
     {
         let f = if f == "sdxl" { sdxl_flavour(h, file_name) } else { f };
-        return lora(&refine_by_name(f, file_name), &format!("ss_base_model_version = {v}"));
+        return lora(&refined(f, file_name), &format!("ss_base_model_version = {v}"));
     }
     let names = |part: &str| h.any_contains(part);
     if names("lora_te2_") || names("lora_unet_label_emb") || names("input_blocks_4_1_transformer_blocks_9") {
@@ -484,11 +561,23 @@ fn classify_lora(h: &Header, file_name: &str) -> Detected {
     if names("double_stream_blocks") {
         return lora("hidream", "double_stream_blocks (HiDream)");
     }
+    // Qwen Image is 3072 wide; Qwen Image 2.1 is 4096 wide.
     if names("img_mod") && names("txt_mlp") || names("transformer_blocks.0.img_mlp") {
-        return lora(&refine_by_name("qwen-image", file_name), "img_mod/img_mlp (Qwen Image)");
+        if lora_width(h, "transformer_blocks.0.attn.to_q") == Some(4096) || lora_width(h, "transformer_blocks.0.img_mlp") == Some(4096) {
+            return lora("qwen-image-21", "img_mlp 4096 wide (Qwen Image 2.1)");
+        }
+        return lora(&refined("qwen-image", file_name), "img_mod/img_mlp (Qwen Image)");
     }
-    if names("noise_refiner") || names("context_refiner") || names("layers.0.attention.qkv") && names("adaLN") {
-        return lora("z-image", "NextDiT layers (Z-Image)");
+    // NextDiT: Z-Image is 3840 wide (fused qkv out 11520); Fibo is 3584 wide with cross-attention.
+    if (names("noise_refiner") || names("context_refiner") || names("layers.0.attention.qkv") && names("adaLN")) && !names("cross_attention") {
+        let qkv_out = h
+            .tensors
+            .iter()
+            .find(|t| t.name.contains("layers.0.attention.qkv") && (t.name.contains("lora_up") || t.name.contains("lora_B")))
+            .and_then(|t| t.shape.first().copied());
+        if qkv_out.is_none_or(|w| w == 11520) {
+            return lora("z-image", "NextDiT layers (Z-Image)");
+        }
     }
     if names("double_blocks") || names("single_blocks") || names("single_transformer_blocks") {
         // FLUX.1 has 19 double / 38 single blocks; FLUX.2 dev 48 single blocks, Klein 9B 24,
@@ -502,7 +591,24 @@ fn classify_lora(h: &Header, file_name: &str) -> Detected {
             (d, s) if d > 0 && d < 19 && s < 38 => "flux2-klein",
             _ => "flux1",
         };
-        return lora(&refine_by_name(fam, file_name), &format!("{double} double / {single} single blocks"));
+        return lora(&refined(fam, file_name), &format!("{double} double / {single} single blocks"));
+    }
+    // Diffusers attention-only LoRAs (`transformer_blocks.N.attn.to_q`): width and depth tell
+    // the networks apart (Qwen 2.1 32 x 4096, Klein 9B 8 x 4096, Klein 4B 5 x 3072, Qwen 60 x 3072).
+    if let Some(width) = lora_width(h, "transformer_blocks.0.attn.to_q") {
+        let blocks = h.block_count("transformer_blocks.");
+        let fam = match (width, blocks) {
+            (4096, b) if b > 8 => Some("qwen-image-21"),
+            (4096, _) => Some("flux2-klein"),
+            (3072, b) if b > 19 => Some("qwen-image"),
+            (3072, 19) => Some("flux1"),
+            (3072, b) if b <= 5 => Some("flux2-klein"),
+            (6144, b) if b <= 8 => Some("flux2"),
+            _ => None,
+        };
+        if let Some(fam) = fam {
+            return lora(fam, &format!("{blocks} transformer blocks x {width}"));
+        }
     }
     Detected::new(FileKind::Lora, None, "LoRA of an unknown family")
 }
@@ -526,48 +632,56 @@ pub fn name_looks_like_lora(file_name: &str) -> bool {
 }
 
 /// Best guess from the name alone (for remote ComfyUI installs where the file can't be read).
-/// A name that says LoRA is no main model (`folder_kind` checkpoint or diffusion model).
+/// A name that says LoRA is no main model (`folder_kind` checkpoint or diffusion model). A name
+/// that names a generation nothing describes (`flux3`, `hidream_o1`) is no guess at all.
 pub fn guess_from_name(file_name: &str, folder_kind: FileKind) -> Option<String> {
+    use crate::detect::Gen;
     if matches!(folder_kind, FileKind::Checkpoint | FileKind::DiffusionModel) && name_looks_like_lora(file_name) {
         return None;
     }
     let n = file_name.to_ascii_lowercase();
+    let generation = crate::detect::generation(&n);
+    match generation {
+        Gen::Unknown(_) => return None,
+        Gen::Known("qwen-image-21") => return Some("qwen-image-21".into()),
+        _ => {}
+    }
+    let flux1_or_none = matches!(generation, Gen::Known("flux1") | Gen::None);
+    let flux2_or_none = matches!(generation, Gen::Known("flux2") | Gen::None);
     let pick = [
-        ("qwen_image_2.1", "qwen-image-21"),
-        ("qwen-image-2.1", "qwen-image-21"),
-        ("qwen_image_edit", "qwen-edit"),
-        ("qwen-image-edit", "qwen-edit"),
-        ("qwen_image", "qwen-image"),
-        ("qwen-image", "qwen-image"),
-        ("flux-2-klein", "flux2-klein"),
-        ("flux2-klein", "flux2-klein"),
-        ("flux2_klein", "flux2-klein"),
-        ("klein", "flux2-klein"),
-        ("flux2", "flux2"),
-        ("flux-2", "flux2"),
-        ("flux.2", "flux2"),
-        ("kontext", "flux1-kontext"),
-        ("flux1-fill", "flux1-fill"),
-        ("flux", "flux1"),
-        ("hidream", "hidream"),
-        ("z_image", "z-image"),
-        ("z-image", "z-image"),
-        ("zimage", "z-image"),
-        ("ernie", "ernie"),
-        ("sd3.5", "sd35"),
-        ("sd3_5", "sd35"),
-        ("sd35", "sd35"),
-        ("pony", "pony"),
-        ("illustrious", "illustrious"),
-        ("noobai", "illustrious"),
-        ("sdxl", "sdxl"),
-        ("xl", "sdxl"),
-        ("v1-5", "sd15"),
-        ("sd15", "sd15"),
-        ("sd_1.5", "sd15"),
-        ("seedvr2", "seedvr2"),
+        ("qwen_image_edit", "qwen-edit", true),
+        ("qwen-image-edit", "qwen-edit", true),
+        ("qwen_image", "qwen-image", true),
+        ("qwen-image", "qwen-image", true),
+        ("flux-2-klein", "flux2-klein", true),
+        ("flux2-klein", "flux2-klein", true),
+        ("flux2_klein", "flux2-klein", true),
+        ("klein", "flux2-klein", flux2_or_none),
+        ("flux2", "flux2", true),
+        ("flux-2", "flux2", true),
+        ("flux.2", "flux2", true),
+        ("kontext", "flux1-kontext", flux1_or_none),
+        ("flux1-fill", "flux1-fill", true),
+        ("flux", "flux1", flux1_or_none),
+        ("hidream", "hidream", true),
+        ("z_image", "z-image", true),
+        ("z-image", "z-image", true),
+        ("zimage", "z-image", true),
+        ("ernie", "ernie", true),
+        ("sd3.5", "sd35", true),
+        ("sd3_5", "sd35", true),
+        ("sd35", "sd35", true),
+        ("pony", "pony", true),
+        ("illustrious", "illustrious", true),
+        ("noobai", "illustrious", true),
+        ("sdxl", "sdxl", true),
+        ("xl", "sdxl", true),
+        ("v1-5", "sd15", true),
+        ("sd15", "sd15", true),
+        ("sd_1.5", "sd15", true),
+        ("seedvr2", "seedvr2", true),
     ];
-    pick.iter().find(|(k, _)| n.contains(k)).map(|(_, f)| (*f).to_owned())
+    pick.iter().find(|(k, _, allowed)| *allowed && n.contains(k)).map(|(_, f, _)| (*f).to_owned())
 }
 
 #[cfg(test)]
@@ -634,7 +748,15 @@ mod tests {
         assert_eq!(fam(&qwen, "qwen_image_edit_2509_fp8.safetensors").1.as_deref(), Some("qwen-edit"));
         let sd3 = header(&[("joint_blocks.0.context_block.attn.qkv.weight", &[4608, 1536]), ("joint_blocks.23.x_block.mlp.fc1.weight", &[1, 1])], Value::Null);
         assert_eq!(fam(&sd3, "sd3.5_medium.safetensors").1.as_deref(), Some("sd35"));
-        let z = header(&[("cap_embedder.1.weight", &[3840, 2560]), ("noise_refiner.0.attention.qkv.weight", &[11520, 3840])], Value::Null);
+        let z = header(
+            &[
+                ("cap_embedder.1.weight", &[3840, 2560]),
+                ("noise_refiner.0.attention.qkv.weight", &[11520, 3840]),
+                ("x_embedder.weight", &[3840, 64]),
+                ("layers.0.attention.qkv.weight", &[11520, 3840]),
+            ],
+            Value::Null,
+        );
         let lumina = header(&[("cap_embedder.1.weight", &[2304, 2304]), ("noise_refiner.0.attention.qkv.weight", &[1, 1])], Value::Null);
         assert_eq!(fam(&lumina, "lumina_2.safetensors").1.as_deref(), Some("lumina2"));
         let edit = header(&[("transformer_blocks.0.img_mod.1.weight", &[1, 1]), ("txt_norm.weight", &[3584]), ("__index_timestep_zero__", &[1])], Value::Null);

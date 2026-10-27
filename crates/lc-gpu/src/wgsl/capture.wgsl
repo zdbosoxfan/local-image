@@ -1,7 +1,8 @@
 // Capture sharpening: twin of lc-pipeline/src/capture.rs. darktable capture.c at
 // 733bd69f32cac7ff5e41025115942772add1f088; GPL-3.0-or-later.
 // Copyright (C) 2025-2026 darktable developers; algorithm by Ingo Weyrich (RawTherapee).
-// P: width, height, sigma, threshold, corner boost, centre, clip enabled, clip, sensor mask enabled.
+// P: width, height, sigma, threshold, corner boost, centre, clip enabled, clip, sensor mask enabled,
+// mask blur reach.
 // RL uses the true, disc-truncated Gaussian table, NOT separable/box approximations.
 
 fn capture_rgb(i: u32) -> vec3<f32> {
@@ -84,6 +85,15 @@ fn capture_blend(@builtin(global_invocation_id) g: vec3<u32>) {
     let wt=1.0/(1.0+exp(5.0-10.0*(a[i]-b[i])));
     dst[i]=clamp(wt*a[i]+(1.0-wt)*b[i],0.0,1.0);
     if(pu(8u)!=0u && img[i]>0.0) {dst[i]=0.0;}
+    // `blend_mask`: zero where the exact blur is, beyond the reach of every positive mask pixel.
+    let r=pu(9u);
+    var near=false;
+    for(var y=max(g.y,r)-r;y<=min(g.y+r,h-1u) && !near;y++) {
+        for(var x=max(g.x,r)-r;x<=min(g.x+r,w-1u);x++) {
+            if(a[y*w+x]>0.0) {near=true; break;}
+        }
+    }
+    if(!near) {dst[i]=0.0;}
 }
 
 // A 16x16 workgroup loads one 24x24 tile including the largest (4px) halo.

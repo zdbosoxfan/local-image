@@ -116,7 +116,7 @@ fn layout16_app_rtx_pointer_crop_live_release_cancel_undo_zoom_parity() {
         assert_eq!(h.state().session.journal.len(), journal);
         let live = h.render().unwrap();
         let xf = ViewXform::active(h.state()).unwrap();
-        let outside = xf.to_screen(90., 45.) * h.ctx.pixels_per_point();
+        let outside = xf.to_screen(90.5, 45.5) * h.ctx.pixels_per_point();
         let pixel = live.get_pixel(outside.x.floor() as u32, outside.y.floor() as u32);
         assert_eq!(&pixel.0[..3], &[255, 255, 255], "crop reveals the white background outside its right edge");
 

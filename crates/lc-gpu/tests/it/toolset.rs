@@ -1160,6 +1160,15 @@ fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
                 assert_eq!(cached.data, fresh.data, "WB/profile cache invalidation");
             }
         }
+        // the look table sees the exposed values, so exposure re-keys the linear stage
+        for exposure in [-1.5, 0.0, 1.5] {
+            let mut s = DevelopSettings::default();
+            s.light.exposure = exposure;
+            check(&format!("look table at {exposure} EV, DCP {use_profile}"), &src, &info, &s, &req);
+            let cached = gpu_render(&src, &info, &s, &req, Some(&stages));
+            let fresh = gpu_render(&src, &info, &s, &req, None);
+            assert_eq!(cached.data, fresh.data, "exposure/look table cache invalidation");
+        }
     }
 }
 

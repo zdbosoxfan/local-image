@@ -1,0 +1,145 @@
+{
+  "schema": 2,
+  "version": 1,
+  "id": "flux3-klein",
+  "label": "FLUX.3 Klein",
+  "group": "FLUX",
+  "kind": "template",
+  "description": "FLUX.3 Image Klein (5.6B): a 16-step distilled model and a 50-step base model; edits with up to 10 reference images.",
+  "detect": {
+    "priority": 100,
+    "tensors_all": [
+      "content_mode_blocks.image.0.attn_out.weight",
+      "single_stream_modulations.txt.lin.weight"
+    ],
+    "gguf_arch": [
+      "flux"
+    ],
+    "modelspec_prefixes": [
+      "flux-3",
+      "flux.3",
+      "flux3",
+      "flux_3"
+    ],
+    "kohya_prefixes": [
+      "flux3",
+      "flux_3"
+    ],
+    "names": [
+      "flux3*klein",
+      "flux-3*klein",
+      "flux_3*klein",
+      "flux.3*klein"
+    ],
+    "variants": [
+      {
+        "id": "distilled",
+        "tensors_all": [
+          "ref_time_in.in_layer.weight"
+        ]
+      },
+      {
+        "id": "base",
+        "tensors_none": [
+          "ref_time_in.in_layer.weight"
+        ]
+      },
+      {
+        "id": "base",
+        "names": [
+          "*klein*base*"
+        ]
+      },
+      {
+        "id": "distilled",
+        "names": [
+          "*klein*",
+          "!base"
+        ]
+      }
+    ],
+    "lora": {
+      "tensors_any": [
+        "content_mode_blocks",
+        "txt_mode_blocks"
+      ],
+      "kohya_prefixes": [
+        "flux3",
+        "flux_3"
+      ],
+      "modelspec_prefixes": [
+        "flux-3",
+        "flux3"
+      ]
+    }
+  },
+  "template": {
+    "stems": {
+      "distilled": [
+        "flux3imageklein"
+      ],
+      "base": [
+        "flux3imagekleinbase"
+      ]
+    },
+    "references_max": 10,
+    "inpaint": "instruction",
+    "variants": {
+      "distilled": {
+        "sampling": {
+          "steps": {
+            "default": 16,
+            "min": 4,
+            "max": 32
+          },
+          "cfg": {
+            "default": 1,
+            "min": 1,
+            "max": 1
+          },
+          "denoise": 0.35
+        }
+      },
+      "base": {
+        "sampling": {
+          "steps": {
+            "default": 50,
+            "min": 20,
+            "max": 80
+          },
+          "cfg": {
+            "default": 3.5,
+            "min": 1,
+            "max": 7
+          },
+          "denoise": 0.35
+        },
+        "fix": {
+          "edit.cfg": 3.5
+        }
+      }
+    }
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 16,
+    "min": 256,
+    "max": 2048
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "compatible": [
+      "flux3-klein"
+    ],
+    "max": 3
+  },
+  "vram_gb": 16,
+  "license": "FLUX Kommunity License v1.0",
+  "license_url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy",
+  "license_summary": "Non-commercial, except outputs for organisations under US$5M yearly revenue.",
+  "commercial": "limited",
+  "hf_tags": [
+    "flux-3",
+    "flux3"
+  ]
+}

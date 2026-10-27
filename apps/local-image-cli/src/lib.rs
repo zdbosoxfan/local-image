@@ -7,6 +7,8 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+mod ai_doctor;
+
 use photocraft_automation::library::tools::{LibraryReply, call_tool as library_tool};
 use photocraft_automation::{AuthorizedWorkspace, BridgePolicy, Headless, LibraryHeadless, PhotocraftMcp, files, security};
 use photocraft_io::ExportOptions;
@@ -71,6 +73,14 @@ USAGE:
       doc.open/new/save/inspect/render/select/close, session.list, batch, methods
       (docs/control-protocol.md#headless-server).
 
+  local-image-cli ai doctor [--host <host:port>] [--model-dir <dir>] [--templates-dir <dir>] [--json] [--verify <model|file|all>]
+      Check every model file on the connected ComfyUI: what it is, which official template or builder runs
+      it, and what blocks it, with fixes. --verify tests models with small renders, one at a time (all: every
+      model not tested yet), and frees ComfyUI's memory after each. --templates-dir reads the official
+      templates (index.json and its templates) from a folder instead of the server. Never downloads, moves
+      files or starts ComfyUI. Host: --host, else LOCAL_IMAGE_COMFY, else the Local AI settings. Exit 0 when nothing blocks,
+      1 on blockers or failed tests, 3 when ComfyUI is not reachable.
+
   local-image-cli <subcommand> --help (or -h) prints this text. A flag the subcommand doesn't take is
   an error.
 ";
@@ -86,39 +96,51 @@ struct Subcommand {
     name: &'static str,
     values: &'static [&'static str],
     bare: &'static [&'static str],
-    run: fn(&Args, &mut dyn Write, &mut dyn Write) -> R,
+    run: Run,
+}
+
+/// What a subcommand runs: most succeed or fail (exit 0 or 1); some choose their exit code.
+enum Run {
+    Plain(fn(&Args, &mut dyn Write, &mut dyn Write) -> R),
+    Exit(fn(&Args, &mut dyn Write, &mut dyn Write) -> i32),
 }
 
 const SUBCOMMANDS: &[Subcommand] = &[
-    Subcommand { name: "convert", values: &["--format", "--quality"], bare: &["--tiff-layers"], run: convert },
-    Subcommand { name: "info", values: &[], bare: &["--compact"], run: |a, out, _| info(a, out) },
-    Subcommand { name: "run", values: &["--new", "--cmd", "--params", "--out", "--format", "--quality"], bare: &["--tiff-layers"], run: run_cmds },
-    Subcommand { name: "batch", values: &["--actions", "--in", "--out", "--format", "--quality"], bare: &["--in-place", "--tiff-layers"], run: batch },
-    Subcommand { name: "droplet", values: &["--out"], bare: &[], run: droplet },
-    Subcommand { name: "commands", values: &["--filter"], bare: &["--json"], run: |a, out, _| commands(a, out) },
+    Subcommand { name: "convert", values: &["--format", "--quality"], bare: &["--tiff-layers"], run: Run::Plain(convert) },
+    Subcommand { name: "info", values: &[], bare: &["--compact"], run: Run::Plain(|a, out, _| info(a, out)) },
+    Subcommand { name: "run", values: &["--new", "--cmd", "--params", "--out", "--format", "--quality"], bare: &["--tiff-layers"], run: Run::Plain(run_cmds) },
+    Subcommand {
+        name: "batch",
+        values: &["--actions", "--in", "--out", "--format", "--quality"],
+        bare: &["--in-place", "--tiff-layers"],
+        run: Run::Plain(batch),
+    },
+    Subcommand { name: "droplet", values: &["--out"], bare: &[], run: Run::Plain(droplet) },
+    Subcommand { name: "commands", values: &["--filter"], bare: &["--json"], run: Run::Plain(|a, out, _| commands(a, out)) },
     Subcommand {
         name: "library import",
         values: &["--library", "--mode", "--destination", "--organize", "--rename"],
         bare: &[],
-        run: |a, out, _| library_import(a, out),
+        run: Run::Plain(|a, out, _| library_import(a, out)),
     },
-    Subcommand { name: "library develop", values: LIBRARY_DEVELOP_FLAGS, bare: &[], run: |a, out, _| library_develop(a, out) },
-    Subcommand { name: "library export", values: LIBRARY_EXPORT_FLAGS, bare: &[], run: |a, out, _| library_export(a, out) },
-    Subcommand { name: "library snapshot", values: LIBRARY_SNAPSHOT_FLAGS, bare: &[], run: |a, out, _| library_snapshot(a, out) },
-    Subcommand { name: "library run", values: &["--library", "--id", "--cmd", "--params"], bare: &[], run: |a, out, _| library_run(a, out) },
-    Subcommand { name: "library commands", values: &["--filter"], bare: &["--json"], run: |a, out, _| library_commands(a, out) },
+    Subcommand { name: "library develop", values: LIBRARY_DEVELOP_FLAGS, bare: &[], run: Run::Plain(|a, out, _| library_develop(a, out)) },
+    Subcommand { name: "library export", values: LIBRARY_EXPORT_FLAGS, bare: &[], run: Run::Plain(|a, out, _| library_export(a, out)) },
+    Subcommand { name: "library snapshot", values: LIBRARY_SNAPSHOT_FLAGS, bare: &[], run: Run::Plain(|a, out, _| library_snapshot(a, out)) },
+    Subcommand { name: "library run", values: &["--library", "--id", "--cmd", "--params"], bare: &[], run: Run::Plain(|a, out, _| library_run(a, out)) },
+    Subcommand { name: "library commands", values: &["--filter"], bare: &["--json"], run: Run::Plain(|a, out, _| library_commands(a, out)) },
     Subcommand {
         name: "mcp",
         values: &["--bridge", "--control-token", "--control-token-file", "--automation-read-root", "--automation-write-root"],
         bare: &["--allow-destructive", "--allow-cloud-ai"],
-        run: |a, _, _| mcp(a),
+        run: Run::Plain(|a, _, _| mcp(a)),
     },
     Subcommand {
         name: "serve",
         values: &["--port", "--control-token", "--control-token-file", "--automation-read-root", "--automation-write-root"],
         bare: &[],
-        run: |a, _, err| serve(a, err),
+        run: Run::Plain(|a, _, err| serve(a, err)),
     },
+    Subcommand { name: "ai doctor", values: &["--host", "--model-dir", "--templates-dir", "--verify"], bare: &["--json"], run: Run::Exit(ai_doctor::doctor) },
 ];
 
 /// The subcommand's arguments, or `None` when they ask for help (`--help` or `-h`).
@@ -195,9 +217,18 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     }
     // `library <action>` names a two-word subcommand.
     let (name, rest) = match (cmd.as_str(), args.get(1)) {
-        ("library", Some(action)) if !action.starts_with('-') => (format!("library {action}"), &args[2..]),
+        ("library" | "ai", Some(action)) if !action.starts_with('-') => (format!("{cmd} {action}"), &args[2..]),
         _ => (cmd.clone(), &args[1..]),
     };
+    if name == "ai" {
+        let help = matches!(args.get(1).map(String::as_str), Some("--help" | "-h"));
+        if help {
+            let _ = write!(out, "{USAGE}");
+            return 0;
+        }
+        let _ = writeln!(err, "error: ai needs an action: doctor\n\n{USAGE}");
+        return 2;
+    }
     if name == "library" {
         let help = matches!(args.get(1).map(String::as_str), Some("--help" | "-h"));
         if help {
@@ -223,12 +254,15 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
             return 2;
         }
     };
-    match (sub.run)(&parsed, out, err) {
-        Ok(()) => 0,
-        Err(e) => {
-            let _ = writeln!(err, "error: {e}");
-            1
-        }
+    match &sub.run {
+        Run::Exit(run) => run(&parsed, out, err),
+        Run::Plain(run) => match run(&parsed, out, err) {
+            Ok(()) => 0,
+            Err(e) => {
+                let _ = writeln!(err, "error: {e}");
+                1
+            }
+        },
     }
 }
 

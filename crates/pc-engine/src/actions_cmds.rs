@@ -47,6 +47,12 @@ pub struct ActionState {
     /// Nesting depth of `actions.play`. Greater than zero refuses another play.
     #[serde(skip)]
     pub playing: u8,
+    /// Scripts and batches currently nested in this execution tree.
+    #[serde(skip)]
+    pub script_depth: u8,
+    /// Steps consumed across this tree, including scratch batch sessions.
+    #[serde(skip)]
+    pub script_steps: u64,
     /// Bumped whenever `list` changes, so the preset store can skip unchanged writes.
     #[serde(skip)]
     pub rev: u64,
@@ -171,6 +177,10 @@ fn run_recorded(s: &mut Session, steps: &[(String, Value)], from: usize) -> (u64
     let mut ran = 0u64;
     let mut failed = None;
     for (i, (id, params)) in steps.iter().enumerate().skip(from) {
+        if let Err(error) = crate::automate_cmds::consume_script_step(s) {
+            failed = Some(json!({"step": i, "id": id, "error": error}));
+            break;
+        }
         if let Some(auth) = s.authorize
             && let Err(e) = auth(id, params)
         {
@@ -178,7 +188,13 @@ fn run_recorded(s: &mut Session, steps: &[(String, Value)], from: usize) -> (u64
             break;
         }
         match s.execute(id, params.clone()) {
-            Ok(_) => ran += 1,
+            Ok(result) => {
+                if let Some(error) = crate::automate_cmds::nested_failure(id, &result) {
+                    failed = Some(json!({"step": i, "id": id, "error": error}));
+                    break;
+                }
+                ran += 1;
+            }
             Err(e) => {
                 failed = Some(json!({"step": i, "id": id, "error": e.to_string()}));
                 break;

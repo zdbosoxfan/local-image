@@ -7,10 +7,12 @@
 //!    segment pairs finds the point (possibly at infinity) most segments point at, refined by weighted least squares
 //!    (smallest eigenvector of `Σ w·l·lᵀ` over the inlier lines).
 //! 3. **Correction** — a virtual camera rotation `K·R·K⁻¹` that sends the vertical vanishing direction to the image
-//!    y axis (and, for Full, the horizontal one to the x axis, with the focal length estimated from their
-//!    orthogonality when possible); Level is a pure rotation.
+//!    y axis (and, for Full, the horizontal one to the x axis); Level is a pure rotation. `K` uses the photo's
+//!    focal length from its metadata, else (Full) one estimated from the two directions' orthogonality, else
+//!    [`DEFAULT_FOCAL`].
 //!
-//! Guided Upright solves the same problem from up to four user-drawn guides.
+//! Guided Upright solves the same problem from up to four user-drawn guides (it renders from settings alone, so
+//! it keeps [`DEFAULT_FOCAL`] unless both guide families give the focal length).
 //!
 //! Coordinates: centred, `(p − centre) / (long edge / 2)` of the lens-corrected image, so results are independent
 //! of the analysis resolution. Results map lens-corrected → transformed coordinates.
@@ -24,7 +26,7 @@ use lightcraft_geom::{Homography, Point};
 
 use crate::SourceInfo;
 
-use crate::transform::{DEFAULT_FOCAL, Mat3, recentre, rotation_homography};
+use crate::transform::{DEFAULT_FOCAL, Mat3, focal_from_35mm, recentre, rotation_homography};
 
 /// A detected (or user-drawn) line segment in centred coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -375,28 +377,40 @@ fn focal_from_vps(v: [f64; 3], h: [f64; 3]) -> Option<f64> {
 
 /// Pure rotation (degrees, clockwise +) that levels the dominant lines.
 fn level_angle(vert: &[Segment], horiz: &[Segment]) -> Option<f64> {
-    let dev = |s: &Segment, vertical: bool| {
-        let (dx, dy) = (s.b.x - s.a.x, s.b.y - s.a.y);
-        // signed deviation in degrees of the segment from the axis
-        let a = if vertical { dx.atan2(dy) } else { dy.atan2(dx) };
-        let a = a.to_degrees();
-        let a = if a > 90.0 {
-            a - 180.0
-        } else if a < -90.0 {
-            a + 180.0
-        } else {
-            a
-        };
-        if vertical { -a } else { a }
-    };
+    level_angle_within(vert, horiz, 90.0, 1)
+}
+
+fn level_angle_within(vert: &[Segment], horiz: &[Segment], max: f64, min_lines: usize) -> Option<f64> {
     let lh: f64 = horiz.iter().map(Segment::len).sum();
     let lv: f64 = vert.iter().map(Segment::len).sum();
-    let (set, vertical) = if lh >= lv * 0.5 && lh > 0.0 { (horiz, false) } else { (vert, true) };
+    // the dominant family first; plumb lines when the horizon's segments disagree, and vice versa
+    let order = if lh >= lv * 0.5 && lh > 0.0 { [(horiz, false), (vert, true)] } else { [(vert, true), (horiz, false)] };
+    order.into_iter().find_map(|(set, vertical)| family_level(set, vertical, max, min_lines))
+}
+
+/// Signed deviation in degrees of a segment from the vertical or horizontal axis.
+fn axis_deviation(s: &Segment, vertical: bool) -> f64 {
+    let (dx, dy) = (s.b.x - s.a.x, s.b.y - s.a.y);
+    let a = if vertical { dx.atan2(dy) } else { dy.atan2(dx) };
+    let a = a.to_degrees();
+    let a = if a > 90.0 {
+        a - 180.0
+    } else if a < -90.0 {
+        a + 180.0
+    } else {
+        a
+    };
+    if vertical { -a } else { a }
+}
+
+/// [`level_angle`] from one family: the length-weighted median deviation, when most of the
+/// family's length agrees with it.
+fn family_level(set: &[Segment], vertical: bool, max: f64, min_lines: usize) -> Option<f64> {
     if set.is_empty() {
         return None;
     }
     // length-weighted median
-    let mut v: Vec<(f64, f64)> = set.iter().map(|s| (dev(s, vertical), s.len())).collect();
+    let mut v: Vec<(f64, f64)> = set.iter().map(|s| (axis_deviation(s, vertical), s.len())).collect();
     v.sort_by(|a, b| a.0.total_cmp(&b.0));
     let total: f64 = v.iter().map(|x| x.1).sum();
     let mut acc = 0.0;
@@ -406,8 +420,16 @@ fn level_angle(vert: &[Segment], horiz: &[Segment]) -> Option<f64> {
     })?;
     // consensus: most of the line length must agree with the median within 2°, otherwise the "lines" are scene
     // texture (tree flanks, ridges) rather than a horizon or plumb lines
-    let agree: f64 = v.iter().filter(|(d, _)| (d - median.0).abs() <= 2.0).map(|x| x.1).sum();
-    (agree >= 0.5 * total).then_some(-median.0)
+    let mut agreeing = 0;
+    let agree: f64 = v
+        .iter()
+        .filter(|(d, _)| (d - median.0).abs() <= 2.0)
+        .map(|x| {
+            agreeing += 1;
+            x.1
+        })
+        .sum();
+    (agree >= 0.5 * total && agreeing >= min_lines && median.0.abs() <= max).then_some(-median.0)
 }
 
 fn rot_z_h(deg: f64) -> Homography {
@@ -422,13 +444,21 @@ pub struct Analysis {
     pub horizontal: Vec<Segment>,
     pub vertical_vp: Option<[f64; 3]>,
     pub horizontal_vp: Option<[f64; 3]>,
+    /// A vertical vanishing point that is reliable but nearer the centre than [`NEAR_VP`]: a steep
+    /// tilt (or a scene feature), used by explicit Vertical and Full only (see [`steep_tilt`]).
+    pub vertical_vp_steep: Option<[f64; 3]>,
+    /// Half width and height of the analysed frame (half-long-edge units).
+    pub extent: Option<[f64; 2]>,
+    /// The camera's focal length (half-long-edge units) from the photo's metadata;
+    /// [`DEFAULT_FOCAL`] when unknown.
+    pub focal: Option<f64>,
 }
 
 /// Whether a family's vanishing point is backed by real structure rather than one object: at least three
 /// inlier segments, a total inlier length of a quarter of the long edge, and inliers spread across at least a
 /// fifth of the long edge perpendicular to the family, and at least 60 % of the family's length agreeing (the
 /// mirrored flanks of conical trees or peaks converge somewhere but say nothing about the camera).
-fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> bool {
+fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool, near: f64) -> bool {
     let thr = 3f64.to_radians();
     let inl: Vec<&Segment> = segs.iter().filter(|s| vp_error(s, v) < thr).collect();
     let total: f64 = inl.iter().map(|s| s.len()).sum();
@@ -438,7 +468,7 @@ fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> bool {
     let family: f64 = segs.iter().map(Segment::len).sum();
     // a camera-tilt vanishing point lies far outside the frame; one inside or near it is a scene feature
     // (sun rays, a road to the horizon), not perspective to correct
-    if v[2].abs() > 1e-9 && (v[0] / v[2]).hypot(v[1] / v[2]) < 2.0 {
+    if v[2].abs() > 1e-9 && (v[0] / v[2]).hypot(v[1] / v[2]) < near {
         return false;
     }
     inl.len() >= 3 && total >= 0.5 && hi - lo >= 0.4 && total >= 0.6 * family
@@ -449,27 +479,53 @@ fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> bool {
 pub fn analyze(segs: &[Segment]) -> Analysis {
     let vertical: Vec<Segment> = segs.iter().copied().filter(|s| s.tilt_from_vertical() < 30.0).collect();
     let horizontal: Vec<Segment> = segs.iter().copied().filter(|s| s.tilt_from_vertical() > 60.0).collect();
-    let vertical_vp = vanishing_point(&vertical).map(|v| v.0).filter(|v| reliable(&vertical, *v, true));
-    let horizontal_vp = vanishing_point(&horizontal).map(|v| v.0).filter(|v| reliable(&horizontal, *v, false));
-    Analysis { vertical, horizontal, vertical_vp, horizontal_vp }
+    let vvp = vanishing_point(&vertical).map(|v| v.0).filter(|v| reliable(&vertical, *v, true, 0.0));
+    let vertical_vp = vvp.filter(|v| reliable(&vertical, *v, true, NEAR_VP));
+    let vertical_vp_steep = vvp.filter(|_| vertical_vp.is_none());
+    let horizontal_vp = vanishing_point(&horizontal).map(|v| v.0).filter(|v| reliable(&horizontal, *v, false, NEAR_VP));
+    Analysis { vertical, horizontal, vertical_vp, horizontal_vp, vertical_vp_steep, extent: None, focal: None }
+}
+
+/// Distance (half-long-edge units) from the image centre within which a vanishing point counts as a
+/// scene feature rather than camera tilt (see [`reliable`]).
+const NEAR_VP: f64 = 2.0;
+
+/// Whether a vertical vanishing point inside [`NEAR_VP`] is still a steep camera tilt: beyond the
+/// frame (by 10 %) and within 30° of the image's vertical axis, as the converging verticals of a
+/// tall building shot from below with a wide lens, or a steep drone oblique, put it. Sun rays and a
+/// road to the horizon converge inside the frame or off to the side.
+fn steep_tilt(v: [f64; 3], extent: [f64; 2]) -> bool {
+    if v[2].abs() <= 1e-9 {
+        return true;
+    }
+    let (x, y) = (v[0] / v[2], v[1] / v[2]);
+    (x.abs() > 1.1 * extent[0] || y.abs() > 1.1 * extent[1]) && x.abs().atan2(y.abs()) <= 30f64.to_radians()
 }
 
 /// The Upright correction for `mode` from an analysis (lens-corrected → transformed, centred coordinates).
 pub fn solve(mode: Upright, a: &Analysis) -> Homography {
+    // The virtual camera rotation needs the real focal length: with a wrong one the vanishing point
+    // still goes to infinity, but the solved angle and with it the corrected aspect are wrong (the
+    // default makes a 16 mm shot tilted 20° about 10 % too tall).
+    let f0 = a.focal.unwrap_or(DEFAULT_FOCAL);
     let level = || level_angle(&a.vertical, &a.horizontal).map(rot_z_h).unwrap_or(Homography::IDENTITY);
-    let vertical = || a.vertical_vp.map(|v| solve_vertical(v, DEFAULT_FOCAL));
+    // Auto keeps to moderate tilts; an explicit Vertical or Full also takes a steep one.
+    let explicit = matches!(mode, Upright::Vertical | Upright::Full);
+    let steep = a.vertical_vp_steep.filter(|v| explicit && a.extent.is_some_and(|e| steep_tilt(*v, e)));
+    let vvp = a.vertical_vp.or(steep);
+    let vertical = || vvp.map(|v| solve_vertical(v, f0));
     let full = || {
-        let (v, h) = (a.vertical_vp?, a.horizontal_vp?);
-        let f = focal_from_vps(v, h).unwrap_or(DEFAULT_FOCAL);
+        let (v, h) = (vvp?, a.horizontal_vp?);
+        let f = a.focal.or_else(|| focal_from_vps(v, h)).unwrap_or(DEFAULT_FOCAL);
         Some((solve_full(v, h, f), f))
     };
     match mode {
         Upright::Off | Upright::Guided => Homography::IDENTITY,
         Upright::Level => level(),
-        Upright::Vertical => vertical().map(|r| recentre(&rotation_homography(&r, DEFAULT_FOCAL))).unwrap_or_else(level),
+        Upright::Vertical => vertical().map(|r| recentre(&rotation_homography(&r, f0))).unwrap_or_else(level),
         Upright::Full => match full() {
             Some((r, f)) => recentre(&rotation_homography(&r, f)),
-            None => vertical().map(|r| recentre(&rotation_homography(&r, DEFAULT_FOCAL))).unwrap_or_else(level),
+            None => vertical().map(|r| recentre(&rotation_homography(&r, f0))).unwrap_or_else(level),
         },
         Upright::Auto => {
             // A vertical family that implies a camera roll must be confirmed by the horizontals (a real roll tilts
@@ -488,7 +544,7 @@ pub fn solve(mode: Upright, a: &Analysis) -> Homography {
                 return recentre(&rotation_homography(&r, f));
             }
             match vertical().filter(|r| rotation_angle(r) < 25f64.to_radians()) {
-                Some(r) => recentre(&rotation_homography(&r, DEFAULT_FOCAL)),
+                Some(r) => recentre(&rotation_homography(&r, f0)),
                 // conservative: only small horizon fixes; bigger tilts are usually intentional or scene lines
                 None => level_angle(&a.vertical, &a.horizontal).filter(|d| d.abs() <= 5.0).map(rot_z_h).unwrap_or(Homography::IDENTITY),
             }
@@ -537,8 +593,17 @@ pub fn solve_guided(guides: &[Segment]) -> Homography {
 const ANALYSIS_LONG: usize = 1024;
 
 /// Analyse a source: the lens-corrected (optics applied, no perspective/crop) image at [`ANALYSIS_LONG`] px,
-/// segment detection and vanishing points. Cached per source + optics settings.
+/// segment detection and vanishing points (cached per source + optics settings), and the camera's focal
+/// length from `info`.
 pub fn analyze_source(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Analysis {
+    let (ow, oh) = if s.orientation.swaps_axes() { (src.height, src.width) } else { (src.width, src.height) };
+    let focal = info.focal_35mm.and_then(|f| focal_from_35mm(f, ow as f64, oh as f64));
+    let l = ow.max(oh).max(1) as f64;
+    Analysis { focal, extent: Some([ow as f64 / l, oh as f64 / l]), ..analyze_lines(src, info, s) }
+}
+
+/// The lines and vanishing points of [`analyze_source`] (camera-independent, so cached).
+fn analyze_lines(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Analysis {
     static CACHE: Mutex<Vec<(u64, Analysis)>> = Mutex::new(Vec::new());
     let mut base = s.clone();
     base.geometry = Geometry::default();
@@ -552,9 +617,14 @@ pub fn analyze_source(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) ->
     }
     let frame = crate::frame_for(src, info, &base, false);
     let (w, h) = frame.fit(ANALYSIS_LONG, ANALYSIS_LONG);
-    let img = frame.sample(src, w, h);
+    // A source smaller than the analysis size is measured at its own size and its luminance
+    // interpolated linearly: upsampling adds no lines, and the detector's accuracy must not depend
+    // on the renderer's reconstruction kernel.
+    let (nw, nh) = frame.native_size();
+    let (sw, sh) = ((nw.round() as usize).clamp(1, w), (nh.round() as usize).clamp(1, h));
+    let lum = frame.sample(src, sw, sh).luminance();
+    let lum = if (sw, sh) == (w, h) { lum } else { lum.resize(w, h, li_raster::resample::Filter::Bilinear) };
     // perceptual lightness, normalized to the image's bright end
-    let lum = img.luminance();
     let mut v: Vec<f32> = lum.data.iter().copied().filter(|x| x.is_finite()).collect();
     v.sort_by(f32::total_cmp);
     let white = v.get(v.len() * 99 / 100).copied().unwrap_or(1.0).max(1e-4);
@@ -569,11 +639,19 @@ pub fn analyze_source(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) ->
     a
 }
 
+/// Auto straighten rejects steep texture and isolated edges.
+const STRAIGHTEN_MAX_DEGREES: f64 = 10.0;
+const STRAIGHTEN_MIN_LINES: usize = 3;
+
+fn straighten_angle(a: &Analysis) -> Option<f64> {
+    level_angle_within(&a.vertical, &a.horizontal, STRAIGHTEN_MAX_DEGREES, STRAIGHTEN_MIN_LINES)
+}
+
 /// The rotation (degrees, clockwise +) that levels `src`'s dominant horizon/plumb lines, if they agree
-/// (the consensus rule of Upright Level). Used by the crop panel's Auto straighten.
+/// within ten degrees and backed by at least three agreeing lines. Used by Auto straighten.
 pub fn level_degrees(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Option<f64> {
     let a = analyze_source(src, info, s);
-    level_angle(&a.vertical, &a.horizontal)
+    straighten_angle(&a)
 }
 
 /// The automatic Upright correction for `mode` on `src` (identity for Off and Guided).

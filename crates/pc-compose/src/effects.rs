@@ -1482,13 +1482,8 @@ pub(crate) fn composite_with_effects_prepared(
             let mut share = vec![0.0f32; w * h];
             for (i, sh) in share.iter_mut().enumerate() {
                 let band = (out_w + 0.5 - d[i]).clamp(0.0, 1.0);
-                let k = if maps.outline {
-                    band * outline_share(shape.v[i], lay.px[i][3])
-                } else if inside(shape.v[i]) {
-                    if vector_shape { 0.0 } else { 1.0 }
-                } else {
-                    band
-                };
+                let k =
+                    if inside(shape.v[i]) { if vector_shape && !maps.outline { 0.0 } else { band * outline_share(shape.v[i], lay.px[i][3]) } } else { band };
                 *sh = k * st.common.opacity * (1.0 - cover[i]);
                 cover[i] += *sh;
             }
@@ -1565,6 +1560,9 @@ pub(crate) fn composite_with_effects_prepared(
 /// layer, `share + l (1 - share) = (1 - cov) + l`.
 pub fn outline_share(cov: f32, l: f32) -> f32 {
     let outside = (1.0 - cov.clamp(0.0, 1.0)).max(0.0);
+    if outside <= 1e-6 {
+        return 0.0;
+    }
     let rest = 1.0 - l.clamp(0.0, 1.0);
     if rest <= 1e-6 { 1.0 } else { (outside / rest).min(1.0) }
 }

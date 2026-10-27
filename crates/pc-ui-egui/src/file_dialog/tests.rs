@@ -133,3 +133,97 @@ fn an_answer_of_the_wrong_kind_is_an_error_not_a_crash() {
     app.poll_file_dialog(&ctx);
     assert_eq!(app.session.documents().len(), 1);
 }
+
+/// #6597: once Save As or Save a Copy writes over the file another open document is bound to,
+/// that document no longer has the file and reads as unsaved (so closing it asks, and its Save
+/// asks for a name), and a notice says so. Documents bound to other files are left alone.
+#[test]
+fn saving_over_the_file_of_another_open_document_detaches_it() {
+    let dir = std::env::temp_dir().join(format!("photocraft-save-over-tab-{}", std::process::id()));
+    let (a, d) = (dir.join("a.psd").to_string_lossy().into_owned(), dir.join("d.psd").to_string_lossy().into_owned());
+    let (mut app, open, written) = app();
+    let saved_as = |app: &mut PhotocraftApp, path: &str| {
+        let st = app.session.active_mut().unwrap();
+        st.path = Some(path.to_string());
+        st.saved_revision = st.revision;
+    };
+    // A lives in a.psd and D in d.psd, both saved.
+    saved_as(&mut app, &a);
+    app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+    saved_as(&mut app, &d);
+    // B, in another tab, is saved as a.psd.
+    app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+    app.save_as(Some(a.clone())).unwrap();
+    let docs = app.session.documents();
+    assert_eq!((docs[0].path.as_deref(), docs[0].is_dirty()), (None, true), "A lost a.psd and is unsaved");
+    assert_eq!((docs[1].path.as_deref(), docs[1].is_dirty()), (Some(d.as_str()), false), "D is untouched");
+    assert_eq!(docs[2].path.as_deref(), Some(a.as_str()), "B lives in a.psd");
+    let notice = app.ui.notices.iter().find(|n| n.title.contains("a.psd was saved over")).expect("a notice");
+    assert!(notice.title.contains("a.psd was saved over") && notice.lines.len() == 1, "{} {:?}", notice.title, notice.lines);
+    assert_eq!(notice.lines, [format!("\"{}\" no longer has a file and is marked unsaved: save it under a new name to keep it", docs[0].doc.name)]);
+    // C's Save a Copy onto a.psd detaches B the same way, and C doesn't take the file.
+    app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+    let ctx = egui::Context::default();
+    menus::invoke(&mut app, &ctx, "file.saveACopy", json!({})).unwrap();
+    app.poll_file_dialog(&ctx);
+    answer(&open, Some(FileDialogAnswer::SaveTo(a.clone())));
+    app.poll_file_dialog(&ctx);
+    let docs = app.session.documents();
+    assert_eq!((docs[2].path.as_deref(), docs[2].is_dirty()), (None, true), "B lost a.psd and is unsaved");
+    assert_eq!(docs[3].path, None, "a copy doesn't bind C to a.psd");
+    assert_eq!(*written.borrow(), [a.clone(), a]);
+}
+
+#[test]
+fn automation_saves_disable_link_reads_and_detach_only_after_a_successful_write() {
+    let (mut app, _, _) = app();
+    let path = "/pics/automation-overwrite.psd";
+    app.session.active_mut().unwrap().path = Some(path.into());
+    let saved = app.session.active().unwrap().revision;
+    app.session.active_mut().unwrap().saved_revision = saved;
+    app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+    app.services.export = Some(Arc::new(|_, _, settings| {
+        assert!(!settings.read_linked_files);
+        Ok((b"out".to_vec(), Vec::new()))
+    }));
+    app.services.automation_write = Some(Box::new(|_, _| Err("publication failed".into())));
+    assert!(app.save_automation(Some(path.into())).is_err());
+    assert_eq!(app.session.documents()[0].path.as_deref(), Some(path));
+    assert!(!app.session.documents()[0].is_dirty());
+    app.services.automation_write = Some(Box::new(|_, _| Ok(())));
+    app.save_automation(Some(path.into())).unwrap();
+    assert_eq!(app.session.documents()[0].path, None);
+    assert!(app.session.documents()[0].is_dirty());
+}
+
+#[test]
+fn background_saves_detach_overwritten_tabs_only_after_commit() {
+    for fail in [false, true] {
+        let (mut app, _, _) = app();
+        let path = "/pics/background-overwrite.psd";
+        app.session.active_mut().unwrap().path = Some(path.into());
+        let saved = app.session.active().unwrap().revision;
+        app.session.active_mut().unwrap().saved_revision = saved;
+        app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+        app.background_jobs = true;
+        app.services.prepare_save = Some(Arc::new(move |snapshot, _, _, _| {
+            Ok(crate::PreparedSave {
+                snapshot,
+                original: None,
+                warnings: Vec::new(),
+                write: crate::PreparedWrite { commit: Box::new(move || if fail { Err("publication failed".into()) } else { Ok(()) }) },
+            })
+        }));
+        app.save_as(Some(path.into())).unwrap();
+        assert_eq!(app.session.documents()[0].path.as_deref(), Some(path), "encoding hasn't committed");
+        let ctx = egui::Context::default();
+        let start = std::time::Instant::now();
+        while app.pending_save.is_some() {
+            crate::jobs_ui::tick_background(&mut app, &ctx);
+            assert!(start.elapsed() < std::time::Duration::from_secs(30));
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(app.session.documents()[0].path.as_deref(), if fail { Some(path) } else { None });
+        assert_eq!(app.session.documents()[0].is_dirty(), !fail);
+    }
+}

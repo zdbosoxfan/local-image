@@ -14,6 +14,7 @@ pub mod constructive;
 pub mod corners;
 pub mod drawing;
 pub mod envelope;
+mod import_scene;
 pub mod layout;
 pub mod node;
 pub mod objects;

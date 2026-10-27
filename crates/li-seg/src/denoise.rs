@@ -28,17 +28,9 @@ pub const OVERLAP: usize = 32;
 /// reliable part of a tile).
 pub const MARGIN: usize = 8;
 
-/// The run was cancelled through the progress callback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Cancelled;
-
-impl std::fmt::Display for Cancelled {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("cancelled")
-    }
-}
-
-impl std::error::Error for Cancelled {}
+/// The run was cancelled through the progress callback: the shared job error, so a cancelled
+/// denoise reads like every other cancelled job.
+pub use lightcraft_sysmem::jobs::Cancelled;
 
 type Runner = dyn Fn(Tensor) -> TractResult<TVec<TValue>> + Send + Sync;
 
@@ -101,11 +93,15 @@ impl Denoiser {
 
     /// A custom restoration graph using the selected color contract and square tile.
     pub fn load_at(path: &Path, kind: Variant, tile: usize) -> Result<Self> {
-        ensure!((32..=1024).contains(&tile) && tile.is_multiple_of(16), "restoration tile must be 32–1024 and a multiple of 16");
-        crate::init_executor();
         let onnx = tract_onnx::onnx();
         let proto = onnx.proto_model_for_path(path)?;
         let model = onnx.model_for_proto_model(&proto)?;
+        Self::from_model_at(model, kind, tile)
+    }
+
+    pub(crate) fn from_model_at(model: InferenceModel, kind: Variant, tile: usize) -> Result<Self> {
+        ensure!((32..=1024).contains(&tile) && tile.is_multiple_of(16), "restoration tile must be 32–1024 and a multiple of 16");
+        crate::init_executor();
         let plan =
             model.with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, kind.channels(), tile, tile)))?.into_optimized()?.into_runnable()?;
         Ok(Self { tile, kind, run: Arc::new(move |t| plan.run(tvec!(t.into()))) })
@@ -961,7 +957,9 @@ mod variant_tests {
         let out = run_tiled_channels(&p, 4, w, h, t, 2, |_| Ok(vec![0.3; 3 * t * t * 4]), &|_, _| true).unwrap();
         assert_eq!(out.len(), w * h * 4);
         assert!(out.iter().flatten().all(|v| (*v - 0.3).abs() < 1e-6));
-        assert!(run_tiled_channels(&p, 4, w, h, t, 2, |_| panic!("cancel before inference"), &|_, _| false).unwrap_err().is::<Cancelled>());
+        let cancelled = run_tiled_channels(&p, 4, w, h, t, 2, |_| panic!("cancel before inference"), &|_, _| false).unwrap_err();
+        assert!(cancelled.is::<Cancelled>());
+        assert_eq!(format!("{cancelled:#}"), lightcraft_sysmem::Cancelled.to_string(), "reported as every cancelled job is");
         let mut p = p;
         p[0] = f32::NAN;
         assert!(run_tiled_channels(&p, 4, w, h, t, 2, |_| panic!("invalid input"), &|_, _| true).is_err());

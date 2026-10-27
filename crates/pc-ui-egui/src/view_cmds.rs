@@ -1021,6 +1021,7 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
         let (bytes, warnings) = export(&doc, &path, &crate::ExportSettings::default())?;
         let write = app.services.write.as_mut().ok_or("no writer configured")?;
         write(&path, &bytes)?;
+        app.detach_others_from_file(&path, doc.id);
         app.ui.status = format!("Saved a copy as {path}");
         app.ui.status_error = false;
         crate::notices::io_warnings(app, &format!("Saved a copy as {}", crate::file_open::display_name(&path)), &warnings);

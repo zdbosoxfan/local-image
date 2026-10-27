@@ -11,8 +11,11 @@ impl Temp {
         Self(p)
     }
     fn file(&self, name: &str) -> PathBuf {
+        self.file_with(name, json!({"new_architecture.weight":{"dtype":"F16","shape":[1],"data_offsets":[0,2]}}))
+    }
+    fn file_with(&self, name: &str, header: Value) -> PathBuf {
         let p = self.0.join("checkpoints").join(name);
-        let header = serde_json::to_vec(&json!({"new_architecture.weight":{"dtype":"F16","shape":[1],"data_offsets":[0,2]}})).unwrap();
+        let header = serde_json::to_vec(&header).unwrap();
         let mut body = (header.len() as u64).to_le_bytes().to_vec();
         body.extend(header);
         body.extend([0, 0]);
@@ -39,7 +42,13 @@ fn fixture() -> Value {
     serde_json::from_str(include_str!("../../tests/fixtures/refine/unknown-checkpoint.json")).unwrap()
 }
 fn target_file(name: &str) -> InstalledModel {
-    InstalledModel { key: format!("ckpt:{name}"), family: String::new(), label: name.into(), files: [(Role::Checkpoint, name.into())].into() }
+    InstalledModel {
+        key: format!("ckpt:{name}"),
+        family: String::new(),
+        label: name.into(),
+        files: [(Role::Checkpoint, name.into())].into(),
+        ..Default::default()
+    }
 }
 fn mock_info(name: &str) -> ObjectInfo {
     let mut info = crate::mock::object_info();
@@ -290,13 +299,22 @@ fn autodetect_mock_unknown_checkpoint_verifies_once_persists_and_retests() {
 fn autodetect_mock_family_failure_falls_back_to_universal() {
     let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = Temp::new();
-    dir.file("juggernautXL_v9.safetensors");
+    // SDXL weights: the family recipe is tried first.
+    dir.file_with(
+        "juggernautXL_v9.safetensors",
+        json!({
+            "model.diffusion_model.input_blocks.0.0.weight": {"dtype": "F16", "shape": [320, 4, 3, 3], "data_offsets": [0, 2]},
+            "model.diffusion_model.label_emb.0.0.weight": {"dtype": "F16", "shape": [1280, 2816], "data_offsets": [0, 2]},
+            "conditioner.embedders.0.transformer.text_model.final_layer_norm.weight": {"dtype": "F16", "shape": [768], "data_offsets": [0, 2]}
+        }),
+    );
     let server = MockComfy::start().unwrap();
     server.delay_ms.store(1, Ordering::SeqCst);
     server.set_model_dir(&dir.0);
     let client = ComfyClient::new(server.host());
     crate::inventory::refresh(&client.object_info().unwrap(), Some(&dir.0));
     let model = ModelId::from_key("ckpt:juggernautXL_v9.safetensors").unwrap();
+    assert_eq!(model.info().family, "sdxl");
     server.fail_next();
     let checker = Checker::new(dir.0.join("state.json"));
     let v = checker.check_in(&client, model, "installed", &dir.0, false, &JobControl::new()).unwrap().unwrap();

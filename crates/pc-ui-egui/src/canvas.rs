@@ -1,8 +1,7 @@
 //! Document canvas: display texture cache, view transform, tool input, extra document windows.
 //!
-//! Rendering is CPU (`photocraft-compose`) for now, uploaded into an egui texture. Brush strokes
-//! update only their damage rectangle (`set_partial`). The wgpu compositor (M5) will replace this
-//! with direct GPU rendering behind the same `CanvasCache` interface.
+//! The tiled GPU compositor presents the document directly. The CPU fallback combines a reduced
+//! overview with view-sized detail textures, updating damaged regions during brush strokes.
 
 use egui::{Color32, PointerButton, Pos2, Rect, Sense, Stroke, TextureOptions, Vec2, pos2, vec2};
 use photocraft_doc::{Document, LayerContent};
@@ -27,7 +26,7 @@ pub(crate) use self::stroke::*;
 pub use self::tabs::*;
 pub use self::tools::*;
 
-/// Largest texture side we upload; bigger documents display downsampled until the GPU path lands.
+/// Maximum CPU texture side; larger documents add a sharper texture of the region in view.
 pub const MAX_TEXTURE: u32 = 4096;
 
 /// The largest texture side to upload on this device: [`MAX_TEXTURE`], or less where the GPU
@@ -35,6 +34,58 @@ pub const MAX_TEXTURE: u32 = 4096;
 /// egui asserts and the backend fails to create the texture.
 fn texture_side(ctx: &egui::Context) -> u32 {
     u32::try_from(ctx.input(|i| i.max_texture_side)).unwrap_or(MAX_TEXTURE).clamp(1, MAX_TEXTURE)
+}
+
+fn texture_factor(size: [u32; 2], side: u32) -> u32 {
+    size[0].max(size[1]).div_ceil(side.max(1)).max(1)
+}
+
+/// What the CPU canvas draws over its reduced texture so a large document shows its own pixels
+/// at 100 % (#7568): the part of the document in view (`region`, document pixels) composited at
+/// one texel per `factor` pixels, a power of two no coarser than the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DetailPlan {
+    factor: u32,
+    region: DRect,
+}
+
+/// The detail region snaps outward to multiples of this many texels, so a small pan reuses it.
+const DETAIL_QUANTUM: i32 = 256;
+
+/// The detail texture a CPU canvas view of a `size` document needs, at `zoom` physical pixels
+/// per document pixel over `visible` (document pixels), with textures at most `side` texels per
+/// side: `None` when the whole-document texture is already as fine as the screen (a document
+/// that fits, or a view zoomed out far enough), or nothing of the document is in view.
+///
+/// A document over `side` (4096 px, or the device's smaller limit) is uploaded reduced, so at
+/// 100 % it was drawn magnified and blurred. The detail costs what the window shows, not what the
+/// document holds: its side is capped by `side` like any texture, coarsening by powers of two.
+fn detail_plan(size: [u32; 2], side: u32, zoom: f32, visible: DRect) -> Option<DetailPlan> {
+    if !zoom.is_finite() || zoom <= 0.0 {
+        return None;
+    }
+    let base = texture_factor(size, side);
+    let mut factor = crate::adjust_preview::proxy_factor(zoom);
+    let bounds = DRect::new(0, 0, i32::try_from(size[0]).ok()?, i32::try_from(size[1]).ok()?);
+    let v = visible.intersect(&bounds);
+    if v.is_empty() {
+        return None;
+    }
+    while factor < base {
+        let q = DETAIL_QUANTUM.saturating_mul(i32::try_from(factor).unwrap_or(i32::MAX));
+        let up = |x: i32| x.div_euclid(q).saturating_add(i32::from(x.rem_euclid(q) != 0)).saturating_mul(q);
+        let region = DRect::new(v.x0.div_euclid(q).saturating_mul(q), v.y0.div_euclid(q).saturating_mul(q), up(v.x1), up(v.y1)).intersect(&bounds);
+        // A reduced region's texel count can round one up (`render_reduced_damage`'s cells).
+        let fits = |n: u32| n.div_ceil(factor).saturating_add(1) <= side;
+        // Snapped when that fits, else just what is in view (a window near the device's limit).
+        for region in [region, v] {
+            if !region.is_empty() && fits(region.width()) && fits(region.height()) {
+                return Some(DetailPlan { factor, region });
+            }
+        }
+        factor = factor.saturating_mul(2);
+    }
+    None
 }
 
 pub struct CanvasCache {
@@ -50,6 +101,57 @@ pub struct CanvasCache {
     /// `revision`, so the Navigator never shows a stale CPU image after GPU-path edits.
     pub tex_revision: u64,
     pub tex_preview_key: u64,
+    filter_preview_key: Option<u64>,
+    detail: Vec<(u64, DetailTexture)>,
+    primary_pixels_per_point: Option<f32>,
+}
+
+impl Default for CanvasCache {
+    fn default() -> Self {
+        Self {
+            revision: 0,
+            texture: None,
+            scale: 1.0,
+            preview_key: 0,
+            on_gpu: false,
+            tex_revision: 0,
+            tex_preview_key: 0,
+            filter_preview_key: None,
+            detail: Vec::new(),
+            primary_pixels_per_point: None,
+        }
+    }
+}
+
+/// [`CanvasCache::detail`]: the part of the document `DetailPlan` chose, uploaded at its factor.
+struct DetailTexture {
+    texture: egui::TextureHandle,
+    plan: DetailPlan,
+    /// The texels it holds, in the plan's reduced pixels (`render_reduced_damage`'s output rect).
+    out: DRect,
+    /// Revision and preview key (display key folded in) it was rendered at.
+    revision: u64,
+    preview_key: u64,
+    /// Pixels were composited for it this call (for the perf span).
+    rendered: bool,
+}
+
+/// The CPU canvas textures to draw: the whole document, and over it the sharper part in view.
+struct CpuTextures {
+    texture: egui::TextureId,
+    scale: f32,
+    /// The detail texture and the document area it covers (x0, y0, x1, y1 in document pixels).
+    detail: Option<(egui::TextureId, [f32; 4])>,
+}
+
+/// The part of a CPU canvas view in sight: its document area and zoom (physical pixels per
+/// document pixel), for [`ensure_texture_in_view`]'s detail texture.
+#[derive(Clone, Copy, Debug)]
+struct InView {
+    visible: DRect,
+    zoom: f32,
+    /// Which view this is, so each keeps its own detail texture.
+    key: u64,
 }
 
 /// An in-progress pointer gesture on the canvas.
@@ -147,19 +249,30 @@ impl Drag {
 /// style (fixed ratio / fixed size), ⇧ for a square or circle, ⌥ to draw from the centre.
 pub fn marquee_corners(o: &crate::state::ToolOptions, d: &Drag, end: [f64; 2]) -> ([f64; 2], [f64; 2]) {
     let (shift, alt) = d.marquee_mods();
+    if o.marquee_style == "fixedSize" {
+        // A fixed box follows the pointer; crossing the press must not flip it by its full size.
+        let (width, height) = (f64::from(o.marquee_width).max(1.0), f64::from(o.marquee_height).max(1.0));
+        let start = if alt { [end[0] - width / 2.0, end[1] - height / 2.0] } else { end };
+        return (start, [start[0] + width, start[1] + height]);
+    }
     let e = crate::chrome_ui::marquee_end(&o.marquee_style, o.marquee_width as f64, o.marquee_height as f64, shift, d.start, end);
     if !alt {
         return (d.start, e);
     }
     let (dx, dy) = (e[0] - d.start[0], e[1] - d.start[1]);
-    // A fixed size is centred on the press point; otherwise the drag is the half extent.
-    let (hx, hy) = if o.marquee_style == "fixedSize" { (dx / 2.0, dy / 2.0) } else { (dx, dy) };
-    ([d.start[0] - hx, d.start[1] - hy], [d.start[0] + hx, d.start[1] + hy])
+    ([d.start[0] - dx, d.start[1] - dy], [d.start[0] + dx, d.start[1] + dy])
 }
 
 /// The pixel rectangle `[x0, y0, x1, y1]` a marquee between two corners selects.
 pub fn marquee_px(a: [f64; 2], b: [f64; 2]) -> [f64; 4] {
     [a[0].min(b[0]).floor(), a[1].min(b[1]).floor(), a[0].max(b[0]).ceil(), a[1].max(b[1]).ceil()]
+}
+
+/// Round the near edge once so a Fixed Size marquee keeps exactly the requested pixel count.
+pub(super) fn fixed_size_px(a: [f64; 2], b: [f64; 2], width: f32, height: f32) -> [f64; 4] {
+    let (width, height) = (f64::from(width).round().max(1.0), f64::from(height).round().max(1.0));
+    let (x0, y0) = (a[0].min(b[0]).round(), a[1].min(b[1]).round());
+    [x0, y0, x0 + width, y0 + height]
 }
 
 /// The size readout shown beside the cursor while dragging a marquee: the width and height values.
@@ -249,13 +362,40 @@ impl ViewXform {
     /// The main canvas's mapping for the active document as last laid out (inside the rulers).
     pub fn active(app: &PhotocraftApp) -> Option<Self> {
         let v = app.ui.views.get(app.session.active_index()?)?;
-        Some(Self {
-            rect: crate::rulers::content_rect(app, app.last_canvas_rect),
-            zoom: v.zoom,
-            center: v.center,
-            flip: app.ui.view.flip_horizontal,
-            rotation: v.rotation,
-        })
+        let document = app.session.active()?.doc.id;
+        let ppp = app.canvases.iter().filter(|((id, _), _)| *id == document).find_map(|(_, cache)| cache.primary_pixels_per_point).unwrap_or(1.0);
+        Some(
+            Self {
+                rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+                zoom: v.zoom,
+                center: v.center,
+                flip: app.ui.view.flip_horizontal,
+                rotation: v.rotation,
+            }
+            .pixel_aligned(ppp),
+        )
+    }
+    /// Share pixel-edge alignment between image geometry, overlays and pointer input without changing the saved pan.
+    fn pixel_aligned(mut self, ppp: f32) -> Self {
+        if !ppp.is_finite() || ppp <= 0.0 || !self.zoom.is_finite() || self.zoom <= 0.0 || !self.rotation.is_finite() || self.rotation != 0.0 {
+            return self;
+        }
+        let scale = self.zoom * ppp;
+        if !scale.is_finite() || scale.round() < 1.0 || (scale - scale.round()).abs() > 1e-5 {
+            return self;
+        }
+        let origin = self.to_screen(0.0, 0.0);
+        let physical = origin * ppp;
+        if !physical.is_finite() {
+            return self;
+        }
+        let aligned = pos2(physical.x.round(), physical.y.round()) / ppp;
+        let offset = self.camera().document_delta(aligned - origin);
+        let center = [self.center[0] - offset.x, self.center[1] - offset.y];
+        if center.iter().all(|value| value.is_finite()) {
+            self.center = center;
+        }
+        self
     }
     /// The shared camera maps both rendered geometry and pointer input.
     pub fn camera(&self) -> crate::view_camera::Camera {
@@ -352,7 +492,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let painter = ui.painter_at(rect);
     let input_enabled = ui.is_enabled() && !crate::restoration_ui::is_open(app);
     let rotate_owned = rotate_view::input(&ctx, &response, &mut view, doc.id, app.ui.tool, input_enabled && app.ui.dialogs.is_empty());
-    let xf = ViewXform { rect, zoom: view.zoom, center: view.center, flip, rotation: view.rotation };
+    let xf = ViewXform { rect, zoom: view.zoom, center: view.center, flip, rotation: view.rotation }.pixel_aligned(ctx.pixels_per_point());
     // Captured screen-axis gestures must see the camera used by this frame's pointer inverse,
     // including a just-applied Fit/resize/clamp, rather than last frame's cached View.
     if primary {
@@ -388,7 +528,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             doc: doc.id.0,
             doc_size: size,
             zoom: view.zoom,
-            center: view.center,
+            center: xf.center,
             shadow: !crate::theme::Tokens::get(&ctx).bevel && !crate::theme::Tokens::get(&ctx).pro && drop_shadow,
             pixel_grid,
             view_key: egui::Id::new(("pc-canvas-move", ctx.viewport_id(), idx)).value(),
@@ -409,7 +549,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             doc: key,
             doc_size: [doc.size.width.div_ceil(k), doc.size.height.div_ceil(k)],
             zoom: view.zoom * k as f32,
-            center: [view.center[0] / k as f32, view.center[1] / k as f32],
+            center: [xf.center[0] / k as f32, xf.center[1] / k as f32],
             shadow: {
                 let t = crate::theme::Tokens::get(&ctx);
                 !t.bevel && !t.pro && drop_shadow
@@ -431,7 +571,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             doc: doc.id.0,
             doc_size: [doc.size.width, doc.size.height],
             zoom: view.zoom,
-            center: view.center,
+            center: xf.center,
             shadow: {
                 let t = crate::theme::Tokens::get(&ctx);
                 !t.bevel && !t.pro && drop_shadow
@@ -453,27 +593,47 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 rotate_view::cpu_shadow(&painter, &xf, image_bounds);
             }
         }
-        match app.session.prefs().transparency_and_gamut.square() {
-            Some(square) => {
-                let checker_id = checker(app, &ctx);
+        let checkerboard = app.session.prefs().transparency_and_gamut.square().map(|square| (checker(app, &ctx), square));
+        let background = |bounds: Rect| match checkerboard {
+            Some((checker_id, square)) => {
                 let (anchor, square) = if view.rotation == 0.0 {
                     (img_rect.min, square)
                 } else {
                     let ppp = ctx.pixels_per_point();
                     (pos2((rect.left() * ppp).round() / ppp, (rect.top() * ppp).round() / ppp), (square * ppp).round().max(1.0) / ppp)
                 };
-                painter.add(xf.camera().screen_textured_quad(checker_id, image_bounds, anchor, Vec2::splat(2.0 * square), Color32::WHITE));
+                painter.add(xf.camera().screen_textured_quad(checker_id, bounds, anchor, Vec2::splat(2.0 * square), Color32::WHITE));
             }
             None => {
                 if view.rotation == 0.0 {
-                    painter.rect_filled(img_rect, 0.0, Color32::WHITE);
+                    painter.rect_filled(xf.camera().screen_bounds(bounds), 0.0, Color32::WHITE);
                 } else {
-                    painter.add(egui::Shape::convex_polygon(xf.camera().quad(image_bounds).to_vec(), Color32::WHITE, Stroke::NONE));
+                    painter.add(egui::Shape::convex_polygon(xf.camera().quad(bounds).to_vec(), Color32::WHITE, Stroke::NONE));
                 }
             }
+        };
+        background(image_bounds);
+        let view = InView {
+            visible: visible_doc_rect(&xf),
+            zoom: view.zoom * ctx.pixels_per_point(),
+            key: egui::Id::new(("pc-canvas-detail", ctx.viewport_id(), idx, primary)).value(),
+        };
+        if let Some(textures) = ensure_texture_in_view(app, &ctx, idx, output, Some(view)) {
+            let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+            painter.add(xf.camera().textured_quad(textures.texture, image_bounds, uv, Color32::WHITE));
+            if let Some((texture, [x0, y0, x1, y1])) = textures.detail {
+                let bounds = Rect::from_min_max(pos2(x0, y0), pos2(x1, y1));
+                // Erase the reduced image underneath transparent detail pixels, keeping the checker phase.
+                background(bounds);
+                painter.add(xf.camera().textured_quad(texture, bounds, uv, Color32::WHITE));
+            }
         }
-        if let Some((tex, _scale)) = ensure_texture(app, &ctx, idx, output) {
-            painter.add(xf.camera().textured_quad(tex, image_bounds, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE));
+    }
+    if primary {
+        for ((document, _), cache) in &mut app.canvases {
+            if *document == doc.id {
+                cache.primary_pixels_per_point = Some(ctx.pixels_per_point());
+            }
         }
     }
     if let Err(e) = crate::vector_integration::views::overlay(app, &ctx, idx, &xf, &painter) {
@@ -718,6 +878,12 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             egui::Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers } if rect.contains(*pos) => Some((*pos, *modifiers)),
             _ => None,
         });
+        let object_press = egui::Id::new(("object-selection-press-modifiers", idx));
+        if tool == Tool::ObjectSelection
+            && let Some((_, modifiers)) = pressed
+        {
+            ctx.data_mut(|data| data.insert_temp(object_press, modifiers));
+        }
         if painting
             && !move_input
             && (response.is_pointer_button_down_on() || buttons.clicked || buttons.started)
@@ -735,7 +901,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 begin_transform_controls_at(app, &ctx, &xf, p);
             }
             let d = xf.to_doc(p);
-            tool_event(app, ToolEvent::Down { x: d[0], y: d[1], pressure: app.stylus.pressure() }, mods);
+            let down_mods = if tool == Tool::ObjectSelection { ctx.data(|data| data.get_temp(object_press)).unwrap_or(mods) } else { mods };
+            tool_event(app, ToolEvent::Down { x: d[0], y: d[1], pressure: app.stylus.pressure() }, down_mods);
         }
         if buttons.dragged || buttons.stopped {
             // Feed every pointer move the OS delivered this frame, not just the latest position, so
@@ -808,6 +975,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         {
             let click_button = if app.secondary_erase { PointerButton::Secondary } else { PointerButton::Primary };
             let click_mods = ui.input(|i| pointer_button_modifiers(&i.events, click_button)).unwrap_or(mods);
+            let click_mods = if tool == Tool::ObjectSelection && click_button == PointerButton::Primary {
+                ctx.data(|data| data.get_temp(object_press)).unwrap_or(click_mods)
+            } else {
+                click_mods
+            };
             let d = xf.to_doc(p);
             match tool {
                 Tool::Zoom => {
@@ -1084,3 +1256,6 @@ mod brush_batch_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod pixel_alignment_tests;

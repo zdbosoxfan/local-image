@@ -52,6 +52,7 @@ pub(super) fn local_request(
         req.refine_defaults = s.refine_defaults;
     }
     req.scale = s.upscale;
+    req.enhance = s.enhance_prompt.get(&s.model).copied().unwrap_or(false);
     req.loras = s.loras.iter().map(|l| li_ai::workflows::LoraUse { name: l.name.clone(), strength: l.strength }).collect();
     if !s.sampler.is_empty() {
         req.sampler = Some((s.sampler.clone(), if s.scheduler.is_empty() { info.resolved.pipeline.scheduler.clone() } else { s.scheduler.clone() }));

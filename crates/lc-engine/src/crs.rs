@@ -194,8 +194,10 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         Some(false) => rel.or(abs),
         None => abs.or(rel),
     };
+    // Lightroom writes the white it rendered with every mode but As Shot (Auto's measurement, a
+    // preset's values): keep the numbers with the mode, so the photo renders and shows them.
     match (mode, wb) {
-        (Some(m), _) if m != "custom" => put(o, "wb.mode", json!(m)),
+        (Some("asShot"), _) => put(o, "wb.mode", json!("asShot")),
         (m, Some((t, tint))) => {
             put(o, "wb.mode", json!(m.unwrap_or("custom")));
             put(o, "wb.temp", json!(t));
@@ -532,11 +534,32 @@ mod tests {
     }
 
     #[test]
+    fn lightroom_auto_wb_keeps_its_measured_white() {
+        use lightcraft_pipeline::{SourceInfo, local::effective_wb};
+        let x = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+             crs:WhiteBalance="Auto" crs:Temperature="4350" crs:Tint="+8"/>"#;
+        let d = apply_partial(&DevelopSettings::for_raw(5500.0, 3.0), &to_partial(&props(x), Some(true)), 1.0);
+        let raw = SourceInfo { raw: true, as_shot_temp: 5500.0, as_shot_tint: 3.0, ..Default::default() };
+        assert_eq!(d.wb.mode, WbMode::Auto);
+        assert_eq!(effective_wb(&raw, &d), (4350.0, 8.0));
+        // a named mode renders Lightroom's preset and stores the same numbers
+        let x = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+             crs:WhiteBalance="Cloudy" crs:Temperature="6500" crs:Tint="+10"/>"#;
+        let d = apply_partial(&DevelopSettings::for_raw(5500.0, 3.0), &to_partial(&props(x), Some(true)), 1.0);
+        assert_eq!(effective_wb(&raw, &d), (d.wb.temp, d.wb.tint));
+        assert_eq!(effective_wb(&raw, &d), (6500.0, 10.0));
+        // As Shot stays the photo's own
+        let x = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+             crs:WhiteBalance="As Shot" crs:Temperature="6100" crs:Tint="+2"/>"#;
+        assert_eq!(to_partial(&props(x), Some(true)), json!({"wb": {"mode": "asShot"}}));
+    }
+
+    #[test]
     fn named_wb_and_already_applied() {
         let x = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
              crs:WhiteBalance="Daylight" crs:Temperature="5500" crs:Tint="10" crs:AlreadyApplied="True"/>"#;
         let p = props(x);
-        assert_eq!(to_partial(&p, Some(true)), json!({"wb": {"mode": "daylight"}}));
+        assert_eq!(to_partial(&p, Some(true)), json!({"wb": {"mode": "daylight", "temp": 5500.0, "tint": 10.0}}));
         assert!(!has_adjustments(&p));
         let bookkeeping = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
              xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Version="1" crs:HasSettings="True"/>"#;

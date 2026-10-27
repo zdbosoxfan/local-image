@@ -649,3 +649,100 @@ fn opening_vector_art_keeps_the_selected_vector_persona() {
     assert_eq!(app.session.prefs().toolbar.persona, Persona::Vector);
     assert!(app.ui.photo_admission.is_none());
 }
+
+/// #6598: opening a file that is already open shows its document, as Photoshop does, rather than
+/// a second copy bound to the same file (saving one would overwrite the other). The path is
+/// compared as the file it names: another spelling of it, a symlink to it or, with background
+/// opens, a file still opening finds the same tab.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn opening_an_open_file_again_shows_its_tab() {
+    let (dir, paths) = files("already-open", &["a.psd", "b.psd"], b"x");
+    let (a, b) = (&paths[0], &paths[1]);
+    let (mut app, _) = app_with(None, None);
+    app.open_path(a).unwrap();
+    app.open_path(b).unwrap();
+    app.run("layer.new.layer", json!({})).unwrap();
+    app.ui.chrome.home = Some(2);
+    // Open Recent, File > Open, a drop: all go through `open_path`.
+    let spellings = vec![a.clone(), dir.join(".").join("a.psd").to_string_lossy().into_owned()];
+    #[cfg(unix)]
+    let spellings = {
+        let link = dir.join("link.psd");
+        std::os::unix::fs::symlink(a, &link).unwrap();
+        let hard_link = dir.join("hard-link.psd");
+        std::fs::hard_link(a, &hard_link).unwrap();
+        let mut spellings = spellings;
+        spellings.push(link.to_string_lossy().into_owned());
+        spellings.push(hard_link.to_string_lossy().into_owned());
+        spellings
+    };
+    for again in spellings {
+        app.session.set_active(1);
+        app.ui.chrome.home = Some(2);
+        app.open_path(&again).unwrap();
+        assert_eq!(doc_names(&app), ["a.psd", "b.psd"], "{again}");
+        assert_eq!(app.session.active_index(), Some(0), "{again}");
+        assert_eq!(app.ui.chrome.home, None, "the Home screen gives way to the document");
+    }
+    assert!(app.session.documents()[1].is_dirty(), "b keeps its unsaved changes");
+    // A set holding an open file opens only the others.
+    let (dir2, more) = files("already-open-set", &["c.psd"], b"x");
+    assert_eq!(app.open_paths(&[b.clone(), more[0].clone()]), 1);
+    assert_eq!(doc_names(&app), ["a.psd", "b.psd", "c.psd"]);
+    // In the background: an open document, then a file still opening, show their tabs.
+    app.background_jobs = true;
+    app.open_path(a).unwrap();
+    assert!(app.jobs.opens.is_empty());
+    assert_eq!(app.session.active_index(), Some(0));
+    let (dir3, late) = files("already-open-bg", &["d.psd"], b"x");
+    app.open_path(&late[0]).unwrap();
+    let job = app.jobs.opens[0].job;
+    app.jobs.focus = None;
+    app.open_path(&late[0]).unwrap();
+    assert_eq!(app.jobs.opens.len(), 1, "one tab for the file still opening");
+    assert_eq!(app.jobs.focus, Some(job));
+    // A template still loading opens again as another Untitled, as it does once loaded.
+    let (dir4, template) = files("already-open-template", &["e.psdt"], b"x");
+    app.open_path(&template[0]).unwrap();
+    app.open_path(&template[0]).unwrap();
+    assert_eq!(app.jobs.opens.len(), 3, "two Untitleds from the template");
+    for d in [dir, dir2, dir3, dir4] {
+        let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+fn files(label: &str, names: &[&str], bytes: &[u8]) -> (std::path::PathBuf, Vec<String>) {
+    let dir = std::env::temp_dir().join(format!("photocraft-open-{}-{label}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let paths = names
+        .iter()
+        .map(|name| {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path.to_string_lossy().into_owned()
+        })
+        .collect();
+    (dir, paths)
+}
+
+#[test]
+fn os_open_restores_a_minimized_window_before_focusing_it() {
+    for minimized in [true, false] {
+        let (mut app, _) = app_with(None, None);
+        app.services.os_events = Some(Box::new(|| vec![OsEvent::Open(Vec::new())]));
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().minimized = Some(minimized);
+        let mut output = ctx.run_ui(input, |ui| app.drain_os_events(ui.ctx()));
+        output.textures_delta.clear();
+        let commands: Vec<_> = output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .iter()
+            .filter(|cmd| matches!(cmd, egui::ViewportCommand::Minimized(_) | egui::ViewportCommand::Focus))
+            .cloned()
+            .collect();
+        let expected = if minimized { vec![egui::ViewportCommand::Minimized(false), egui::ViewportCommand::Focus] } else { vec![egui::ViewportCommand::Focus] };
+        assert_eq!(commands, expected);
+    }
+}

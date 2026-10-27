@@ -1,8 +1,9 @@
 //! What is installed in ComfyUI, by family. The file lists come from `/object_info` (the loader
-//! nodes' choices); each file's family comes from its header ([`crate::arch`]) when the model
+//! nodes' choices); each file is identified ([`crate::identify`]) from its header when the model
 //! folder is on this machine, else from ComfyUI's `/view_metadata` (safetensors metadata) or the
 //! file name. Text encoders, VAEs and adapters a family needs are found by name, as Krita AI
-//! Diffusion does: exact names first, then substring patterns (`a*b` = both parts present).
+//! Diffusion does: exact names first, then the precision-independent stem, then patterns
+//! (`a*b` = both parts present).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -11,7 +12,8 @@ use std::sync::Mutex;
 use crate::arch::{self, FileKind};
 use crate::catalog::InstalledModel;
 use crate::comfy::{ObjectInfo, normalized_name};
-use crate::family::{Family, Registry, Role};
+use crate::family::{Family, FamilyKind, Registry, Role};
+use crate::identify::Identity;
 
 /// Where ComfyUI lists each kind of weights file.
 const MAIN_LOADERS: &[(&str, &str, Role, &[&str])] = &[
@@ -42,14 +44,30 @@ fn component_choices(info: &ObjectInfo, role: Role) -> Vec<String> {
     v
 }
 
-/// `pattern` matches `name` when every `*`-separated part occurs in it (case-insensitive).
+const WEIGHT_EXTENSIONS: &[&str] = &[".safetensors", ".gguf", ".sft", ".ckpt", ".pt", ".pth", ".bin"];
+
+/// `pattern` matches `name` when every `*`-separated part occurs in it (case-insensitive). A part
+/// ending in a weights extension must start the basename or follow `/ _ - .` (`ae.safetensors`
+/// matches `flux_ae.safetensors`, not `flux2-vae.safetensors`); a leading `=` means the exact
+/// basename.
 pub fn pattern_matches(pattern: &str, name: &str) -> bool {
     let n = name.to_ascii_lowercase().replace('\\', "/");
-    pattern.to_ascii_lowercase().split('*').filter(|p| !p.is_empty()).all(|p| n.contains(p))
+    let base_at = n.rfind('/').map_or(0, |i| i + 1);
+    let pattern = pattern.to_ascii_lowercase();
+    if let Some(exact) = pattern.strip_prefix('=') {
+        return n[base_at..] == *exact;
+    }
+    pattern.split('*').filter(|p| !p.is_empty()).all(|p| {
+        if !WEIGHT_EXTENSIONS.iter().any(|e| p.ends_with(e)) {
+            return n.contains(p);
+        }
+        n.match_indices(p).any(|(i, _)| i >= base_at && (i == base_at || matches!(n.as_bytes()[i - 1], b'/' | b'_' | b'-' | b'.')))
+    })
 }
 
-/// The installed files for each component the family needs (exact names first, then patterns in
-/// order; among pattern hits the shortest name wins).
+/// The installed files for each component the family needs (exact names first, then the
+/// precision-independent stems, then patterns in order; among stem or pattern hits the shortest
+/// name wins).
 pub fn resolve_components(f: &Family, info: &ObjectInfo) -> Vec<(Role, String)> {
     let mut out = Vec::new();
     for c in &f.components {
@@ -58,7 +76,15 @@ pub fn resolve_components(f: &Family, info: &ObjectInfo) -> Vec<(Role, String)> 
             let w = normalized_name(want);
             choices.iter().find(|x| normalized_name(x) == w).cloned()
         });
-        let found = exact.or_else(|| c.patterns.iter().find_map(|pat| choices.iter().filter(|x| pattern_matches(pat, x)).min_by_key(|x| x.len()).cloned()));
+        let stem = || {
+            c.stems.iter().find_map(|s| {
+                let key = crate::stem::stem_key(s).key;
+                choices.iter().filter(|x| crate::stem::stem_key(x).key == key).min_by_key(|x| x.len()).cloned()
+            })
+        };
+        let found = exact
+            .or_else(stem)
+            .or_else(|| c.patterns.iter().find_map(|pat| choices.iter().filter(|x| pattern_matches(pat, x)).min_by_key(|x| x.len()).cloned()));
         if let Some(name) = found {
             out.push((c.role, name));
         }
@@ -75,26 +101,63 @@ pub fn resolve_components(f: &Family, info: &ObjectInfo) -> Vec<(Role, String)> 
     out
 }
 
-/// A detection cache keyed by path, size and modification time.
-static CACHE: Mutex<BTreeMap<PathBuf, (u64, std::time::SystemTime, arch::Detected)>> = Mutex::new(BTreeMap::new());
+/// Identities of local files, keyed by path and listing kind, valid for a size, modification
+/// time and profile generation.
+type IdentityCache = BTreeMap<(PathBuf, FileKind), (u64, std::time::SystemTime, u64, Identity)>;
+static CACHE: Mutex<IdentityCache> = Mutex::new(BTreeMap::new());
 
-/// Classifies a local file, reading only its header (cached).
-pub fn detect_file(path: &Path) -> Option<arch::Detected> {
+/// Identifies a local file a loader of kind `listed` lists, reading only its header (cached
+/// for the live registry). `None` when the header can't be read.
+pub fn identify_file(path: &Path, listed: FileKind, reg: &Registry) -> Option<Identity> {
     let meta = std::fs::metadata(path).ok()?;
     let (len, mtime) = (meta.len(), meta.modified().ok()?);
-    if let Some((l, m, d)) = CACHE.lock().ok()?.get(path)
-        && *l == len
-        && *m == mtime
+    let generation = crate::family::generation();
+    let key = (path.to_owned(), listed);
+    let live = std::ptr::eq(reg, crate::family::registry());
+    if live
+        && let Some((l, m, g, id)) = CACHE.lock().ok()?.get(&key)
+        && (*l, *m, *g) == (len, mtime, generation)
     {
-        return Some(d.clone());
+        return Some(id.clone());
     }
     let h = arch::read_header(path).ok()?;
     let name = path.file_name()?.to_string_lossy().to_string();
-    let d = arch::classify(&h, &name);
-    if let Ok(mut c) = CACHE.lock() {
-        c.insert(path.to_owned(), (len, mtime, d.clone()));
+    let id = crate::identify::identify(&name, listed, Some(&h), reg);
+    if live && let Ok(mut c) = CACHE.lock() {
+        c.insert(key, (len, mtime, generation, id.clone()));
     }
-    Some(d)
+    Some(id)
+}
+
+/// Identifies a listed file: its header when local, else ComfyUI's metadata (`metadata`, flat
+/// values or a whole safetensors header), else its name.
+pub fn identify_listed(name: &str, listed: FileKind, local: Option<&Path>, metadata: Option<&serde_json::Value>, reg: &Registry) -> Identity {
+    if let Some(id) = local.and_then(|p| identify_file(p, listed, reg)) {
+        return id;
+    }
+    if let Some(m) = metadata.and_then(|m| m.as_object()) {
+        let header = m.contains_key("__metadata__") || m.values().any(|v| v.get("shape").is_some());
+        let mut h = if header {
+            serde_json::to_vec(m).ok().and_then(|bytes| arch::parse_safetensors_json(&bytes).ok()).unwrap_or_default()
+        } else {
+            arch::Header::default()
+        };
+        h.metadata.extend(
+            m.iter()
+                .filter(|(k, v)| k.as_str() != "__metadata__" && !v.is_object())
+                .map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))),
+        );
+        let mut id = crate::identify::identify(name, listed, Some(&h), reg);
+        if !header {
+            // Flat metadata says nothing about the tensors: fall back to the name when it is silent.
+            id.header_read = false;
+            if id.arch.is_none() {
+                return crate::identify::identify(name, listed, None, reg);
+            }
+        }
+        return id;
+    }
+    crate::identify::identify(name, listed, None, reg)
 }
 
 /// Finds `name` (as ComfyUI lists it, maybe with a subfolder) under the model folder.
@@ -112,51 +175,23 @@ pub fn label_for(name: &str) -> String {
     stem.replace(['_', '-'], " ").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Family of a listed file: its header if local, else ComfyUI's metadata (`metadata`), else its
-/// name. `None` when nothing recognises it — or when a file listed as a main model (`kind`
-/// checkpoint or diffusion model) turns out to be a LoRA.
+/// Architecture of a listed file and why ([`identify_listed`]). `None` when nothing recognises
+/// it, or when a file listed as a main model (`kind` checkpoint or diffusion model) is a LoRA.
+/// A local header that matches no layout stays unknown: the name never overrides the weights.
 pub fn family_of(name: &str, kind: FileKind, local: Option<&Path>, metadata: Option<&serde_json::Value>) -> Option<(String, String)> {
+    let id = identify_listed(name, kind, local, metadata, crate::family::registry());
     let wants_model = matches!(kind, FileKind::Checkpoint | FileKind::DiffusionModel);
-    if let Some(p) = local
-        && let Some(d) = detect_file(p)
-    {
-        if wants_model && d.kind == FileKind::Lora {
-            return None;
-        }
-        if let Some(f) = d.family {
-            return Some((f, d.evidence));
-        }
+    if wants_model && id.kind == FileKind::Lora {
+        return None;
     }
-    if let Some(m) = metadata.and_then(|m| m.as_object()) {
-        // /view_metadata may expose flat string metadata or an entire safetensors
-        // header. Preserve tensor shapes and nested __metadata__ in the latter.
-        let header = m.contains_key("__metadata__") || m.values().any(|v| v.get("shape").is_some());
-        let mut h = if header {
-            serde_json::to_vec(m).ok().and_then(|bytes| arch::parse_safetensors_json(&bytes).ok()).unwrap_or_default()
-        } else {
-            arch::Header::default()
-        };
-        h.metadata.extend(
-            m.iter()
-                .filter(|(k, v)| k.as_str() != "__metadata__" && !v.is_object())
-                .map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))),
-        );
-        let d = arch::classify(&h, name);
-        if wants_model && d.kind == FileKind::Lora {
-            return None;
-        }
-        if let Some(f) = d.family {
-            return Some((f, d.evidence));
-        }
-    }
-    arch::guess_from_name(name, kind).map(|f| (f, "file name".to_owned()))
+    id.arch.map(|a| (a, id.evidence))
 }
 
 /// Whether a file a main-model loader lists is really a LoRA (its header when local, else its
 /// name): such files are left out of the model list.
 pub fn listed_as_model_but_lora(name: &str, local: Option<&Path>) -> bool {
-    match local.and_then(detect_file) {
-        Some(d) => d.kind == FileKind::Lora,
+    match local.and_then(|p| identify_file(p, FileKind::DiffusionModel, crate::family::registry())) {
+        Some(id) => id.kind == FileKind::Lora,
         None => arch::name_looks_like_lora(name),
     }
 }
@@ -169,21 +204,25 @@ pub struct InstalledLora {
     pub evidence: String,
 }
 
-/// The installed main weights and LoRAs. An empty family leaves recipe discovery to the refine checker.
+/// The installed main weights and LoRAs. An empty family leaves recipe discovery to the refine
+/// checker; template-only families stay listed (the template engine runs them). LoRAs, text
+/// encoders and VAEs that a model loader lists are not models.
 pub fn scan(info: &ObjectInfo, model_dir: Option<&Path>, reg: &Registry) -> (Vec<InstalledModel>, Vec<InstalledLora>) {
     let mut models = Vec::new();
     for (class, input, role, folders) in MAIN_LOADERS {
         for name in info.choices(class, input) {
             let kind = if *role == Role::Checkpoint { FileKind::Checkpoint } else { FileKind::DiffusionModel };
             let local = local_path(model_dir, folders, &name);
+            let id = identify_listed(&name, kind, local.as_deref(), None, reg);
             // LoRAs saved into a model folder (or listed through extra model paths) aren't models.
-            if listed_as_model_but_lora(&name, local.as_deref()) {
+            if id.kind == FileKind::Lora || local.is_none() && arch::name_looks_like_lora(&name) {
                 continue;
             }
-            let family = family_of(&name, kind, local.as_deref(), None).map(|f| f.0).unwrap_or_default();
-            // A checkpoint-loading family found as a bare diffusion model (or the reverse) is still
-            // listed; the loader follows the file.
-            if reg.family(&family).is_some_and(|f| f.kind != crate::family::FamilyKind::Image) {
+            if matches!(id.kind, FileKind::TextEncoder | FileKind::Vae) {
+                continue;
+            }
+            let family = id.arch.clone().unwrap_or_default();
+            if reg.family(&family).is_some_and(|f| f.kind == FamilyKind::Upscaler) {
                 continue;
             }
             let prefix = if *role == Role::Checkpoint { "ckpt" } else { "unet" };
@@ -191,14 +230,22 @@ pub fn scan(info: &ObjectInfo, model_dir: Option<&Path>, reg: &Registry) -> (Vec
             if models.iter().any(|m: &InstalledModel| m.key == key) {
                 continue;
             }
-            models.push(InstalledModel { key, family, label: label_for(&name), files: [(*role, name)].into() });
+            models.push(InstalledModel {
+                key,
+                family,
+                label: label_for(&name),
+                files: [(*role, name)].into(),
+                variant: id.variant,
+                quant: id.quant.class,
+                stem: id.stem,
+            });
         }
     }
     let mut loras = Vec::new();
     for name in component_choices(info, Role::Lora) {
         let local = local_path(model_dir, &["loras"], &name);
-        let found = family_of(&name, FileKind::Lora, local.as_deref(), None);
-        loras.push(InstalledLora { name, family: found.as_ref().map(|f| f.0.clone()), evidence: found.map(|f| f.1).unwrap_or_default() });
+        let id = identify_listed(&name, FileKind::Lora, local.as_deref(), None, reg);
+        loras.push(InstalledLora { name, family: id.arch, evidence: id.evidence });
     }
     (models, loras)
 }

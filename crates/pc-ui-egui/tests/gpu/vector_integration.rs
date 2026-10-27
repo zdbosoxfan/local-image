@@ -17,6 +17,7 @@ type H = Harness<'static, PhotocraftApp>;
 fn fixture(depth: SampleType, style: GradientStyle, align: bool) -> (Document, LayerId) {
     let mut doc = Document::new("00 gradient route", Size::new(320, 240), ColorMode::Rgb, depth);
     let paint = Fill::Gradient {
+        method: Default::default(),
         stops: vec![(1.0, Color::WHITE), (0.5, Color::rgb(0.9, 0.2, 0.4)), (0.0, Color::BLACK)],
         angle: 31.0,
         scale: 1.3,

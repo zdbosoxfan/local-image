@@ -225,29 +225,7 @@ impl Catalog {
     }
 }
 
-/// Seconds since 1970-01-01 for an ISO 8601 local time (`2026-04-01T10:00:00`, `2026-04-01 10:00`,
-/// `2026-04-01`; fractions and zone suffixes are ignored). `None` if it doesn't parse.
-pub fn iso_seconds(s: &str) -> Option<i64> {
-    let s = s.trim();
-    let num = |a: usize, b: usize| -> Option<i64> { s.get(a..b).filter(|x| x.bytes().all(|c| c.is_ascii_digit())).and_then(|x| x.parse().ok()) };
-    let (y, m, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
-        return None;
-    }
-    let (hh, mm, ss) = if s.len() >= 16 { (num(11, 13)?, num(14, 16)?, num(17, 19).unwrap_or(0)) } else { (0, 0, 0) };
-    if hh >= 24 || mm >= 60 || ss >= 60 {
-        return None;
-    }
-    // days from civil (proleptic Gregorian)
-    let y2 = if m <= 2 { y - 1 } else { y };
-    let era = y2.div_euclid(400);
-    let yoe = y2 - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    Some(days * 86_400 + hh * 3600 + mm * 60 + ss)
-}
+pub use li_i18n::calendar::iso_seconds;
 
 #[cfg(test)]
 mod tests {

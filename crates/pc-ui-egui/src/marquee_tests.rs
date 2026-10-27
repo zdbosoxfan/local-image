@@ -255,3 +255,163 @@ fn mouse_drag_inside_the_selection_moves_it() {
     release_at(&mut h, 170.0, 130.0, Modifiers::NONE);
     assert_eq!(selection(&h), Rect::new(120, 90, 220, 170), "moved by (20, 10)");
 }
+
+#[test]
+fn fixed_size_selects_exactly_the_entered_size() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        for (w, ht) in [(10, 10), (1, 1), (64, 32)] {
+            let mut h = canvas_harness(tool, None);
+            let o = &mut h.state_mut().ui.tool_options;
+            o.marquee_style = "fixedSize".into();
+            (o.marquee_width, o.marquee_height) = (w as f32, ht as f32);
+            press_at(&mut h, 50.4, 60.6, Modifiers::NONE);
+            assert!(readout(&h, w, ht), "{tool:?} {w} x {ht}: the readout shows the entered size");
+            release_at(&mut h, 90.0, 90.0, Modifiers::NONE);
+            let selected = selection(&h);
+            assert_eq!((selected.width(), selected.height()), (w as u32, ht as u32), "{tool:?}: exact size");
+            assert_eq!(selected, Rect::new(90, 90, 90 + w, 90 + ht), "{tool:?}: dragged to the release point");
+
+            // A click: the button goes down and up at one point.
+            h.state_mut().run("select.deselect", json!({})).unwrap();
+            let p = screen(&h, 120.6, 100.4);
+            h.event(egui::Event::PointerMoved(p));
+            h.run_steps(1);
+            button(&mut h, p, true, Modifiers::NONE);
+            button(&mut h, p, false, Modifiers::NONE);
+            h.run_steps(2);
+            assert_eq!(selection(&h), Rect::new(121, 100, 121 + w, 100 + ht), "{tool:?} {w} x {ht}: clicked");
+        }
+    }
+}
+
+#[test]
+fn fixed_size_drag_positions_the_box_in_every_direction() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        for zoom in [1.0, 16.0] {
+            let mut h = canvas_harness(tool, None);
+            h.state_mut().ui.extras.snap = false;
+            let o = &mut h.state_mut().ui.tool_options;
+            o.marquee_style = "fixedSize".into();
+            (o.marquee_width, o.marquee_height) = (11.0, 11.0);
+            h.state_mut().ui.views[0].zoom = zoom;
+            h.state_mut().ui.views[0].center = [60.0, 70.0];
+            h.run_steps(2);
+            press_at(&mut h, 50.4, 60.6, Modifiers::NONE);
+            for (x, y) in [(58.4, 66.6), (49.4, 59.6), (49.4, 66.6), (58.4, 59.6), (59.4, 60.6)] {
+                move_to(&mut h, x, y);
+                let app = h.state();
+                let drag = app.drag.as_ref().unwrap();
+                let (a, b) = crate::canvas::marquee_corners(&app.ui.tool_options, drag, [f64::from(x), f64::from(y)]);
+                let r = crate::canvas::fixed_size_px(a, b, app.ui.tool_options.marquee_width, app.ui.tool_options.marquee_height);
+                let (x, y) = (f64::from(x).round(), f64::from(y).round());
+                assert_eq!(r, [x, y, x + 11.0, y + 11.0], "{tool:?} at zoom {zoom}: follows the pointer");
+                assert!(readout(&h, 11, 11), "the live dimensions stay 11 x 11");
+            }
+            // Commit the release position even if there was no move frame at this point.
+            let p = screen(&h, 60.4, 61.6);
+            button(&mut h, p, false, Modifiers::NONE);
+            h.run_steps(2);
+            assert_eq!(selection(&h), Rect::new(60, 62, 71, 73), "{tool:?}: release commits the final position");
+        }
+    }
+}
+
+#[test]
+fn fixed_size_drag_inside_a_completed_box_still_moves_its_outline() {
+    for snap in [false, true] {
+        for zoom in [1.0, 26.730814] {
+            let mut h = canvas_harness(Tool::RectMarquee, None);
+            h.state_mut().ui.extras.snap = snap;
+            let o = &mut h.state_mut().ui.tool_options;
+            o.marquee_style = "fixedSize".into();
+            (o.marquee_width, o.marquee_height) = (11.0, 11.0);
+            h.state_mut().ui.views[0].zoom = zoom;
+            h.state_mut().ui.views[0].center = [112.0, 110.0];
+            h.run_steps(2);
+            press_at(&mut h, 100.4, 100.6, Modifiers::NONE);
+            release_at(&mut h, 108.4, 106.6, Modifiers::NONE);
+            let r = selection(&h);
+            let (x, y) = ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
+            press_at(&mut h, x, y, Modifiers::NONE);
+            release_at(&mut h, x + 2.0, y + 1.0, Modifiers::NONE);
+            assert_eq!(selection(&h), r.translate(2, 1), "zoom {zoom}, snap {snap}");
+        }
+    }
+}
+
+#[test]
+fn fixed_size_alt_centers_the_box_at_the_current_pointer() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        let mut h = canvas_harness(tool, None);
+        h.state_mut().ui.extras.snap = false;
+        let o = &mut h.state_mut().ui.tool_options;
+        o.marquee_style = "fixedSize".into();
+        (o.marquee_width, o.marquee_height) = (11.0, 11.0);
+        press_at(&mut h, 50.4, 60.6, Modifiers::NONE);
+        mods(&mut h, Modifiers::ALT);
+        move_to(&mut h, 100.4, 100.6);
+        assert!(readout(&h, 11, 11));
+        release_at(&mut h, 110.4, 90.6, Modifiers::ALT);
+        assert_eq!(selection(&h), Rect::new(105, 85, 116, 96), "{tool:?}: Alt centres the moving box");
+    }
+}
+
+#[test]
+fn object_selection_keeps_the_mode_from_the_mouse_press() {
+    for dragged in [false, true] {
+        for held in [false, true] {
+            for at_press in [Modifiers::SHIFT, Modifiers::ALT] {
+                let mut h = canvas_harness(Tool::ObjectSelection, Some(1.0 / 60.0));
+                h.state_mut().ui.extras.snap = false;
+                h.state_mut().run("paint.pencil", json!({"points": [[220, 150]], "size": 60, "color": "#ff0000"})).unwrap();
+                if at_press.alt {
+                    h.state_mut().run("select.all", json!({})).unwrap();
+                } else {
+                    h.state_mut().run("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+                }
+                // Capture click requests at the authorization boundary: inference needs an installed model.
+                let clicks = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+                let captured = clicks.clone();
+                h.state_mut().services.automation_command = Some(Box::new(move |id, params| {
+                    if id == "select.object" && params.get("point").is_some() {
+                        captured.borrow_mut().push(params.clone());
+                        return Err("click inference refused by the test authority".into());
+                    }
+                    Ok(())
+                }));
+                h.state_mut().automation_input = true;
+                let start_doc = if dragged { [180.0, 110.0] } else { [220.0, 150.0] };
+                mods(&mut h, at_press);
+                move_to(&mut h, start_doc[0], start_doc[1]);
+                let start = screen(&h, start_doc[0], start_doc[1]);
+                button(&mut h, start, true, at_press);
+                assert!(h.state().drag.is_none(), "the press is below the drag threshold");
+                let during = if held { at_press } else { Modifiers::NONE };
+                mods(&mut h, during);
+                let end_doc = if dragged { [260.0, 190.0] } else { start_doc };
+                release_at(&mut h, end_doc[0], end_doc[1], during);
+                let app = h.state();
+                let params = if dragged {
+                    let (command, params) = app.session.journal.last().expect("the gesture dispatched a command");
+                    assert_eq!(command, "select.object");
+                    params.clone()
+                } else {
+                    clicks.borrow().last().expect("the click reached authorization").clone()
+                };
+                let expected = if at_press.alt { "subtract" } else { "add" };
+                assert_eq!(params["mode"], expected, "dragged={dragged}, held={held}");
+                if dragged {
+                    let sel = app.session.active().unwrap().doc.selection.as_ref().expect("selection outside the object survives");
+                    assert!(sel.sample_channel(20, 20, 0) > 0.99);
+                    assert_eq!(sel.sample_channel(220, 150, 0) > 0.5, !at_press.alt);
+                }
+                mods(&mut h, Modifiers::NONE);
+                move_to(&mut h, 220.0, 150.0);
+                let next = screen(&h, 220.0, 150.0);
+                button(&mut h, next, true, Modifiers::NONE);
+                release_at(&mut h, 220.0, 150.0, Modifiers::NONE);
+                assert_eq!(clicks.borrow().last().unwrap()["mode"], "replace", "a new press clears the prior mode");
+            }
+        }
+    }
+}

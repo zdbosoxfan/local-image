@@ -107,7 +107,7 @@ fn plain(md: &str) -> String {
 }
 
 /// The first `[text](url)` of a markdown cell.
-fn first_link(md: &str) -> Option<(String, String)> {
+pub(super) fn first_link(md: &str) -> Option<(String, String)> {
     let open = md.find('[')?;
     let close = md[open..].find("](")? + open;
     let end = md[close + 2..].find(')')? + close + 2;

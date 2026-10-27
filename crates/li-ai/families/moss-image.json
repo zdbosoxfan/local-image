@@ -1,0 +1,110 @@
+{
+  "schema": 2,
+  "version": 1,
+  "id": "moss-image",
+  "label": "MOSS-Image",
+  "group": "MOSS",
+  "kind": "template",
+  "description": "MOSS-Image: detailed images from long scene descriptions (SFT); a Base variant for comparison and fine-tuning.",
+  "detect": {
+    "priority": 100,
+    "tensors_all": [
+      "shared_block_modulation.weight",
+      "layers.0.proj.ffn_up_gate.weight"
+    ],
+    "names": [
+      "moss_image*",
+      "moss-image*"
+    ],
+    "variants": [
+      {
+        "id": "base",
+        "names": [
+          "*moss*base*"
+        ]
+      },
+      {
+        "id": "sft",
+        "names": [
+          "*moss*sft*"
+        ]
+      }
+    ],
+    "lora": {
+      "tensors_any": [
+        "proj.ffn_up_gate.lora"
+      ],
+      "kohya_prefixes": [
+        "moss_image",
+        "moss-image",
+        "moss"
+      ]
+    }
+  },
+  "template": {
+    "stems": {
+      "sft": [
+        "mossimagesft"
+      ],
+      "base": [
+        "mossimagebase"
+      ]
+    },
+    "negative": "default_text",
+    "inpaint": "noise_mask",
+    "variants": {
+      "sft": {
+        "sampling": {
+          "steps": {
+            "default": 25,
+            "min": 10,
+            "max": 50
+          },
+          "cfg": {
+            "default": 2.5,
+            "min": 1,
+            "max": 7
+          },
+          "denoise": 0.35
+        }
+      },
+      "base": {
+        "sampling": {
+          "steps": {
+            "default": 25,
+            "min": 10,
+            "max": 50
+          },
+          "cfg": {
+            "default": 2.5,
+            "min": 1,
+            "max": 7
+          },
+          "denoise": 0.35
+        }
+      }
+    }
+  },
+  "prompt": {
+    "prefix": "",
+    "negative": "nsfw, worst quality, bad anatomy, watermark, jpeg artifact"
+  },
+  "sizes": {
+    "native": 1024,
+    "multiple": 16,
+    "min": 256,
+    "max": 2048
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "compatible": [
+      "moss-image"
+    ],
+    "max": 3
+  },
+  "vram_gb": 16,
+  "license": "Apache-2.0",
+  "license_url": "https://huggingface.co/Comfy-Org/MOSS-Image",
+  "license_summary": "Commercial use allowed.",
+  "commercial": "yes"
+}

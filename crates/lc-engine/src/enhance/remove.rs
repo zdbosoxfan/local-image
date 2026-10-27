@@ -1,7 +1,7 @@
 //! AI Remove (Lightroom's Remove tool with generative AI): a background job cuts the area around a
 //! brushed, lassoed or masked removal out of the photo as a render shows it before cropping and
 //! white balance ([`lightcraft_pipeline::patches::transformed`]), lets the host's AI engine repair
-//! it through a reversible 8-bit view ([`AiView`]), and stores the repaired pixels as a patch
+//! it through a reversible display view ([`AiView`]), and stores the repaired pixels as a patch
 //! ([`super::store`]) that the pipeline composites at the retouching stage. The develop settings
 //! only refer to the patch, so the removal stays editable (opacity, delete, regenerate, undo).
 //!
@@ -22,6 +22,7 @@ use lightcraft_catalog::PhotoId;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_geom::Point;
 use lightcraft_pipeline::patches::{AiView, PatchPixels, PatchSource};
+use lightcraft_pipeline::spots::{PxBox, bbox, inflate};
 use lightcraft_preview::Hasher128;
 
 use super::store::{self, Kind};
@@ -175,24 +176,6 @@ struct Prepared {
     host: Option<Arc<dyn AiHost>>,
     /// The AI spot being regenerated: its own patch is left out of what the engine sees.
     exclude: Option<usize>,
-}
-
-/// An inclusive-exclusive pixel box.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct PxBox {
-    x0: usize,
-    y0: usize,
-    x1: usize,
-    y1: usize,
-}
-
-impl PxBox {
-    fn width(&self) -> usize {
-        self.x1 - self.x0
-    }
-    fn height(&self) -> usize {
-        self.y1 - self.y0
-    }
 }
 
 impl Prepared {
@@ -371,24 +354,6 @@ fn mask_coverage(
     let alpha = GrayFrame { width: ew, height: eh, data: alpha.data.iter().map(|v| (v / peak).clamp(0.0, 1.0)).collect() };
     let full = alpha.resize(img.width, img.height, Filter::Bilinear);
     full.data
-}
-
-/// The box of coverage above a trace, `None` when there is none.
-fn bbox(cov: &[f32], w: usize, h: usize) -> Option<PxBox> {
-    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
-    for y in 0..h {
-        for x in 0..w {
-            if cov[y * w + x] > 0.004 {
-                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
-            }
-        }
-    }
-    (x1 > x0 && y1 > y0).then_some(PxBox { x0, y0, x1, y1 })
-}
-
-/// `b` grown by `m` on every side, within the image.
-fn inflate(b: PxBox, m: usize, w: usize, h: usize) -> PxBox {
-    PxBox { x0: b.x0.saturating_sub(m), y0: b.y0.saturating_sub(m), x1: (b.x1 + m).min(w), y1: (b.y1 + m).min(h) }
 }
 
 /// The area the AI sees around `b`: twice its size on every side, at least [`CONTEXT_MIN`],

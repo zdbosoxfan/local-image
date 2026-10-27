@@ -16,6 +16,7 @@
 mod color_icons;
 pub mod control;
 pub mod credits;
+mod crop_tools;
 pub mod export_task;
 pub mod file_dialog;
 pub mod headless;
@@ -54,6 +55,8 @@ mod tests_design_system;
 mod tests_develop_a;
 #[cfg(test)]
 mod tests_develop_c;
+#[cfg(test)]
+mod tests_develop_view;
 #[cfg(test)]
 mod tests_dialogs;
 #[cfg(test)]
@@ -311,6 +314,8 @@ impl LightcraftApp {
         let gpu_test = gpu_test_support::lock();
         // AI mask requests run on the model's worker; frames apply their results (never wait)
         session.segmenter.background = true;
+        // so does Auto white balance that a paste or sync brings to undecoded photos (`tasks`)
+        session.defer_auto_wb = true;
         Self {
             session,
             ui: UiState::default(),
@@ -428,6 +433,9 @@ impl LightcraftApp {
             return r;
         }
         let r = self.session.execute(id, &params).map_err(|e| e.to_string());
+        if r.is_ok() && id == "library.toggleFilters" {
+            self.ui.search = self.session.filter.text.clone();
+        }
         if let Err(e) = &r {
             log::warn!("{id}: {e}");
             self.ui.status = e.clone();
@@ -1012,6 +1020,7 @@ impl LightcraftApp {
             self.ai_mask_detail(&ctx);
         }
         panels::enhance::poll(self, &ctx);
+        panels::develop_tools::upright_poll(self, &ctx);
         // Completion/failure collection continues even while interactive windows are suspended.
         export_task::poll(self, &ctx);
         proof_sheet::poll(self, &ctx);

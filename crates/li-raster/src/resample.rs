@@ -215,6 +215,162 @@ pub fn weights(src: usize, dst: usize, filter: Filter) -> Vec<(usize, Vec<f32>)>
         .collect()
 }
 
+/// How far a final, non-enlarging resample may pass [`antiring`]'s range, relative to each bound:
+/// a cubic's acutance on low-contrast texture (up to about 0.7 stop) passes, a dip of 0.07 EV at
+/// most beside an edge. An intermediate resample (a prefilter another resample follows) uses no
+/// slack, so the dips do not compound, and neither does an enlargement, which has no finer
+/// texture to keep.
+pub const ANTIRING_SLACK: f32 = 0.05;
+
+/// Ringing suppression for resampling scene-linear light: `v` (a weighted sum of samples) clamped to
+/// `core`, the range of the samples in the kernel's positive lobe, widened by `slack` of each bound
+/// ([`ANTIRING_SLACK`] for a final resample).
+///
+/// A cubic kernel's negative lobes over- and undershoot an edge by a fixed fraction of the step. In
+/// scene-linear light a window six stops over the wall beside it is a step of 60× the wall, so the
+/// undershoot turns the wall next to the window black. Measured relative to the range, the same
+/// ringing on low-contrast texture is small and passes.
+#[inline]
+pub fn antiring(v: f32, core: (f32, f32), slack: f32) -> f32 {
+    if core.0 > core.1 || core.0.is_nan() || core.1.is_nan() {
+        return v;
+    }
+    v.max(core.0 - slack * core.0.abs()).min(core.1 + slack * core.1.abs())
+}
+
+/// How far a tap of weight `w` counts toward [`antiring`]'s range: in proportion to its weight up to
+/// a tenth of the largest weight `w_max`, fully beyond. A tap entering or leaving the positive lobe
+/// has a weight near zero, so it widens the range gradually and float noise in its position can
+/// never switch the clamp.
+#[inline]
+pub(crate) fn antiring_taper(w: f32, w_max: f32) -> f32 {
+    (w * 10.0 / w_max).clamp(0.0, 1.0)
+}
+
+/// `Σ value(k)·weight(k)` over `n` taps (in tap order, as the GPU kernels add) and the range
+/// [`antiring`] holds it to: that of `range(k)` over the positive lobe, measured about the lobe's
+/// weighted mean, each tap counted as far as [`antiring_taper`] says. `None` for an empty lobe.
+#[inline]
+fn antiring_sum(
+    n: usize,
+    value: impl Fn(usize) -> [f32; 3],
+    range: impl Fn(usize) -> [f32; 3],
+    weight: impl Fn(usize) -> f32,
+) -> ([f32; 3], Option<[(f32, f32); 3]>) {
+    let w_max = (0..n).map(&weight).fold(0.0f32, f32::max);
+    let (mut acc, mut lobe, mut lobe_w) = ([0.0f32; 3], [0.0f32; 3], 0.0f32);
+    for k in 0..n {
+        let (v, r, w) = (value(k), range(k), weight(k));
+        let c = w * antiring_taper(w, w_max);
+        for ch in 0..3 {
+            acc[ch] += v[ch] * w;
+            lobe[ch] += r[ch] * c;
+        }
+        lobe_w += c;
+    }
+    if lobe_w <= 0.0 {
+        return (acc, None);
+    }
+    let mean = lobe.map(|l| l / lobe_w);
+    let mut core = [(0.0f32, 0.0f32); 3];
+    for k in 0..n {
+        let (r, t) = (range(k), antiring_taper(weight(k), w_max));
+        for ch in 0..3 {
+            let d = (r[ch] - mean[ch]) * t;
+            core[ch] = (core[ch].0.min(d), core[ch].1.max(d));
+        }
+    }
+    (acc, Some(std::array::from_fn(|ch| (mean[ch] + core[ch].0, mean[ch] + core[ch].1))))
+}
+
+/// [`antiring`] of each channel of `v` to `core`.
+#[inline]
+fn antiring_rgb(v: [f32; 3], core: Option<[(f32, f32); 3]>, slack: f32) -> [f32; 3] {
+    match core {
+        Some(core) => std::array::from_fn(|ch| antiring(v[ch], core[ch], slack)),
+        None => v,
+    }
+}
+
+/// Taps of a 1-D resample whose output sample `i` is centred on source position `a·(i + 0.5) + b`
+/// (source sample `j` covers `j..j + 1`). The kernel is widened by `max(|a|, 1)` so a reduction is
+/// band-limited, and taps past either end read the edge sample. `a = src / dst, b = 0` places the
+/// samples as [`weights`] does. Same layout as [`weights`]: (first source index, weights).
+pub fn offset_weights(src: usize, dst: usize, a: f64, b: f64, filter: Filter) -> Vec<(usize, Vec<f32>)> {
+    if src == 0 {
+        return vec![(0, Vec::new()); dst];
+    }
+    // A kernel wider than the source reads nothing new and only lengthens the tap loop.
+    let stretch = a.abs().clamp(1.0, src as f64 + 1.0);
+    let reach = f64::from(filter.support()) * stretch;
+    let last = src as i64 - 1;
+    (0..dst)
+        .map(|i| {
+            // Continuous source index: sample `j` sits at `f == j`.
+            let f = a * (i as f64 + 0.5) + b - 0.5;
+            if !f.is_finite() {
+                return ((if f > 0.0 { last } else { 0 }) as usize, vec![1.0]);
+            }
+            let (j0, j1) = ((f - reach).floor() as i64 + 1, (f + reach).ceil() as i64 - 1);
+            let (j0, j1) = if j0 > j1 { (f.round() as i64, f.round() as i64) } else { (j0, j1) };
+            let (lo, hi) = (j0.clamp(0, last), j1.clamp(0, last));
+            let mut w = vec![0.0f32; (hi - lo + 1) as usize];
+            for j in j0..=j1 {
+                w[(j.clamp(lo, hi) - lo) as usize] += filter.eval(((j as f64 - f) / stretch) as f32);
+            }
+            let sum: f32 = w.iter().sum();
+            if sum.abs() > 1e-8 {
+                w.iter_mut().for_each(|v| *v /= sum);
+            } else {
+                let n = w.len() as f32;
+                w.iter_mut().for_each(|v| *v = 1.0 / n);
+            }
+            (lo as usize, w)
+        })
+        .collect()
+}
+
+/// Separable resample of scene-linear RGB through precomputed taps (`wx` per output column, `wy`
+/// per output row: [`weights`] or [`offset_weights`]), with ringing suppressed ([`antiring`] with
+/// `slack`). Each horizontal output is also kept clamped without the slack, and the vertical pass
+/// measures its range on those, so the slack holds for the result: the two passes' dips beside a
+/// diagonal edge do not compound. Output is `wx.len() × wy.len()`.
+pub fn resize_antiring(data: &[[f32; 3]], width: usize, height: usize, wx: &[(usize, Vec<f32>)], wy: &[(usize, Vec<f32>)], slack: f32) -> Vec<[f32; 3]> {
+    let (w, h) = (wx.len(), wy.len());
+    let mut out = vec![[0.0f32; 3]; w * h];
+    if width == 0 || height == 0 || w == 0 || data.len() < width * height {
+        return out;
+    }
+    const BAND: usize = 64;
+    par_rows(&mut out, w * BAND, |band, rows| {
+        let y0 = band * BAND;
+        let taps = &wy[y0..y0 + rows.len() / w];
+        let first = taps.iter().map(|t| t.0).min().unwrap_or(0).min(height - 1);
+        let last = taps.iter().map(|t| t.0 + t.1.len()).max().unwrap_or(first).clamp(first, height);
+        // (with the slack, without it)
+        let mut horizontal = vec![[[0.0f32; 3]; 2]; (last - first) * w];
+        for (sy, out) in (first..last).zip(horizontal.chunks_exact_mut(w)) {
+            let source = &data[sy * width..(sy + 1) * width];
+            for (p, (start, weights)) in out.iter_mut().zip(wx) {
+                let n = weights.len().min(source.len().saturating_sub(*start));
+                let (acc, core) = antiring_sum(n, |k| source[start + k], |k| source[start + k], |k| weights[k]);
+                *p = [antiring_rgb(acc, core, slack), antiring_rgb(acc, core, 0.0)];
+            }
+        }
+        let rows_held = last - first;
+        for (row, (start, weights)) in rows.chunks_exact_mut(w).zip(taps) {
+            let r0 = start.saturating_sub(first).min(rows_held);
+            let n = weights.len().min(rows_held - r0);
+            for (x, p) in row.iter_mut().enumerate() {
+                let at = |k: usize| horizontal[(r0 + k) * w + x];
+                let (acc, core) = antiring_sum(n, |k| at(k)[0], |k| at(k)[1], |k| weights[k]);
+                *p = antiring_rgb(acc, core, slack);
+            }
+        }
+    });
+    out
+}
+
 /// Pixel types that can be resampled (linear combination).
 pub trait Pixel: Copy + Default + Send + Sync {
     fn zero() -> Self;
@@ -705,5 +861,118 @@ mod lanczos_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod antiring_tests {
+    use super::*;
+
+    /// A window six to eight stops over the wall beside it: the plain Mitchell reduction rings the
+    /// wall below zero (black after tone mapping); the anti-ringing resample keeps every pixel
+    /// within the source's range, in every channel, give or take [`ANTIRING_SLACK`].
+    #[test]
+    fn scene_linear_reduction_never_rings_past_a_high_contrast_edge() {
+        let (w0, h0) = (1203, 9);
+        let wall = [0.05f32, 0.04, 0.03];
+        let window = [0.18 * 256.0, 0.9 * 64.0, 1.2 * 100.0];
+        let mut plain_rings = false;
+        for edge in [600, 601, 602] {
+            let src: Vec<[f32; 3]> = (0..w0 * h0).map(|i| if i % w0 < edge { wall } else { window }).collect();
+            for w in [401, 300, 151, 960] {
+                let (wx, wy) = (weights(w0, w, Filter::Mitchell), weights(h0, 3, Filter::Mitchell));
+                plain_rings |= resize_pixels(&src, w0, h0, w, 3, Filter::Mitchell).iter().any(|p| p[0] < 0.0);
+                let out = resize_antiring(&src, w0, h0, &wx, &wy, ANTIRING_SLACK);
+                for p in &out {
+                    for c in 0..3 {
+                        let slack = ANTIRING_SLACK + 1e-5;
+                        assert!(p[c] >= wall[c] * (1.0 - slack) && p[c] <= window[c] * (1.0 + slack), "edge {edge}, width {w}: {p:?}");
+                    }
+                }
+            }
+        }
+        assert!(plain_rings, "the plain Mitchell reduction rings below zero");
+    }
+
+    /// The edge of an arched window or a lamp shade crosses both passes: the wall beside a sloped
+    /// 8-stop edge stays within one [`ANTIRING_SLACK`] of itself, at every slope and phase.
+    #[test]
+    fn diagonal_edges_keep_the_slack_of_one_pass() {
+        let (w0, h0) = (240, 240);
+        let (wall, window) = (0.18f32, 0.18 * 256.0);
+        for slope in [0.5f32, 1.0, 2.0] {
+            for edge in [120.0f32, 120.4] {
+                let src: Vec<[f32; 3]> = (0..w0 * h0)
+                    .map(|i| if (i % w0) as f32 + 0.5 + slope * ((i / w0) as f32 + 0.5) < edge * (1.0 + slope) { [wall; 3] } else { [window; 3] })
+                    .collect();
+                for (w, f) in [(80, Filter::Mitchell), (200, Filter::CatmullRom)] {
+                    let out = resize_antiring(&src, w0, h0, &weights(w0, w, f), &weights(h0, w, f), ANTIRING_SLACK);
+                    let low = out.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min);
+                    assert!(low >= wall * (1.0 - ANTIRING_SLACK - 1e-5), "slope {slope}, edge {edge}, {f:?} to {w}: the wall dips to {}", low / wall);
+                }
+            }
+        }
+    }
+
+    /// Below 1.5:1 contrast the result is the plain weighted sum: fine texture keeps the kernel's
+    /// response, and a flat field stays exact.
+    #[test]
+    fn low_contrast_texture_resamples_like_the_plain_kernel() {
+        let (w0, h0) = (97, 41);
+        let src: Vec<[f32; 3]> = (0..w0 * h0)
+            .map(|i| {
+                let (x, y) = ((i % w0) as f32, (i / w0) as f32);
+                [0.2 + 0.03 * (x * 1.3).sin(), 0.3 + 0.05 * (y * 0.9 + x * 0.4).cos(), 0.25]
+            })
+            .collect();
+        for (w, h) in [(40, 17), (61, 29)] {
+            for f in [Filter::Mitchell, Filter::CatmullRom, Filter::Lanczos3] {
+                let plain = resize_pixels(&src, w0, h0, w, h, f);
+                let out = resize_antiring(&src, w0, h0, &weights(w0, w, f), &weights(h0, h, f), ANTIRING_SLACK);
+                for (a, b) in out.iter().zip(&plain) {
+                    for c in 0..3 {
+                        assert!((a[c] - b[c]).abs() < 1e-6, "{f:?} {w}x{h}: {a:?} vs {b:?}");
+                    }
+                }
+            }
+        }
+        let flat = vec![[0.42f32, 3.5, 0.0]; w0 * h0];
+        for p in resize_antiring(&flat, w0, h0, &weights(w0, 30, Filter::Mitchell), &weights(h0, 13, Filter::Mitchell), 0.0) {
+            assert!((p[0] - 0.42).abs() < 1e-6 && (p[1] - 3.5).abs() < 1e-5 && p[2] == 0.0, "{p:?}");
+        }
+    }
+
+    /// Offset taps place output samples anywhere on the source: unit scale at a whole-pixel offset
+    /// copies (and mirrors with a negative scale), `a = src/dst` matches the plain reduction, and
+    /// taps past the edge read the edge sample.
+    #[test]
+    fn offset_taps_copy_mirror_scale_and_repeat_the_edge() {
+        let dense = |(lo, w): &(usize, Vec<f32>), n: usize| {
+            let mut d = vec![0.0f32; n];
+            for (k, v) in w.iter().enumerate() {
+                d[lo + k] += v;
+            }
+            d
+        };
+        let picks = |taps: Vec<(usize, Vec<f32>)>| taps.iter().map(|t| dense(t, 64).iter().position(|v| *v == 1.0)).collect::<Vec<_>>();
+        assert_eq!(picks(offset_weights(64, 20, 1.0, 7.0, Filter::CatmullRom)), (7..27).map(Some).collect::<Vec<_>>());
+        assert_eq!(picks(offset_weights(64, 64, -1.0, 64.0, Filter::CatmullRom)), (0..64).rev().map(Some).collect::<Vec<_>>());
+        for f in [Filter::CatmullRom, Filter::Mitchell, Filter::Lanczos3] {
+            // (the plain reduction drops the taps past the edge instead of repeating the edge)
+            for (p, o) in weights(300, 100, f).iter().zip(&offset_weights(300, 100, 3.0, 0.0, f)).skip(3).take(94) {
+                assert!(dense(p, 300).iter().zip(dense(o, 300)).all(|(a, b)| (a - b).abs() < 1e-6), "{f:?}");
+            }
+            assert_eq!(offset_weights(10, 1, 1.0, -3.0, f), vec![(0, vec![1.0])], "{f:?}: far past the edge reads the edge");
+        }
+    }
+
+    #[test]
+    fn antiring_passes_slight_overshoot_and_clamps_the_rest() {
+        assert_eq!(antiring(0.97, (1.0, 2.0), 0.05), 0.97);
+        assert_eq!(antiring(-0.1, (1.0, 2.0), 0.05), 0.95);
+        assert_eq!(antiring(3.0, (1.0, 2.0), 0.05), 2.1);
+        assert!((antiring(-0.3, (-0.1, 0.5), 0.05) + 0.105).abs() < 1e-6);
+        assert_eq!(antiring(0.97, (1.0, 2.0), 0.0), 1.0);
+        assert_eq!(antiring(0.7, (f32::INFINITY, f32::NEG_INFINITY), 0.05), 0.7);
     }
 }

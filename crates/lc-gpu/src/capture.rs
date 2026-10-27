@@ -57,7 +57,7 @@ fn kernels() -> &'static [[f32; 25]; 256] {
     })
 }
 
-fn params(w: usize, h: usize, p: &CaptureParams) -> [u32; 9] {
+fn params(w: usize, h: usize, p: &CaptureParams) -> [u32; 10] {
     [
         w as u32,
         h as u32,
@@ -68,6 +68,7 @@ fn params(w: usize, h: usize, p: &CaptureParams) -> [u32; 9] {
         p.clip.is_some() as u32,
         p.clip.unwrap_or(0.0).to_bits(),
         0,
+        lightcraft_pipeline::capture::mask_reach() as u32,
     ]
 }
 
@@ -126,7 +127,7 @@ fn prepare_with_confidence(
 /// Existing box kernels, with the CPU's sum restart locations instead of preview-sized chunks.
 fn mask_blur(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize) -> Buf {
     let mut bufs = [cx.gpu.buffer(w * h), cx.gpu.buffer(w * h)];
-    let radii = li_raster::blur::box_radii(2.0);
+    let radii = li_raster::blur::box_radii(lightcraft_pipeline::capture::MASK_SIGMA);
     for (i, r) in radii.into_iter().chain(radii).enumerate() {
         let (name, chunk, groups) = if i < 3 {
             ("box_h", w, groups2(1, h, [64, 4]))

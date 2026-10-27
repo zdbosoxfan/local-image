@@ -316,3 +316,184 @@ fn locked_gradient_rejects_edits_without_history() {
     s.execute("edit.undo", json!({})).unwrap();
     assert_eq!(active_fill(&s), before);
 }
+
+#[test]
+fn perceptual_create_preserves_an_editable_method_and_uses_oklab() {
+    let mut s = session(32, "transparent");
+    s.execute(CREATE, json!({"from":[0,0],"to":[48,0],"method":"perceptual","dither":false,"stops":[[0,"#000000"],[1,"#ffffff"]]})).unwrap();
+    let fill = active_fill(&s);
+    let c = gf::Ramp::new(&fill).unwrap().sample(0.5);
+    assert!((c[0] - 0.388573).abs() < 2e-5, "OKLab black/white midpoint: {c:?}");
+    assert_eq!(s.execute(GET, json!({})).unwrap()["method"], "perceptual");
+}
+
+#[test]
+fn method_edits_preserve_stops_and_undo_redo_as_one_edit() {
+    let mut s = session(32, "transparent");
+    s.execute(CREATE, json!({"from":[0,0],"to":[48,0],"dither":false})).unwrap();
+    assert_eq!(s.execute(GET, json!({})).unwrap()["method"], "classic");
+    let before = s.active().unwrap().history.past_len();
+    s.execute(SET, json!({"method":"Perceptual","reverse":true})).unwrap();
+    assert_eq!(s.active().unwrap().history.past_len(), before + 1);
+    assert_eq!(s.execute(GET, json!({})).unwrap()["method"], "perceptual");
+    s.execute("edit.undo", json!({})).unwrap();
+    let classic = s.execute(GET, json!({})).unwrap();
+    assert_eq!(classic["method"], "classic");
+    assert_eq!(classic["reverse"], false);
+    s.execute("edit.redo", json!({})).unwrap();
+    s.execute(STOP, json!({"action":"color","index":0,"color":"#ff0000"})).unwrap();
+    assert_eq!(s.execute(GET, json!({})).unwrap()["method"], "perceptual");
+    let fill = active_fill(&s);
+    let history = s.active().unwrap().history.past_len();
+    for value in [json!("linear"), json!("smooth"), json!("typo"), json!(42), Value::Null] {
+        assert!(s.execute(SET, json!({"method":value,"reverse":false})).is_err());
+        assert_eq!(active_fill(&s), fill);
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        assert!(s.execute(CREATE, json!({"from":[0,0],"to":[48,0],"method":value})).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+    }
+}
+
+#[test]
+fn perceptual_destructive_paint_matches_live_colour_then_independent_opacity() {
+    let explicit = json!({"method":"perceptual","stops":[[0,"#0000ff"],[1,"#ffff00"]],"transparency":[[0,90],[0.5,20],[1,70]],"dither":false,"reverse":true});
+    parity(32, "transparent", explicit.clone(), false, 1.0 / 255.0);
+    parity(8, "white", explicit, true, 2.0 / 255.0);
+    parity(16, "transparent", json!({"method":"perceptual","gradient":"Foreground to Transparent","dither":true}), false, 2.0 / 255.0);
+    let mut s = session(32, "transparent");
+    let before = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+    let history = s.active().unwrap().history.past_len();
+    assert!(s.execute("paint.gradient", json!({"from":[0,0],"to":[48,0],"method":"linear"})).is_err());
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+    assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
+    s.execute("paint.gradient", json!({"from":[0,0],"to":[48,0],"method":"perceptual","colors":["#0000ff","#ffff00"],"dither":false})).unwrap();
+    assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
+}
+
+#[test]
+fn shape_fill_and_stroke_methods_survive_describe_edit_and_copied_paint() {
+    let mut s = session(32, "transparent");
+    let paint = json!({"gradient":{"stops":[[0,"#0000ff"],[1,"#ffff00"]],"method":"perceptual"}});
+    let created = s.execute("shape.create", json!({"rect":[2,2,40,24],"fill":paint,"stroke":{"width":2,"fill":paint}})).unwrap();
+    assert_eq!(created["fill"]["gradient"]["method"], "perceptual");
+    assert_eq!(created["stroke"]["fill"]["gradient"]["method"], "perceptual");
+    let copy = created["fill"].clone();
+    let second = s.execute("shape.create", json!({"rect":[4,4,32,20],"fill":copy})).unwrap();
+    assert_eq!(second["fill"]["gradient"]["method"], "perceptual");
+    s.execute("shape.edit", json!({"fill":{"gradient":{"stops":[[0,"#000000"],[1,"#ffffff"]]}}})).unwrap();
+    assert_eq!(s.execute("shape.info", json!({})).unwrap()["fill"]["gradient"]["method"], "classic");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.execute("shape.info", json!({})).unwrap()["fill"]["gradient"]["method"], "perceptual");
+    let before = s.execute("shape.info", json!({})).unwrap();
+    let history = s.active().unwrap().history.past_len();
+    assert!(s.execute("shape.edit", json!({"fill":{"gradient":{"method":"linear"}}})).is_err());
+    assert_eq!(s.execute("shape.info", json!({})).unwrap(), before);
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+}
+
+#[test]
+fn perceptual_paint_preserves_preset_name_resolution_and_current_fallback() {
+    for method in ["classic", "perceptual"] {
+        let render = |name: Option<&str>| {
+            let mut s = session(32, "transparent");
+            let before = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+            let history = s.active().unwrap().history.past_len();
+            let mut params = json!({"from":[0,0],"to":[48,0],"method":method,"dither":false});
+            if let Some(name) = name {
+                params["gradient"] = json!(name);
+            }
+            s.execute("paint.gradient", params).unwrap();
+            assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+            let rendered = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+            s.execute("edit.undo", json!({})).unwrap();
+            assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
+            rendered
+        };
+        let named = render(Some("Foreground to Transparent"));
+        assert!(named[24][0].abs() < 1e-6 && named[24][3] > 0.0);
+        assert_eq!(render(Some(" Foreground to Transparent ")), named);
+        assert_eq!(render(Some("")), render(None));
+        assert_eq!(render(Some(" \t ")), render(None));
+        let mut s = session(32, "transparent");
+        let before = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+        let history = s.active().unwrap().history.past_len();
+        assert!(s.execute("paint.gradient", json!({"from":[0,0],"to":[48,0],"method":method,"gradient":"foreground to transparent"})).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
+    }
+}
+
+#[test]
+fn perceptual_paint_bounds_source_lists_before_expansion_and_mutation() {
+    use crate::presets::gradients::{GradientPreset, StopColor};
+    #[derive(Clone, Copy, Debug)]
+    enum Source {
+        Explicit,
+        Current,
+        Named,
+        Opacity,
+        Combined,
+    }
+    let count = photocraft_vector::gradient_method::MAX_EXPANDED_STOPS + 1;
+    for route in [Source::Explicit, Source::Current, Source::Named, Source::Opacity, Source::Combined] {
+        let mut s = session(32, "transparent");
+        let mut params = json!({"from":[0,0],"to":[48,0],"method":"perceptual","dither":false});
+        let mut preset = GradientPreset::foreground_to_background();
+        preset.name = "Oversized".into();
+        match route {
+            Source::Explicit => params["stops"] = json!(vec![json!([0.5, "#000000"]); count]),
+            Source::Current | Source::Named => preset.stops = vec![(0.5, StopColor::Foreground); count],
+            Source::Opacity => preset.opacity = vec![(0.5, 0.5); count],
+            Source::Combined => {
+                preset.stops = vec![(0.5, StopColor::Foreground); count - 1025];
+                preset.opacity = vec![(0.5, 0.5); 1024];
+            }
+        }
+        if matches!(route, Source::Named) {
+            s.presets.gradients[0].items.push(preset);
+            params["gradient"] = json!("Oversized");
+        } else if !matches!(route, Source::Explicit) {
+            s.presets.gradient = preset;
+        }
+        let before = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+        let history = s.active().unwrap().history.past_len();
+        let error = s.execute("paint.gradient", params).expect_err("oversized source lists must be rejected");
+        assert!(matches!(error, EngineError::BadParams { msg, .. } if msg.contains("source stops")), "{route:?}");
+        assert_eq!(s.active().unwrap().history.past_len(), history, "{route:?}");
+        assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before, "{route:?}");
+    }
+    let mut s = session(32, "transparent");
+    let params = json!({"from":[0,0],"to":[48,0],"method":"perceptual","dither":false,"stops":vec![json!([0.5,"#000000"]); count - 3]});
+    s.execute("paint.gradient", params).unwrap();
+    let pixels = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+    assert!(pixels.iter().all(|pixel| *pixel == [0.0, 0.0, 0.0, 1.0]), "a bounded coincident ramp still paints");
+}
+
+#[test]
+fn destructive_paint_accepts_two_thousand_colours_for_both_methods() {
+    for method in ["classic", "perceptual"] {
+        let mut s = session(32, "transparent");
+        let history = s.active().unwrap().history.past_len();
+        s.execute("paint.gradient", json!({"from":[0,0],"to":[48,0],"method":method,"dither":false,"colors":vec!["#000000"; 2000]})).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+        assert!(photocraft_compose::flatten(&s.active().unwrap().doc).px.iter().all(|pixel| *pixel == [0.0, 0.0, 0.0, 1.0]));
+    }
+}
+
+#[test]
+fn classic_shape_retains_source_acceptance_while_perceptual_is_bounded() {
+    let count = photocraft_vector::gradient_method::MAX_EXPANDED_STOPS + 1;
+    for stops in [vec![json!([0.5, "#000000"]); count], vec![json!([1e100, "#000000"]), json!([1, "#ffffff"])]] {
+        let mut s = session(32, "transparent");
+        let history = s.active().unwrap().history.past_len();
+        let mut params = json!({"rect":[0,0,40,24],"fill":{"gradient":{"stops":stops,"method":"perceptual"}}});
+        assert!(s.execute("shape.create", params.clone()).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        params["fill"]["gradient"]["method"] = json!("classic");
+        let created = s.execute("shape.create", params).expect("Classic shape gradients retain their existing input acceptance");
+        assert_eq!(created["fill"]["gradient"]["method"], "classic");
+        assert_eq!(created["fill"]["gradient"]["stops"].as_array().unwrap().len(), stops.len());
+    }
+}

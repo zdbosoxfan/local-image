@@ -1,8 +1,8 @@
 //! Affinity Open/Place: guarded, detached previews and one atomic publication.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use photocraft_doc::{
-    Affine, ColorMode, Document, Layer, LayerContent, LayerId, SampleType,
-    vector_design::exchange::{ImportOptions, ImportedScene, VectorWarning},
+    Affine, Document, Layer, LayerContent, LayerId,
+    vector_design::exchange::{ImportLimits, ImportOptions, ImportedScene, VectorWarning},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Place {
+    #[serde(skip)]
+    admission: Admission,
     pub document: u64,
     pub revision: u64,
     pub above: Option<LayerId>,
@@ -22,10 +24,172 @@ pub struct Place {
 /// Begin captures a document/revision/anchor once, before decoding or preview work.
 pub fn capture(session: &Session, bytes: Vec<u8>) -> Result<Place> {
     let s = session.active().ok_or(EngineError::NoDocument)?;
-    let request = Place { document: s.doc.id.0, revision: s.revision, above: s.active_layer, bytes, name: default_name(), offset: [0; 2] };
+    let request = Place {
+        admission: Admission::default(),
+        document: s.doc.id.0,
+        revision: s.revision,
+        above: s.active_layer,
+        bytes,
+        name: default_name(),
+        offset: [0; 2],
+    };
     check(session, &request)?;
     Ok(request)
 }
+#[derive(Clone, Copy, Debug)]
+struct Admission(ImportLimits);
+impl Admission {
+    fn for_ram(available: u64) -> Self {
+        let bytes = (available / 4).min(8 << 30);
+        // Decoded/model pixels overlap conversion buffers and prepared RGBA32F caches.
+        Self(ImportLimits { decompressed_bytes: bytes, pixels: bytes / 48, ..Default::default() })
+    }
+}
+impl Default for Admission {
+    fn default() -> Self {
+        Self::for_ram(lightcraft_sysmem::profile::ram_available())
+    }
+}
+
+mod effects {
+    //! Native effect validation at the detached Affinity scene boundary.
+    use super::{Result, error};
+    use photocraft_doc::{Color, Effects, effects::*};
+
+    pub(super) fn validate(effects: &Effects) -> Result<u64> {
+        if effects.items.len() > 64 || effects.psd_raw.is_some() || effects.reference.is_some() {
+            return Err(error("Affinity effect count or unsupported raw data"));
+        }
+        let mut bytes = effects.items.len() as u64 * std::mem::size_of::<Effect>() as u64;
+        for effect in &effects.items {
+            match effect {
+                Effect::DropShadow(shadow) | Effect::InnerShadow(shadow) => {
+                    unit(shadow.common.opacity)?;
+                    color(shadow.color)?;
+                    unit(shadow.spread)?;
+                    unit(shadow.noise)?;
+                    length(shadow.size)?;
+                    length(shadow.distance)?;
+                    length(shadow.size + shadow.distance)?;
+                    angle(shadow.angle)?;
+                    contour(&shadow.contour)?;
+                    if shadow.use_global_light {
+                        return Err(error("Affinity shadow must retain its own light direction"));
+                    }
+                }
+                Effect::OuterGlow(glow) => {
+                    unit(glow.common.opacity)?;
+                    unit(glow.spread)?;
+                    unit(glow.range)?;
+                    unit(glow.jitter)?;
+                    unit(glow.noise)?;
+                    length(glow.size)?;
+                    contour(&glow.contour)?;
+                    bytes = bytes.saturating_add(paint(&glow.paint)?);
+                }
+                Effect::Stroke(stroke) => {
+                    unit(stroke.common.opacity)?;
+                    length(stroke.size)?;
+                    bytes = bytes.saturating_add(paint(&stroke.paint)?);
+                }
+                Effect::ColorOverlay { common: settings, color: value } => {
+                    unit(settings.opacity)?;
+                    color(*value)?;
+                }
+                Effect::GradientOverlay { common: settings, gradient: value, .. } => {
+                    unit(settings.opacity)?;
+                    bytes = bytes.saturating_add(gradient(value)?);
+                }
+                Effect::BevelEmboss(bevel) => {
+                    length(bevel.size)?;
+                    length(bevel.soften)?;
+                    length(bevel.size + bevel.soften)?;
+                    angle(bevel.angle)?;
+                    if !bevel.depth.is_finite()
+                        || !(0.0..=10.).contains(&bevel.depth)
+                        || !bevel.altitude.is_finite()
+                        || !(0.0..=90.).contains(&bevel.altitude)
+                        || bevel.use_global_light
+                        || bevel.contour.is_some()
+                        || bevel.texture.is_some()
+                    {
+                        return Err(error("invalid Affinity bevel"));
+                    }
+                    contour(&bevel.gloss_contour)?;
+                    unit(bevel.highlight.opacity)?;
+                    unit(bevel.shadow.opacity)?;
+                    color(bevel.highlight_color)?;
+                    color(bevel.shadow_color)?;
+                }
+                Effect::InnerGlow(_) | Effect::PatternOverlay { .. } | Effect::Satin(_) => {
+                    return Err(error("unsupported Affinity native effect"));
+                }
+            }
+        }
+        Ok(bytes)
+    }
+
+    fn unit(value: f32) -> Result<()> {
+        if value.is_finite() && (0.0..=1.0).contains(&value) { Ok(()) } else { Err(error("invalid Affinity effect fraction")) }
+    }
+    fn length(value: f32) -> Result<()> {
+        if value.is_finite() && (0.0..=photocraft_compose::effects::MAX_REACH).contains(&value) {
+            Ok(())
+        } else {
+            Err(error("Affinity effect exceeds renderer reach"))
+        }
+    }
+    fn angle(value: f32) -> Result<()> {
+        if value.is_finite() && value.abs() <= 360. { Ok(()) } else { Err(error("invalid Affinity effect angle")) }
+    }
+    fn color(value: Color) -> Result<()> {
+        if value.mode != photocraft_doc::ColorMode::Rgb {
+            return Err(error("Affinity effect color must be RGB"));
+        }
+        for channel in value.c.into_iter().chain([value.alpha]) {
+            unit(channel)?;
+        }
+        Ok(())
+    }
+    fn contour(value: &Contour) -> Result<()> {
+        if matches!(value, Contour::Linear) { Ok(()) } else { Err(error("unsupported Affinity effect contour")) }
+    }
+    fn paint(value: &FxPaint) -> Result<u64> {
+        match value {
+            FxPaint::Color(value) => {
+                color(*value)?;
+                Ok(0)
+            }
+            FxPaint::Gradient(value) => gradient(value),
+            FxPaint::Pattern { .. } => Err(error("unsupported Affinity effect pattern")),
+        }
+    }
+    fn gradient(value: &Gradient) -> Result<u64> {
+        if value.stops.is_empty()
+            || value.stops.len() > 1024
+            || value.opacity_stops.len() > 1024
+            || !value.scale.is_finite()
+            || !(0.001..=5000.).contains(&value.scale)
+            || !value.offset.0.is_finite()
+            || !value.offset.1.is_finite()
+            || value.offset.0.abs() > 1_000_000.
+            || value.offset.1.abs() > 1_000_000.
+        {
+            return Err(error("invalid Affinity effect gradient"));
+        }
+        angle(value.angle)?;
+        for &(position, value) in &value.stops {
+            unit(position)?;
+            color(value)?;
+        }
+        for &(position, opacity) in &value.opacity_stops {
+            unit(position)?;
+            unit(opacity)?;
+        }
+        Ok((value.stops.len() * std::mem::size_of::<(f32, Color)>() + value.opacity_stops.len() * std::mem::size_of::<(f32, f32)>()) as u64)
+    }
+}
+
 fn error(s: impl ToString) -> EngineError {
     EngineError::Other(s.to_string())
 }
@@ -64,9 +228,16 @@ pub fn decode(session: &Session, request: &Place) -> Result<ImportedScene> {
 pub fn decode_with(session: &Session, request: &Place, cancel: &std::sync::atomic::AtomicBool) -> Result<ImportedScene> {
     check(session, request)?;
     let s = session.active().ok_or(EngineError::NoDocument)?;
-    let options = ImportOptions { dpi: s.doc.resolution_dpi, ..Default::default() };
-    photocraft_affinity::import_with(&request.bytes, &options, None, cancel).map_err(reader_error)
+    prepare(request, s.doc.resolution_dpi, cancel)
 }
+/// Prepare captured Place bytes on a worker with the original engine admission allowance.
+pub fn prepare(request: &Place, dpi: f32, cancel: &std::sync::atomic::AtomicBool) -> Result<ImportedScene> {
+    let options = ImportOptions { dpi, limits: request.admission.0, ..Default::default() };
+    let scene = photocraft_affinity::import_with(&request.bytes, &options, None, cancel).map_err(reader_error)?;
+    validate_scene(None, &scene, request.admission.0)?;
+    Ok(scene)
+}
+
 fn reader_error(e: photocraft_affinity::Error) -> EngineError {
     if e == photocraft_affinity::Error::Cancelled { EngineError::Cancelled } else { error(e) }
 }
@@ -75,7 +246,7 @@ fn reader_error(e: photocraft_affinity::Error) -> EngineError {
 pub fn preview(session: &Session, request: &Place, scene: &ImportedScene) -> Result<(Document, LayerId)> {
     check(session, request)?;
     let s = session.active().ok_or(EngineError::NoDocument)?;
-    validate_scene(&s.doc, scene)?;
+    validate_scene(Some(&s.doc), scene, request.admission.0)?;
     let mut doc = (*s.doc).clone();
     let mut group = Layer::group(&request.name, scene.layers.clone());
     // A placed file keeps its own viewport when the destination is larger and
@@ -91,8 +262,7 @@ pub fn preview(session: &Session, request: &Place, scene: &ImportedScene) -> Res
     }
     Ok((doc, id))
 }
-fn validate_scene(destination: &Document, scene: &ImportedScene) -> Result<()> {
-    let limits = ImportOptions::default().limits;
+fn validate_scene(destination: Option<&Document>, scene: &ImportedScene, limits: ImportLimits) -> Result<()> {
     if scene.size.width == 0
         || scene.size.height == 0
         || scene.size.area() > limits.pixels
@@ -102,15 +272,27 @@ fn validate_scene(destination: &Document, scene: &ImportedScene) -> Result<()> {
     {
         return Err(error("invalid Affinity scene"));
     }
-    let mut stack: Vec<_> = scene.layers.iter().map(|l| (l, 1usize)).collect();
+    if scene.layers.len() > limits.objects {
+        return Err(error("Affinity layer count budget"));
+    }
+    let mut effected = Vec::new();
+    let mut stack: Vec<_> = scene.layers.iter().map(|l| (l, 0usize)).collect();
     let mut ids = std::collections::HashSet::new();
     let mut bytes = 0u64;
     while let Some((l, depth)) = stack.pop() {
-        if depth >= photocraft_doc::MAX_GROUP_DEPTH || ids.len() >= limits.objects || !ids.insert(l.id) || destination.layer(l.id).is_some() {
+        if depth > photocraft_doc::MAX_GROUP_DEPTH
+            || ids.len() >= limits.objects
+            || !ids.insert(l.id)
+            || destination.is_some_and(|doc| doc.layer(l.id).is_some())
+        {
             return Err(error("invalid Affinity layer targets/depth"));
         }
         if !l.opacity.is_finite() || !(0.0..=1.0).contains(&l.opacity) {
             return Err(error("invalid Affinity opacity"));
+        }
+        bytes = bytes.saturating_add(effects::validate(&l.effects)?);
+        if photocraft_compose::effects::has_effects(l) {
+            effected.push(l);
         }
         if let Some(m) = &l.vector_mask {
             check_path(&m.path)?;
@@ -136,16 +318,36 @@ fn validate_scene(destination: &Document, scene: &ImportedScene) -> Result<()> {
             }
             LayerContent::Raster(surface) => Some(surface),
             LayerContent::Group(g) => {
+                if g.children.len().saturating_add(stack.len()).saturating_add(ids.len()) > limits.objects {
+                    return Err(error("Affinity layer count budget"));
+                }
                 stack.extend(g.children.iter().map(|c| (c, depth + 1)));
                 None
             }
             _ => return Err(error("invalid Affinity layer content")),
         };
         for surface in cache.into_iter().chain(l.mask.iter().map(|m| &m.surface)) {
-            bytes = bytes.saturating_add(surface.tiles().map(|(_, t)| t.bytes().len() as u64).sum::<u64>());
+            bytes = bytes.saturating_add(surface.tiles().fold(0u64, |total, (_, tile)| total.saturating_add(tile.bytes().len() as u64)));
         }
         if bytes > limits.decompressed_bytes {
             return Err(error("Affinity cache budget"));
+        }
+    }
+    // Bounds may recurse through children, so evaluate them only after validating the entire tree.
+    for layer in effected {
+        let bounds = photocraft_compose::effect_source_bounds(layer, photocraft_doc::Rect::from_size(scene.size));
+        if bounds.is_empty() {
+            continue;
+        }
+        if [bounds.x0, bounds.y0, bounds.x1, bounds.y1].iter().any(|v| v.unsigned_abs() > 1_000_000) {
+            return Err(error("Affinity effect source coordinates exceed bounds"));
+        }
+        let bounds = bounds.inflate(photocraft_compose::effects::margin(layer));
+        // Shape/distance maps, RGBA working buffers and temporary maps, plus retained maps per effect.
+        let per_pixel = 96 + 16 * layer.effects.items.len() as u64;
+        bytes = bytes.saturating_add(bounds.size().area().saturating_mul(per_pixel));
+        if bytes > limits.decompressed_bytes {
+            return Err(error("Affinity effect working budget"));
         }
     }
     Ok(())
@@ -230,15 +432,7 @@ fn default_dpi() -> f32 {
 fn default_name() -> String {
     "Affinity".into()
 }
-/// File adapters all return the shared scene; Open wraps it as a new native document.
-pub fn document(scene: ImportedScene, name: &str) -> (Document, Vec<VectorWarning>) {
-    let mut doc = Document::new(name, scene.size, ColorMode::Rgb, SampleType::F32);
-    doc.resolution_dpi = scene.resolution_dpi;
-    doc.design_units = scene.units;
-    doc.layers = scene.layers;
-    doc.symbols = scene.symbols;
-    (doc, scene.warnings)
-}
+pub use super::import_scene::document;
 /// Byte Open boundary used by file jobs/UI without expanding binary data into JSON arrays.
 pub fn open_bytes(session: &mut Session, bytes: &[u8], dpi: f32, name: &str) -> Result<Vec<VectorWarning>> {
     if name.len() > 4096 {
@@ -251,12 +445,14 @@ pub fn open_bytes(session: &mut Session, bytes: &[u8], dpi: f32, name: &str) -> 
 }
 /// Worker-safe detached Open decode. No Session mutation, file read or resource resolution.
 pub fn read_open(bytes: &[u8], dpi: f32, cancel: &std::sync::atomic::AtomicBool) -> Result<ImportedScene> {
-    let options = ImportOptions { dpi, ..Default::default() };
-    match photocraft_affinity::import_with(bytes, &options, None, cancel) {
-        Ok(scene) => Ok(scene),
-        Err(photocraft_affinity::Error::Unsupported(reason)) => photocraft_affinity::import_preview(bytes, &options, cancel, reason).map_err(reader_error),
-        Err(e) => Err(reader_error(e)),
-    }
+    let options = ImportOptions { dpi, limits: Admission::default().0, ..Default::default() };
+    let scene = match photocraft_affinity::import_with(bytes, &options, None, cancel) {
+        Ok(scene) => scene,
+        Err(photocraft_affinity::Error::Unsupported(reason)) => photocraft_affinity::import_preview(bytes, &options, cancel, reason).map_err(reader_error)?,
+        Err(e) => return Err(reader_error(e)),
+    };
+    validate_scene(None, &scene, options.limits)?;
+    Ok(scene)
 }
 fn open(session: &mut Session, params: &Value) -> Result<Value> {
     let request: Open = serde_json::from_value(params.clone()).map_err(error)?;

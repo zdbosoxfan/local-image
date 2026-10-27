@@ -237,6 +237,7 @@ fn gradient_midpoints_opacity_stops_offset_and_sorted_stops() {
     // Linear 0° over the path's 100 × 10 bounds: t is the pixel's left corner / 100, so pixel
     // x sits at t = x / 100.
     let g = |midpoints: Vec<f32>, opacity_stops: Vec<(f32, f32)>, offset: (f32, f32), stops: Vec<(f32, Color)>| Fill::Gradient {
+        method: Default::default(),
         stops,
         angle: 0.0,
         scale: 1.0,
@@ -266,6 +267,7 @@ fn gradient_midpoints_opacity_stops_offset_and_sorted_stops() {
 fn gradient_without_align_with_layer_uses_the_canvas_frame() {
     let canvas = Rect::new(0, 0, 200, 10);
     let g = |align: bool| Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
         angle: 0.0,
         scale: 1.0,
@@ -288,6 +290,7 @@ fn gradient_without_align_with_layer_uses_the_canvas_frame() {
 #[test]
 fn gradient_dither_is_deterministic_and_one_level() {
     let g = |dither: bool| Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
         angle: 30.0,
         scale: 1.3,
@@ -490,6 +493,7 @@ fn review_additional_thin_coverage_is_translation_stable_and_inverted_fill_is_ex
 #[test]
 fn dsfix_unsorted_gradient_midpoints_index_sorted_intervals() {
     let fill = Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0.5, Color::rgb(0., 1., 0.)), (0., Color::rgb(1., 0., 0.)), (1., Color::rgb(0., 0., 1.))],
         angle: 0.,
         scale: 100.,
@@ -505,7 +509,7 @@ fn dsfix_unsorted_gradient_midpoints_index_sorted_intervals() {
     let Paint::Gradient { stops, midpoints, .. } = paint else { panic!() };
     assert_eq!(midpoints, vec![0.2, 0.8]);
     for (t, expected) in [(0.1, [0.5, 0.5, 0.0, 1.0]), (0.9, [0.0, 0.5, 0.5, 1.0])] {
-        let color = sample_color(&stops, &midpoints, t);
+        let color = crate::gradient_method::sample_color(GradientMethod::Classic, &stops, &midpoints, t);
         for (actual, expected) in color.into_iter().zip(expected) {
             assert!((actual - expected).abs() < 1e-6, "t={t}: {color:?}");
         }
@@ -523,7 +527,7 @@ fn gradient_midpoint_contract_is_invariant_to_stop_storage_order() {
         let Paint::Gradient { stops, midpoints, .. } = Paint::from_fill(&fill, (0.0, 0.0, 100.0, 100.0), (0.0, 0.0, 100.0, 100.0)) else { panic!() };
         assert_eq!(midpoints, vec![0.75], "first sorted interval must retain its midpoint");
         for (t, expected) in [(0.375, [0.5, 0.125, 0.25, 1.0]), (0.75, [1.0, 0.625, 0.75, 1.0])] {
-            let color = sample_color(&stops, &midpoints, t);
+            let color = crate::gradient_method::sample_color(GradientMethod::Classic, &stops, &midpoints, t);
             for (actual, expected) in color.into_iter().zip(expected) {
                 assert!((actual - expected).abs() < 1e-6, "order={order:?}, t={t}: {color:?}");
             }
@@ -535,6 +539,6 @@ fn gradient_midpoint_contract_is_invariant_to_stop_storage_order() {
     }
     let Paint::Gradient { stops, midpoints, .. } = Paint::from_fill(&fill, (0.0, 0.0, 100.0, 100.0), (0.0, 0.0, 100.0, 100.0)) else { panic!() };
     assert_eq!(midpoints, vec![0.25]);
-    let color = sample_color(&stops, &midpoints, 0.25);
+    let color = crate::gradient_method::sample_color(GradientMethod::Classic, &stops, &midpoints, 0.25);
     assert!((color[0] - 0.5).abs() < 1e-6 && (color[1] - 0.5).abs() < 1e-6 && (color[2] - 0.5).abs() < 1e-6);
 }

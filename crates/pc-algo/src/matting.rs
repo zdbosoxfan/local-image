@@ -41,15 +41,29 @@ pub fn refine_buffer(img: Option<&RgbImage>, m: &[f32], w: usize, h: usize, p: &
     li_matte::matting::refine_buffer(img.as_ref(), m, w, h, p)
 }
 
+/// Most pixels one refine should cover. Its result is a dense [`Region`] over [`refine_area`]
+/// (about two bytes a pixel while it is assembled), so callers refuse a larger refine up front
+/// rather than allocate it: 2³⁰ pixels, a 32k × 32k selection.
+pub const MAX_REFINE_AREA: u64 = 1 << 30;
+
+/// The area [`refine_mask`] computes and allocates its result over: `content` grown by how far
+/// `p` can spread it, within `canvas`. Empty when `content` misses the canvas.
+pub fn refine_area(content: Rect, canvas: Rect, p: &RefineParams) -> Rect {
+    let content = content.intersect(&canvas);
+    if content.is_empty() {
+        return Rect::EMPTY;
+    }
+    content.inflate(p.spread()).intersect(&canvas)
+}
+
 /// Refines a selection mask. `mask(r)` returns coverage over `r` (row-major); `content` bounds
 /// its non-zero pixels; the result is clipped to `canvas`. `sampler` supplies the guide image
 /// (only read when `radius > 0`). Returns `None` when nothing remains selected.
 pub fn refine_mask(sampler: &dyn Sampler, mask: &(dyn Fn(Rect) -> Vec<f32> + Sync), content: Rect, canvas: Rect, p: &RefineParams) -> Option<Region> {
-    let content = content.intersect(&canvas);
-    if content.is_empty() {
+    let bbox = refine_area(content, canvas, p);
+    if bbox.is_empty() {
         return None;
     }
-    let bbox = content.inflate(p.spread()).intersect(&canvas);
     let halo = p.halo();
     let mut tiles = Vec::new();
     let mut y = bbox.y0;

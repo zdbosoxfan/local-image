@@ -770,7 +770,10 @@ fn export_contents(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(json!({"path": path, "fileName": name, "bytes": bytes.len(), "converted": false}));
     }
     let contents = decode_source(&name, &bytes)?;
-    let r = photocraft_io::export(&contents, path, &Default::default()).map_err(|e| other(format!("can't export the contents as {}: {e}", base_name(path))))?;
+    // An untrusted session's stored paths are document data: a PSD of the contents embeds none
+    // of the files their own linked smart objects name.
+    let opts = photocraft_io::ExportOptions { read_linked_files: !crate::jobs::authorization_installed(), ..Default::default() };
+    let r = photocraft_io::export(&contents, path, &opts).map_err(|e| other(format!("can't export the contents as {}: {e}", base_name(path))))?;
     crate::file_cmds::write_file(path, &r.bytes)?;
     Ok(json!({"path": path, "fileName": name, "bytes": r.bytes.len(), "converted": true, "warnings": r.warnings}))
 }
@@ -893,6 +896,25 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.smartFilter.setParams";
     let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters)"))?;
     let authorize = s.authorize;
+    let new_map = {
+        let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+        let sm = smart(doc, layer_param(s, p)?)?;
+        let f = &sm.smart_filters[filter_index(CMD, p, sm)?];
+        if f.command == "filter.distort.displace" && (crate::filters_ext::map_path(&new).is_some() || crate::filters_ext::map_document(&new).is_some()) {
+            let request = crate::filters_ext::displace_request(&new);
+            if let Some(gate) = authorize {
+                gate(&f.command, &request)?;
+            }
+            let mut fp = crate::filters::params_for(&f.command, &request).ok_or_else(|| bad(CMD, "unreadable Displace settings"))?;
+            crate::filters_ext::resolve_for_embedding(s, &mut fp, &request)?;
+            match fp {
+                photocraft_algo::FilterParams::Displace { map, .. } => map,
+                _ => None,
+            }
+        } else {
+            None
+        }
+    };
     edit_filters(s, p, "Edit Smart Filter", |sm| {
         let i = filter_index(CMD, p, sm)?;
         let f = &mut sm.smart_filters[i];
@@ -907,6 +929,14 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
         // merged params, including paths already stored in the document, before re-rendering.
         if let Some(gate) = authorize {
             gate(&f.command, &f.params)?;
+        }
+        if f.command == "filter.distort.displace" {
+            if let Some(map) = &new_map {
+                f.params = photocraft_io::smart_map::displace_embed_map(&f.params, map)
+                    .ok_or_else(|| EngineError::Other(crate::filters_ext::DISPLACE_EMBED_LIMIT.into()))?;
+            } else {
+                crate::filters_ext::displace_settle(&mut f.params)?;
+            }
         }
         Ok(())
     })

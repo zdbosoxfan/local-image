@@ -130,6 +130,33 @@ fn parameter_edits_reject_outside_images_and_luts_without_changing_the_document(
 }
 
 #[test]
+fn replacement_displace_maps_are_authorized_before_reading_even_with_an_embedded_map() {
+    let f = Fixture::new();
+    let mut h = f.headless();
+    h.handle("doc.new", json!({"width":32,"height":32,"background":"white"})).unwrap();
+    let layer = h.session.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
+    h.session.execute(DISPLACE, json!({"mapDocument":0})).unwrap();
+    let before = h.session.active().unwrap().doc.clone();
+    let journal = h.session.journal.len();
+    let history = h.session.active().unwrap().history.past_len();
+    let LayerContent::Smart(sm) = &before.layer(LayerId(layer)).unwrap().content else { panic!("smart object") };
+    let params = sm.smart_filters[0].params.clone();
+    assert!(photocraft_io::smart_map::displace_embedded_map(&params).is_some());
+    // A malformed outside file distinguishes an authorization denial from a decoder failure.
+    std::fs::write(f.outside("malformed.png"), b"not an image").unwrap();
+    for name in ["malformed.png", "missing.png", "black.png"] {
+        let mut replacement = params.clone();
+        replacement["mapPath"] = json!(f.outside(name));
+        let edit = json!({"layer":layer,"params":replacement});
+        assert_denied(h.session.execute("layer.smartFilter.setParams", edit.clone()));
+        assert_denied(h.handle("engine.execute", json!({"command":"layer.smartFilter.setParams","params":edit})));
+        assert!(Arc::ptr_eq(&before, &h.session.active().unwrap().doc));
+        assert_eq!(h.session.journal.len(), journal);
+        assert_eq!(h.session.active().unwrap().history.past_len(), history);
+    }
+}
+
+#[test]
 fn action_playback_cannot_hide_a_smart_filter_path_edit() {
     let f = Fixture::new();
     let (mut h, layer) = f.setup(true);

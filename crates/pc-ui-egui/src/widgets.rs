@@ -704,6 +704,30 @@ fn product(s: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn status_chips_name_themselves_and_keep_one_height() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut h = Harness::builder().with_size(egui::vec2(360.0, 80.0)).build_ui_state(
+            |ui, ready: &mut bool| {
+                if *ready {
+                    ui.horizontal(|ui| {
+                        super::status_chip(ui, "circle-dashed", "Not tested", super::Tone::Neutral);
+                        super::status_chip(ui, "triangle-alert", "Needs setup", super::Tone::Warning);
+                        super::status_chip(ui, "x", "Failed", super::Tone::Danger);
+                    });
+                }
+            },
+            false,
+        );
+        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        *h.state_mut() = true;
+        h.run();
+        let (a, b, c) = (h.get_by_label("Not tested").rect(), h.get_by_label("Needs setup").rect(), h.get_by_label("Failed").rect());
+        assert!(a.height() == b.height() && b.height() == c.height(), "{a:?} {b:?} {c:?}");
+        assert!(c.width() < a.width(), "the pill fits its text");
+        assert!(a.right() <= b.left() && b.right() <= c.left(), "chips sit side by side");
+    }
+
+    #[test]
     fn shared_checkbox_has_one_accessible_control_for_box_and_text() {
         use egui_kittest::{
             Harness,
@@ -1051,7 +1075,7 @@ pub fn preferences_tab(ui: &mut egui::Ui, title: &str, selected: bool, empty: bo
     let color = if selected {
         t.text
     } else if empty {
-        t.text_faint
+        if response.hovered() || response.has_focus() { t.text_secondary_on_fill } else { t.text_faint }
     } else {
         t.text_dim
     };
@@ -1087,6 +1111,12 @@ pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimat
     let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(estimate.batch_label()).color(if estimate.warning() { t.warning } else { t.text_dim }));
 }
+
+mod navigation;
+mod status;
+pub use li_ui_kit::widgets::{primary_button as primary_button_translated, secondary_button as secondary_button_translated};
+pub use navigation::nav_row;
+pub use status::{Tone, overlay_chip, status_chip, status_icon, tag_chip};
 
 #[cfg(test)]
 #[path = "widgets/numeric_input_tests.rs"]

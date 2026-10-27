@@ -111,7 +111,7 @@
         {
           "name": "ComfyUI workflow templates",
           "author": "Comfy Org",
-          "used_for": "Ten templates and their thumbnails as test fixtures; at run time the Model Browser reads them from the connected ComfyUI.",
+          "used_for": "Templates, their thumbnails and trimmed indexes as test fixtures; at run time the Model Browser and model setup read them from the connected ComfyUI.",
           "licence": "MIT",
           "licence_files": [
             "licenses/comfyui-workflow-templates-LICENSE"

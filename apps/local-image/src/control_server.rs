@@ -25,6 +25,8 @@ pub fn start(port: u16, token: String, ctx: egui::Context) -> Receiver<ControlRe
         }
     };
     log::info!("control server listening on 127.0.0.1:{port}");
+    #[cfg(target_os = "macos")]
+    keep_answering();
     std::thread::spawn(move || {
         let limiter = ConnectionLimiter::new(MAX_CONNECTIONS);
         let token = Arc::new(token);
@@ -44,6 +46,25 @@ pub fn start(port: u16, token: String, ctx: egui::Context) -> Receiver<ControlRe
         }
     });
     rx
+}
+
+/// The activity the control channel holds on macOS: work the user asked for, which may let the
+/// system sleep when idle, with full timer precision. Without it, App Nap lowers every thread to
+/// the lowest priority within about a minute of the window no longer being visible.
+#[cfg(target_os = "macos")]
+fn activity_options() -> objc2_foundation::NSActivityOptions {
+    use objc2_foundation::NSActivityOptions;
+    NSActivityOptions::UserInitiatedAllowingIdleSystemSleep | NSActivityOptions::LatencyCritical
+}
+
+/// Begins the control channel's activity. It lasts until the process ends.
+#[cfg(target_os = "macos")]
+fn keep_answering() {
+    use objc2_foundation::{NSProcessInfo, NSString};
+    let reason = NSString::from_str(li_i18n::tl!("Answering control requests"));
+    let activity = NSProcessInfo::processInfo().beginActivityWithOptions_reason(activity_options(), &reason);
+    // The token is never released or passed to `endActivity`, so the activity lasts for the process's lifetime.
+    std::mem::forget(activity);
 }
 
 fn serve(stream: TcpStream, token: &str, tx: Sender<ControlRequest>, ctx: egui::Context) {
@@ -206,5 +227,18 @@ mod tests {
         drop(stream);
         handler.join().unwrap();
         server.join().unwrap();
+    }
+
+    // A test process is not an app that App Nap applies to, so this checks the activity the
+    // channel asks for; the throttling itself shows only in a running app with its window hidden.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_control_channel_keeps_the_app_at_full_priority_on_macos() {
+        use objc2_foundation::NSActivityOptions;
+        let options = activity_options();
+        assert!(options.contains(NSActivityOptions::LatencyCritical), "without it App Nap still lowers the priority to 20");
+        assert!(options.contains(NSActivityOptions::UserInitiatedAllowingIdleSystemSleep));
+        assert!(!options.contains(NSActivityOptions::IdleSystemSleepDisabled), "the channel must not keep the Mac awake");
+        keep_answering();
     }
 }

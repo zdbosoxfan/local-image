@@ -21,8 +21,11 @@ use lightcraft_catalog::PhotoId;
 use lightcraft_engine::Session;
 use lightcraft_engine::media::{QuickJob, QuickSource, RenderJob, RenderResult};
 use lightcraft_engine::pipeline::StageCache;
+use lightcraft_pipeline::OutputSpace;
 use lightcraft_preview::JobPool;
+use photocraft_engine::display_color::{CanvasDisplay, rendered_display, view_space};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Bound interactive work independently of zoom, monitor resolution and the settled preview
 /// preference. In particular, a 100%/200% view must never decode a full RAW for each drag step.
@@ -37,12 +40,24 @@ fn interactive_slot(slot: Slot) -> bool {
     matches!(slot, Slot::Main | Slot::Before | Slot::Hover | Slot::Second)
 }
 
+/// Slots showing a photo large enough to judge its colour: rendered in the monitor's gamut
+/// ([`Renderer::set_display`]), as are the neighbours prefetched for them and the loupe stand-in
+/// taken from their cached render. The loupe's 1:1 view is drawn over its render, so it is in the
+/// same space. Thumbnails stay sRGB.
+fn view_slot(slot: Slot) -> bool {
+    interactive_slot(slot) || matches!(slot, Slot::Compare(_) | Slot::Detail)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Slot {
     Thumb(PhotoId),
     /// A thumbnail's stand-in (embedded preview of an unedited raw).
     ThumbQuick(PhotoId),
     Main,
+    /// The loupe zoomed in past what `Main` holds: the whole frame again at the zoom's own scale
+    /// (at most the photo's native pixels), drawn over `Main` while it is current. Never drafted:
+    /// drags show `Main`.
+    Detail,
     /// The loupe's stand-in until `Main` has the photo.
     Preview,
     Before,
@@ -83,6 +98,11 @@ pub trait RenderOffload {
     fn try_start(&mut self, slot: Slot, job: RenderJob) -> Option<RenderJob>;
     /// Finished jobs since the last call: (slot, result, run time in ms).
     fn finished(&mut self) -> Vec<(Slot, RenderResult, f64)>;
+    /// Whether these executors take the loupe's full-size renders ([`Slot::Detail`]; they need a
+    /// GPU, see [`Renderer::full_size_on_gpu`]).
+    fn full_size(&self) -> bool {
+        false
+    }
 }
 
 /// Existing native preview workers do the display conversion too. Browser inline/offload
@@ -98,18 +118,44 @@ struct DisplayResult {
     display_key: u64,
 }
 
-fn display_result(result: RenderResult, display: Option<&photocraft_engine::display_color::CanvasDisplay>) -> DisplayResult {
+/// `result` with its image scaled down to fit a texture of at most `max_side` pixels a side
+/// (a stand-in from an old cache can be larger than the GPU takes).
+fn fit_texture(mut result: RenderResult, max_side: usize) -> RenderResult {
+    if let Ok(r) = &mut result.rendered
+        && r.image.width.max(r.image.height) > max_side
+    {
+        let f = r.image.map(|p| p.map(|v| f32::from(v) / 255.0));
+        r.image = f.fit(max_side, max_side, li_raster::resample::Filter::Mitchell).map(|p| p.map(li_raster::quantize_u8));
+    }
+    result
+}
+
+/// How `slot`'s texture of `size` is sampled. The loupe's 1:1 render shows its pixels as they are
+/// when magnified (past 100% each one a square of screen pixels, as Lightroom and Capture One show
+/// them), unless it had to be capped at the largest texture and is resampled anyway.
+fn texture_options(slot: Slot, size: [usize; 2], max_side: usize) -> egui::TextureOptions {
+    if slot == Slot::Detail && size[0].max(size[1]) < max_side {
+        egui::TextureOptions { magnification: egui::TextureFilter::Nearest, ..egui::TextureOptions::LINEAR }
+    } else {
+        egui::TextureOptions::LINEAR
+    }
+}
+
+/// The result's texture pixels: its 8-bit image (encoded in `display`'s source space) converted to
+/// the monitor, unless it is a soft proof already encoded for it. `display_key` is the key of the
+/// monitor setting the conversion belongs to.
+fn display_result(result: RenderResult, display: Option<&CanvasDisplay>, display_key: u64) -> DisplayResult {
     let color = result.rendered.as_ref().ok().map(|r| {
         let img = &r.image;
         let bytes = img.as_bytes();
         let bytes = if let Some(d) = display.filter(|d| !d.is_identity() && result.proof_monitor != Some(d.monitor.content_hash())) {
-            d.srgb8_to_display(img.width, &bytes)
+            d.rgb8_to_display(img.width, &bytes)
         } else {
             bytes
         };
         Arc::new(egui::ColorImage::from_rgba_unmultiplied([img.width, img.height], &bytes))
     });
-    DisplayResult { result, color, display_key: display.map_or(0, |d| d.key) }
+    DisplayResult { result, color, display_key }
 }
 
 struct Queued {
@@ -142,15 +188,22 @@ pub struct Renderer {
     /// (photo, size bucket, job key, whether the request went through an embedded stand-in)
     thumb_inputs: HashMap<PhotoId, (std::sync::Weak<lightcraft_catalog::Photo>, usize, u64, bool)>,
     pool: JobPool<Slot, DisplayResult>,
-    display: Option<Arc<photocraft_engine::display_color::CanvasDisplay>>,
+    display: Option<Arc<CanvasDisplay>>,
+    /// On a monitor wider than sRGB: the space views ([`view_slot`]) render in, and how their
+    /// pixels reach the monitor.
+    view: Option<(OutputSpace, Arc<CanvasDisplay>)>,
     /// Jobs run elsewhere (see [`RenderOffload`]); `queue` holds the ones not started yet.
     offload: Option<Box<dyn RenderOffload>>,
     queue: Vec<Queued>,
     seq: u64,
     /// Slot → (key, priority) of the request in flight (queued or running).
     pending: HashMap<Slot, (u64, u32)>,
+    /// Slot → stop flag of its admitted render ([`Renderer::request_admitted`]) in flight.
+    admitted: HashMap<Slot, Arc<AtomicBool>>,
     pub textures: HashMap<Slot, Tex>,
     pub last_main_ms: f64,
+    /// The largest texture side the GPU takes (from egui, updated every poll).
+    max_texture_side: usize,
     /// Jobs finished since start (for inspect/perf).
     pub completed: u64,
     /// Keep a CPU copy of every texture so the UI can be rasterized headlessly (set when the app
@@ -206,13 +259,16 @@ impl Renderer {
             preview_generation: None,
             pool: JobPool::new(threads),
             display: None,
+            view: None,
             thumb_inputs: HashMap::new(),
             offload: None,
             queue: Vec::new(),
             seq: 0,
             pending: HashMap::new(),
+            admitted: HashMap::new(),
             textures: HashMap::new(),
             last_main_ms: 0.0,
+            max_texture_side: usize::MAX,
             completed: 0,
             keep_pixels: false,
             stages: HashMap::new(),
@@ -237,14 +293,39 @@ impl Renderer {
 
     /// Change monitor transform and invalidate display textures, retaining processing stage caches.
     /// New uploads run on the existing bounded workers; old in-flight monitor results are discarded.
-    pub fn set_display(&mut self, display: Arc<photocraft_engine::display_color::CanvasDisplay>) {
+    /// Views render in the narrowest built-in space holding the monitor's gamut, so what the
+    /// monitor can show is gamut-mapped exactly as an export to that space instead of being
+    /// clipped to sRGB first.
+    pub fn set_display(&mut self, display: Arc<CanvasDisplay>) {
         if self.display.as_ref().is_some_and(|d| d.key == display.key) {
             return;
         }
         let stages = std::mem::take(&mut self.stages);
         self.forget_all();
         self.stages = stages;
+        self.view = match view_space(&display.monitor) {
+            OutputSpace::Srgb => None,
+            space => match rendered_display(space, display.monitor.clone()) {
+                Ok(view) => Some((space, view)),
+                Err(e) => {
+                    log::warn!("views stay sRGB: {e}");
+                    None
+                }
+            },
+        };
         self.display = Some(display);
+    }
+
+    /// How the pixels of `slot`'s renders reach the monitor.
+    fn display_for(&self, slot: Slot) -> Option<Arc<CanvasDisplay>> {
+        match &self.view {
+            Some((_, view)) if view_slot(slot) => Some(view.clone()),
+            _ => self.display.clone(),
+        }
+    }
+
+    fn display_key(&self) -> u64 {
+        self.display.as_ref().map_or(0, |d| d.key)
     }
 
     /// Would asking for this thumbnail again (at `priority`) change nothing?
@@ -306,9 +387,58 @@ impl Renderer {
     }
 
     /// Request a render for `slot` (no-op if already current or pending at the same priority).
-    pub fn request(&mut self, slot: Slot, mut job: RenderJob, priority: u32) {
+    pub fn request(&mut self, slot: Slot, job: RenderJob, priority: u32) {
+        self.submit(slot, job, priority, None);
+    }
+
+    /// Like [`Self::request`], for a full-size render (the loupe's 1:1 view): before it decodes
+    /// it waits for a heavy-job permit of `cost` bytes, so it never stacks with exports and
+    /// preview builds, and while it waits a newer request for its slot (or [`Self::cancel`])
+    /// stops it. Its develop takes the GPU in turn with theirs
+    /// ([`lightcraft_engine::export::pipeline::run_render_job`]).
+    pub fn request_admitted(&mut self, slot: Slot, job: RenderJob, priority: u32, cost: u64) {
+        self.submit(slot, job, priority, Some(cost));
+    }
+
+    /// `job` as `slot` renders it: a view slot's in the monitor's space on a wide-gamut monitor
+    /// ([`Self::set_display`]), with that space's key, which is the key its texture carries. (A
+    /// soft proof already renders straight to the monitor.)
+    pub fn for_slot(&self, slot: Slot, job: RenderJob) -> RenderJob {
+        match &self.view {
+            Some((space, _)) if view_slot(slot) && job.request.proof.is_none() => job.with_space(*space),
+            _ => job,
+        }
+    }
+
+    /// Whether the loupe's full-size renders may run: on the GPU only. On the CPU one needs
+    /// several GB and seconds per edit.
+    pub fn full_size_on_gpu(&self) -> bool {
+        match &self.offload {
+            Some(off) => off.full_size(),
+            None => lightcraft_engine::gpu::ready() && lightcraft_engine::gpu::available(),
+        }
+    }
+
+    /// Drop `slot`'s request in flight: a queued job is dropped, an admitted one still waiting for
+    /// its permit gives up, and a late result is ignored.
+    pub fn cancel(&mut self, slot: Slot) {
+        if let Some(stop) = self.admitted.remove(&slot) {
+            stop.store(true, Ordering::Relaxed);
+        }
+        if self.pending.remove(&slot).is_some() {
+            self.request_ids.remove(&slot);
+            self.pool.reprioritize(|s, p| (*s != slot).then_some(p));
+            self.queue.retain(|q| q.slot != slot);
+        }
+    }
+
+    fn submit(&mut self, slot: Slot, job: RenderJob, priority: u32, admit: Option<u64>) {
+        let mut job = self.for_slot(slot, job);
         if !self.request_needed(slot, job.key, priority) {
             return;
+        }
+        if let Some(stop) = self.admitted.remove(&slot) {
+            stop.store(true, Ordering::Relaxed);
         }
         self.pending.insert(slot, (job.key, priority));
         job.request_id = lightcraft_preview::next_tick();
@@ -326,45 +456,78 @@ impl Renderer {
             return;
         }
         let key = job.key;
-        let display = self.display.clone();
+        let (display, display_key) = (self.display_for(slot), self.display_key());
+        let max_side = self.max_texture_side;
         let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_));
+        let admit = admit.map(|cost| {
+            let stop = Arc::new(AtomicBool::new(false));
+            self.admitted.insert(slot, stop.clone());
+            (cost, stop)
+        });
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
-                let result = if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
-                display_result(result, display.as_deref())
+                let _permit = match &admit {
+                    Some((cost, stop)) => match lightcraft_sysmem::heavy_jobs().admit(*cost, &|| stop.load(Ordering::Relaxed)) {
+                        Some(permit) => Some(permit),
+                        None => return DisplayResult { result: job.cancelled(), color: None, display_key },
+                    },
+                    None => None,
+                };
+                let result = if background {
+                    lightcraft_engine::memory::in_background(|| job.run())
+                } else if admit.is_some() {
+                    // full size: on the GPU one at a time with exports and preview builds
+                    lightcraft_engine::export::pipeline::run_render_job(job)
+                } else {
+                    job.run()
+                };
+                display_result(fit_texture(result, max_side), display.as_deref(), display_key)
             }),
         );
     }
 
     /// Request a stand-in for `slot` (once per job key).
-    pub fn request_quick(&mut self, slot: Slot, mut job: QuickJob, priority: u32) {
+    pub fn request_quick(&mut self, slot: Slot, job: QuickJob, priority: u32) {
         if self.quick_tried.get(&slot) == Some(&job.key) {
             return;
         }
+        // the loupe's stand-in: its cached render in the view space, shown as the view will be
+        let (mut job, view) = match &self.view {
+            Some((space, view)) if slot == Slot::Preview => (job.with_space(*space), Some(view.clone())),
+            _ => (job, None),
+        };
         self.quick_tried.insert(slot, job.key);
         self.pending.insert(slot, (job.key, priority));
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
-        let display = self.display.clone();
+        let (display, display_key) = (self.display_for(slot), self.display_key());
+        let max_side = self.max_texture_side;
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
-                display_result(job.run(), display.as_deref())
+                let result = fit_texture(job.run(), max_side);
+                let display = view.filter(|_| result.quick == Some(QuickSource::Cached)).or(display);
+                display_result(result, display.as_deref(), display_key)
             }),
         );
     }
 
     /// Prepare a photo in the background (a [`Slot::Prefetch`] job runs once per key; a newer one
-    /// replaces it while queued). Memory stays bounded by the engine's source caches.
-    pub fn prefetch(&mut self, slot: Slot, mut job: RenderJob, priority: u32) {
+    /// replaces it while queued). Memory stays bounded by the engine's source caches. Its view
+    /// render is cached in the views' space, so the loupe's stand-in for it is the view itself.
+    pub fn prefetch(&mut self, slot: Slot, job: RenderJob, priority: u32) {
+        let mut job = match &self.view {
+            Some((space, _)) => job.with_space(*space),
+            None => job,
+        };
         if self.prefetched.get(&slot) == Some(&job.key) {
             return;
         }
@@ -373,18 +536,14 @@ impl Renderer {
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
-        let display = self.display.clone();
+        let display_key = self.display_key();
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
-                DisplayResult {
-                    result: lightcraft_engine::memory::in_background(|| job.run()),
-                    color: None,
-                    display_key: display.as_ref().map_or(0, |d| d.key),
-                }
+                DisplayResult { result: lightcraft_engine::memory::in_background(|| job.run()), color: None, display_key }
             }),
         );
     }
@@ -392,6 +551,9 @@ impl Renderer {
     /// Is a request for `slot` queued or running?
     /// Drop every texture and cached stage (another library was opened: photo ids changed meaning).
     pub fn forget_all(&mut self) {
+        for (_, stop) in self.admitted.drain() {
+            stop.store(true, Ordering::Relaxed);
+        }
         self.request_ids.clear();
         self.view_sources.clear();
         self.shown_ids.clear();
@@ -531,6 +693,7 @@ impl Renderer {
         }
         self.preview_generation = Some((Arc::downgrade(cache), generation));
         self.catalog_rev = session.catalog.revision;
+        self.max_texture_side = ctx.input(|i| i.max_texture_side).max(1);
         self.frame += 1;
         // wasm: run one job per frame on this thread, timed with the host clock
         #[cfg(target_arch = "wasm32")]
@@ -551,13 +714,17 @@ impl Renderer {
         while let Some(done) = self.pool.try_recv() {
             finished.push((done.slot, done.result, if done.ms > 0.0 { done.ms } else { inline_ms }));
         }
-        if let Some(off) = self.offload.as_mut() {
-            finished.extend(off.finished().into_iter().map(|(slot, result, ms)| (slot, display_result(result, self.display.as_deref()), ms)));
-        }
+        let offloaded = self.offload.as_mut().map(|off| off.finished()).unwrap_or_default();
+        let (display_key, max_side) = (self.display_key(), self.max_texture_side);
+        finished.extend(
+            offloaded
+                .into_iter()
+                .map(|(slot, result, ms)| (slot, display_result(fit_texture(result, max_side), self.display_for(slot).as_deref(), display_key), ms)),
+        );
         self.dispatch();
         let mut changed = false;
         for (mut slot, done, ms) in finished {
-            if done.display_key != self.display.as_ref().map_or(0, |d| d.key) {
+            if done.display_key != self.display_key() {
                 continue;
             }
             let DisplayResult { result: r, color, .. } = done;
@@ -577,6 +744,7 @@ impl Renderer {
                 }
             } else {
                 self.request_ids.remove(&slot);
+                self.admitted.remove(&slot);
             }
             // Even an advancing superseded preview can supply the decoded source. Otherwise a
             // continuous drag that starts cold keeps decoding until the user finally releases.
@@ -619,9 +787,10 @@ impl Renderer {
             let Some(color) = color else { continue };
             let pixels = self.keep_pixels.then(|| color.clone());
             let name = format!("{slot:?}");
+            let options = texture_options(slot, [img.width, img.height], self.max_texture_side);
             match self.textures.get_mut(&slot) {
                 Some(t) => {
-                    t.tex.set(color, egui::TextureOptions::LINEAR);
+                    t.tex.set(color, options);
                     t.pixels = pixels;
                     t.key = r.key;
                     t.photo = r.photo;
@@ -631,7 +800,7 @@ impl Renderer {
                     t.quick = r.quick;
                 }
                 None => {
-                    let tex = ctx.load_texture(name, color, egui::TextureOptions::LINEAR);
+                    let tex = ctx.load_texture(name, color, options);
                     self.textures.insert(
                         slot,
                         Tex {
@@ -744,526 +913,4 @@ impl Renderer {
 }
 
 #[cfg(test)]
-mod thumbnail_tests {
-    use super::*;
-    use lightcraft_catalog::{Catalog, Op, Photo, Source};
-
-    struct Blocked;
-    impl RenderOffload for Blocked {
-        fn try_start(&mut self, _: Slot, job: RenderJob) -> Option<RenderJob> {
-            Some(job)
-        }
-        fn finished(&mut self) -> Vec<(Slot, RenderResult, f64)> {
-            vec![]
-        }
-    }
-    fn photo() -> Arc<Photo> {
-        Arc::new(Photo::new(PhotoId(1), Source::File { path: "audit.jpg".into() }, "audit.jpg", "JPEG", 6000, 4000, "2026-01-01"))
-    }
-    #[test]
-    fn snapshot_tracks_cow_edits_undo_reload_and_replacement() {
-        let mut catalog = Catalog::default();
-        catalog.apply(Op::AddPhoto { photo: Box::new((*photo()).clone()) }).unwrap();
-        let old = catalog.photo(PhotoId(1)).unwrap().clone();
-        let mut r = Renderer::default();
-        r.remember_thumb(&old, 384, 77, false);
-        r.pending.insert(Slot::Thumb(PhotoId(1)), (77, 10));
-        assert!(r.thumb_current(&old, 384, 10));
-        assert!(!r.thumb_current(&old, 512, 10));
-        let mut settings = lightcraft_develop::DevelopSettings::default();
-        settings.light.exposure = 1.0;
-        let undo = catalog.apply(Op::SetDevelop { id: PhotoId(1), settings: Arc::new(settings), label: "edit".into(), edited: None }).unwrap();
-        assert!(!r.thumb_current(catalog.photo(PhotoId(1)).unwrap(), 384, 10));
-        catalog.apply(undo).unwrap();
-        assert!(!r.thumb_current(catalog.photo(PhotoId(1)).unwrap(), 384, 10));
-        catalog
-            .apply(Op::SetContent {
-                id: PhotoId(1),
-                width: 6000,
-                height: 4000,
-                file_size: 99,
-                content_hash: Some("changed".into()),
-                preview_only: None,
-            })
-            .unwrap();
-        assert!(!r.thumb_current(catalog.photo(PhotoId(1)).unwrap(), 384, 10));
-        assert!(!r.thumb_current(&photo(), 384, 10));
-        r.forget_all();
-        assert!(r.thumb_inputs.is_empty());
-    }
-    #[test]
-    fn queue_promotions_running_work_and_cancellation() {
-        let p = photo();
-        let slot = Slot::Thumb(p.id);
-        let mut session = Session::new();
-        session.catalog.apply(Op::AddPhoto { photo: Box::new((*p).clone()) }).unwrap();
-        let job = session.thumb_job(p.id, 384).unwrap();
-        let key = job.key;
-        let mut r = Renderer::default();
-        r.set_offload(Box::new(Blocked));
-        r.remember_thumb(&p, 384, key, false);
-        r.request(slot, job, 5);
-        assert!(r.thumb_current(&p, 384, 5));
-        assert!(!r.thumb_current(&p, 384, 10));
-        r.request(slot, session.thumb_job(p.id, 384).unwrap(), 10);
-        assert_eq!(r.pending.get(&slot), Some(&(key, 10)));
-        r.queue.clear(); // running work: cannot reprioritize, just as Renderer::request
-        assert!(r.thumb_current(&p, 384, 5));
-        r.pending.clear();
-        assert!(!r.thumb_current(&p, 384, 10));
-        r.evict_thumbs(&Default::default(), 600);
-        assert!(r.thumb_inputs.is_empty());
-    }
-    #[test]
-    fn failures_retry_after_revision_and_quick_only_is_not_final() {
-        let p = photo();
-        let slot = Slot::Thumb(p.id);
-        let mut r = Renderer::default();
-        r.remember_thumb(&p, 384, 77, false);
-        r.pending.insert(Slot::ThumbQuick(p.id), (77, 11));
-        assert!(!r.thumb_current(&p, 384, 10));
-        r.failed.insert(slot, (77, "no decoder".into(), 0));
-        assert!(r.thumb_current(&p, 384, 10));
-        r.catalog_rev = 1;
-        assert!(!r.thumb_current(&p, 384, 10));
-    }
-
-    #[derive(Default)]
-    struct Work {
-        jobs: Vec<(Slot, RenderJob)>,
-        finished: Vec<(Slot, RenderResult, f64)>,
-    }
-    struct Manual(std::rc::Rc<std::cell::RefCell<Work>>);
-    impl RenderOffload for Manual {
-        fn try_start(&mut self, slot: Slot, job: RenderJob) -> Option<RenderJob> {
-            self.0.borrow_mut().jobs.push((slot, job));
-            None
-        }
-        fn finished(&mut self) -> Vec<(Slot, RenderResult, f64)> {
-            std::mem::take(&mut self.0.borrow_mut().finished)
-        }
-    }
-    fn fixture() -> (crate::LightcraftApp, std::rc::Rc<std::cell::RefCell<Work>>, egui::Context) {
-        fixture_with(Session::new(), (*photo()).clone())
-    }
-    fn fixture_with(mut s: Session, photo: Photo) -> (crate::LightcraftApp, std::rc::Rc<std::cell::RefCell<Work>>, egui::Context) {
-        s.media.file_loader = Some(Arc::new(|_, _| {
-            let mut image = li_raster::RgbFrame::new(8, 8);
-            image.data.fill([0.3, 0.2, 0.1]);
-            Ok((image, Default::default()))
-        }));
-        s.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
-        let mut app = crate::LightcraftApp::new(s, crate::Services::default());
-        app.renderer.keep_pixels = true;
-        let work = std::rc::Rc::new(std::cell::RefCell::new(Work::default()));
-        app.renderer.set_offload(Box::new(Manual(work.clone())));
-        let ctx = egui::Context::default();
-        app.renderer.poll(&ctx, &mut app.session);
-        (app, work, ctx)
-    }
-    fn take_job(work: &std::rc::Rc<std::cell::RefCell<Work>>) -> (Slot, RenderJob) {
-        work.borrow_mut().jobs.pop().unwrap()
-    }
-    fn finish(app: &mut crate::LightcraftApp, work: &std::rc::Rc<std::cell::RefCell<Work>>, ctx: &egui::Context, slot: Slot, result: RenderResult) {
-        work.borrow_mut().finished.push((slot, result, 0.0));
-        app.renderer.poll(ctx, &mut app.session);
-    }
-    fn request(app: &mut crate::LightcraftApp) {
-        crate::panels::grid::request_thumb(app, PhotoId(1), 256, 10);
-    }
-
-    #[test]
-    fn ds2_missing_thumbnail_renders_committed_settings_once_during_interaction() {
-        let (mut app, work, ctx) = fixture();
-        app.session.execute("library.select", &serde_json::json!({"ids":[1],"active":1})).unwrap();
-        app.session.begin_interaction("Exposure").unwrap();
-        let original = app.session.interaction.as_ref().unwrap().original.clone();
-        let mut edited = (*original).clone();
-        edited.light.exposure = 2.0;
-        app.session.set_develop(PhotoId(1), edited, "Exposure").unwrap();
-        request(&mut app);
-        let (slot, job) = take_job(&work);
-        assert_eq!(*job.settings, *original);
-        assert!(job.cache.is_none());
-        finish(&mut app, &work, &ctx, slot, job.run());
-        assert!(app.renderer.thumb(PhotoId(1)).is_some());
-        for _ in 0..30 {
-            request(&mut app);
-        }
-        assert!(work.borrow().jobs.is_empty());
-    }
-
-    #[test]
-    fn unchanged_ready_and_running_frames_build_no_jobs() {
-        let (mut app, work, ctx) = fixture();
-        request(&mut app);
-        assert_eq!(app.renderer.thumb_jobs_built, 1);
-        for _ in 0..180 {
-            request(&mut app);
-        }
-        assert_eq!(app.renderer.thumb_jobs_built, 1);
-        let (slot, job) = take_job(&work);
-        finish(&mut app, &work, &ctx, slot, job.run());
-        for _ in 0..180 {
-            request(&mut app);
-        }
-        assert_eq!(app.renderer.thumb_jobs_built, 1);
-        assert!(work.borrow().jobs.is_empty());
-    }
-
-    #[test]
-    fn unchanged_queued_frames_build_no_jobs() {
-        let (mut app, _, _) = fixture();
-        app.renderer.set_offload(Box::new(Blocked));
-        request(&mut app);
-        for _ in 0..180 {
-            request(&mut app);
-        }
-        assert_eq!(app.renderer.thumb_jobs_built, 1);
-        assert_eq!(app.renderer.queue.len(), 1);
-    }
-
-    #[test]
-    fn proof_monitor_pixels_skip_second_display_conversion() {
-        let (mut app, _, _) = fixture();
-        let mut color = photocraft_engine::color_cmds::ColorState::default();
-        color.settings.monitor_profile = "display-p3".into();
-        let display = color.srgb_preview_display().unwrap();
-        app.renderer.set_display(display.clone());
-        let proof = lightcraft_pipeline::Proof { monitor: app.renderer.proof_monitor(), ..Default::default() };
-        let job = app.session.render_job(PhotoId(1), 64, 64, false, true).unwrap().with_proof(Some(proof));
-        let result = job.run();
-        assert_eq!(result.proof_monitor, Some(display.monitor.content_hash()));
-        let bytes = result.rendered.as_ref().unwrap().image.as_bytes();
-        let twice = display.srgb8_to_display(result.rendered.as_ref().unwrap().image.width, &bytes);
-        assert_ne!(bytes, twice, "sample detects a second monitor transform");
-        let converted = display_result(result, Some(&display));
-        assert_eq!(converted.color.unwrap().pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(), bytes);
-    }
-
-    #[test]
-    fn display_textures_match_shared_editor_transform_and_rebuild_on_monitor_change() {
-        let (mut app, work, ctx) = fixture();
-        let mut color = photocraft_engine::color_cmds::ColorState::default();
-        color.settings.monitor_profile = "display-p3".into();
-        let display = color.srgb_preview_display().unwrap();
-        app.renderer.set_display(display.clone());
-        request(&mut app);
-        let (slot, job) = take_job(&work);
-        let result = job.run();
-        let img = &result.rendered.as_ref().unwrap().image;
-        let expected = display.srgb8_to_display(img.width, &img.as_bytes());
-        finish(&mut app, &work, &ctx, slot, result);
-        let pixels = app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap();
-        assert_eq!(pixels.pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(), expected);
-        color.settings.monitor_profile = "srgb".into();
-        app.renderer.set_display(color.srgb_preview_display().unwrap());
-        assert!(app.renderer.thumb(PhotoId(1)).is_none());
-        request(&mut app);
-        let (slot, job) = take_job(&work);
-        let result = job.run();
-        let original = result.rendered.as_ref().unwrap().image.as_bytes();
-        finish(&mut app, &work, &ctx, slot, result);
-        assert_eq!(
-            app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap().pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(),
-            original
-        );
-    }
-
-    #[test]
-    fn resizing_the_disk_cache_keeps_textures_and_skips_rebuilds() {
-        let lib = std::env::temp_dir().join(format!("lc-ui-thumb-resize-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&lib);
-        let mut s = Session::new().with_fs();
-        s.open_library(&lib, false).unwrap();
-        let (mut app, work, ctx) = fixture_with(s, (*photo()).clone());
-        request(&mut app);
-        let (slot, job) = take_job(&work);
-        finish(&mut app, &work, &ctx, slot, job.run());
-        assert!(app.renderer.thumb(PhotoId(1)).is_some());
-        let cache = app.session.media.rendered.clone();
-        app.session.execute("library.preferences", &serde_json::json!({"cacheMb": 300})).unwrap();
-        app.renderer.poll(&ctx, &mut app.session);
-        // thumbnails are keyed by content: a new budget leaves them (and the cache) valid
-        assert!(app.renderer.thumb(PhotoId(1)).is_some());
-        assert!(Arc::ptr_eq(&cache, &app.session.media.rendered));
-        for _ in 0..30 {
-            request(&mut app);
-        }
-        assert_eq!(app.renderer.thumb_jobs_built, 1);
-        assert!(work.borrow().jobs.is_empty());
-        // an explicit clear still drops them
-        app.session.execute("library.clearPreviews", &serde_json::json!({})).unwrap();
-        app.renderer.poll(&ctx, &mut app.session);
-        assert!(app.renderer.thumb(PhotoId(1)).is_none());
-        drop(app);
-        let _ = std::fs::remove_dir_all(&lib);
-    }
-
-    #[test]
-    fn raw_quick_path_frames_build_no_jobs() {
-        // an unedited raw: the grid shows its embedded preview first (held here until released),
-        // then queues the real thumbnail behind everything on screen
-        let gate = Arc::new(std::sync::Mutex::new(()));
-        let held = gate.lock().unwrap();
-        let mut s = Session::new();
-        let g = gate.clone();
-        s.media.preview_loader = Some(Arc::new(move |_: &str, _| {
-            drop(g.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-            Some(li_raster::Rgba8 { width: 4, height: 4, data: vec![[200, 100, 50, 255]; 16] })
-        }));
-        let mut raw = (*photo()).clone();
-        raw.kind = lightcraft_catalog::MediaKind::Raw;
-        raw.develop = Arc::new(raw.camera_defaults());
-        let (mut app, _, ctx) = fixture_with(s, raw);
-        app.renderer.set_offload(Box::new(Blocked));
-        let quick = Slot::ThumbQuick(PhotoId(1));
-        // the stand-in is running
-        for _ in 0..180 {
-            request(&mut app);
-        }
-        assert!(app.renderer.is_pending(quick));
-        assert_eq!(app.renderer.thumb_jobs_built, 1);
-        drop(held);
-        let t0 = std::time::Instant::now();
-        while !app.renderer.textures.contains_key(&quick) {
-            assert!(t0.elapsed() < std::time::Duration::from_secs(20), "the embedded preview never arrived");
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            app.renderer.poll(&ctx, &mut app.session);
-        }
-        // the stand-in is shown: one more job queues the real thumbnail at background priority,
-        // and the grid asking at its own (higher) priority every frame does not rebuild it
-        for _ in 0..180 {
-            request(&mut app);
-        }
-        assert_eq!(app.renderer.thumb_jobs_built, 2);
-        assert_eq!(app.renderer.queue.len(), 1);
-        assert_eq!(app.renderer.pending.get(&Slot::Thumb(PhotoId(1))).map(|p| p.1), Some(crate::panels::grid::BACKGROUND_THUMB_PRIORITY));
-    }
-
-    #[test]
-    fn closing_import_review_cancels_queued_and_running_identities() {
-        let (mut app, work, ctx) = fixture();
-        let job = app.session.thumb_job(PhotoId(1), 256).unwrap();
-        app.renderer.request(Slot::Import(0), job.clone(), 10);
-        let (slot, running) = take_job(&work);
-        app.renderer.set_offload(Box::new(Blocked));
-        app.renderer.request(Slot::Import(1), job, 10);
-        app.renderer.forget_imports();
-        assert!(!app.renderer.is_pending(Slot::Import(0)));
-        assert!(!app.renderer.is_pending(Slot::Import(1)));
-        assert!(app.renderer.queue.is_empty());
-        work.borrow_mut().finished.push((slot, running.run(), 0.0));
-        app.renderer.set_offload(Box::new(Manual(work.clone())));
-        app.renderer.poll(&ctx, &mut app.session);
-        assert!(!app.renderer.textures.contains_key(&slot));
-        assert_eq!(app.session.media.source_usage().0, 0);
-    }
-
-    #[test]
-    fn loupe_shows_superseded_drafts_newer_than_its_pixels_during_a_drag() {
-        let (mut app, work, ctx) = fixture();
-        let mut jobs = Vec::new();
-        for exposure in [0.0, 1.0, 2.0] {
-            let mut edit = lightcraft_develop::DevelopSettings::default();
-            edit.light.exposure = exposure;
-            app.session.catalog.apply(Op::SetDevelop { id: PhotoId(1), settings: Arc::new(edit), label: "drag".into(), edited: None }).unwrap();
-            let job = app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap().draft();
-            app.renderer.request(Slot::Main, job, 100);
-            jobs.push(take_job(&work).1);
-        }
-        let keys: Vec<u64> = jobs.iter().map(|j| j.key).collect();
-        let mut jobs = jobs.into_iter();
-        let (first, second, last) = (jobs.next().unwrap(), jobs.next().unwrap(), jobs.next().unwrap());
-        // the first draft lands while the newest is still rendering: the loupe moves on
-        finish(&mut app, &work, &ctx, Slot::Main, first.run());
-        assert_eq!(app.renderer.textures.get(&Slot::Main).map(|t| t.key), Some(keys[0]));
-        assert!(app.session.media.source_usage().0 > 0, "an advancing draft also caches its decoded source");
-        assert!(app.renderer.is_pending(Slot::Main));
-        finish(&mut app, &work, &ctx, Slot::Main, last.run());
-        assert_eq!(app.renderer.textures.get(&Slot::Main).map(|t| t.key), Some(keys[2]));
-        // a draft older than the pixels shown never replaces them
-        finish(&mut app, &work, &ctx, Slot::Main, second.run());
-        assert_eq!(app.renderer.textures.get(&Slot::Main).map(|t| t.key), Some(keys[2]));
-        assert!(!app.renderer.is_pending(Slot::Main));
-    }
-
-    #[test]
-    fn superseded_loupe_result_cannot_restore_another_photo_or_pre_reload_source() {
-        for reload in [false, true] {
-            let (mut app, work, ctx) = fixture();
-            let old = app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap().draft();
-            app.renderer.request(Slot::Main, old, 100);
-            let (_, old) = take_job(&work);
-            let id = if reload {
-                app.session
-                    .catalog
-                    .apply(Op::SetContent {
-                        id: PhotoId(1),
-                        width: 6000,
-                        height: 4000,
-                        file_size: 100,
-                        content_hash: Some("reloaded".into()),
-                        preview_only: None,
-                    })
-                    .unwrap();
-                PhotoId(1)
-            } else {
-                let mut p = (*photo()).clone();
-                p.id = PhotoId(2);
-                app.session.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
-                PhotoId(2)
-            };
-            let new = app.session.loupe_job(id, 8, 8, true).unwrap();
-            app.renderer.request(Slot::Main, new, 100);
-            let (_, new) = take_job(&work);
-            finish(&mut app, &work, &ctx, Slot::Main, old.run());
-            assert!(!app.renderer.textures.contains_key(&Slot::Main));
-            assert_eq!(app.session.media.source_usage().0, 0);
-            assert!(app.renderer.is_pending(Slot::Main));
-            finish(&mut app, &work, &ctx, Slot::Main, new.run());
-            assert_eq!(app.renderer.textures[&Slot::Main].photo, id);
-        }
-    }
-
-    #[test]
-    fn superseded_preview_with_repeated_key_does_not_clear_latest_pending_request() {
-        let (mut app, work, ctx) = fixture();
-        let job = app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap().draft();
-        app.renderer.request(Slot::Main, job.clone(), 100);
-        let (_, old) = take_job(&work);
-        let mut other = job.clone();
-        other.key ^= 1;
-        app.renderer.request(Slot::Main, other, 100);
-        take_job(&work);
-        app.renderer.request(Slot::Main, job, 100);
-        let (_, latest) = take_job(&work);
-        finish(&mut app, &work, &ctx, Slot::Main, old.run());
-        assert!(app.renderer.is_pending(Slot::Main), "the repeated key is still running under a newer request id");
-        finish(&mut app, &work, &ctx, Slot::Main, latest.run());
-        assert!(!app.renderer.is_pending(Slot::Main));
-    }
-
-    #[test]
-    fn library_reset_rejects_old_job_even_when_photo_id_and_key_are_reused() {
-        let (mut app, work, ctx) = fixture();
-        request(&mut app);
-        let (slot, old) = take_job(&work);
-        let old_result = old.run();
-        app.renderer.forget_all();
-        let photo = app.session.catalog.photo(PhotoId(1)).unwrap().as_ref().clone();
-        app.session = lightcraft_engine::Session::new();
-        app.session.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
-        app.session.media.file_loader = Some(Arc::new(|_, _| {
-            let mut image = li_raster::RgbFrame::new(8, 8);
-            image.data.fill([0.1, 0.2, 0.9]);
-            Ok((image, Default::default()))
-        }));
-        app.renderer.poll(&ctx, &mut app.session);
-        request(&mut app);
-        let (_, new) = take_job(&work);
-        assert_eq!(old_result.key, new.key);
-        assert_ne!(old_result.request_id, new.request_id);
-        let expected = new.clone().run().rendered.unwrap().image.as_bytes();
-        finish(&mut app, &work, &ctx, slot, new.run());
-        finish(&mut app, &work, &ctx, slot, old_result);
-        assert_eq!(
-            app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap().pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<_>>(),
-            expected
-        );
-    }
-
-    #[test]
-    fn late_results_and_errors_cannot_replace_newest_pixels_or_sources() {
-        for order in [0, 1, 2] {
-            let (mut app, work, ctx) = fixture();
-            request(&mut app);
-            let (slot, old) = take_job(&work);
-            let mut edit = lightcraft_develop::DevelopSettings::default();
-            edit.light.exposure = 1.0;
-            app.session.catalog.apply(Op::SetDevelop { id: PhotoId(1), settings: Arc::new(edit), label: "edit".into(), edited: None }).unwrap();
-            request(&mut app);
-            let (_, new) = take_job(&work);
-            let expected = new.clone().run().rendered.unwrap().image.as_bytes();
-            if order != 0 {
-                finish(&mut app, &work, &ctx, slot, new.run());
-                // An obsolete source and error must not poison the current successful request.
-                let mut stale = old.run();
-                if order == 2 {
-                    stale.rendered = Err("old failure".into());
-                }
-                finish(&mut app, &work, &ctx, slot, stale);
-            } else {
-                finish(&mut app, &work, &ctx, slot, old.run());
-                assert!(app.renderer.thumb(PhotoId(1)).is_none());
-                assert_eq!(app.session.media.source_usage().0, 0);
-                finish(&mut app, &work, &ctx, slot, new.run());
-            }
-            assert_eq!(
-                app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap().pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<_>>(),
-                expected
-            );
-            assert!(app.renderer.failure(slot).is_none());
-        }
-    }
-
-    #[test]
-    fn undo_to_existing_texture_supersedes_pending_edit() {
-        let (mut app, work, ctx) = fixture();
-        request(&mut app);
-        let (slot, first) = take_job(&work);
-        let key = first.key;
-        finish(&mut app, &work, &ctx, slot, first.run());
-        let original = app.renderer.thumb(PhotoId(1)).unwrap().pixels.clone().unwrap();
-        let mut edit = lightcraft_develop::DevelopSettings::default();
-        edit.light.exposure = 1.0;
-        let undo =
-            app.session.catalog.apply(Op::SetDevelop { id: PhotoId(1), settings: Arc::new(edit), label: "edit".into(), edited: None }).unwrap();
-        request(&mut app);
-        let (_, edited) = take_job(&work);
-        app.session.catalog.apply(undo).unwrap();
-        request(&mut app);
-        let (_, restored) = take_job(&work);
-        assert_eq!(restored.key, key);
-        finish(&mut app, &work, &ctx, slot, restored.run());
-        finish(&mut app, &work, &ctx, slot, edited.run());
-        assert_eq!(app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap().pixels, original.pixels);
-    }
-
-    #[test]
-    fn explicit_clear_repairs_same_key_bad_pixels_and_rejects_old_same_key_job() {
-        let (mut app, work, ctx) = fixture();
-        let job = app.session.thumb_job(PhotoId(1), 256).unwrap();
-        let expected = job.clone().run().rendered.unwrap().image;
-        let (cache, key) = job.cache.clone().unwrap();
-        let mut bad = expected.clone();
-        bad.data.fill([255, 0, 255, 255]);
-        cache.put(key, Arc::new(bad.clone()));
-        request(&mut app);
-        let (slot, corrupt) = take_job(&work);
-        finish(&mut app, &work, &ctx, slot, corrupt.run());
-        assert_eq!(app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap().pixels[0].to_array(), [255, 0, 255, 255]);
-        // An old job can have the SAME render key and stale decoded pixels.
-        let mut old = job.clone();
-        old.source = lightcraft_engine::media::SourceRef::Loaded(Box::new(lightcraft_engine::media::DecodedSource::new(
-            Arc::new(li_raster::RgbFrame::new(8, 8)),
-            None,
-        )));
-        app.renderer.textures.clear();
-        app.renderer.request(slot, old, 10);
-        let (_, old) = take_job(&work);
-        app.session.execute("library.clearPreviews", &serde_json::json!({})).unwrap();
-        app.renderer.poll(&ctx, &mut app.session);
-        assert!(app.renderer.thumb(PhotoId(1)).is_none());
-        request(&mut app);
-        let (_, repaired) = take_job(&work);
-        assert_eq!(repaired.key, job.key);
-        finish(&mut app, &work, &ctx, slot, repaired.run());
-        finish(&mut app, &work, &ctx, slot, old.run());
-        assert_eq!(cache.get(key).unwrap().as_bytes(), expected.as_bytes());
-        assert_eq!(
-            app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap().pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<_>>(),
-            expected.as_bytes()
-        );
-    }
-}
+mod thumbnail_tests;

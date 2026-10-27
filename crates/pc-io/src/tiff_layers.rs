@@ -219,7 +219,12 @@ pub(crate) fn export_layered(
     let big = doc.size.width > 30_000 || doc.size.height > 30_000;
     // The PSD exporter renders the composite we need for the TIFF itself: unmatted (the TIFF
     // keeps straight alpha) and uncompressed (its planes are interleaved below).
-    let psd_opts = PsdExportOptions { force_psb: opts.force_psb || big, merged_matte: false, merged_compression: Compression::Raw };
+    let psd_opts = PsdExportOptions {
+        force_psb: opts.force_psb || big,
+        merged_matte: false,
+        merged_compression: Compression::Raw,
+        read_linked_files: opts.read_linked_files,
+    };
     let (file, w) = document_to_psd_with(doc, &psd_opts);
     let prepared_notice = crate::vector_map::fallback::LossCollector::document(doc).notice();
     warnings.extend(w.into_iter().filter(|warning| Some(warning) != prepared_notice.as_ref()));

@@ -161,3 +161,26 @@ fn deghost_removes_a_moving_object() {
     let mean = high.ghost.data.iter().sum::<f32>() / high.ghost.data.len() as f32;
     assert!(mean < 0.08, "the overlay is local (mean {mean})");
 }
+
+#[test]
+fn subpixel_warp_keeps_detail_without_ringing_or_nonfinite_panics() {
+    use lightcraft_geom::Homography;
+    let image = RgbFrame::from_fn(128, 16, |x, _| [0.5 + 0.4 * (std::f32::consts::TAU * 0.3 * x as f32).cos(); 3]);
+    let shift = Homography([1.0, 0.0, 0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+    let (warped, _) = lightcraft_merge::align::warp(&image, &shift);
+    let mut cubic_energy = 0.0;
+    let mut linear_energy = 0.0;
+    for x in 5..120 {
+        cubic_energy += (warped.get(x, 4)[0] - warped.get(x - 1, 4)[0]).powi(2);
+        linear_energy += (image.sample_bilinear(x as f32 + 1.0, 4.5)[0] - image.sample_bilinear(x as f32, 4.5)[0]).powi(2);
+    }
+    assert!(cubic_energy > 1.5 * linear_energy, "cubic {cubic_energy}, bilinear {linear_energy}");
+    let edge = RgbFrame::from_fn(32, 16, |x, _| [if x < 16 { 0.0 } else { 1.0 }; 3]);
+    let (warped, _) = lightcraft_merge::align::warp(&edge, &shift);
+    assert!(warped.data.iter().flatten().all(|v| (0.0..=1.0).contains(v)));
+    for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let (warped, valid) = lightcraft_merge::align::warp(&edge, &Homography([1.0, 0.0, invalid, 0.0, 1.0, invalid, 0.0, 0.0, 1.0]));
+        assert!(valid.iter().all(|v| !v));
+        assert!(warped.data.iter().flatten().all(|v| v.is_finite()));
+    }
+}

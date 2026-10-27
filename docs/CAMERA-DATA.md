@@ -72,6 +72,10 @@ wavelet/reduction/synthesis stages; generic NR keeps its existing GPU implementa
 Baked nonlinear DCP/look-table sources retain the estimator: no safe inverse of those tables is
 available. Nonlinear colour calibration and film-negative settings also retain the estimator.
 This is a quality limitation, not an assertion of parity with darktable's earlier NR stage.
+LinearRaw DNGs (three samples per pixel) also retain the estimator, whatever wrote them: Photo
+Merge, Lightroom and other HDR or panorama merges, AI Denoise, Adobe DNG Converter's linear output.
+A table describes one capture's mosaic at one ISO; averaging brackets or shots, denoising and a
+third-party demosaic change that noise, and the file does not say which happened.
 
 The WB menu includes each camera's zero-tuning preset names, measured multipliers converted through
 its camera colour model. Named generic presets use camera measurements when available; their old

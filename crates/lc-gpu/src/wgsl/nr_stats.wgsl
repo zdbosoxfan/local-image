@@ -39,7 +39,7 @@ fn nr_median(@builtin(local_invocation_index) lid:u32,@builtin(workgroup_id) wg:
     }
     if(lid==0u){let sd=bitcast<f32>(prefix)/0.67448975;dst[wg.x]=select(-1.0,sd*sd,valid>=24u);}
 }
-// P:n,scale,maximum amount, then unity-WB conversion matrices (to/from).
+// P:n,scale,maximum amount, then the strength-scaled analysis matrices (to/from).
 @compute @workgroup_size(1)
 fn nr_vst() {
     var slopes:array<f32,16>;var count=0u;
@@ -48,7 +48,7 @@ fn nr_vst() {
     let shadows=clamp(0.1-0.1*log(model),0.7,1.8);let scale=pf(1u);
     let wb=(0.4+1.6*pf(2u))*2.5*scale;
     dst[0]=model*0.05/pow(0.05,shadows);dst[1]=0.0;dst[2]=max(shadows+0.1*log(scale),0.0);dst[3]=-0.5*log(scale);dst[4]=wb;
-    for(var i=0u;i<9u;i++){dst[5u+i]=pf(3u+i)/wb;dst[14u+i]=pf(12u+i)*wb;}
+    for(var i=0u;i<9u;i++){dst[5u+i]=pf(3u+i);dst[14u+i]=pf(12u+i);}
     dst[23]=model;
 }
 @compute @workgroup_size(256)

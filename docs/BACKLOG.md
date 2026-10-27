@@ -13,3 +13,7 @@ Open items carried over from the retired `docs/wip` working notes (bug-fix backl
 
 ## Consolidation leftovers
 - Develop brush dab generation (`lc-pipeline::masks::brush_dabs`) is still a separate, simpler copy of `pc-paint::dynamics`; moving it over would give Develop the pressure, smoothing and spacing dynamics so tablet feel matches the editor.
+
+## Develop colour follow-ups
+- Camera look, Automatic profile: an embedded DNG `ProfileToneCurve` (DJI DNGs carry one) still loses to the generic or maker curve when no JPEG fit is accepted. The decoder (`lc-engine/src/files.rs`) should tell an embedded DNG profile from an auto-matched DCP and put the embedded curve before `basecurves::camera()` in `look_curve`; `files.rs` `dng_profile_look_is_applied` should then assert that `tone_map(...).apply(0.18)` follows the embedded curve.
+- Auto white balance from import-default presets, `develop.merge` partials and CLI partials that only say `wb.mode: auto` keeps the stored (as-shot) numbers under the Auto label. Paste, Sync, Auto Sync and presets measure it (`lc-engine/src/auto_wb.rs`); these paths should queue the photo the same way, or the first decode should resolve a pending Auto.

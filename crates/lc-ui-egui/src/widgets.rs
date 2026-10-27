@@ -9,6 +9,30 @@ use crate::icons::{Icon, paint};
 use crate::theme::Tokens;
 use li_ui_kit::widget_style::text_button_size;
 
+mod parametric;
+pub(crate) use parametric::parametric_drag;
+
+/// egui clears the press origin on a release batched into the same frame.
+pub(crate) fn primary_press(ui: &Ui, response: &Response) -> Option<Pos2> {
+    ui.input(|input| {
+        input.pointer.press_origin().or_else(|| {
+            input.events.iter().rev().find_map(|event| match event {
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } => Some(*pos),
+                _ => None,
+            })
+        })
+    })
+    .or(response.interact_pointer_pos())
+}
+
+/// Claim the original press even when a complete gesture arrives in one input frame.
+pub(crate) fn primary_pressed(ui: &Ui, response: &Response) -> bool {
+    ui.is_enabled()
+        && ui.memory(|memory| memory.is_above_modal_layer(response.layer_id))
+        && ui.input(|input| input.pointer.primary_pressed())
+        && primary_press(ui, response).is_some_and(|point| response.rect.contains(point) && ui.ctx().layer_id_at(point) == Some(response.layer_id))
+}
+
 // automation registry
 
 pub use li_ui_kit::widgets::{Registry, color_swatch, register, take_registry};

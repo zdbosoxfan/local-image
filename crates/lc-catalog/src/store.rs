@@ -37,11 +37,45 @@ pub trait Store: Send {
     fn truncate(&mut self, name: &str, len: u64) -> io::Result<()>;
     /// Human-readable location (diagnostics).
     fn describe(&self) -> String;
+    /// The target of a symbolic link at `name`, or `None` for an ordinary entry or missing name.
+    /// Stores without filesystem links need no override. Callers validate content before writes.
+    fn link_target(&self, _name: &str) -> io::Result<Option<PathBuf>> {
+        Ok(None)
+    }
     /// Another handle on the same files that a worker thread can write `catalog.snap` through
     /// while this one keeps appending to the log (background compaction). `None` (the default):
     /// snapshots are written synchronously.
     fn background_writer(&self) -> Option<Box<dyn Store>> {
         None
+    }
+}
+
+/// Replace the entry itself, never a link's target; exclusive creation refuses a raced-in entry.
+pub(crate) fn create_staging(path: &Path) -> io::Result<std::fs::File> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => std::fs::remove_file(path)?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+}
+
+/// Keep relocated catalog files at their targets without replacing the user's links.
+fn resolve_regular_file(path: &Path) -> io::Result<PathBuf> {
+    let (path, metadata) = match std::fs::symlink_metadata(path) {
+        Ok(md) if md.file_type().is_symlink() => {
+            let target = std::fs::canonicalize(path)?;
+            let metadata = std::fs::symlink_metadata(&target)?;
+            (target, metadata)
+        }
+        Ok(md) => (path.to_path_buf(), md),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(path.to_path_buf()),
+        Err(e) => return Err(e),
+    };
+    if metadata.is_file() {
+        Ok(path)
+    } else {
+        Err(io::Error::other(format!("{} is a {:?}, not a regular file", path.display(), metadata.file_type())))
     }
 }
 
@@ -64,46 +98,24 @@ impl FsStore {
     fn path(&self, name: &str) -> PathBuf {
         self.dir.join(name)
     }
-    fn sync_dir(&self) {
-        // Makes the rename durable on POSIX; opening a directory fails on Windows (where
-        // `rename` is already journaled by NTFS), so errors are ignored.
-        if let Ok(d) = std::fs::File::open(&self.dir) {
-            let _ = d.sync_all();
-        }
-    }
-}
-
-impl Store for FsStore {
-    fn read(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
-        match std::fs::read(self.path(name)) {
-            Ok(b) => Ok(Some(b)),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e),
-        }
+    #[cfg(not(windows))]
+    fn sync_dir(dir: &Path) -> io::Result<()> {
+        std::fs::File::open(dir)?.sync_all()
     }
 
-    fn write_atomic(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
-        if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
-            self.appender = None;
-        }
-        li_fs::write_atomic(&self.path(name), data)
+    #[cfg(windows)]
+    fn sync_dir(_: &Path) -> io::Result<()> {
+        // File::open cannot open Windows directories; NTFS journals directory-entry changes.
+        Ok(())
     }
 
-    fn write_atomic_with(&mut self, name: &str, fill: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>) -> io::Result<u64> {
-        if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
-            self.appender = None;
-        }
-        li_fs::write_atomic_with(&self.path(name), fill)
-    }
-
-    fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
+    fn append_with_sync_dir(&mut self, name: &str, data: &[u8], sync_dir: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
         use std::io::Write;
         if self.appender.as_ref().is_none_or(|(n, _)| n != name) {
-            let existed = self.path(name).exists();
-            let f = std::fs::OpenOptions::new().create(true).append(true).open(self.path(name))?;
-            if !existed {
-                self.sync_dir();
-            }
+            let path = resolve_regular_file(&self.path(name))?;
+            let f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+            // An existing entry may be left by an append whose directory sync failed.
+            sync_dir(&self.dir)?;
             self.appender = Some((name.to_string(), f));
         }
         let Some((_, f)) = self.appender.as_mut() else { return Err(io::Error::other("appender not open")) };
@@ -116,12 +128,56 @@ impl Store for FsStore {
         }
         written
     }
+}
+
+impl Store for FsStore {
+    fn link_target(&self, name: &str) -> io::Result<Option<PathBuf>> {
+        let path = self.path(name);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = std::fs::read_link(path)?;
+                Ok(Some(if target.is_absolute() { target } else { self.dir.join(target) }))
+            }
+            Ok(_) => Ok(None),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn read(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
+        match std::fs::read(self.path(name)) {
+            Ok(b) => Ok(Some(b)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn write_atomic(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
+        if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
+            self.appender = None;
+        }
+        let path = resolve_regular_file(&self.path(name))?;
+        li_fs::write_atomic(&path, data)
+    }
+
+    fn write_atomic_with(&mut self, name: &str, fill: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>) -> io::Result<u64> {
+        if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
+            self.appender = None;
+        }
+        let path = resolve_regular_file(&self.path(name))?;
+        li_fs::write_atomic_with(&path, fill)
+    }
+
+    fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
+        self.append_with_sync_dir(name, data, Self::sync_dir)
+    }
 
     fn truncate(&mut self, name: &str, len: u64) -> io::Result<()> {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
-        let f = match std::fs::OpenOptions::new().write(true).open(self.path(name)) {
+        let path = resolve_regular_file(&self.path(name))?;
+        let f = match std::fs::OpenOptions::new().write(true).open(path) {
             Ok(f) => f,
             // nothing to cut (an append that failed before creating the file)
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -184,5 +240,52 @@ impl Store for MemStore {
     }
     fn background_writer(&self) -> Option<Box<dyn Store>> {
         self.background.then(|| Box::new(self.clone()) as Box<dyn Store>)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn append_retries_directory_sync_after_failure() -> io::Result<()> {
+        let dir = std::env::temp_dir().join(format!("lc-store-dir-sync-{}", std::process::id()));
+        std::fs::create_dir(&dir)?;
+        let mut store = FsStore::open(&dir)?;
+        let calls = Cell::new(0);
+        let fail = Cell::new(true);
+        let sync_dir = |dir: &Path| {
+            calls.set(calls.get() + 1);
+            if fail.get() { Err(io::Error::from_raw_os_error(5)) } else { FsStore::sync_dir(dir) }
+        };
+
+        for _ in 0..2 {
+            let result = store.append_with_sync_dir("catalog.log", b"committed\n", sync_dir);
+            assert!(matches!(result, Err(ref error) if error.raw_os_error() == Some(5)), "{result:?}");
+            assert_eq!(std::fs::read(dir.join("catalog.log"))?, b"");
+            store.truncate("catalog.log", 0)?;
+        }
+        assert_eq!(calls.get(), 2);
+
+        #[cfg(not(windows))]
+        {
+            let result = store.append_with_sync_dir("catalog.log", b"committed\n", |dir| FsStore::sync_dir(&dir.join("missing")));
+            assert!(matches!(result, Err(ref error) if error.kind() == io::ErrorKind::NotFound), "{result:?}");
+            assert_eq!(std::fs::read(dir.join("catalog.log"))?, b"");
+        }
+
+        fail.set(false);
+        store.append_with_sync_dir("catalog.log", b"committed\n", sync_dir)?;
+        store.append_with_sync_dir("catalog.log", b"cached\n", sync_dir)?;
+        assert_eq!(calls.get(), 3);
+        assert_eq!(std::fs::read(dir.join("catalog.log"))?, b"committed\ncached\n");
+        drop(store);
+
+        let mut reopened = FsStore::open(&dir)?;
+        reopened.append("catalog.log", b"reopened\n")?;
+        assert_eq!(std::fs::read(dir.join("catalog.log"))?, b"committed\ncached\nreopened\n");
+        drop(reopened);
+        std::fs::remove_dir_all(dir)
     }
 }

@@ -345,7 +345,7 @@ fn native_nr_statistics_match_robust_model_and_reconstruction() {
         let slopes = g.buffer(16);
         cx.run("nr_median", &[], &[Some(&samples), None, None, Some(&slopes)], [16, 1, 1]);
         let p = NrParams { lum: 0.6, col: 0.5, detail: 0.4, contrast: 0.5, col_detail: 0.5, smoothness: 0.5, scale: 1.0 };
-        let (to, from) = conversion_matrices([1.0; 3]);
+        let (to, from) = working_matrices(&p);
         let mut block = vec![p.scale.to_bits(), p.lum.max(p.col).to_bits()];
         block.extend(to.into_iter().flatten().chain(from.into_iter().flatten()).map(f32::to_bits));
         let metadata = g.buffer(24);
@@ -516,19 +516,23 @@ fn ds_finding_hidden_overlay_uses_primary_image() {
     let src = input(97, 73);
     let mut s = DevelopSettings::default();
     s.color.saturation = -70.;
+    s.light.contrast = 40.;
+    s.light.whites = 50.;
+    let mut req = RenderRequest::fit(97, 73);
+    let info = SourceInfo::default();
+    let sample = lightcraft_pipeline::color_range_sample(&src, &info, &s, &req, Point::new(0.3, 0.5)).unwrap();
     let mut m = mask();
     m.visible = false;
-    m.components[0].shape = MaskShape::ColorRange { samples: vec![[0.7, 0.35, 0.15]], refine: 50. };
+    m.components[0].shape = MaskShape::ColorRange { samples: vec![sample], refine: 40. };
     let id = m.id;
     s.masks.push(m);
-    let mut req = RenderRequest::fit(97, 73);
     req.overlay = lightcraft_pipeline::Overlay::Mask { id: id as u16, view: lightcraft_pipeline::MaskView::Color, color: [255, 0, 0], opacity: 100 };
-    let info = SourceInfo::default();
     let errors = crate::ctx::ErrorScopes::push(g);
     let gpu = render(g, &src, &info, &s, &req, Some(&GpuStages::default()), None, HsMethod::LiTone).unwrap().image;
     let cpu = lightcraft_pipeline::render(&src, &info, &s, &req).image;
     let error: u64 = gpu.data.iter().zip(&cpu.data).flat_map(|(a, b)| (0..3).map(move |k| a[k].abs_diff(b[k]) as u64)).sum();
-    assert!(error as f64 / ((gpu.data.len() * 3) as f64) < 0.5);
+    let max = gpu.data.iter().zip(&cpu.data).flat_map(|(a, b)| (0..3).map(move |k| a[k].abs_diff(b[k]))).max().unwrap();
+    assert!(error as f64 / ((gpu.data.len() * 3) as f64) < 0.5 && max <= 3, "mean {}, max {max}", error as f64 / ((gpu.data.len() * 3) as f64));
     assert!(errors.pop().is_none());
 }
 
@@ -813,6 +817,8 @@ fn stacked_hidden_and_imported_mask_overlays_match_warm_cpu() {
     let stages = GpuStages::default();
     let mut s = DevelopSettings::default();
     s.light.contrast = 40.0;
+    s.light.shadows = 50.0;
+    s.light.whites = 30.0;
     let mut layer = mask();
     layer.id = 1;
     layer.tools = LayerTools { light: Some(Light { exposure: 0.5, ..Default::default() }), ..Default::default() };
@@ -822,8 +828,14 @@ fn stacked_hidden_and_imported_mask_overlays_match_warm_cpu() {
     let mut hidden = mask();
     hidden.id = 3;
     hidden.visible = false;
-    s.masks = vec![layer, legacy, hidden];
-    for id in [1, 2, 3] {
+    let mut colour = mask();
+    colour.id = 4;
+    colour.visible = false;
+    colour.adjust.exposure = 0.3;
+    let sample = lightcraft_pipeline::color_range_sample(&src, &info, &s, &req, Point::new(0.3, 0.5)).unwrap();
+    colour.components[0].shape = MaskShape::ColorRange { samples: vec![sample], refine: 40.0 };
+    s.masks = vec![layer, legacy, hidden, colour];
+    for id in [1, 2, 3, 4] {
         let r = RenderRequest {
             overlay: lightcraft_pipeline::Overlay::Mask { id, view: lightcraft_pipeline::MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 50 },
             ..req.clone()

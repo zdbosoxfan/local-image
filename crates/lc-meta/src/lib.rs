@@ -7,13 +7,14 @@
 //! - [`parse_xmp`] / [`write_xmp`] — XMP packets (interchange fields + the opaque `lc:settings` JSON).
 //! - [`parse_iptc`] — IPTC-IIM record 2 datasets.
 //! - [`parse_gpx`] — GPS track logs (GPX) for geotagging by capture time.
-//! - [`extract`] — all of the above for a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, Canon CR3).
+//! - [`extract`] — all of the above for a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, Canon CR3, PSD/PSB).
 //! - [`cr3`] — the Canon CR3 container (metadata blocks, XMP, the JPEG and raw tracks).
 #![forbid(unsafe_code)]
 #![expect(clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
 #![cfg_attr(test, expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
 
 mod container;
+mod psd;
 mod tiff_replace;
 pub use tiff_replace::preserve_tiff_metadata;
 pub mod cr3;
@@ -35,7 +36,7 @@ mod xmp_merge;
 
 pub use container::{Embedded, embedded, jpeg_segments, png_chunks, webp_chunks};
 pub use datetime::DateTime;
-pub use exif::{from_tiff, from_tiff_with_bytes, read_exif, strip_exif_header, try_read_exif, write_exif};
+pub use exif::{exif_ifd, from_tiff, from_tiff_with_bytes, read_exif, strip_exif_header, try_read_exif, write_exif};
 pub use gpx::{GpxError, Match, TrackPoint, Tracklog, parse_gpx};
 pub use iptc::parse_iptc;
 pub use lightcraft_geom::{Orientation, Rect};
@@ -332,7 +333,7 @@ impl Metadata {
     }
 }
 
-/// Read everything we understand from a whole file (JPEG, PNG, WebP, TIFF-based incl. DNG/raw).
+/// Read metadata from a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, CR3, PSD/PSB).
 /// Precedence: EXIF, then IPTC fills gaps, then XMP overrides user fields and fills the rest.
 pub fn extract(bytes: &[u8]) -> Metadata {
     extract_with_xmp(bytes).0
@@ -341,21 +342,65 @@ pub fn extract(bytes: &[u8]) -> Metadata {
 /// [`extract`] and the file's XMP packet ([`Embedded::xmp`]) from one pass over the container.
 pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
     let (e, tiff) = container::blocks(bytes);
-    let mut m = match &tiff {
+    let m = match &tiff {
         // a TIFF-based file is its own Exif block: read it in place, from the parse already made
         Some(t) => from_tiff_with_bytes(bytes, t),
         None => e.exif.as_deref().map(read_exif).unwrap_or_default(),
     };
+    let xmp = e.xmp.as_deref().and_then(|x| parse_xmp(x).ok()).map(|x| x.metadata);
+    (extract_embedded(&e, m, xmp), e.xmp)
+}
+
+/// Read metadata, reporting malformed PSD/PSB containers and embedded EXIF/XMP.
+/// Other formats retain [`extract`]'s best-effort behavior.
+pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
+    if !bytes.starts_with(b"8BPS") {
+        return Ok(extract(bytes));
+    }
+    let e = psd::parse(bytes).ok_or(ExtractError::MalformedPsd)?;
+    let m = e.exif.as_deref().map(try_read_exif).transpose().map_err(|_| ExtractError::MalformedPsd)?.unwrap_or_default();
+    let xmp = e
+        .xmp
+        .as_deref()
+        .map(|packet| {
+            // Best-effort parsing tolerates broken XML; privacy checks need strict syntax validation.
+            xmp_merge::scan(packet)?;
+            parse_xmp(packet)
+        })
+        .transpose()
+        .map_err(|_| ExtractError::MalformedPsd)?
+        .map(|x| x.metadata);
+    Ok(extract_embedded(&e, m, xmp))
+}
+
+fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<Metadata>) -> Metadata {
     if let Some(i) = e.iptc.as_deref() {
         m.fill_missing(&parse_iptc(i));
     }
-    if let Some(x) = e.xmp.as_deref().and_then(|x| parse_xmp(x).ok()) {
-        m.overlay_user_fields(&x.metadata);
-        m.fill_missing(&x.metadata);
+    if let Some(xmp) = xmp {
+        m.overlay_user_fields(&xmp);
+        m.fill_missing(&xmp);
     }
     m.fill_dji_gps();
-    (m, e.xmp)
+    m
 }
+
+/// A container-level error reported by [`try_extract`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtractError {
+    /// The PSD/PSB header, resource section, or embedded EXIF/XMP is malformed.
+    MalformedPsd,
+}
+
+impl std::fmt::Display for ExtractError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MalformedPsd => f.write_str("malformed PSD/PSB header, image-resource section, or embedded EXIF/XMP structure"),
+        }
+    }
+}
+
+impl std::error::Error for ExtractError {}
 
 /// Lenient number parsing used by XMP/IPTC: `"28/10"`, `"2.8"`, `"+0.7"`.
 pub(crate) fn parse_number(s: &str) -> Option<f64> {
@@ -370,6 +415,16 @@ pub(crate) fn parse_number(s: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn try_extract_keeps_non_psd_exif_best_effort() {
+        let payload = b"Exif\0\0not a TIFF stream";
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+        jpeg.extend_from_slice(&u16::try_from(payload.len() + 2).unwrap().to_be_bytes());
+        jpeg.extend_from_slice(payload);
+        jpeg.extend_from_slice(&[0xff, 0xd9]);
+        assert_eq!(try_extract(&jpeg).unwrap(), Metadata::default());
+    }
 
     /// A TIFF-based file is read in place (not copied into an Exif block): EXIF facts, then XMP
     /// over the user fields, exactly as reading the copied block did; the packet comes back too.

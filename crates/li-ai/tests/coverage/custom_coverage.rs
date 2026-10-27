@@ -295,3 +295,25 @@ fn tags_reflect_basic_prompt_image_and_selection() {
     assert!(w.has(&FieldKind::Mask));
     assert_eq!(w.images(), 1);
 }
+
+#[test]
+fn an_unmarked_workflow_imports_with_basic_controls_found_by_role() {
+    let g = json!({
+        "3": {"class_type": "KSampler", "inputs": {"seed": 7, "steps": 20, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
+              "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
+        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "x.safetensors"}},
+        "5": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 768, "batch_size": 1}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "a cat", "clip": ["4", 1]}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry", "clip": ["4", 1]}},
+        "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+        "9": {"class_type": "SaveImage", "inputs": {"images": ["8", 0], "filename_prefix": "x"}}
+    });
+    assert!(li_ai::custom::read("plain", &g, None).unwrap().fields.is_empty(), "no li: titles");
+    let w = import("plain", &g, None).unwrap();
+    assert!(w.basic);
+    let node = |k: FieldKind| w.fields.iter().find(|f| f.kind == k).map(|f| f.node.clone());
+    assert_eq!(node(FieldKind::Prompt).as_deref(), Some("6"));
+    assert_eq!(node(FieldKind::Negative).as_deref(), Some("7"));
+    assert_eq!(node(FieldKind::Seed).as_deref(), Some("3"));
+    assert_eq!(node(FieldKind::Width).as_deref(), Some("5"));
+}

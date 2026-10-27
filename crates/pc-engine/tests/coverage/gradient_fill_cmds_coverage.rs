@@ -14,6 +14,7 @@ fn blue() -> Color {
 
 fn test_fill() -> Fill {
     Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0.0, red()), (0.5, green()), (1.0, blue())],
         angle: 0.0,
         scale: 1.0,
@@ -74,6 +75,7 @@ fn apply_stop_opacity_stop_add() {
 fn describe_fill_output_matches_expected_structure() {
     // Use exactly representable midpoints to avoid f32->f64 precision mismatches.
     let fill = Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0.0, red()), (0.5, green()), (1.0, blue())],
         angle: 0.0,
         scale: 1.0,

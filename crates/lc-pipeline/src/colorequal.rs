@@ -1,59 +1,78 @@
-//! darktable color equalizer: periodic RBF interpolation, UCS22, two-channel
-//! chromaticity-guided filters and Scharr halo suppression (733bd69f, GPL-3+).
-//! Extension: node positions are Lightroom's eight hue bands; pixel radii scale
-//! with the original 6000px long edge. No fast/draft bypass of the colour filters.
+//! darktable color equalizer: UCS22, two-channel chromaticity-guided filters and Scharr
+//! halo suppression (733bd69f, GPL-3+). Extensions: node positions are Lightroom's eight
+//! hue bands, interpolated shape-preserving instead of upstream's periodic RBF; brightness
+//! changes exponentially within soft bounds; pixel radii scale with the original 6000px long
+//! edge. No fast/draft bypass of the colour filters.
 use crate::{eigf, ucs};
 use li_raster::RgbFrame;
 use lightcraft_develop::{DevelopSettings, MIXER_HUES};
-use std::{
-    f32::consts::{PI, TAU},
-    sync::OnceLock,
-};
+use std::f64::consts::{PI, TAU};
+use std::sync::OnceLock;
 pub fn hues() -> &'static [f32; 8] {
     static H: OnceLock<[f32; 8]> = OnceLock::new();
     H.get_or_init(|| MIXER_HUES.map(ucs::ucs_hue_of_srgb_hue))
 }
 
-/// Upstream periodic cosine-series RBF, solved at arbitrary hue node positions.
-pub fn rbf(nodes: [f32; 8], positions: [f32; 8], smoothing: f32, clip: bool) -> Vec<f32> {
-    let m = (3. * smoothing.sqrt()).ceil() as usize;
-    let kernel = |d: f32| (0..m).map(|l| (-(l as f32).powi(2) / smoothing).exp() * (l as f32 * d.abs()).cos()).sum::<f32>().exp();
-    let mut a = [[0f64; 9]; 8];
-    for i in 0..8 {
-        for j in 0..8 {
-            a[i][j] = kernel(positions[i] - positions[j]) as f64;
+/// A periodic, shape-preserving hue curve through the band nodes, sampled at 512 hues from −π:
+/// a monotone cubic (PCHIP slopes) between neighbouring nodes, so it never leaves the range of
+/// the two nodes around a hue. Upstream's cosine RBF assumes evenly spaced nodes; on the uneven
+/// Lightroom bands it overshoots well past a node, beyond the slider's range.
+pub fn hue_curve(nodes: [f32; 8], positions: [f32; 8]) -> Vec<f32> {
+    let mut order: [usize; 8] = std::array::from_fn(|i| i);
+    order.sort_by(|&a, &b| positions[a].total_cmp(&positions[b]));
+    let x = order.map(|i| positions[i] as f64);
+    let y = order.map(|i| nodes[i] as f64);
+    let n = x.len();
+    let width = |k: usize| if k + 1 < n { x[k + 1] - x[k] } else { x[0] + TAU - x[k] };
+    let secant = |k: usize| (y[(k + 1) % n] - y[k]) / width(k);
+    let slope: [f64; 8] = std::array::from_fn(|k| {
+        let before = (k + n - 1) % n;
+        let (d0, d1) = (secant(before), secant(k));
+        if d0 * d1 <= 0. {
+            return 0.;
         }
-        a[i][8] = nodes[i] as f64;
-    }
-    for col in 0..8 {
-        let mut piv = col;
-        for r in col + 1..8 {
-            if a[r][col].abs() > a[piv][col].abs() {
-                piv = r;
-            }
-        }
-        if a[piv][col].abs() < 1e-12 {
-            return vec![if clip { 1. } else { 0. }; 512];
-        }
-        a.swap(piv, col);
-        for r in 0..8 {
-            if r != col {
-                let f = a[r][col] / a[col][col];
-                for j in col..9 {
-                    a[r][j] -= f * a[col][j];
-                }
-            }
-        }
-    }
-    let lambda: [f32; 8] = std::array::from_fn(|i| (a[i][8] / a[i][i]) as f32);
+        let (h0, h1) = (width(before), width(k));
+        let (w0, w1) = (2. * h1 + h0, h1 + 2. * h0);
+        (w0 + w1) / (w0 / d0 + w1 / d1)
+    });
     (0..512)
         .map(|i| {
-            let h = i as f32 * TAU / 512. - PI;
-            let v = (0..8).map(|j| lambda[j] * kernel(h - positions[j])).sum::<f32>();
-            if clip { v.max(0.) } else { v }
+            let hue = i as f64 * TAU / 512. - PI;
+            let k = (0..n).rev().find(|&k| x[k] <= hue).unwrap_or(n - 1);
+            let h = width(k);
+            let t = (hue - x[k]).rem_euclid(TAU) / h;
+            let (t2, t3) = (t * t, t * t * t);
+            let v = (2. * t3 - 3. * t2 + 1.) * y[k]
+                + (t3 - 2. * t2 + t) * h * slope[k]
+                + (-2. * t3 + 3. * t2) * y[(k + 1) % n]
+                + (t3 - t2) * h * slope[(k + 1) % n];
+            v as f32
         })
         .collect()
 }
+
+/// The equalizer's hue tables: hue shift, saturation and brightness factors, and the B&W mix.
+/// Each interpolates the bands' offsets from neutral, so an untouched band contributes nothing.
+pub fn luts(s: &DevelopSettings) -> [Vec<f32>; 4] {
+    let bands = s.mixer.bands();
+    let curve = |v: [f32; 8]| hue_curve(v, *hues());
+    let factor = |v: [f32; 8]| curve(v).into_iter().map(|d| 1. + d).collect();
+    [
+        curve(bands.map(|b| b.hue as f32 / 100. * 0.5)),
+        factor(bands.map(|b| b.sat as f32 / 200.)),
+        factor(bands.map(|b| b.lum as f32 / 200.)),
+        curve(s.bw_mix.bands().map(|b| b as f32 / 100.)),
+    ]
+}
+
+/// Brightness changes in stops of UCS brightness (luminance moves about 1.6 to 1.9 times as
+/// far): darktable's factor `1 + 8c` has slope `8/ln 2` stops at neutral. The exponential keeps
+/// every colour above black, and [`crate::primary::soft_bound`] holds the most saturated colours at ±100 to
+/// about −2.5..+1.2 EV of luminance.
+pub const BRIGHTNESS_EV: f32 = 8. / std::f32::consts::LN_2;
+pub const BRIGHTNESS_MIN_EV: f32 = -1.5;
+pub const BRIGHTNESS_MAX_EV: f32 = 1.0;
+
 fn satweight(s: f32) -> f32 {
     static W: OnceLock<Vec<f32>> = OnceLock::new();
     let lut = W.get_or_init(|| (-4096..=4096).map(|i| (1. / (1. + (-60. * 0.5 * i as f64 / 4096.).exp())) as f32).collect());
@@ -128,6 +147,25 @@ fn gradient(s: &[f32], w: usize, h: usize, x: usize, y: usize) -> f32 {
     let gy = 47. / 255. * (p(-1, -1) - p(-1, 1) + p(1, -1) - p(1, 1)) + 162. / 255. * (p(0, -1) - p(0, 1));
     (gx * gx + gy * gy).sqrt()
 }
+/// `edit` at the OkLab hue of `reference` (the pixel after only its band's hue shift), with its own
+/// OkLab lightness and chroma, held inside Rec. 2020 at that hue. UCS 22 hue lines bend away from
+/// OkLab's, by up to 0.3 rad for deep blues at Saturation +100, so the equalizer's saturation and
+/// brightness changes would otherwise turn the hue that the other colour tools and the gamut knees
+/// keep.
+fn hold_hue(edit: [f32; 3], reference: [f32; 3]) -> [f32; 3] {
+    use li_color::perceptual::oklab_from_2020;
+    if edit == reference {
+        return edit;
+    }
+    let (e, r) = (oklab_from_2020(edit), oklab_from_2020(reference));
+    let chroma = r[1].hypot(r[2]);
+    if chroma.is_nan() || chroma <= 1e-7 {
+        return edit;
+    }
+    let k = e[1].hypot(e[2]) / chroma;
+    crate::gamut::scene_lab([e[0], r[1] * k, r[2] * k], 1.0, 1.0)
+}
+
 pub fn apply(img: &mut RgbFrame, s: &DevelopSettings, ppl: f64) {
     if s.mixer.is_neutral() && !crate::is_bw(s) {
         return;
@@ -171,10 +209,7 @@ pub fn apply(img: &mut RgbFrame, s: &DevelopSettings, ppl: f64) {
         }
     }
     let bands = s.mixer.bands();
-    let hue = rbf(bands.map(|b| b.hue as f32 / 100. * 0.5), *hues(), PI, false);
-    let sat = rbf(bands.map(|b| 1. + b.sat as f32 / 200.), *hues(), PI, true);
-    let bright = rbf(bands.map(|b| 1. + b.lum as f32 / 200.), *hues(), PI, true);
-    let bw = rbf(s.bw_mix.bands().map(|b| b as f32 / 100.), *hues(), PI, false);
+    let [hue, sat, bright, bw] = luts(s);
     let max_b = bands.iter().map(|b| (b.lum as f32 / 200.).abs()).fold(0., f32::max);
     let mut hsb = vec![[0.; 4]; n];
     crate::for_rows(&mut hsb, w, |y, row| {
@@ -208,14 +243,17 @@ pub fn apply(img: &mut RgbFrame, s: &DevelopSettings, ppl: f64) {
             let mut h = [c[0], c[1], c[2]];
             h[0] += dh[i];
             h[1] = (h[1] * (1. + 2. * (corr[2 * i] - 1.) * satweight(saturation[i] - 0.1))).max(0.);
-            h[2] = (h[2] * (1. + 8. * corr[2 * i + 1] * (1. - grad[i].clamp(0., 1.)) * satweight(saturation[i] - 0.1 - 0.01 * max_b))).max(0.);
+            let ev = BRIGHTNESS_EV * corr[2 * i + 1] * (1. - grad[i].clamp(0., 1.)) * satweight(saturation[i] - 0.1 - 0.01 * max_b);
+            h[2] = (h[2] * crate::primary::soft_bound(ev, BRIGHTNESS_MIN_EV, BRIGHTNESS_MAX_EV).exp2()).max(0.);
             if crate::is_bw(s) {
                 let y = ucs::l_star_to_y((h[2] * lw).clamp(0., ucs::L_STAR_UPPER));
                 let gain = (ucs::lookup_gamut(&bw, h[0]) * 1.3).exp2();
                 *pixel = [y * gain; 3];
             } else {
+                let mut shifted = [h[0], c[1], c[2]];
+                ucs::gamut_map_hsb(&mut shifted, lw);
                 ucs::gamut_map_hsb(&mut h, lw);
-                *pixel = ucs::hsb_to_rgb(h, lw);
+                *pixel = hold_hue(ucs::hsb_to_rgb(h, lw), ucs::hsb_to_rgb(shifted, lw));
             }
         }
     });

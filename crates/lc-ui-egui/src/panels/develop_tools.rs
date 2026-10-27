@@ -332,3 +332,61 @@ pub fn color_cal_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &Develop
         });
     });
 }
+
+/// Each frame: announce a background Upright analysis of several photos (after Paste, Sync, Auto
+/// Sync or a preset) as it starts, store the finished ones, and keep polling while they run.
+pub fn upright_poll(app: &mut LightcraftApp, ctx: &egui::Context) {
+    if let Some(job) = app.session.upright.jobs().last().filter(|j| j.total > 1 && !j.finished()) {
+        let seen = std::sync::Arc::as_ptr(job) as usize;
+        if app.ui.upright_seen != Some(seen) {
+            app.ui.upright_seen = Some(seen);
+            let text = format!("{} 0/{}…", li_i18n::library::t("Upright"), job.total);
+            app.toast(ctx, text);
+        }
+    }
+    let changed = app.session.upright_poll();
+    if changed > 0 {
+        ctx.request_repaint();
+    }
+    if changed > 1 {
+        app.toast(ctx, li_i18n::library::t("Upright complete"));
+    }
+    if app.session.upright.busy() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+}
+
+/// The background Upright analysis's progress and its Cancel button, atop the right panel whichever
+/// tool is open (the photos keep the mode; each render solves it meanwhile).
+pub fn upright_progress(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    use std::sync::atomic::Ordering;
+    let running: Vec<_> = app.session.upright.jobs().iter().filter(|j| !j.finished()).collect();
+    if running.is_empty() {
+        return;
+    }
+    let total: usize = running.iter().map(|j| j.total).sum();
+    let done: usize = running.iter().map(|j| j.done.load(Ordering::Relaxed)).sum();
+    let focus_room = li_ui_kit::widget_style::FOCUS_OUTSET + li_ui_kit::widget_style::FOCUS_STROKE;
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: focus_room as i8, bottom: focus_room as i8 }).show(ui, |ui| {
+        let row = ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = focus_room;
+            let cancel = li_ui_kit::progress::job_row(
+                ui,
+                &li_ui_kit::progress::JobLine {
+                    title: &format!("{} {done}/{total}", li_i18n::library::t("Upright")),
+                    detail: "",
+                    fraction: Some(done as f32 / total.max(1) as f32),
+                    stopping: false,
+                },
+                li_i18n::library::t("Cancel"),
+                li_ui_kit::widgets::Profile::Library,
+            );
+            register(ui.ctx(), "button:uprightCancel", cancel.rect);
+            if cancel.clicked() {
+                let _ = app.run("develop.cancelUpright", json!({}));
+            }
+        });
+        register(ui.ctx(), "progress:upright", row.response.rect);
+    });
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+}

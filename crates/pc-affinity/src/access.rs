@@ -51,6 +51,14 @@ impl Stream {
         }
     }
 
+    /// Raw array slots, including nulls and values of other types.
+    pub(crate) fn array_len(&self, id: ObjId, tag: &[u8; 4]) -> usize {
+        match self.field(id, tag) {
+            Some(Value::Array(values)) => values.len(),
+            _ => 0,
+        }
+    }
+
     pub fn f64(&self, id: ObjId, tag: &[u8; 4]) -> Option<f64> {
         match self.field(id, tag)? {
             Value::Float(f) if f.is_finite() => Some(*f),
@@ -115,6 +123,6 @@ impl Stream {
 
     /// Untagged fields of a positional object, in order.
     pub fn positional(&self, id: ObjId) -> impl Iterator<Item = &Value> {
-        self.object(id).into_iter().flat_map(|o| o.fields.iter().map(|(_, v)| v))
+        self.object(id).into_iter().flat_map(|o| o.fields().iter().map(|(_, v)| v))
     }
 }

@@ -97,6 +97,8 @@ pub(crate) fn color_data(ifd0: &Ifd, raw: &Ifd, order: ByteOrder) -> ColorData {
         let ifd = if raw.contains(tag) { raw } else { ifd0 };
         ifd.string(tag).unwrap_or_default()
     };
+    let first = |tag: u16| get(tag).and_then(|v| v.first().copied()).filter(|v| v.is_finite()).unwrap_or(0.0);
+    let offset = first(t::BASELINE_EXPOSURE_OFFSET);
     ColorData {
         illuminant: [geti(t::CALIBRATION_ILLUMINANT_1).unwrap_or(0), geti(t::CALIBRATION_ILLUMINANT_2).unwrap_or(0)],
         illuminant_3: geti(t::CALIBRATION_ILLUMINANT_3).unwrap_or(0),
@@ -113,8 +115,8 @@ pub(crate) fn color_data(ifd0: &Ifd, raw: &Ifd, order: ByteOrder) -> ColorData {
         analog_balance: vec3(get(t::ANALOG_BALANCE)),
         as_shot_neutral: vec3(get(t::AS_SHOT_NEUTRAL)),
         as_shot_white_xy: get(t::AS_SHOT_WHITE_XY).filter(|v| v.len() == 2 && v[0] > 0.0 && v[1] > 0.0).map(|v| Xy::new(v[0], v[1])),
-        baseline_exposure: get(t::BASELINE_EXPOSURE).and_then(|v| v.first().copied()).filter(|v| v.is_finite()).unwrap_or(0.0)
-            + get(t::BASELINE_EXPOSURE_OFFSET).and_then(|v| v.first().copied()).filter(|v| v.is_finite()).unwrap_or(0.0),
+        baseline_exposure: first(t::BASELINE_EXPOSURE) + offset,
+        baseline_exposure_offset: offset,
         profile: profile_look(ifd0, raw),
     }
 }
@@ -145,7 +147,7 @@ pub(crate) fn profile_look(ifd0: &Ifd, raw: &Ifd) -> ProfileLook {
 /// only that unambiguous layout; never consume trailing metadata as pixels or
 /// manufacture missing samples. LibRaw's packed DNG loader reads these full rows.
 fn uncompressed_layout(bytes: &[u8], info: &mut lightcraft_tiff::image::ImageInfo, bits: u32) -> Result<()> {
-    use lightcraft_tiff::image::{Layout, chunk_bytes};
+    use lightcraft_tiff::image::Layout;
     if info.compression != t::compression::NONE {
         return Ok(());
     }
@@ -166,33 +168,7 @@ fn uncompressed_layout(bytes: &[u8], info: &mut lightcraft_tiff::image::ImageInf
             info.byte_counts[0] = expected as u64;
         }
     }
-    // Edge padding outside the image may be omitted, but every covered pixel
-    // must exist. Short uncompressed input is corruption, not zero-filled detail.
-    let ccpp = if info.planar == 2 { 1 } else { cpp };
-    for c in info.chunks(bytes.len() as u64) {
-        if c.x >= info.width || c.y >= info.height {
-            continue;
-        }
-        let rows = c.height.min(info.height - c.y) as usize;
-        let cols = c.width.min(info.width - c.x) as usize;
-        let pitch = (c.width as usize)
-            .checked_mul(ccpp)
-            .and_then(|n| n.checked_mul(bits as usize))
-            .and_then(|n| n.checked_add(7))
-            .map(|n| n / 8)
-            .ok_or(RawError::Limit("DNG chunk row"))?;
-        let tail = cols
-            .checked_mul(ccpp)
-            .and_then(|n| n.checked_mul(bits as usize))
-            .and_then(|n| n.checked_add(7))
-            .map(|n| n / 8)
-            .ok_or(RawError::Limit("DNG chunk tail"))?;
-        let needed = rows.saturating_sub(1).checked_mul(pitch).and_then(|n| n.checked_add(tail)).ok_or(RawError::Limit("DNG chunk size"))?;
-        if chunk_bytes(bytes, &c).is_none_or(|src| src.len() < needed) {
-            return Err(RawError::Corrupt("truncated uncompressed DNG samples".into()));
-        }
-    }
-    Ok(())
+    crate::tiffraw::require_complete_uncompressed(bytes, info, bits)
 }
 
 pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
@@ -206,9 +182,6 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
     // one sample (CFA or monochrome), RGB or four colours; two are neither and can't be developed
     if !matches!(cpp, 1 | 3 | 4) {
         return Err(RawError::Unsupported(format!("{cpp} samples per pixel")));
-    }
-    if info.compression == t::compression::JPEG_XL {
-        return Err(RawError::Unsupported("JPEG XL DNG".into()));
     }
     let mut data = read_image_in(mode, bytes, &info, tiff.order, Packing::Msb)?;
     let bits = info.bits() as u32;
@@ -290,7 +263,9 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         if cpp != 1 {
             return Err(RawError::Unsupported("CFA data with several samples per pixel".into()));
         }
-        Some(Cfa { width: cols, height: rows, pattern })
+        // CFAPattern is relative to the ActiveArea (DNG SDK, rawspeed, rawler); `RawImage::cfa` is
+        // anchored at the full image, so undo the active-area origin
+        Some(Cfa { width: cols, height: rows, pattern }.shifted(cols - active_area.x % cols, rows - active_area.y % rows))
     } else {
         None
     };
@@ -376,6 +351,75 @@ mod sony_dji_strip_tests {
         bytes.truncate(bytes.len() - 2);
         assert!(matches!(decode(&bytes, Mode::Full), Err(RawError::Corrupt(_))));
         assert!(matches!(decode(&bytes, Mode::Header), Err(RawError::Corrupt(_))));
+    }
+}
+
+#[cfg(test)]
+mod active_area_phase_tests {
+    use super::*;
+    use crate::{BlackLevel, DngCompression, DngWriteOptions, Method, RawFormat, write_dng};
+
+    /// A red scene behind an RGGB mosaic whose ActiveArea starts at an odd row and column, with a
+    /// black pattern that differs per CFA phase.
+    fn odd_origin(cfa_at_active_origin: &str) -> RawImage {
+        let (w, h) = (24, 20);
+        let active = Rect::new(1, 1, 22, 18);
+        // anchored at the full image: the active area's (0, 0) is one row and column in
+        let cfa = Cfa::bayer(cfa_at_active_origin).unwrap().shifted(1, 1);
+        let black = [100.0, 110.0, 120.0, 130.0];
+        let data = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let b = black[((y + 1) % 2) * 2 + (x + 1) % 2];
+                (b + if cfa.color_at(x, y) == 0 { 3000.0 } else { 150.0 }) as u16
+            })
+            .collect();
+        RawImage {
+            vendor_lens: None,
+            format: RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            data: RawData::U16(data),
+            cfa: Some(cfa),
+            bits: 16,
+            black: BlackLevel { repeat_rows: 2, repeat_cols: 2, values: black.to_vec(), ..Default::default() },
+            white: vec![4095.0],
+            active_area: active,
+            crop: Rect::new(0, 0, active.width, active.height),
+            orientation: Orientation::Normal,
+            color: Default::default(),
+            wb_multipliers: None,
+            linearized: false,
+            opcodes: Default::default(),
+            metadata: Default::default(),
+        }
+    }
+
+    /// DNG CFAPattern is relative to the ActiveArea: our reader and writer must agree with rawler
+    /// (and the DNG SDK) on files whose active area starts at an odd row or column, or every other
+    /// reader sees swapped colours.
+    #[test]
+    fn cfa_pattern_is_relative_to_the_active_area() {
+        for pattern in ["RGGB", "GBRG", "GRBG", "BGGR"] {
+            let raw = odd_origin(pattern);
+            let bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Uncompressed, ..Default::default() }).unwrap();
+            let tiff = Tiff::parse(&bytes).unwrap();
+            let tag = raw_ifd(&tiff).unwrap().bytes(t::CFA_PATTERN_EP).unwrap().to_vec();
+            assert_eq!(tag, Cfa::bayer(pattern).unwrap().pattern, "{pattern}: written relative to the active area");
+            let native = decode(&bytes, Mode::Full).unwrap();
+            assert_eq!(native.cfa, raw.cfa, "{pattern}");
+            assert_eq!(native.normalized().unwrap().cfa.unwrap().name(), pattern);
+            // rawler applies the specification's reading; both decoders must agree on phase and black
+            let other = crate::rawler_adapter::decode(&bytes, RawFormat::Dng, Mode::Full).unwrap();
+            assert_eq!(other.cfa, native.cfa, "{pattern}");
+            for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                assert_eq!(other.black.at(x, y, 0, 1), native.black.at(x, y, 0, 1), "{pattern} black at ({x}, {y})");
+            }
+            let rgb = native.develop(Method::Bilinear).unwrap();
+            let p = rgb.get(10, 9);
+            assert!(p[0] > 0.6 && p[1] < 0.05 && p[2] < 0.05, "{pattern}: the red scene stays red: {p:?}");
+        }
     }
 }
 
