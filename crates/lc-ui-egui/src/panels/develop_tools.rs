@@ -366,8 +366,10 @@ pub fn upright_progress(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     let total: usize = running.iter().map(|j| j.total).sum();
     let done: usize = running.iter().map(|j| j.done.load(Ordering::Relaxed)).sum();
-    pad(ui, |ui| {
+    let focus_room = li_ui_kit::widget_style::FOCUS_OUTSET + li_ui_kit::widget_style::FOCUS_STROKE;
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: focus_room as i8, bottom: focus_room as i8 }).show(ui, |ui| {
         let row = ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = focus_room;
             let cancel = li_ui_kit::progress::job_row(
                 ui,
                 &li_ui_kit::progress::JobLine {
