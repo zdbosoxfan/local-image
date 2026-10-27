@@ -453,7 +453,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let preview_only = app.session.catalog.photo(id).and_then(|p| p.preview_only.clone());
 
     if app.ui.histogram {
-        histogram(app, ui, id);
+        super::histogram::show(app, ui, id);
     }
     if app.ui.soft_proof {
         soft_proofing(app, ui, id);
@@ -920,49 +920,6 @@ fn section(
     divider(ui);
 }
 
-// histogram
-
-fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
-    let t = Tokens::get(ui.ctx());
-    // Borrow cached bins: no image-sized work or per-frame histogram/smoothing allocation.
-    let hist = app
-        .renderer
-        .textures
-        .get(&Slot::Main)
-        .filter(|t| t.photo == id)
-        .and_then(|t| t.histogram.as_ref())
-        .or_else(|| app.renderer.textures.get(&Slot::Thumb(id)).and_then(|t| t.histogram.as_ref()));
-    let view = hist.map(|h| li_ui_kit::histogram::Histogram::u32([&h.r, &h.g, &h.b], Some(&h.luma)));
-    let resp =
-        li_ui_kit::histogram::library(ui, view, hist.map_or((0.0, 0.0), |h| h.clipping()), app.ui.show_clipping, li_i18n::library::t("Histogram"));
-    let r = resp.rect;
-    register(ui.ctx(), "histogram", r);
-    if resp.clicked() {
-        app.ui.show_clipping = !app.ui.show_clipping;
-    }
-    let p = ui.painter();
-    // EXIF strip
-    if let Some(ph) = app.session.catalog.photo(id) {
-        let m = &ph.meta;
-        let items = [
-            m.iso.map(|i| format!("ISO {i}")).unwrap_or_default(),
-            m.focal_mm.map(|f| format!("{f:.0}mm")).unwrap_or_default(),
-            m.aperture.map(|a| format!("f/{a:.1}")).unwrap_or_default(),
-            m.shutter.clone(),
-        ];
-        let y = r.bottom() - 13.0;
-        for (i, s) in items.iter().enumerate() {
-            let x = r.left() + 18.0 + (r.width() - 36.0) * i as f32 / 3.0;
-            let align = match i {
-                0 => Align2::LEFT_CENTER,
-                3 => Align2::RIGHT_CENTER,
-                _ => Align2::CENTER_CENTER,
-            };
-            p.text(pos2(x, y), align, s, t.font(12.5), t.text_label);
-        }
-    }
-}
-
 // soft proofing
 
 /// The Soft Proofing strip under the histogram: proof profile, gamut warnings, Create Proof Copy.
@@ -1256,6 +1213,7 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
         let r = Rect::from_min_size(pos2(outer.left() + (w - side) / 2.0, outer.top() + 6.0), vec2(side, side));
         let resp = ui.interact(r, egui::Id::new(("curve", &ch)), Sense::click_and_drag());
         register(ui.ctx(), "curve", r);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, ui.is_enabled(), li_i18n::library::t("Tone Curve")));
         resp.context_menu(|ui| curve_reset_menu(app, ui, &ch, target));
         let p = ui.painter();
         p.rect_filled(r, 2.0, t.grid_bg);
@@ -1298,33 +1256,71 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
                     to_screen(x as f64, tables.as_ref().map_or(x, |c| c.tables[0].eval(x)) as f64)
                 })
                 .collect();
-            // Region dividers use the actual pipeline split positions.
-            let splits = [d.curve.split_shadows, d.curve.split_mid, d.curve.split_highlights];
+            // Keep settings precision while enforcing the pipeline's split ordering.
+            let raw_splits = [d.curve.split_shadows, d.curve.split_mid, d.curve.split_highlights];
+            let mut lower = 0.0_f64;
+            let splits = std::array::from_fn::<_, 3, _>(|i| {
+                let split = raw_splits[i];
+                lower = if split.is_nan() { [25.0_f64, 50.0, 75.0][i].max(lower) } else { split.clamp(lower, 100.0) };
+                lower
+            });
+            let press = crate::widgets::primary_press(ui, &resp);
+            let mut split_priority = false;
             for (i, split) in splits.into_iter().enumerate() {
                 let x = r.left() + r.width() * split as f32 / 100.0;
                 p.line_segment([pos2(x, r.top()), pos2(x, r.bottom())], Stroke::new(1.0, t.text_dim.gamma_multiply(0.5)));
                 let handle = Rect::from_center_size(pos2(x, r.bottom() - 5.0), vec2(12.0, 12.0));
                 let response = ui.interact(handle, egui::Id::new(("curve-split", target.key("curve"), i)), Sense::drag());
                 register(ui.ctx(), format!("curveSplit:{i}"), handle);
+                split_priority |= press.is_some_and(|press| handle.contains(press)) || response.dragged();
                 p.circle_filled(handle.center(), if response.hovered() { 5.0 } else { 4.0 }, t.text_label);
                 p.circle_stroke(handle.center(), 4.0, Stroke::new(1.0, t.grid_bg));
-                if response.drag_started() {
-                    let _ = app.run("develop.beginInteraction", json!({"label":"Curve Regions","mask":target.mask_id()}));
-                }
-                if response.dragged()
-                    && let Some(q) = response.interact_pointer_pos()
-                {
-                    let lo = if i == 0 { 1.0 } else { splits[i - 1] + 1.0 };
-                    let hi = if i == 2 { 99.0 } else { splits[i + 1] - 1.0 };
-                    let value = ((q.x - r.left()) / r.width() * 100.0) as f64;
-                    let key = ["split_shadows", "split_mid", "split_highlights"][i];
-                    let _ = target.merge(app, json!({"curve":{key:value.clamp(lo,hi)}}), "Curve Regions");
-                }
-                if response.drag_stopped() {
-                    let _ = app.run("develop.endInteraction", json!({}));
+                let control = ["curve.splitShadows", "curve.splitMid", "curve.splitHighlights"][i];
+                if let Some(spec) = controls::find(control) {
+                    let owner = crate::widgets::numeric_owner(app, (target.mask_id(), control));
+                    let owner_id = response.id.with("owner");
+                    let started = response.drag_started()
+                        && (ui.input(|input| input.pointer.primary_down()) || response.drag_stopped_by(egui::PointerButton::Primary));
+                    if started {
+                        ui.data_mut(|data| data.insert_temp(owner_id, owner));
+                    }
+                    let owns = ui.data(|data| data.get_temp::<egui::Id>(owner_id)) == Some(owner);
+                    let value = (owns
+                        && (response.dragged_by(egui::PointerButton::Primary) || response.drag_stopped_by(egui::PointerButton::Primary)))
+                    .then(|| response.interact_pointer_pos())
+                    .flatten()
+                    .map(|point| {
+                        let lower = if i == 0 { 0.0 } else { splits[i - 1] };
+                        let upper = if i == 2 { 100.0 } else { splits[i + 1] };
+                        let gap = ((upper - lower) / 2.0).min(1.0);
+                        f64::from((point.x - r.left()) / r.width() * 100.0).clamp(lower + gap, upper - gap)
+                    });
+                    let stopped = response.drag_stopped_by(egui::PointerButton::Primary) || !owns;
+                    let spec = ControlSpec { label: "Curve Regions", ..*spec };
+                    apply_slider_out(app, &spec, SliderOut { value, drag_started: started, drag_stopped: stopped, reset: false }, |app, value| {
+                        let mut updated = serde_json::Map::new();
+                        for (index, key) in ["split_shadows", "split_mid", "split_highlights"].into_iter().enumerate() {
+                            let next = if index == i { value } else { splits[index] };
+                            if next != raw_splits[index] {
+                                updated.insert(key.into(), json!(next));
+                            }
+                        }
+                        target.merge(app, json!({"curve":updated}), "Curve Regions")
+                    });
+                    if stopped {
+                        ui.data_mut(|data| data.remove::<egui::Id>(owner_id));
+                    }
                 }
             }
             curve_line(p, line, t.curve_color("master"), t);
+            if !split_priority {
+                let owner = crate::widgets::numeric_owner(app, (target.mask_id(), "curve-parametric"));
+                if let Some((control, out)) = crate::widgets::parametric_drag(ui, &resp, &d.curve, owner, app.ui.dragging_control.as_deref())
+                    && let Some(spec) = controls::find(control)
+                {
+                    apply_slider_out(app, spec, out, |app, value| target.set(app, json!({control:value})));
+                }
+            }
             ui.horizontal(|ui| {
                 let mut mode = d.curve.mode;
                 ui.selectable_value(&mut mode, lightcraft_develop::CurveMode::Luminance, li_i18n::library::t("Luminance"));

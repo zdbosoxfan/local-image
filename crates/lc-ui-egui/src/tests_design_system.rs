@@ -309,6 +309,87 @@ fn design_system_develop_screens() {
                 });
                 pan.step();
             }
+            for scale in [1.0, 1.5] {
+                let tag = format!("{}-{width}-{scale}ppp", if dark { "dark" } else { "light" });
+                let mut h = setup(lightcraft_engine::Session::with_demo(), width, dark);
+                h.size.y = 1900.0;
+                h.pixels_per_point = scale;
+                h.app.ui.histogram = true;
+                h.app.ui.open_sections = vec!["light".into()];
+                h.app.ui.open_flyouts = vec!["curve".into()];
+                h.app.ui.curve_channel = "parametric".into();
+                request(
+                    &mut h,
+                    "engine.execute",
+                    json!({"command":"develop.curve", "params":{"channel":"master", "points":[[0.0,0.0],[0.25,0.15],[0.75,0.85],[1.0,1.0]]}}),
+                );
+                assert!(h.settle(T));
+                let graph = rect(&h, "curve");
+                let photo = h.app.session.active().unwrap();
+                let settings = h.app.session.develop_of(photo).unwrap();
+                let level = lightcraft_pipeline::finish::curve_luts(&settings.curve).unwrap().tables[0].eval(0.625);
+                let at = pos2(graph.left() + graph.width() * 0.625, graph.bottom() - graph.height() * level);
+                h.events.push(egui::Event::PointerMoved(at));
+                h.step();
+                assert_eq!(h.last_cursor, egui::CursorIcon::Grab);
+                assert!(
+                    panel_top(&h, 1850.0).contains_rect(rect(&h, "slider:curve.refineSaturation")),
+                    "capture includes the curve and all its sliders"
+                );
+                save(&h, &format!("panel-curve-hover-{tag}"), panel_top(&h, 1850.0));
+                h.events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                h.step();
+                let dragged = at - vec2(0.0, 10.0);
+                h.events.push(egui::Event::PointerMoved(dragged));
+                h.step();
+                h.step();
+                assert_eq!(h.last_cursor, egui::CursorIcon::Grabbing);
+                save(&h, &format!("panel-curve-drag-{tag}"), panel_top(&h, 1850.0));
+                h.events.push(egui::Event::PointerButton {
+                    pos: dragged,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                h.step();
+                let plot = li_ui_kit::histogram::library_plot_rect(rect(&h, "histogram"));
+                let at = plot.center();
+                h.events.push(egui::Event::PointerMoved(at));
+                h.step();
+                save(&h, &format!("panel-histogram-hover-{tag}"), panel_top(&h, 1850.0));
+                h.events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                h.step();
+                let dragged = at + vec2(plot.width() * 0.05, 0.0);
+                h.events.push(egui::Event::PointerMoved(dragged));
+                h.step();
+                h.step();
+                save(&h, &format!("panel-histogram-drag-{tag}"), panel_top(&h, 1850.0));
+                h.events.push(egui::Event::PointerButton {
+                    pos: dragged,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                h.step();
+                for control in ["light.exposure", "curve.lights"] {
+                    focus(&mut h, &format!("value:{control}"));
+                    request(&mut h, "ui.key", json!({"key":"space"}));
+                    request(&mut h, "ui.text", json!({"text":"1"}));
+                    request(&mut h, "ui.key", json!({"key":"enter"}));
+                    assert_eq!(lightcraft_develop::controls::get(&h.app.session.develop_of(photo).unwrap(), control), Some(1.0));
+                }
+                save(&h, &format!("panel-keyboard-{tag}"), panel_top(&h, 1850.0));
+            }
         }
     }
     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]

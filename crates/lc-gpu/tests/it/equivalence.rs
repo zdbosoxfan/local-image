@@ -1135,3 +1135,32 @@ fn deep_output_matches_cpu() {
         }
     }
 }
+
+#[test]
+fn parametric_regions_and_all_curve_channels_match_cpu() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    eprintln!("adapter: {}", lightcraft_gpu::adapter_name().expect("available GPU has an adapter name"));
+    let src = scene(2, 160, 96);
+    for raw in [false, true] {
+        for mode in [lightcraft_develop::CurveMode::Rgb, lightcraft_develop::CurveMode::Luminance] {
+            let mut settings = DevelopSettings::default();
+            settings.curve.mode = mode;
+            settings.curve.shadows = 25.0;
+            settings.curve.darks = -30.0;
+            settings.curve.lights = 40.0;
+            settings.curve.highlights = -20.0;
+            settings.curve.master = vec![Point::new(0.0, 0.02), Point::new(0.5, 0.6), Point::new(1.0, 0.98)];
+            settings.curve.red = vec![Point::new(0.0, 0.0), Point::new(0.5, 0.55), Point::new(1.0, 1.0)];
+            settings.curve.green = vec![Point::new(0.0, 0.03), Point::new(0.5, 0.47), Point::new(1.0, 1.0)];
+            settings.curve.blue = vec![Point::new(0.0, 0.01), Point::new(0.5, 0.53), Point::new(1.0, 0.99)];
+            check(
+                &format!("all curves {mode:?} raw={raw}"),
+                &src,
+                &SourceInfo { raw, ..Default::default() },
+                &settings,
+                &RenderRequest::fit(160, 96),
+            );
+        }
+    }
+}

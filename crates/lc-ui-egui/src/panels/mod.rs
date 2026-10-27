@@ -14,6 +14,7 @@ pub mod enhance;
 pub mod export_dialog;
 pub mod filterbar;
 pub mod grid;
+mod histogram;
 pub mod host_composite;
 pub mod host_session;
 pub mod layer_bar;
