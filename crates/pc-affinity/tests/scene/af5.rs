@@ -555,6 +555,60 @@ fn masks_decode_only_the_covered_content_and_hide_nonoverlap() {
         }
     }
 }
+fn shadow() -> F {
+    F::Obj(
+        tag(b"Shad"),
+        vec![
+            (tag(b"Colr"), F::Obj(tag(b"RGBA"), vec![(tag(b"_col"), F::Struct([0f32, 0., 0., 1.].into_iter().flat_map(f32::to_le_bytes).collect()))])),
+            (tag(b"Radi"), F::F64(10.)),
+            (tag(b"Offs"), F::F64(20.)),
+        ],
+    )
+}
+fn masked_group(children: Vec<F>) -> model::Node {
+    let mask = F::Obj(tag(b"MRst"), vec![(tag(b"Bitm"), bitmap_fixture(256, 6, &[2]))]);
+    let group = F::Obj(tag(b"Grup"), vec![(tag(b"Chld"), F::Shared(children)), (tag(b"AdCh"), F::Shared(vec![mask]))]);
+    let bytes = container(vec![group], vec![], None, &[]);
+    photocraft_affinity::read(&bytes, Limits::default()).unwrap().spreads.remove(0).nodes.remove(0)
+}
+fn assert_mask_covers(node: &model::Node, bounds: [f64; 4]) {
+    let mask = node.pixel_mask.as_ref().unwrap();
+    let start = mask.transform.apply(model::Point { x: 0., y: 0. });
+    let end = mask.transform.apply(model::Point { x: f64::from(mask.width), y: f64::from(mask.height) });
+    assert!(start.x <= bounds[0] && start.y <= bounds[1] && end.x >= bounds[2] && end.y >= bounds[3], "mask {start:?}..{end:?} does not cover {bounds:?}");
+    let model::Pixels::Rgba8(pixels) = &mask.pixels else { panic!() };
+    assert!(pixels.as_chunks::<4>().0.iter().all(|p| *p == [255; 4]));
+    assert!(mask.width < 256 && mask.height < 256);
+}
+#[test]
+fn group_pixel_masks_cover_child_drop_shadows() {
+    let mut shape = curve();
+    let F::Def(_, _, fields) = &mut shape else { panic!() };
+    fields.push((tag(b"FiEf"), F::Shared(vec![shadow()])));
+    let group = masked_group(vec![shape]);
+    assert!(matches!(group.children[0].effects.as_slice(), [model::Effect::DropShadow { radius: 10., distance: 20., .. }]));
+    assert_mask_covers(&group, [14., 0., 74., 54.]);
+}
+#[test]
+fn group_pixel_masks_cover_child_group_drop_shadows() {
+    let child = F::Obj(tag(b"Grup"), vec![(tag(b"Chld"), F::Shared(vec![curve()])), (tag(b"FiEf"), F::Shared(vec![shadow()]))]);
+    let group = masked_group(vec![child]);
+    assert!(matches!(group.children[0].kind, model::Kind::Group));
+    assert!(matches!(group.children[0].effects.as_slice(), [model::Effect::DropShadow { radius: 10., distance: 20., .. }]));
+    assert_mask_covers(&group, [14., 0., 74., 54.]);
+}
+#[test]
+fn group_pixel_masks_cover_hidden_children() {
+    let mut hidden = curve();
+    let F::Def(id, _, fields) = &mut hidden else { panic!() };
+    *id = 2;
+    fields.extend([(tag(b"Visi"), F::Bool(false)), (tag(b"Xfrm"), F::F64s(vec![1., 0., 100., 0., 1., 100.]))]);
+    let group = masked_group(vec![curve(), groups(hidden, 1)]);
+    assert!(!group.children[1].children[0].visible);
+    assert!(matches!(group.children[1].children[0].kind, model::Kind::Shape { .. }));
+    assert_mask_covers(&group, [104., 104., 144., 144.]);
+}
+
 #[test]
 fn over_budget_masks_and_cached_pictures_warn_and_keep_sibling_pixels() {
     let mask = F::Obj(tag(b"MRst"), vec![(tag(b"Bitm"), bitmap_fixture(16, 6, &[2]))]);
@@ -649,13 +703,12 @@ fn dpi_scaled_oversized_effects_warn_and_keep_the_artwork() {
 }
 #[test]
 fn unreadable_embedded_documents_fall_back_to_the_cached_picture() {
-    for data in [b"EmDc\0\0\0\0\0\xffKA".to_vec()] {
-        let bytes = container(vec![cached_embedded("inner", 2), curve()], vec![], None, &[("inner", &data, Method::Zlib)]);
-        let doc = photocraft_affinity::read(&bytes, Limits::default()).unwrap();
-        assert!(matches!(doc.spreads[0].nodes[0].kind, model::Kind::Image(_)));
-        assert!(matches!(doc.spreads[0].nodes[1].kind, model::Kind::Shape { .. }));
-        assert!(doc.warnings.iter().any(|w| w.contains("embedded document") && w.contains("could not be read")));
-    }
+    let data = b"EmDc\0\0\0\0\0\xffKA".to_vec();
+    let bytes = container(vec![cached_embedded("inner", 2), curve()], vec![], None, &[("inner", &data, Method::Zlib)]);
+    let doc = photocraft_affinity::read(&bytes, Limits::default()).unwrap();
+    assert!(matches!(doc.spreads[0].nodes[0].kind, model::Kind::Image(_)));
+    assert!(matches!(doc.spreads[0].nodes[1].kind, model::Kind::Shape { .. }));
+    assert!(doc.warnings.iter().any(|w| w.contains("embedded document") && w.contains("could not be read")));
 }
 #[test]
 fn non_affinity_embedded_data_is_not_reported_as_damaged() {
