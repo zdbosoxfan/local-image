@@ -98,7 +98,7 @@ fn layer_sel(l: &Layer, selected: &[photocraft_doc::LayerId]) -> Value {
             v["smartFilters"] = Value::Array(
                 sm.smart_filters
                     .iter()
-                    .map(|f| json!({"command": f.command, "params": f.params, "visible": f.visible, "opacity": f.opacity, "blend": f.blend.label()}))
+                    .map(|f| json!({"command": f.command, "params": filter_params(&f.params), "visible": f.visible, "opacity": f.opacity, "blend": f.blend.label()}))
                     .collect(),
             );
             v["smartFiltersEnabled"] = json!(sm.filters_enabled);
@@ -140,4 +140,57 @@ fn layer_sel(l: &Layer, selected: &[photocraft_doc::LayerId]) -> Value {
         v["video"] = json!({"frames": vid.frames.len(), "fps": vid.fps, "showAltered": vid.show_altered, "source": source});
     }
     v
+}
+
+fn filter_params(params: &Value) -> Value {
+    let Some(params) = params.as_object() else { return params.clone() };
+    Value::Object(
+        params
+            .iter()
+            .map(|(key, value)| {
+                let value = if key == photocraft_io::smart_map::DISPLACE_TEMPLATE_KEY && value.as_str().is_some_and(|text| text.len() > 65536) {
+                    json!({"omitted":true,"bytes":value.as_str().map(str::len)})
+                } else {
+                    value.clone()
+                };
+                (key.clone(), value)
+            })
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use photocraft_doc::{Affine, BlendMode, SmartFilter, SmartObject, SmartSource};
+    use std::sync::Arc;
+
+    #[test]
+    fn inspect_bounds_large_map_templates_without_changing_document_params() {
+        for len in [65535, 65536, 65537] {
+            let params = json!({"__displacePsd":"ab".repeat(len / 2) + &"a".repeat(len % 2),"horizontal":25,"nested":{"text":"kept"}});
+            let mut sm = SmartObject::new(SmartSource::Embedded { file_name: "map.pcraft".into(), bytes: Arc::new(vec![]) }, Affine::IDENTITY, None);
+            sm.smart_filters.push(SmartFilter {
+                command: "filter.distort.displace".into(),
+                params: params.clone(),
+                blend: BlendMode::Normal,
+                opacity: 1.0,
+                visible: true,
+            });
+            let l = Layer::new("smart", LayerContent::Smart(sm));
+            let view = layer(&l);
+            let inspected = &view["smartFilters"][0]["params"];
+            assert_eq!(inspected["horizontal"], params["horizontal"]);
+            assert_eq!(inspected["nested"], params["nested"]);
+            if len > 65536 {
+                assert!(view.to_string().len() < 2048);
+                assert_eq!(inspected["__displacePsd"]["omitted"], json!(true));
+                assert_eq!(inspected["__displacePsd"]["bytes"], json!(len));
+            } else {
+                assert_eq!(inspected, &params);
+            }
+            let LayerContent::Smart(stored) = &l.content else { panic!("smart object") };
+            assert_eq!(stored.smart_filters[0].params, params);
+        }
+    }
 }

@@ -12,6 +12,10 @@ All notable changes to Local Image are recorded here. The format follows
   embedded native documents and supported layer styles editable. CMYK pixel layers retain
   source-profile colour conversion, with a coated CMYK fallback and explicit approximation warnings.
 
+- Compositing: Displace Smart Filters embed maps chosen from files or open documents, retain
+  them through map replacement, undo and PSD/native saves, and no longer depend on the map source.
+  Large embedded maps are omitted from inspect output and count toward the undo memory budget.
+
 - Compositing: Export PDF carries File Info author, description, keywords, copyright status,
   notice and rights URL without camera, GPS or Develop metadata.
 
@@ -136,6 +140,8 @@ All notable changes to Local Image are recorded here. The format follows
   and oversized effects with warnings. Embedded layer nesting shares the outer safety limit;
   unreadable embedded layouts and missing or mismatched CMYK profiles retain their cached/default
   fallback, while cancellation, shared resource limits and checksum failures remain fatal.
+
+- Compositing: Add Noise and Wave retain the full unsigned 32-bit seed range.
 
 - Develop and export preserve saturated colours already inside the selected output space,
   including deep blue. Colours outside that space transition smoothly, avoiding visible jumps
