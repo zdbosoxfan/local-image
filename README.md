@@ -2,10 +2,10 @@
 
 **A native workspace for photo cataloguing, RAW development, layered editing, vector design and AI.**
 
-**Current version:** 2.0.0-alpha.1 · **Supported platforms:** Linux x86_64 and Apple Silicon macOS 13+
+**Current version:** 2.0.0-alpha.2 · **Supported platforms:** Linux x86_64 and Apple Silicon macOS 13+
 
 > [!IMPORTANT]
-> 2.0.0-alpha.1 is the first Local Image 2 alpha. It starts with a new Library: catalogs from Local Image 0.x and LightCraft are not opened or migrated, and an older catalog is refused and left unchanged. Keep your originals backed up and see the [changelog](CHANGELOG.md).
+> 2.0.0-alpha.2 is the first published Local Image 2 alpha. It starts with a new Library: catalogs from Local Image 0.x and LightCraft are not opened or migrated, and an older catalog is refused and left unchanged. Keep your originals backed up and see the [changelog](CHANGELOG.md).
 
 [Download](#download) · [Features](#major-features) · [Tools](#tools-and-workflows) · [Under the hood](#how-the-pieces-fit-together) · [Interface](#interface) · [Install](#install-or-build)
 
@@ -380,14 +380,14 @@ A closer view of the native Generate panel’s controls.
 
 ## Download
 
-Builds are published on [GitHub Releases](https://github.com/zdbosoxfan/local-image/releases). The 2.0.0-alpha.1 downloads will be on the [v2.0.0-alpha.1 release page](https://github.com/zdbosoxfan/local-image/releases/tag/v2.0.0-alpha.1) once it is published; the 0.x releases listed there today are the earlier Local Image 1 previews.
+Builds are published on [GitHub Releases](https://github.com/zdbosoxfan/local-image/releases). The 2.0.0-alpha.2 downloads will be on the [v2.0.0-alpha.2 release page](https://github.com/zdbosoxfan/local-image/releases/tag/v2.0.0-alpha.2) once it is published; the 0.x releases listed there today are the earlier Local Image 1 previews.
 
 | Platform | File | Notes |
 | --- | --- | --- |
-| Apple Silicon macOS 13+ | `local-image-2.0.0-alpha.1-macos-arm64.dmg` | Drag **Local Image** to Applications. Metal accelerates rendering and supported processing. |
-| | `local-image-2.0.0-alpha.1-macos-arm64.pkg` | Installer for `/Applications/Local Image.app`, with the `local-image-cli` link inside the bundle. |
-| Linux x86_64 | `local-image-2.0.0-alpha.1-linux-x86_64.AppImage` | `chmod +x` and run. Vulkan graphics with CPU fallbacks; Ubuntu 22.04 sets the glibc baseline. |
-| | `local-image-2.0.0-alpha.1-linux-x86_64.tar.gz` | From the unpacked folder, run `./local-image --install`: it copies the app to `~/.local/bin`, links `local-image-cli` to it and adds the menu entry. Use `sudo ./local-image --install --system` for `/usr/local`, `local-image --uninstall` to remove a user install, or `sudo /usr/local/bin/local-image --uninstall --system` to remove a system install. |
+| Apple Silicon macOS 13+ | `local-image-2.0.0-alpha.2-macos-arm64.dmg` | Drag **Local Image** to Applications. Metal accelerates rendering and supported processing. |
+| | `local-image-2.0.0-alpha.2-macos-arm64.pkg` | Installer for `/Applications/Local Image.app`, with the `local-image-cli` link inside the bundle. |
+| Linux x86_64 | `local-image-2.0.0-alpha.2-linux-x86_64.AppImage` | `chmod +x` and run. Vulkan graphics with CPU fallbacks; Ubuntu 22.04 sets the glibc baseline. |
+| | `local-image-2.0.0-alpha.2-linux-x86_64.tar.gz` | From the unpacked folder, run `./local-image --install`: it copies the app to `~/.local/bin`, links `local-image-cli` to it and adds the menu entry. Use `sudo ./local-image --install --system` for `/usr/local`, `local-image --uninstall` to remove a user install, or `sudo /usr/local/bin/local-image --uninstall --system` to remove a system install. |
 | Windows | none | Experimental: build from source. Windows releases are not validated. |
 
 Each file has a `.sha256` beside it; check it with `shasum -a 256 -c <file>.sha256` (macOS) or `sha256sum -c <file>.sha256` (Linux). Debug-symbol files (`.dSYM.zip`, `.debug`) are for symbolicating crash reports and are not needed to run the app. AI models are separate downloads from inside the app, each with its own licence.
@@ -396,7 +396,7 @@ Each file has a `.sha256` beside it; check it with `shasum -a 256 -c <file>.sha2
 
 Source and packaging instructions are available in [Development](docs/DEVELOPMENT.md) and [Release targets](docs/RELEASE.md).
 
-Mac packages enable HEIC/HEIF reading and keep optional SAM 3 support off by default. Installed core editing needs no Python, Homebrew or Rust. Selection and tagging models use native CPU inference. Native RAW and RGB AI denoise require a supported GPU; their CPU implementations are reference tests only. The native wgpu denoiser has no NPU dispatcher, and Core ML/Neural Engine execution is not implemented. Model compatibility depends on its backend. Stable releases will be Developer ID signed and notarized. The 2.0.0-alpha.1 Mac packages are not, so macOS blocks them the first time: on macOS 15 or later, open the app once, then choose **System Settings > Privacy & Security > Open Anyway**; on macOS 13 and 14, Control-click the app and choose **Open**. See [MACOS.md](docs/MACOS.md) for the signing steps.
+Mac packages enable HEIC/HEIF reading and keep optional SAM 3 support off by default. Installed core editing needs no Python, Homebrew or Rust. Selection and tagging models use native CPU inference. Native RAW and RGB AI denoise require a supported GPU; their CPU implementations are reference tests only. The native wgpu denoiser has no NPU dispatcher, and Core ML/Neural Engine execution is not implemented. Model compatibility depends on its backend. Stable releases will be Developer ID signed and notarized. The 2.0.0-alpha.2 Mac packages are not, so macOS blocks them the first time: on macOS 15 or later, open the app once, then choose **System Settings > Privacy & Security > Open Anyway**; on macOS 13 and 14, Control-click the app and choose **Open**. See [MACOS.md](docs/MACOS.md) for the signing steps.
 
 With Rust **1.98.1** and the [platform prerequisites](docs/DEVELOPMENT.md) installed:
 
