@@ -3,7 +3,7 @@
 ## Supported versions
 
 Only the latest alpha release receives security fixes. At the time of writing that is
-**2.0.0-alpha.2**. Earlier alpha builds and the older `v0.x` tags are not supported. If you
+**0.8.0-alpha**. Earlier alpha builds and the older `v0.x` tags are not supported. If you
 find a problem, check that it still occurs on the latest release before you report it.
 
 ## Reporting a vulnerability

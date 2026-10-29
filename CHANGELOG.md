@@ -6,10 +6,12 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
-## [2.0.0-alpha.2] - 2026-10-29
+## [0.8.0-alpha] - 2026-10-29
 
-The first published Local Image 2 alpha. 2.0.0-alpha.1 was prepared but never released, so this
-release includes everything listed under 2.0.0-alpha.1 below as well as the changes in this section.
+The first published alpha of the rebuilt Local Image. It was developed as 2.0.0-alpha.1, which was
+never released, so this release includes everything listed under 2.0.0-alpha.1 below as well as
+the changes in this section. The version follows on from the 0.7 previews so update checks see it
+as newer.
 
 ### Added
 

@@ -3686,7 +3686,7 @@ dependencies = [
 
 [[package]]
 name = "li-ai"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3712,7 +3712,7 @@ dependencies = [
 
 [[package]]
 name = "li-attributions"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "egui",
  "serde",
@@ -3721,7 +3721,7 @@ dependencies = [
 
 [[package]]
 name = "li-color"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "proptest",
  "serde",
@@ -3729,7 +3729,7 @@ dependencies = [
 
 [[package]]
 name = "li-commands"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "egui",
  "egui_kittest",
@@ -3740,7 +3740,7 @@ dependencies = [
 
 [[package]]
 name = "li-fs"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "libc",
  "lightcraft-sysmem",
@@ -3749,7 +3749,7 @@ dependencies = [
 
 [[package]]
 name = "li-gpu"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "bytemuck",
  "li-color",
@@ -3762,7 +3762,7 @@ dependencies = [
 
 [[package]]
 name = "li-i18n"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "log",
  "serde",
@@ -3772,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "li-keys"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "egui",
  "serde",
@@ -3781,7 +3781,7 @@ dependencies = [
 
 [[package]]
 name = "li-matte"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "li-color",
  "li-raster",
@@ -3791,7 +3791,7 @@ dependencies = [
 
 [[package]]
 name = "li-raster"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "image",
  "li-color",
@@ -3803,7 +3803,7 @@ dependencies = [
 
 [[package]]
 name = "li-seg"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "anyhow",
  "image",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "li-testkit"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "egui",
  "egui_kittest",
@@ -3837,7 +3837,7 @@ dependencies = [
 
 [[package]]
 name = "li-ui-kit"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "egui",
  "egui_extras",
@@ -3918,7 +3918,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-catalog"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "crc32fast",
  "li-fs",
@@ -3935,7 +3935,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-codecs"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "bytemuck",
  "image",
@@ -3957,7 +3957,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-develop"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "li-color",
  "lightcraft-geom",
@@ -3969,7 +3969,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-engine"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "ab_glyph",
  "krilla",
@@ -4012,7 +4012,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-geom"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "proptest",
  "serde",
@@ -4020,7 +4020,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-gpu"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "bytemuck",
  "li-color",
@@ -4039,7 +4039,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-merge"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "li-color",
  "li-raster",
@@ -4055,7 +4055,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-meta"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "lightcraft-geom",
  "lightcraft-tiff",
@@ -4067,7 +4067,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-pipeline"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "image",
  "li-color",
@@ -4089,7 +4089,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-preview"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "blake3",
  "jpeg-encoder",
@@ -4103,7 +4103,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-raw"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "half",
  "jpeg-encoder",
@@ -4127,7 +4127,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-scenes"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "image",
  "li-color",
@@ -4138,7 +4138,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-segment"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -4154,7 +4154,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-sysmem"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "libc",
  "log",
@@ -4163,7 +4163,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-tiff"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "proptest",
  "serde",
@@ -4172,7 +4172,7 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-ui-egui"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "egui",
  "egui_extras",
@@ -4248,7 +4248,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "local-image"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "arboard",
  "eframe",
@@ -4301,7 +4301,7 @@ dependencies = [
 
 [[package]]
 name = "local-image-cli"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "li-ai",
  "lightcraft-raw",
@@ -5275,7 +5275,7 @@ checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "pc-trace"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "image",
  "kurbo 0.13.1",
@@ -5385,7 +5385,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-affinity"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -5403,7 +5403,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-algo"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "li-color",
  "li-matte",
@@ -5421,7 +5421,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-automation"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "base64 0.22.1",
  "cap-std",
@@ -5447,7 +5447,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-cms"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "half",
  "li-color",
@@ -5457,7 +5457,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-codecs"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "exr",
  "flate2",
@@ -5484,7 +5484,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-color"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "li-color",
  "photocraft-cms",
@@ -5493,7 +5493,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-compose"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "criterion",
  "li-color",
@@ -5510,7 +5510,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-doc"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "photocraft-color",
  "photocraft-geom",
@@ -5521,7 +5521,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-engine"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "anyhow",
  "blake3",
@@ -5576,7 +5576,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-export-common"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "kurbo 0.13.1",
  "photocraft-compose",
@@ -5590,7 +5590,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-format"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "blake3",
  "flate2",
@@ -5614,14 +5614,14 @@ dependencies = [
 
 [[package]]
 name = "photocraft-geom"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "photocraft-gpu"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "half",
  "li-gpu",
@@ -5643,14 +5643,14 @@ dependencies = [
 
 [[package]]
 name = "photocraft-heif"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "heic-rs",
 ]
 
 [[package]]
 name = "photocraft-io"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "blake3",
  "li-color",
@@ -5687,14 +5687,14 @@ dependencies = [
 
 [[package]]
 name = "photocraft-ops"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "photocraft-doc",
 ]
 
 [[package]]
 name = "photocraft-paint"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "li-color",
  "photocraft-color",
@@ -5706,7 +5706,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-pathops"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "kurbo 0.13.1",
  "linesweeper",
@@ -5723,7 +5723,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-pdf"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "flate2",
  "hayro-interpret",
@@ -5749,7 +5749,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-plugins"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "photocraft-color",
  "photocraft-geom",
@@ -5764,7 +5764,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-psd"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "flate2",
  "photocraft-psd",
@@ -5775,7 +5775,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-raster"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "li-color",
  "photocraft-color",
@@ -5786,7 +5786,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-svg"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -5815,7 +5815,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-tablet"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "block2 0.6.2",
  "objc2 0.6.5",
@@ -5827,7 +5827,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-testkit"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "image",
  "kurbo 0.13.1",
@@ -5845,7 +5845,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-text"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "flate2",
  "parley",
@@ -5859,7 +5859,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-ui-egui"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5918,7 +5918,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-vecfx"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "kurbo 0.13.1",
  "li-color",
@@ -5934,7 +5934,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-vector"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "kurbo 0.13.1",
  "li-color",
@@ -9348,7 +9348,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 
 [[package]]
 name = "xtask"
-version = "2.0.0-alpha.2"
+version = "0.8.0-alpha"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
