@@ -352,10 +352,15 @@ pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
 }
 
 /// Read metadata, reporting malformed PSD/PSB containers and embedded EXIF/XMP.
-/// Other formats retain [`extract`]'s best-effort behavior.
+/// Other formats retain [`extract`]'s best-effort behavior, except for a packet past the XMP
+/// parser's hard limits: [`extract`] skips it whole, which would read as a file without XMP.
 pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
     if !bytes.starts_with(b"8BPS") {
-        return Ok(extract(bytes));
+        let (m, packet) = extract_with_xmp(bytes);
+        if packet.is_some_and(|x| matches!(parse_whole_xmp(&x), Err(XmpError::TooComplex))) {
+            return Err(ExtractError::XmpTooComplex);
+        }
+        return Ok(m);
     }
     let e = psd::parse(bytes).ok_or(ExtractError::MalformedPsd)?;
     let m = e.exif.as_deref().map(try_read_exif).transpose().map_err(|_| ExtractError::MalformedPsd)?.unwrap_or_default();
@@ -390,12 +395,15 @@ fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<Metadata>) -> Met
 pub enum ExtractError {
     /// The PSD/PSB header, resource section, or embedded EXIF/XMP is malformed.
     MalformedPsd,
+    /// An XMP packet is past the parser's hard limits, so none of it was read.
+    XmpTooComplex,
 }
 
 impl std::fmt::Display for ExtractError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MalformedPsd => f.write_str("malformed PSD/PSB header, image-resource section, or embedded EXIF/XMP structure"),
+            Self::XmpTooComplex => write!(f, "{}", XmpError::TooComplex),
         }
     }
 }

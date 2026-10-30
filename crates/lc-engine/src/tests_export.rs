@@ -736,6 +736,27 @@ fn remove_location_refuses_a_location_past_the_xmp_retention_budget() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// A packet past the parser's hard limits reads as nothing at all, so nothing vouches for the copy.
+#[test]
+fn remove_location_refuses_an_xmp_packet_too_complex_to_read() {
+    let dir = temp_dir("export-noloc-too-complex");
+    let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { city: Some("Boston".into()), ..Default::default() }, None);
+    let packet = packet.replacen("</rdf:Description>", &format!("{}</rdf:Description>", "<a/>".repeat(200_001)), 1);
+    assert_eq!(lightcraft_meta::parse_whole_xmp(&packet), Err(lightcraft_meta::XmpError::TooComplex));
+    let path = dir.join("Dense.tif");
+    let bytes = tiff_with_xmp(&packet);
+    std::fs::write(&path, &bytes).unwrap();
+    let mut session = Session::new().with_fs();
+    session.execute("library.import", &json!({"paths": [path]})).unwrap();
+    let id = session.catalog.photos().next().unwrap().id;
+    let keep = ExportOptions::from_json(&json!({"format": "original"}));
+    assert_eq!(export_photo(&mut session, id, &keep, 1).unwrap().bytes, bytes);
+    let remove = ExportOptions::from_json(&json!({"format": "original", "removeLocation": true}));
+    let result = export_photo(&mut session, id, &remove, 1).map(|exported| exported.file_name);
+    assert!(result.as_ref().is_err_and(|error| error.contains("can't verify location metadata")), "{result:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Exports write what the catalog holds, so an import that stopped at the budget loses these fields
 /// from every later file.
 #[test]
