@@ -201,15 +201,15 @@ enum OverBudget {
     Fail,
 }
 
-/// Evaluate one layer's live content under a work budget of its own. `None` means skip it.
-fn within_budget<T>(layer: &str, over_budget: OverBudget, evaluate: impl FnOnce() -> Result<T>) -> Result<Option<T>> {
-    let budget = photocraft_pathops::WorkBudget::begin();
+/// Evaluate one layer's live content. `None` means the work budget refused it and it is skipped.
+fn evaluate_live<T>(layer: &str, over_budget: OverBudget, evaluate: impl FnOnce() -> Result<T>) -> Result<Option<T>> {
+    let refusal = photocraft_pathops::RefusalWatch::begin();
     match (evaluate(), over_budget) {
-        (Err(e), OverBudget::Skip) if budget.exhausted() => {
+        (Err(e), OverBudget::Skip) if refusal.refused() => {
             log::warn!("skipped the live effect of layer {layer:?}: {e}");
             Ok(None)
         }
-        (Err(e), OverBudget::Fail) if budget.exhausted() => {
+        (Err(e), OverBudget::Fail) if refusal.refused() => {
             Err(error(format!("the live effect of layer \"{layer}\" could not be rendered: {e}. Simplify the layer or remove the effect.")))
         }
         (evaluated, _) => evaluated.map(Some),
@@ -268,17 +268,20 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
             }
         }
         if matches!(layer.content, LayerContent::Symbol(_)) {
-            let ex = packages::symbols::expansion::expand(source, std::slice::from_ref(layer)).map_err(|e| error(e.to_string()))?;
-            let expanded =
-                if refresh_type { packages::symbols::prepare_expansion(source, ex)? } else { packages::symbols::prepare_expansion_for_export(source, ex)? };
-            *layer = expanded.into_iter().next().ok_or_else(|| error("empty symbol projection"))?;
+            let expanded = evaluate_live(&layer.name, over_budget, || {
+                let ex = packages::symbols::expansion::expand(source, std::slice::from_ref(layer)).map_err(|e| error(e.to_string()))?;
+                if refresh_type { packages::symbols::prepare_expansion(source, ex) } else { packages::symbols::prepare_expansion_for_export(source, ex) }
+            })?;
+            if let Some(expanded) = expanded {
+                *layer = expanded.into_iter().next().ok_or_else(|| error("empty symbol projection"))?;
+            }
         }
         if layer.vector.live.is_some() {
             let mut original = std::collections::HashSet::new();
             ids(layer, &mut original);
             let mut isolated = source.clone();
             isolated.layers = vec![layer.clone()];
-            let projected = within_budget(&layer.name, over_budget, || match layer.vector.live {
+            let projected = evaluate_live(&layer.name, over_budget, || match layer.vector.live {
                 Some(LiveGroup::Blend(_)) => photocraft_vecfx::blend::project_document(&isolated).map_err(|e| error(e.to_string())),
                 Some(LiveGroup::Repeat(_)) => packages::repeat::project_document(&isolated),
                 Some(LiveGroup::Envelope(_)) => packages::envelope::project_document(&isolated),
@@ -295,7 +298,7 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
             }
         }
         if !layer.vector.effects.is_empty() {
-            let projected = within_budget(&layer.name, over_budget, || {
+            let projected = evaluate_live(&layer.name, over_budget, || {
                 let scene = packages::path_effects::project(layer, &layer.vector.effects, source.resolution_dpi)?;
                 packages::path_effects::projected_layer(layer, &scene, source)
             })?;
@@ -314,7 +317,7 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
             }
             if !layer.vector.is_empty() || shape.cache.is_none() {
                 let vector = VectorData { appearance: layer.vector.appearance.clone(), ..Default::default() };
-                if let Some(cache) = within_budget(&layer.name, over_budget, || render_shape(source, shape, &vector))? {
+                if let Some(cache) = evaluate_live(&layer.name, over_budget, || render_shape(source, shape, &vector))? {
                     shape.cache = Some(cache);
                 }
             }
@@ -862,10 +865,10 @@ mod integration_tests {
         }
     }
     /// A closed shape whose segment bounds all meet at one point, past the path sweep limit.
-    fn crowded(name: &str) -> Layer {
+    fn crowded(name: &str, spokes: u32) -> Layer {
         let mut points = vec![(16., 16.)];
-        for i in 0..2047 {
-            let angle = std::f64::consts::TAU * f64::from(i) / 2047.;
+        for i in 0..spokes {
+            let angle = std::f64::consts::TAU * f64::from(i) / f64::from(spokes);
             points.extend([(16. + 10. * angle.cos(), 16. + 10. * angle.sin()), (16., 16.)]);
         }
         let mut layer = object(name);
@@ -887,8 +890,8 @@ mod integration_tests {
             doc.layers = layers;
             doc
         };
-        let effect = with_offset(crowded("Crowded effect"));
-        let mut paint = Layer::group("Crowded paint", vec![crowded("Source")]);
+        let effect = with_offset(crowded("Crowded effect", 2047));
+        let mut paint = Layer::group("Crowded paint", vec![crowded("Source", 2047)]);
         packages::live_paint::evaluator::write_spec(&mut paint, &packages::live_paint::LivePaintSpec::default()).unwrap();
         let ordinary = with_offset(object("Ordinary"));
 
@@ -904,6 +907,59 @@ mod integration_tests {
             let refused = export_document(&document(vec![layer]), "budget.png", &Default::default()).unwrap_err().to_string();
             assert!(refused.contains(name), "{refused}");
         }
+    }
+    /// An appearance stroke that needs a boolean of its outline, so it reaches the path sweep.
+    fn with_profile_stroke(mut layer: Layer) -> Layer {
+        use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, StrokeItem, WidthPoint, WidthProfile};
+        let points = [0., 1.].map(|t| WidthPoint { t, left: 0.5, right: 0.5 }).to_vec();
+        let base = photocraft_doc::ShapeStroke { width: 1., paint: Fill::Solid(Color::BLACK), ..Default::default() };
+        let stroke = StrokeItem { base, profile: Some(WidthProfile { points }), ..Default::default() };
+        layer.vector.appearance = Some(Appearance { items: vec![AppearanceItem::Stroke(stroke)] });
+        layer
+    }
+    #[test]
+    fn a_stroke_or_symbol_over_the_path_budget_is_skipped_on_screen_and_fails_output() {
+        use photocraft_doc::vector_design::structure::{SymbolDef, SymbolId, SymbolInstance};
+        let stroked = with_profile_stroke(crowded("Crowded stroke", 1000));
+        let instance = SymbolInstance { symbol: SymbolId(7), transform: photocraft_doc::Affine::IDENTITY, cache: None };
+        let symbol = Layer::new("Crowded symbol", LayerContent::Symbol(instance));
+        let document = |layers: Vec<Layer>| {
+            let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+            doc.symbols.push(SymbolDef { id: SymbolId(7), name: "Master".into(), layers: vec![with_profile_stroke(crowded("Master stroke", 1000))] });
+            doc.layers = layers;
+            doc
+        };
+
+        let shown = project_document(&document(vec![stroked.clone(), symbol.clone()])).unwrap();
+
+        assert!(matches!(shown.layer(stroked.id).unwrap().content, LayerContent::Shape(_)));
+        assert!(matches!(shown.layer(symbol.id).unwrap().content, LayerContent::Symbol(_)));
+        for (layer, name) in [(stroked, "Crowded stroke"), (symbol, "Crowded symbol")] {
+            let refused = export_document(&document(vec![layer]), "budget.png", &Default::default()).unwrap_err().to_string();
+            assert!(refused.contains(name), "{refused}");
+        }
+    }
+    #[test]
+    fn operations_inside_one_live_evaluation_keep_their_own_budgets() {
+        // Parallel strips: their bounds overlap in pairs, but each path sweeps quickly.
+        let strips = photocraft_doc::Path::new(
+            (0..700)
+                .map(|i| {
+                    let x = f64::from(i);
+                    let op = if i == 0 { photocraft_doc::PathOp::Combine } else { photocraft_doc::PathOp::Join };
+                    Subpath::polygon(&[(x, 0.), (x + 0.5, 0.), (x + 1000.5, 1000.), (x + 1000., 1000.)]).with_op(op)
+                })
+                .collect(),
+        );
+
+        let evaluated = evaluate_live("Repeat", OverBudget::Fail, || {
+            for _ in 0..6 {
+                photocraft_pathops::finish_compound(&strips, None).map_err(|e| error(e.to_string()))?;
+            }
+            Ok(())
+        });
+
+        assert_eq!(evaluated.unwrap(), Some(()), "six operations together pass one operation's limit, but each has its own");
     }
     #[test]
     fn integration_shared_insertion_draw_modes_preview_publication_and_undo() {

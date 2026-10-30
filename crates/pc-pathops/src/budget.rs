@@ -17,6 +17,7 @@ const MAX_OPERATION_PAIRS: usize = 4 * MAX_SEGMENT_PAIRS;
 thread_local! {
     /// Pairs charged to the operation open on this thread. Past the limit, it stays refused.
     static OPERATION_PAIRS: Cell<Option<usize>> = const { Cell::new(None) };
+    static REFUSED_SWEEPS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// One budget shared by every sweep this thread runs until the value is dropped. Each `begin`
@@ -33,11 +34,6 @@ impl WorkBudget {
             OPERATION_PAIRS.set(Some(0));
         }
         Self { outermost, charges_this_thread: PhantomData }
-    }
-
-    /// Whether a sweep was refused, for callers whose errors reach them only as text.
-    pub fn exhausted(&self) -> bool {
-        OPERATION_PAIRS.get().is_some_and(|pairs| pairs > MAX_OPERATION_PAIRS)
     }
 }
 
@@ -71,6 +67,22 @@ impl Counts {
     }
 }
 
+/// Notices sweeps refused on this thread, for callers whose errors reach them only as text.
+/// Unlike [`WorkBudget`], it shares nothing: the operations it watches keep their own budgets.
+pub struct RefusalWatch {
+    refused_before: u64,
+}
+
+impl RefusalWatch {
+    pub fn begin() -> Self {
+        Self { refused_before: REFUSED_SWEEPS.get() }
+    }
+
+    pub fn refused(&self) -> bool {
+        REFUSED_SWEEPS.get() != self.refused_before
+    }
+}
+
 /// How many pairs of bounds overlap, counting touching edges, if at most `cap` do.
 fn overlaps_within(boxes: &[Rect], cap: usize) -> Option<usize> {
     let boxes: Vec<Rect> = boxes.iter().map(|b| Rect::new(b.x0 + 0.0, b.y0 + 0.0, b.x1 + 0.0, b.y1 + 0.0)).collect();
@@ -94,8 +106,7 @@ fn overlaps_within(boxes: &[Rect], cap: usize) -> Option<usize> {
         }
         let above = active - by_y0.before(upto(b.y1));
         let under = by_y1.before(below(b.y0));
-        let overlapping = usize::try_from(active - above - under).ok()?;
-        overlaps = overlaps.saturating_add(overlapping);
+        overlaps = overlaps.saturating_add((active - above - under).unsigned_abs());
         if overlaps > cap {
             return None;
         }
@@ -112,7 +123,11 @@ pub(crate) fn charge_sweep<'a>(paths: impl IntoIterator<Item = &'a BezPath>) -> 
     let pairs = overlaps_within(&boxes, MAX_SEGMENT_PAIRS).unwrap_or(MAX_OPERATION_PAIRS + 1);
     let spent = OPERATION_PAIRS.get().unwrap_or(0).saturating_add(pairs);
     OPERATION_PAIRS.set(OPERATION_PAIRS.get().map(|_| spent));
-    if spent > MAX_OPERATION_PAIRS { Err(PathOpsError::TooComplex) } else { Ok(()) }
+    if spent > MAX_OPERATION_PAIRS {
+        REFUSED_SWEEPS.set(REFUSED_SWEEPS.get().wrapping_add(1));
+        return Err(PathOpsError::TooComplex);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -159,22 +174,24 @@ mod tests {
     #[test]
     fn an_operation_spends_four_sweep_limits_then_stays_refused() {
         let grid = grid();
+        let watch = RefusalWatch::begin();
         {
-            let operation = WorkBudget::begin();
+            let _operation = WorkBudget::begin();
             for _ in 0..3 {
                 let _joined = WorkBudget::begin();
                 assert_eq!(charge_sweep([&grid]), Ok(()));
             }
             assert_eq!(charge_sweep([&grid]), Ok(()));
-            assert!(!operation.exhausted());
+            assert!(!watch.refused());
 
             assert_eq!(charge_sweep([&grid]), Err(PathOpsError::TooComplex));
-            assert!(operation.exhausted());
+            assert!(watch.refused());
             assert_eq!(charge_sweep([&BezPath::new()]), Err(PathOpsError::TooComplex));
         }
-        let next_operation = WorkBudget::begin();
+        let later = RefusalWatch::begin();
+        let _next_operation = WorkBudget::begin();
         assert_eq!(charge_sweep([&grid]), Ok(()));
-        assert!(!next_operation.exhausted());
+        assert!(!later.refused());
     }
 
     /// `strips` thin parallel diagonals whose bounds all overlap, far from any other `band`.
@@ -183,8 +200,11 @@ mod tests {
         (0..strips)
             .map(|i| {
                 let x = left + i as f64;
-                Subpath::polygon(&[(x, 0.0), (x + 0.5, 0.0), (x + 1000.5, 1000.0), (x + 1000.0, 1000.0)])
-                    .with_op(if i == 0 { PathOp::Combine } else { PathOp::Join })
+                Subpath::polygon(&[(x, 0.0), (x + 0.5, 0.0), (x + 1000.5, 1000.0), (x + 1000.0, 1000.0)]).with_op(if i == 0 {
+                    PathOp::Combine
+                } else {
+                    PathOp::Join
+                })
             })
             .collect()
     }

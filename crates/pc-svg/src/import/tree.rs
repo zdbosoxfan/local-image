@@ -361,9 +361,10 @@ impl State<'_, '_> {
     /// One budget per applied clip, nested clips included. A clip it refuses is left out with a
     /// warning, so that one clip cannot fail the whole Open or Place.
     fn budgeted_clip(&mut self, c: &usvg::ClipPath, m: Affine, depth: usize) -> Result<Option<Path>> {
-        let budget = photocraft_pathops::WorkBudget::begin();
+        let _budget = photocraft_pathops::WorkBudget::begin();
+        let refusal = photocraft_pathops::RefusalWatch::begin();
         match self.clip(c, m, depth) {
-            Err(_) if budget.exhausted() => {
+            Err(_) if refusal.refused() => {
                 warn(&mut self.warnings, "clip-too-complex", c.id(), "An SVG clip was too complex to apply; the clipped objects were imported without it.");
                 Ok(None)
             }
