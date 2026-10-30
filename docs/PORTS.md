@@ -1093,6 +1093,6 @@ The existing linear manifest scan now caps the counts of opened arrays/objects a
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
-| [`2c4982f2d2981c1685212dd951d7466e4b39fe49`](https://github.com/storytold/photocraft/commit/2c4982f2d2981c1685212dd951d7466e4b39) | Export Data Sets as Files keeps outputs in the chosen folder (#9420) | `crates/pc-engine/src/variables_cmds.rs`<br>`crates/pc-engine/src/variables_cmds/tests.rs`<br>`crates/pc-engine/src/web_cmds.rs` | MIT OR Apache-2.0 |
+| [`2c4982f2d2981c1685212dd951d7466e4b39fe49`](https://github.com/storytold/photocraft/commit/2c4982f2d2981c1685212dd951d7466e4b39fe49) | Export Data Sets as Files keeps outputs in the chosen folder (#9420) | `crates/pc-engine/src/variables_cmds.rs`<br>`crates/pc-engine/src/variables_cmds/tests.rs`<br>`crates/pc-engine/src/web_cmds.rs` | MIT OR Apache-2.0 |
 
 Document-derived stems replace path separators, controls and reserved filename characters; empty, `.` and `..` stems become `_`. Each template path component also uses the existing Windows device-name handling from the web asset exporter, preserving file extensions.
