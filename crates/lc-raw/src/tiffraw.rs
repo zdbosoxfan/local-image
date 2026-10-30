@@ -753,8 +753,21 @@ mod hostile_tile_tests {
         assert!(refused(check_image(&stream, &largest).err()));
     }
 
+    /// Enough packed bytes for `check_image` (128 for these 262,144 samples) but too few for Deflate, even at its best
+    /// ratio, to have produced the 524,288 visible bytes.
     #[test]
-    fn deflate_chunks_must_cover_the_full_tile() {
+    fn deflate_chunks_too_small_for_their_visible_bytes_are_refused_before_inflating() {
+        let bytes: Vec<u8> = (0..200u32).map(|i| (i * 37) as u8).collect();
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&bytes, 6);
+        assert!((128..256).contains(&packed.len()), "{} packed bytes", packed.len());
+        let mut info = deflate_info(512, 512, 512, 16);
+        info.byte_counts = vec![packed.len() as u64];
+        let error = read_image(&packed, &info, ByteOrder::Little, Packing::Msb).err();
+        assert!(matches!(&error, Some(RawError::Corrupt(message)) if message.contains("packed bytes")), "{error:?}");
+    }
+
+    #[test]
+    fn deflate_chunks_shorter_than_the_visible_rows_are_refused() {
         let mut info = deflate_info(16, 16, 16, 16);
         let packed = miniz_oxide::deflate::compress_to_vec_zlib(&[0u8; 32], 6);
         info.byte_counts = vec![packed.len() as u64];
