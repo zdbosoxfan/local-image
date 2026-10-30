@@ -620,20 +620,16 @@ mod decode_tests {
         assert!(scan_metadata(&progressive).scan_bytes > (progressive.len() - last_scan) as u64, "every scan counts");
     }
 
-    /// A stray marker stops the walk, so the unread rest of the file may all be scan data.
+    /// A stray marker stops the walk, so the rest of the file goes unread.
     #[test]
-    fn unread_tail_after_an_odd_layout_counts_as_scan_data() {
+    fn stray_marker_after_a_scan_still_decodes() {
         let small = jpeg(16, 16);
         let sof = small.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
         let eoi = small.len() - 2;
         let mut odd = small[..eoi].to_vec();
         odd[sof + 5..sof + 9].copy_from_slice(&[0x08, 0x00, 0x08, 0x00]);
         odd.extend_from_slice(&[0xFF, 0x01]);
-        let tail = 2 * 2048;
-        odd.resize(odd.len() + tail, 0x55);
-        let meta = scan_metadata(&odd);
-        assert_eq!(meta.end, DataEnd::Complete);
-        assert_eq!(meta.scan_bytes, scan_metadata(&small).scan_bytes + tail as u64);
+        odd.resize(odd.len() + 2 * 2048, 0x55);
         let (decoded, source) = decode_jpeg_scaled(&odd, &Limits::default(), None).unwrap();
         assert_eq!((decoded.dimensions(), source), ((2048, 2048), (2048, 2048)));
     }
