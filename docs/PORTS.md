@@ -1053,4 +1053,5 @@ The Smooth measurements retain upstream's black-to-white and red-to-blue rows an
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`1121b7979bc6`](https://github.com/storytold/photocraft/commit/1121b7979bc61f398619c2951c9ece1fb8c8fc08) | fix(format): bound ZIP expansion by declared size | `crates/pc-format/src/zip.rs` | MIT OR Apache-2.0 |
+| [`8f782cab1cf9`](https://github.com/storytold/photocraft/commit/8f782cab1cf98fecca7af994ea574cc547e07b8c) | fix(codecs): bound complete JPEGs by their scan data too | `crates/pc-codecs/src/codecs/jpeg.rs` | MIT OR Apache-2.0 |
 | [`68c0f034d507`](https://github.com/storytold/photocraft/commit/68c0f034d507d104a3aff2ed46f01bd800a0af6a) | Plug-ins: refuse a code section with no functions but many bytes instead of panicking (#9679) | `crates/pc-plugins/src/runtime.rs`, `crates/pc-plugins/tests/abi.rs` | MIT OR Apache-2.0 |

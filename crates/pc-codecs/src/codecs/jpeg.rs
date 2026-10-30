@@ -18,6 +18,8 @@ const F: Format = Format::Jpeg;
 const EXIF_HEADER: &[u8] = b"Exif\0\0";
 const XMP_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 const ICC_HEADER: &[u8] = b"ICC_PROFILE\0";
+/// Allows four times the ideal one-bit DC code per 8×8 block before rejecting a JPEG scan.
+const MAX_PIXELS_PER_BYTE: u64 = 2048;
 
 /// Header metadata collected by the one JPEG marker/entropy-data walker.
 #[derive(Default, Debug)]
@@ -32,6 +34,7 @@ pub(crate) struct JpegMeta {
     precision: u8,
     sof: u8,
     first_scan_components: u8,
+    scan_bytes: u64,
     exif_offset: usize,
     mpf: Option<(usize, Vec<u8>)>,
     end: DataEnd,
@@ -133,11 +136,15 @@ pub(crate) fn scan_metadata(b: &[u8]) -> JpegMeta {
             }
             saw_scan = true;
             let start = i;
+            let mut fill_bytes = 0usize;
             while let Some(p) = b.get(i..).and_then(|r| r.iter().position(|&v| v == 0xFF)) {
                 i += p;
                 match b.get(i + 1) {
                     Some(0x00 | 0xD0..=0xD7) => i += 2,
-                    Some(0xFF) => i += 1,
+                    Some(0xFF) => {
+                        i += 1;
+                        fill_bytes = fill_bytes.saturating_add(1);
+                    }
                     _ => break,
                 }
             }
@@ -146,6 +153,8 @@ pub(crate) fn scan_metadata(b: &[u8]) -> JpegMeta {
                 i = b.len();
             }
             scan_data |= i > start;
+            let count = i.saturating_sub(start).saturating_sub(fill_bytes);
+            m.scan_bytes = m.scan_bytes.saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
         }
     };
     if !icc_parts.is_empty() {
@@ -185,6 +194,10 @@ fn decode_jpeg_scaled_inner(bytes: &[u8], limits: &Limits, max_size: Option<(u32
     }
     let (w, h, nc) = meta.frame.ok_or_else(|| err("no frame header"))?;
     limits.check_bytes(w, h, u64::from(nc.max(1)) * if meta.precision > 8 { 2 } else { 1 })?;
+    if u64::from(w) * u64::from(h) / MAX_PIXELS_PER_BYTE > meta.scan_bytes {
+        let what = if meta.end == DataEnd::Truncated { "the truncated scan" } else { "the scan data" };
+        return Err(err(format!("{what} is too short for the frame it declares")));
+    }
     let scale = max_size.filter(|&(mw, mh)| mw > 0 && mh > 0 && (w >= mw.saturating_mul(2) || h >= mh.saturating_mul(2)));
     // zune-jpeg 0.5 misdecodes subsampled non-interleaved sequential scans. jpeg-decoder also
     // supplies DCT scaling and 12/16-bit lossless JPEG. Full-resolution CMYK/YCCK keeps
@@ -557,6 +570,33 @@ mod decode_tests {
         let mut oracle = jpeg_decoder::Decoder::new(bytes.as_slice());
         oracle.scale(24, 16).unwrap();
         assert_eq!(decoded.data(), oracle.decode().unwrap());
+    }
+
+    #[test]
+    fn app_padding_cannot_admit_a_frame_with_too_little_scan_data() {
+        let small = jpeg(16, 16);
+        let fill = vec![b'p'; 65_533];
+        let mut padded = small[..2].to_vec();
+        for _ in 0..4 {
+            segment(&mut padded, 0xFE, &fill);
+        }
+        padded.extend_from_slice(&small[2..]);
+        let (valid, source) = decode_jpeg_scaled(&padded, &Limits::default(), None).unwrap();
+        assert_eq!((valid.dimensions(), source), ((16, 16), (16, 16)));
+        let meta = scan_metadata(&padded);
+        assert_eq!(meta.end, DataEnd::Complete);
+        let required = u64::from(2048u32) * u64::from(2048u32) / MAX_PIXELS_PER_BYTE;
+        assert!(u64::try_from(padded.len()).unwrap_or(u64::MAX) > required, "padding too small");
+        assert!(meta.scan_bytes < required, "{} scan bytes; need {required}", meta.scan_bytes);
+
+        let sof = padded.windows(2).position(|w| w == [0xFF, 0xC0] || w == [0xFF, 0xC2]).unwrap();
+        let mut oversized = padded;
+        oversized[sof + 5..sof + 9].copy_from_slice(&[0x08, 0x00, 0x08, 0x00]);
+        let error = match decode_jpeg_scaled(&oversized, &Limits::default(), Some((16, 16))) {
+            Err(error) => error,
+            Ok((_, dimensions)) => panic!("decoded frame {dimensions:?} with too little scan data"),
+        };
+        assert!(error.to_string().contains("too short"), "{error}");
     }
 
     #[test]
