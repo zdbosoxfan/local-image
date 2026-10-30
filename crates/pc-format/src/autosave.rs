@@ -274,8 +274,8 @@ pub fn list_recovery(recovery_dir: &Path) -> Vec<RecoveryEntry> {
 
 /// A committed `<key>.pcraft` bundle (its manifest is written last) whose sidecar was never
 /// published, e.g. a crash during a document's first autosave. The metadata is rebuilt from the
-/// manifest (read like a load reads it) and its modification time. Incomplete bundles (no
-/// readable manifest) and bundles with anything at the sidecar's path are not entries.
+/// manifest (read like a load reads it) and its modification time. Bundles whose manifest does
+/// not read and bundles with anything at the sidecar's path are not entries.
 fn sidecarless_entry(recovery_dir: &Path, bundle: &Path) -> Option<RecoveryEntry> {
     let key = bundle.file_name()?.to_str()?.strip_suffix(".pcraft")?;
     if key.is_empty() || sanitize(key) != key || std::fs::symlink_metadata(recovery_dir.join(format!("{key}.json"))).is_ok() {
@@ -437,9 +437,9 @@ const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 *
 
 /// Best-effort removal of recovery data nothing can ever load or clean up (upstream PhotoCraft
 /// c20b81b2):
-/// - `<key>.pcraft` bundle folders with no `<key>.json` sidecar and no readable manifest (a
+/// - `<key>.pcraft` bundle folders with no `<key>.json` sidecar and no committed manifest (a
 ///   crash in the middle of a document's first autosave). A sidecar-less bundle whose manifest
-///   was committed is complete and listed by `list_recovery`, so it is kept;
+///   was committed is complete, so it is kept even when this build cannot read it;
 /// - `*.pcsave.tmp` files left by an interrupted atomic write (see [`li_fs::temp_name`])
 ///   that another process created.
 ///
@@ -467,8 +467,7 @@ fn sweep_orphans(recovery_dir: &Path, min_age: std::time::Duration) {
         // Anything at the sidecar's path (even a broken one) keeps the bundle.
         let has_sidecar = std::fs::symlink_metadata(recovery_dir.join(format!("{key}.json"))).is_ok();
         let parts = [path.clone(), path.join("tiles"), path.join("blobs")];
-        // A committed bundle is recoverable work: keep exactly what `list_recovery` lists.
-        if !has_sidecar && sidecarless_entry(recovery_dir, &path).is_none() && parts.iter().all(|p| untouched_for(p, min_age, true)) {
+        if !has_sidecar && is_uncommitted(&path) && parts.iter().all(|p| untouched_for(p, min_age, true)) {
             let _ = std::fs::remove_dir_all(&path);
         } else {
             bundles.extend(parts);
@@ -481,6 +480,19 @@ fn sweep_orphans(recovery_dir: &Path, min_age: std::time::Duration) {
                 sweep_temp_file(&e.path(), min_age);
             }
         }
+    }
+}
+
+/// Whether the first autosave of `bundle` never finished: its manifest, written last, is missing
+/// or stops short. Every other read failure (a format limit, a newer build's bundle, an I/O error)
+/// says nothing about the work inside, so it counts as committed.
+#[cfg(not(target_arch = "wasm32"))]
+fn is_uncommitted(bundle: &Path) -> bool {
+    let source = crate::store::DirSource { root: bundle.to_path_buf() };
+    match crate::store::read_manifest(&source, &crate::LoadOptions::default()) {
+        Err(FormatError::Io(e)) => e.kind() == std::io::ErrorKind::NotFound,
+        Err(FormatError::Json(e)) => e.is_eof(),
+        _ => false,
     }
 }
 
@@ -681,7 +693,7 @@ mod tests {
         sweep_orphans(&dir, std::time::Duration::ZERO);
         assert!(dir.join("first.pcraft").is_dir(), "aged cleanup keeps a committed bundle");
 
-        // Incomplete bundles (no manifest, or one that does not read) are neither listed nor kept.
+        // Incomplete bundles (no manifest, or one that stops short) are neither listed nor kept.
         let partial = dir.join("partial.pcraft");
         std::fs::create_dir_all(partial.join("tiles")).unwrap();
         let broken = dir.join("broken.pcraft");
@@ -691,6 +703,50 @@ mod tests {
         sweep_orphans(&dir, std::time::Duration::ZERO);
         assert!(!partial.exists() && !broken.exists());
         assert!(dir.join("first.pcraft").is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A bundle that cannot be read now is still the only copy of its work: a later build may
+    /// load it, so neither the listing nor the aged sweep may take it away.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_sweep_keeps_a_committed_bundle_whose_manifest_cannot_be_read() {
+        let dir = temp("unreadable");
+        let saver = Autosaver::new(&dir, "large");
+        saver.request(small_doc("Large"), 1, None, SaveOptions::default());
+        assert!(saver.flush().is_some_and(|r| r.is_ok()));
+        let bundle = dir.join("large.pcraft");
+        let manifest = bundle.join(crate::store::MANIFEST);
+        let saved = std::fs::read(&manifest).unwrap();
+        let mut over_limit = b"{\"padding\":[0".to_vec();
+        over_limit.extend(b",0".repeat(4 << 20));
+        over_limit.extend_from_slice(b"],");
+        over_limit.extend_from_slice(&saved[1..]);
+        std::fs::write(&manifest, over_limit).unwrap();
+        let sidecar = dir.join("large.json");
+        let info = std::fs::read(&sidecar).unwrap();
+        std::fs::remove_file(&sidecar).unwrap();
+
+        let newer = dir.join("newer.pcraft");
+        std::fs::create_dir_all(&newer).unwrap();
+        std::fs::write(newer.join(crate::store::MANIFEST), br#"{"format_version":4294967295}"#).unwrap();
+        let blocked = dir.join("blocked.pcraft");
+        std::fs::create_dir_all(blocked.join(crate::store::MANIFEST)).unwrap();
+
+        assert!(list_recovery(&dir).is_empty());
+        sweep_orphans(&dir, std::time::Duration::ZERO);
+        assert!(manifest.is_file(), "a bundle over the manifest limit is kept");
+        assert!(newer.is_dir(), "a bundle from a newer build is kept");
+        assert!(blocked.is_dir(), "a manifest that fails with an I/O error keeps its bundle");
+
+        // With its sidecar the entry is listed, fails to load cleanly and stays on disk.
+        std::fs::write(&sidecar, info).unwrap();
+        let entries = list_recovery(&dir);
+        assert_eq!(entries.len(), 1);
+        let error = recover(&entries[0]).unwrap_err();
+        assert!(matches!(error, FormatError::LimitExceeded(_)), "{error}");
+        assert!(RecoveryStore::new(&dir).recover().is_empty());
+        assert!(manifest.is_file());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
