@@ -1088,3 +1088,11 @@ Package link names are unique case-insensitively across both the current run and
 | [`92a15591381b0967d6276ff2e8b65a8bbd968a18`](https://github.com/storytold/photocraft/commit/92a15591381b0967d6276ff2e8b65a8bbd968a18) | Refuse .pcraft manifests with too many JSON values before parsing (#8893) | `crates/pc-format/src/store.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
 
 The existing linear manifest scan now caps the counts of opened arrays/objects and comma-separated values at 4,194,304 before deserializing the JSON tree. The same scanner protects serialized manifests on save.
+
+## PhotoCraft data-set export filenames (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`2c4982f2d2981c1685212dd951d7466e4b39fe49`](https://github.com/storytold/photocraft/commit/2c4982f2d2981c1685212dd951d7466e4b39) | Export Data Sets as Files keeps outputs in the chosen folder (#9420) | `crates/pc-engine/src/variables_cmds.rs`<br>`crates/pc-engine/src/variables_cmds/tests.rs`<br>`crates/pc-engine/src/web_cmds.rs` | MIT OR Apache-2.0 |
+
+Document-derived stems replace path separators, controls and reserved filename characters; empty, `.` and `..` stems become `_`. Each template path component also uses the existing Windows device-name handling from the web asset exporter, preserving file extensions.

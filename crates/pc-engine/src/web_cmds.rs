@@ -614,14 +614,16 @@ fn quantize_rows(px: &mut [[f32; 4]], w: usize, pal: &[[u8; 3]], dither: Dither,
 fn slice_file(name: &str) -> String {
     let s: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_') { c } else { '_' }).collect();
     let s = if s.is_empty() { "slice".into() } else { s };
-    portable_generated_stem(s)
+    portable_device_name(s)
 }
 
-/// Generated filenames should remain usable on Windows even when a document or slice is named
-/// after a reserved device. Caller-supplied path components are still rejected below.
-/// (Upstream 61b6276c.)
-fn portable_generated_stem(stem: String) -> String {
-    if is_windows_device_asset_name(&stem) { format!("{stem}_") } else { stem }
+/// Keeps a generated path component usable on Windows when its stem names a reserved device.
+pub(crate) fn portable_device_name(name: String) -> String {
+    let (device, suffix) = name.split_once('.').unwrap_or((&name, ""));
+    if !is_windows_device_asset_name(device) {
+        return name;
+    }
+    if suffix.is_empty() { format!("{device}_") } else { format!("{device}_.{suffix}") }
 }
 
 fn html_escape(s: &str) -> String {
@@ -789,7 +791,7 @@ fn save_for_web(s: &mut Session, p: &Value) -> Result<Value> {
     // Slice cell text marked as HTML is document data: emitted raw only when the caller says the
     // document is trusted (upstream 61b6276c); otherwise it is escaped like plain text.
     let trusted_slice_html = p.get("trustedSliceHtml").and_then(Value::as_bool).unwrap_or(false);
-    let base = portable_generated_stem(single.map(stem).unwrap_or_else(|| slices::base_name(&doc)));
+    let base = portable_device_name(single.map(stem).unwrap_or_else(|| slices::base_name(&doc)));
     let mut files = Vec::new();
     let mut cells: Vec<(Rect, String, String)> = Vec::new();
     let mut total = 0usize;
