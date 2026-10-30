@@ -88,6 +88,13 @@ pub fn check_image(data: &[u8], info: &ImageInfo) -> Result<usize> {
     if available.saturating_mul(2048) < total as u64 {
         return Err(RawError::Corrupt(format!("{available} bytes of image data cannot hold {total} samples")));
     }
+    // The tile grid decides how much is decoded, whatever the file's bytes: the nominal sizes of all the chunks
+    // stay within a few times the image (edge tiles pad it).
+    let chunk_cpp = cpp / planes;
+    let nominal = chunks.iter().fold(0usize, |sum, c| sum.saturating_add((c.width as usize).saturating_mul(c.height as usize).saturating_mul(chunk_cpp)));
+    if nominal > total.saturating_mul(4).saturating_add(1 << 24) {
+        return Err(RawError::Corrupt("the tile grid is much larger than the image".into()));
+    }
     Ok(total)
 }
 
@@ -723,6 +730,27 @@ mod hostile_tile_tests {
         jpeg_encoder::Encoder::new(&mut bytes, 90).encode(&[128; 16 * 16 * 3], 16, 16, jpeg_encoder::ColorType::Rgb).unwrap();
         assert!(lossy_jpeg(&bytes, 3, 1, 1).is_err());
         assert!(lossy_jpeg(&bytes, 3, 16, 16).is_ok());
+    }
+
+    /// Every tile shares one tiny stream, so the file's size says nothing about the work: the predictor would walk
+    /// all 4096 x 4096 samples of each tile for the single row inside the image. `check_image` alone is asserted on
+    /// the largest grid, which stays cheap there even if the check goes missing.
+    #[test]
+    fn a_tile_grid_much_larger_than_the_image_is_refused_before_decoding() {
+        let stream = miniz_oxide::deflate::compress_to_vec_zlib(&[0u8; 8192], 6);
+        let grid = |width: u32| {
+            let tiles = width.div_ceil(4096) as usize;
+            let mut info = deflate_info(width, 1, 4096, 16);
+            info.predictor = 2;
+            info.offsets = vec![0; tiles];
+            info.byte_counts = vec![stream.len() as u64; tiles];
+            info
+        };
+        let refused = |error: Option<RawError>| matches!(error, Some(RawError::Corrupt(message)) if message.contains("tile grid"));
+        let (small, largest) = (grid(1 << 16), grid(1 << 28));
+        assert!(refused(read_image(&stream, &small, ByteOrder::Little, Packing::Msb).err()));
+        assert!(refused(read_image_in(crate::Mode::Header, &stream, &small, ByteOrder::Little, Packing::Msb).err()));
+        assert!(refused(check_image(&stream, &largest).err()));
     }
 
     #[test]
