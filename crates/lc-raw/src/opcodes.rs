@@ -610,34 +610,18 @@ pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, b: Binning) {
     let b = Binning { k: b.k.max(1), ..b };
     let mut passes = 0;
     for op in list {
+        if !matches!(op, Opcode::TrimBounds { .. } | Opcode::Unknown { .. }) {
+            if passes >= MAX_LIST3_PASSES {
+                continue;
+            }
+            passes += 1;
+        }
         match op {
-            Opcode::WarpRectilinear { planes, center } => {
-                if passes >= MAX_LIST3_PASSES {
-                    continue;
-                }
-                passes += 1;
-                *img = warp_rectilinear_binned(img, planes, *center, b);
-            }
-            Opcode::WarpFisheye { planes, center } => {
-                if passes >= MAX_LIST3_PASSES {
-                    continue;
-                }
-                passes += 1;
-                *img = warp_fisheye_binned(img, planes, *center, b);
-            }
+            Opcode::WarpRectilinear { planes, center } => *img = warp_rectilinear_binned(img, planes, *center, b),
+            Opcode::WarpFisheye { planes, center } => *img = warp_fisheye_binned(img, planes, *center, b),
             Opcode::TrimBounds { .. } | Opcode::Unknown { .. } => {}
-            Opcode::FixVignetteRadial { k, center } => {
-                if passes >= MAX_LIST3_PASSES {
-                    continue;
-                }
-                passes += 1;
-                vignette(img.data.as_flattened_mut(), w, h, 3, k, *center, b);
-            }
+            Opcode::FixVignetteRadial { k, center } => vignette(img.data.as_flattened_mut(), w, h, 3, k, *center, b),
             Opcode::GainMap { area, points_v, points_h, spacing, origin, map_planes, gains } if b.k > 1 => {
-                if passes >= MAX_LIST3_PASSES {
-                    continue;
-                }
-                passes += 1;
                 // the binned pixels whose centre lies in the area's sensor pixels
                 let edge = |e: u32, axis: usize| b.binned_at(e as f64 - 0.5, axis).ceil().clamp(0.0, u32::MAX as f64) as u32;
                 let binned =
@@ -649,13 +633,7 @@ pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, b: Binning) {
                     *v *= gain_at(*points_v, *points_h, *spacing, *origin, *map_planes, gains, rv, rh, p - area.plane as usize);
                 });
             }
-            other => {
-                if passes >= MAX_LIST3_PASSES {
-                    continue;
-                }
-                passes += 1;
-                apply_list(std::slice::from_ref(other), img.data.as_flattened_mut(), w, h, 3, None, 1.0);
-            }
+            other => apply_list(std::slice::from_ref(other), img.data.as_flattened_mut(), w, h, 3, None, 1.0),
         }
     }
 }
