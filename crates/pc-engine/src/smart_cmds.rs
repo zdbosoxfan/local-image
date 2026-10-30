@@ -193,7 +193,7 @@ pub fn source_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, 
         return Ok(image);
     }
     let doc = decode_source(file_name, bytes)?;
-    let projected = crate::vector_integration::project_document(&doc)?;
+    let projected = crate::vector_integration::project_for_output(&doc)?;
     let surface = plain_image_surface(&projected, fmt, target)?;
     let surface = match surface {
         Some(surface) => surface,
@@ -279,7 +279,7 @@ pub fn stack_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, m
         return Ok(img);
     }
     let doc = decode_source(file_name, bytes)?;
-    let doc = crate::vector_integration::project_document(&doc)?;
+    let doc = crate::vector_integration::project_for_output(&doc)?;
     let mut frame_doc = doc.clone();
     frame_doc.layers.clear();
     let layers: &[Layer] = match doc.layers.as_slice() {
