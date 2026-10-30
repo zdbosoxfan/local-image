@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 mod clipping;
 pub mod gradient;
 pub mod validate;
-pub use clipping::{Clipping, clipping_source_eligible};
+pub use clipping::{Clipping, clipping_source_eligible, in_clipping_chain};
 
 #[derive(Debug)]
 pub enum Error {

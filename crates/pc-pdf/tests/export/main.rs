@@ -120,6 +120,21 @@ fn over_budget() -> Path {
     Path::new(subpaths)
 }
 #[test]
+fn pdf_export_names_the_base_of_a_clipping_chain_with_an_over_budget_stroke() {
+    let mut path = over_budget();
+    path.subpaths.truncate(1100);
+    let mut doc = scene(path, Fill::Solid(Color::WHITE));
+    let LayerContent::Shape(shape) = &mut doc.layers[0].content else { panic!("the scene is a shape") };
+    shape.stroke = Some(ShapeStroke { width: 2.0, align: StrokeAlign::Inside, ..Default::default() });
+    let mut child = Layer::new("Clipped", LayerContent::Fill(Fill::Solid(Color::BLACK)));
+    child.clipped = true;
+    doc.layers.push(child);
+    let Err(ExportError::Invalid(message)) = export::export(&doc, &ExportScope::Document, &ExportOptions::default()) else {
+        panic!("the export must fail, not write the file without the path")
+    };
+    assert!(message.contains("clipping chain of layer \"Artwork\""), "{message}");
+}
+#[test]
 fn pdf_export_of_an_over_budget_path_fails_naming_its_layer() {
     let fill = Fill::Solid(Color::WHITE);
     let filled = scene(over_budget(), fill.clone());

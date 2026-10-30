@@ -12,8 +12,8 @@ use photocraft_doc::vector_design::exchange::{ExportScope, ExportedVector, Vecto
 use photocraft_doc::{BlendMode, Document, Fill, FillRule, Layer, LayerContent, LayerId, Path, ShapeLayer, ShapeStroke};
 use photocraft_export_common::validate::Preflight;
 use photocraft_export_common::{
-    Clipping, clipping_base_independent, clipping_end, clipping_source_eligible, closed_isolated_group, effect_margin, mask_allocation_bytes, normalized_fill,
-    painted_shapes, partial_backdrop_dependency, path_error, soft_mask_sampling_canvas,
+    Clipping, clipping_base_independent, clipping_end, clipping_source_eligible, closed_isolated_group, effect_margin, in_clipping_chain,
+    mask_allocation_bytes, normalized_fill, painted_shapes, partial_backdrop_dependency, path_error, soft_mask_sampling_canvas,
 };
 use photocraft_geom::Rect;
 use serde::{Deserialize, Serialize};
@@ -552,7 +552,7 @@ impl Writer<'_, '_, '_> {
             if base.visible && base.opacity > 0.0 {
                 if clipped.iter().any(|l| l.visible && l.opacity > 0.0) {
                     if let Some(source) = self.clipping_source(base, clipped)? {
-                        self.layers_plain(s, std::slice::from_ref(&source), depth)?;
+                        in_clipping_chain(base, || self.layers_plain(s, std::slice::from_ref(&source), depth))?;
                     } else {
                         self.warn("clipping chain", "This isolated clipping chain was embedded as an image; unrelated artwork remains vector.");
                         let rect = layer_bounds(std::slice::from_ref(base), self.doc, self.cx)?.intersect(&self.rect);
