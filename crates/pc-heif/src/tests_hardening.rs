@@ -348,9 +348,9 @@ fn primary_with_over_budget_zero_width_extents() -> Vec<u8> {
 }
 
 // Entries carry no extent bytes, so a nonzero extent count needs zero-width fields to parse.
-fn primary_with_iloc_entries(version: u8, field_sizes: u8, declared_items: u32, extent_counts: &[u16]) -> Vec<u8> {
+fn primary_with_iloc_entries(version: u8, field_sizes: u8, field_sizes2: u8, declared_items: u32, extent_counts: &[u16]) -> Vec<u8> {
     let id_width = if version < 2 { 2 } else { 4 };
-    let mut payload = vec![field_sizes, 0];
+    let mut payload = vec![field_sizes, field_sizes2];
     push_uint(&mut payload, declared_items, id_width);
     for (id, extent_count) in (1..).zip(extent_counts) {
         push_uint(&mut payload, id, id_width);
@@ -358,6 +358,7 @@ fn primary_with_iloc_entries(version: u8, field_sizes: u8, declared_items: u32, 
             payload.extend_from_slice(&[0, 1]);
         }
         payload.extend_from_slice(&[0, 0]);
+        push_uint(&mut payload, 0, field_sizes2 >> 4);
         payload.extend_from_slice(&extent_count.to_be_bytes());
     }
     let locations = full_box(b"iloc", version, 0, &payload);
@@ -441,7 +442,7 @@ fn probe_reports_alpha_for_regular_and_grid_auxiliary_items() {
 fn iloc_extent_budget_bounds_allocations_without_rejecting_large_payloads() {
     let many_extents = probe(&primary_with_wide_extents(4096));
     let zero_width_extents = probe(&primary_with_over_budget_zero_width_extents());
-    let item_entries = probe(&primary_with_iloc_entries(2, 0, 65_537, &vec![0; 65_537]));
+    let item_entries = probe(&primary_with_iloc_entries(2, 0, 0, 65_537, &vec![0; 65_537]));
     assert!(
         matches!(&many_extents, Ok(Info { width: 1, height: 1, .. }))
             && matches!(&zero_width_extents, Err(Error::Limit(message)) if message.contains("extent"))
@@ -453,10 +454,10 @@ fn iloc_extent_budget_bounds_allocations_without_rejecting_large_payloads() {
 #[test]
 fn iloc_census_counts_every_record_heic_rs_builds() {
     // Each list declares one entry more than it holds, and heic-rs parses until the bytes run out.
-    let cut_short_extents = probe(&primary_with_iloc_entries(0, 0, 3, &[40_000, 40_000]));
-    let cut_short_items = probe(&primary_with_iloc_entries(2, 0, 65_538, &vec![0; 65_537]));
+    let cut_short_extents = probe(&primary_with_iloc_entries(0, 0, 0, 3, &[40_000, 40_000]));
+    let cut_short_items = probe(&primary_with_iloc_entries(2, 0, 0, 65_538, &vec![0; 65_537]));
     // heic-rs checks a field width only when it reads one, so entries without extents still parse.
-    let unknown_width_items = probe(&primary_with_iloc_entries(2, 0x10, 65_537, &vec![0; 65_537]));
+    let unknown_width_items = probe(&primary_with_iloc_entries(2, 0x10, 0, 65_537, &vec![0; 65_537]));
     // A walk that lost its place in the extent bytes would read the second entry's count as zero.
     let indexed_extent = Extent { index: 0, offset: 0, length: 0 };
     let locations =
@@ -469,14 +470,26 @@ fn iloc_census_counts_every_record_heic_rs_builds() {
             && matches!(&extents_with_bytes, Err(Error::Limit(message)) if message.contains("item extents")),
         "cut-short extents: {cut_short_extents:?}; cut-short items: {cut_short_items:?}; unknown-width items: {unknown_width_items:?}; extents with bytes: {extents_with_bytes:?}"
     );
+
+    // Each row holds one extent over the cap, so a walk that misreads a field or forgets a box passes it.
+    let lone_box = |id, extent_count| iloc(&[Location { id, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 0 }; extent_count] }], 0, 0, 0);
+    let rows = [
+        ("base offset width", primary_with_iloc_entries(1, 0, 0x40, 2, &[40_000, 25_537])),
+        ("version 0 index nibble", primary_with_iloc_entries(0, 0, 0x04, 2, &[40_000, 25_537])),
+        ("two boxes", heif(&[hdlr(), pitm(1), iinf(&[infe(1, b"hvc1", None)]), lone_box(1, 40_000), lone_box(2, 25_537)])),
+    ];
+    for (row, bytes) in rows {
+        let result = probe(&bytes);
+        assert!(matches!(&result, Err(Error::Limit(message)) if message.contains("item extents")), "{row}: {result:?}");
+    }
 }
 
 #[test]
 fn iloc_caps_accept_files_exactly_at_their_record_limits() {
-    let at_extent_cap = probe(&primary_with_iloc_entries(1, 0, 2, &[1, 65_535]));
+    let at_extent_cap = probe(&primary_with_iloc_entries(1, 0, 0, 2, &[1, 65_535]));
     let mut extent_counts = vec![0; 65_536];
     extent_counts[0] = 1;
-    let at_item_cap = probe(&primary_with_iloc_entries(2, 0, 65_536, &extent_counts));
+    let at_item_cap = probe(&primary_with_iloc_entries(2, 0, 0, 65_536, &extent_counts));
     assert!(
         matches!(&at_extent_cap, Ok(Info { width: 1, height: 1, .. })) && matches!(&at_item_cap, Ok(Info { width: 1, height: 1, .. })),
         "at the extent cap: {at_extent_cap:?}; at the item cap: {at_item_cap:?}"
