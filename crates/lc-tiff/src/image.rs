@@ -247,6 +247,11 @@ mod chunk_offset_regressions {
             byte_counts: vec![8],
         };
         assert_eq!(one.single_chunk(100), one.chunks(100).first().copied());
+        let inferred = ImageInfo { offsets: vec![70], byte_counts: vec![], ..one.clone() };
+        assert_eq!(inferred.single_chunk(100).map(|chunk| chunk.len), Some(30));
+        assert_eq!(inferred.single_chunk(100), inferred.chunks(100).first().copied());
+        let empty = ImageInfo { offsets: vec![], byte_counts: vec![], ..one.clone() };
+        assert!(empty.single_chunk(100).is_none());
         let mut multiple = one;
         multiple.offsets.push(30);
         multiple.byte_counts.push(8);
