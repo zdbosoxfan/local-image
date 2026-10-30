@@ -481,12 +481,12 @@ const MAX_TREE_DEPTH: usize = 128;
 const MAX_NODES: usize = 500_000;
 const MAX_CHILD_SLOTS: usize = 8_000_000;
 const MAX_NAME_BYTES: usize = 64 << 20;
-/// Page rectangles read across the document, counting both reads of each embedded document; real
+/// Page rectangles read across the document, counting every read of an embedded document; real
 /// books have a few hundred.
 const MAX_PAGES: usize = 1 << 18;
-/// Font-name bytes read by text runs across the document, counting both reads of each embedded
-/// document.
-const MAX_FONT_NAME_BYTES: usize = 16 << 20;
+/// Font-name bytes read by text runs and copied into table cells across the document, counting
+/// every read of an embedded document. The imported scene has the same cap on its own copies.
+pub(crate) const MAX_FONT_NAME_BYTES: usize = 16 << 20;
 const MAX_DOCUMENT_CHARS: usize = 16 << 20;
 const MAX_DOCUMENT_CELLS: usize = 1 << 18;
 const MAX_EMBED_DEPTH: usize = 4;

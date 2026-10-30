@@ -393,6 +393,26 @@ fn font_name_budget_spans_table_cells_and_keeps_their_text() {
     assert!(table.cells[1099].runs[0].family.is_empty());
 }
 
+#[test]
+fn font_name_budget_spans_the_scene_copies_of_repeated_master_pages() {
+    let master = F::Def(42, vec![tag(b"Sprd")], vec![(tag(b"SprB"), F::F64s(vec![0., 0., 64., 64.])), (tag(b"Chld"), F::Shared(vec![font_heavy_story(43)]))]);
+    let instance = || F::Obj(tag(b"MPIN"), vec![(tag(b"SLnk"), F::Obj(tag(b"Link"), vec![(tag(b"ILOb"), F::Shared(vec![F::Ref(42)]))]))]);
+    let scene = import(&container(vec![instance(), instance()], vec![master], None, &[]), &ImportOptions::default()).unwrap();
+    let layers = walk(&scene.layers);
+    let texts: Vec<_> = layers.iter().filter_map(|l| if let LayerContent::Text(t) = &l.content { Some(t) } else { None }).collect();
+    let kept: usize = texts
+        .iter()
+        .map(|t| {
+            t.font_family.len() + t.runs.iter().map(|r| r.style.font_family.len() + r.style.postscript_name.as_ref().map_or(0, String::len)).sum::<usize>()
+        })
+        .sum();
+    assert_eq!(texts.iter().map(|t| t.text.len()).collect::<Vec<_>>(), [512, 512]);
+    assert_eq!(texts[0].runs[0].style.font_family.len(), 16 * 1024);
+    assert!(texts[1].runs.last().unwrap().style.font_family.is_empty());
+    assert!(kept <= 16 << 20, "kept {kept} bytes of font names");
+    assert!(scene.warnings.iter().any(|w| w.feature == "font-name-budget"), "{:?}", scene.warnings);
+}
+
 fn paged_document(pages: usize) -> Vec<u8> {
     let pages = (0..pages).map(|_| vec![(tag(b"rctp"), F::F64s(vec![0., 0., 10., 10.]))]).collect();
     let spread = F::Def(
