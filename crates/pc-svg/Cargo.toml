@@ -17,7 +17,7 @@ photocraft-compose.workspace = true
 photocraft-export-common.workspace = true
 image.workspace = true
 kurbo.workspace = true
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 serde.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
