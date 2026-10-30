@@ -36,8 +36,10 @@ use crate::kernel::pathfinder::{Region, Shape};
 const SHEAR: Affine = Affine::new([1.0, 1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 const UNSHEAR: Affine = Affine::new([1.0, -1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 
-/// Boundary crossings per input, counted from the far west. Only nonzero slots are stored because
-/// the sweep keeps one crossing value for every edge.
+/// Boundary crossings per input, counted from the far west: slot `2i` counts input `i`'s
+/// segments running one way, slot `2i + 1` the other. An open path traced there and back adds one
+/// to each, so its edges never cancel out of the map. Only nonzero slots are stored because the
+/// sweep keeps one crossing value for every edge.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Crossings(Vec<(usize, u32)>);
 
