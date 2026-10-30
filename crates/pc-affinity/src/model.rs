@@ -507,6 +507,8 @@ pub(crate) struct Budget {
     pixels: u64,
     child_slots: usize,
     name_bytes: usize,
+    pages: usize,
+    font_name_bytes: usize,
     pub(crate) owned: usize,
     pub(crate) chars: usize,
     pub(crate) cells: usize,
@@ -528,8 +530,6 @@ pub(crate) struct Reader<'s, 'a, 'b> {
     master_ids: BTreeMap<ObjId, usize>,
     active: HashSet<ObjId>,
     pub(crate) segments: usize,
-    pages: usize,
-    font_name_bytes: usize,
     pub(crate) failure: Option<Error>,
 }
 
@@ -552,8 +552,6 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             master_ids: BTreeMap::new(),
             active: HashSet::new(),
             segments: 0,
-            pages: 0,
-            font_name_bytes: 0,
             failure: None,
         }
     }
@@ -573,8 +571,8 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
     }
 
     pub(crate) fn charge_font_name(&mut self, bytes: usize) -> bool {
-        self.font_name_bytes = self.font_name_bytes.saturating_add(bytes);
-        self.font_name_bytes <= MAX_FONT_NAME_BYTES
+        self.budget.font_name_bytes = self.budget.font_name_bytes.saturating_add(bytes);
+        self.budget.font_name_bytes <= MAX_FONT_NAME_BYTES
     }
 
     pub(crate) fn charge_owned(&mut self, bytes: usize) -> bool {
@@ -1283,7 +1281,7 @@ impl Reader<'_, '_, '_> {
             if !self.charge_slots(s.array_len(md, b"PagR")) {
                 return Err(self.failure.unwrap_or(Error::Limit("array traversal slots")));
             }
-            let remaining = MAX_PAGES.saturating_sub(self.pages);
+            let remaining = MAX_PAGES.saturating_sub(self.budget.pages);
             let mut pages = Vec::new();
             for page in s.objs(md, b"PagR") {
                 s.check_finite(page, b"rctp")?;
@@ -1317,8 +1315,8 @@ impl Reader<'_, '_, '_> {
     }
 
     fn charge_pages(&mut self, count: usize) -> Result<(), Error> {
-        self.pages = self.pages.saturating_add(count);
-        if self.pages > MAX_PAGES { Err(Error::Limit("too many pages")) } else { Ok(()) }
+        self.budget.pages = self.budget.pages.saturating_add(count);
+        if self.budget.pages > MAX_PAGES { Err(Error::Limit("too many pages")) } else { Ok(()) }
     }
 }
 
