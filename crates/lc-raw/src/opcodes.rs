@@ -359,7 +359,7 @@ pub fn parse_list(d: &[u8]) -> Vec<Opcode> {
         let Some(params) = d.get(r.p..r.p.saturating_add(size as usize)) else { break };
         r.p += size as usize;
         let op = if id == 8 && polynomials >= MAX_POLYNOMIALS {
-            // The skipped polynomial is a no-op; its coefficients need not be retained.
+            // A polynomial past the cap is never applied, so its coefficients need not be retained.
             Opcode::Unknown { id, flags, params: Vec::new() }
         } else if let Some(op) = parse_one(id, flags, params) {
             if matches!(&op, Opcode::MapPolynomial { .. }) {
