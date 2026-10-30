@@ -203,6 +203,9 @@ fn photoshop_iptc(mut b: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+const PNG_XMP_KEYWORD: &[u8] = b"XML:com.adobe.xmp\0";
+const PNG_RAW_PROFILE: &[u8] = b"Raw profile type ";
+
 /// PNG chunks: `eXIf`, uncompressed `iTXt` XMP. XMP in any other chunk and raw metadata profiles
 /// (hex-encoded `Raw profile type ...` text chunks) count as unread.
 pub fn png_chunks(b: &[u8]) -> Embedded {
@@ -212,7 +215,8 @@ pub fn png_chunks(b: &[u8]) -> Embedded {
         let len = u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as usize;
         let typ = &b[i + 4..i + 8];
         let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else {
-            if matches!(typ, b"eXIf" | b"iTXt" | b"zTXt" | b"tEXt") {
+            let rest = &b[i + 8..];
+            if matches!(typ, b"iTXt" | b"zTXt" | b"tEXt") && (rest.starts_with(PNG_XMP_KEYWORD) || rest.starts_with(PNG_RAW_PROFILE)) {
                 out.unread.get_or_insert(CUT_OFF);
             }
             break;
@@ -224,9 +228,9 @@ pub fn png_chunks(b: &[u8]) -> Embedded {
                 }
                 out.exif = Some(crate::strip_exif_header(data).to_vec());
             }
-            b"iTXt" if data.starts_with(b"XML:com.adobe.xmp\0") => {
+            b"iTXt" if data.starts_with(PNG_XMP_KEYWORD) => {
                 // keyword\0 compression-flag compression-method language\0 translated\0 text
-                let rest = &data[18..];
+                let rest = &data[PNG_XMP_KEYWORD.len()..];
                 if rest.len() >= 2 && rest[0] == 0 {
                     let rest = &rest[2..];
                     let mut parts = rest.splitn(3, |&c| c == 0);
@@ -243,10 +247,10 @@ pub fn png_chunks(b: &[u8]) -> Embedded {
                     out.unread.get_or_insert("compressed XMP");
                 }
             }
-            b"zTXt" | b"tEXt" if data.starts_with(b"XML:com.adobe.xmp\0") => {
+            b"zTXt" | b"tEXt" if data.starts_with(PNG_XMP_KEYWORD) => {
                 out.unread.get_or_insert("XMP in a text chunk");
             }
-            b"iTXt" | b"zTXt" | b"tEXt" if data.starts_with(b"Raw profile type ") => {
+            b"iTXt" | b"zTXt" | b"tEXt" if data.starts_with(PNG_RAW_PROFILE) => {
                 out.unread.get_or_insert("a raw metadata profile");
             }
             b"IEND" => break,
@@ -265,7 +269,7 @@ pub fn webp_chunks(b: &[u8]) -> Embedded {
         let id = &b[i..i + 4];
         let len = u32::from_le_bytes([b[i + 4], b[i + 5], b[i + 6], b[i + 7]]) as usize;
         let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else {
-            if matches!(id, b"EXIF" | b"XMP ") {
+            if id == b"XMP " {
                 out.unread.get_or_insert(CUT_OFF);
             }
             break;

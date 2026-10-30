@@ -932,11 +932,6 @@ fn remove_location_refuses_metadata_blocks_it_cannot_read() {
     let plain = lightcraft_meta::Metadata::default();
     let (exif, gps_exif) = (lightcraft_meta::write_exif(&plain), lightcraft_meta::write_exif(&gps_metadata()));
     let (xmp, gps_xmp) = (lightcraft_meta::write_xmp(&plain, None).into_bytes(), lightcraft_meta::write_xmp(&gps_metadata(), None).into_bytes());
-    let cut_off = {
-        let mut file = png_with(&[(b"eXIf", gps_exif.clone())]);
-        file.truncate(8 + 8 + gps_exif.len() / 2);
-        file
-    };
     let files = [
         ("compressed XMP", png_with(&[(b"iTXt", b"XML:com.adobe.xmp\0\x01\0\0\0deflated".to_vec())])),
         ("XMP in a text chunk", png_with(&[(b"zTXt", b"XML:com.adobe.xmp\0\0deflated".to_vec())])),
@@ -950,7 +945,11 @@ fn remove_location_refuses_metadata_blocks_it_cannot_read() {
         ("a second XMP packet", png_with(&[png_xmp(&gps_xmp), png_xmp(&xmp)])),
         ("a second Exif block", webp_with(&[(b"EXIF", &gps_exif), (b"EXIF", &exif)])),
         ("a second XMP packet", webp_with(&[(b"XMP ", &gps_xmp), (b"XMP ", &xmp)])),
-        ("a cut-off metadata block", cut_off),
+        ("a cut-off metadata block", png_with(&[png_xmp(&gps_xmp)])[..60].to_vec()),
+        ("a cut-off metadata block", webp_with(&[(b"XMP ", &gps_xmp)])[..60].to_vec()),
+        ("a cut-off metadata block", png_with(&[(b"tEXt", [b"Raw profile type exif\0", &gps_xmp[..]].concat())])[..60].to_vec()),
+        ("a cut-off metadata block", png_with(&[(b"iTXt", b"XML:com.adobe.xmp\0\0\0".to_vec())])),
+        ("a cut-off metadata block", jpeg_with(&[(0xe1, b"http://ns.adobe.com/xmp/extension/\0short".to_vec())])),
     ];
     let mut copied = Vec::new();
     for (index, (block, file)) in files.iter().enumerate() {
@@ -1024,6 +1023,20 @@ fn remove_location_copies_readable_packets_without_a_location() {
         for (container, file) in containers_with_xmp(packet.as_bytes()) {
             assert_eq!(remove_location_from(&dir, &file).as_deref(), Ok(&file[..]), "{container}: {packet}");
         }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Corrupt Exif outside PSD stays best-effort, and a text chunk under another keyword says nothing.
+#[test]
+fn remove_location_copies_files_cut_off_in_other_chunks() {
+    let dir = temp_dir("export-noloc-cut-off");
+    let exif = lightcraft_meta::write_exif(&gps_metadata());
+    let comment = [&b"Comment\0"[..], &[b'a'; 64]].concat();
+    let files = [png_with(&[(b"eXIf", exif.clone())]), webp_with(&[(b"EXIF", &exif)]), png_with(&[(b"tEXt", comment)])];
+    for file in files {
+        let cut_off = &file[..60];
+        assert_eq!(remove_location_from(&dir, cut_off).as_deref(), Ok(cut_off));
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
