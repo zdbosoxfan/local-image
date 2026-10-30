@@ -324,6 +324,7 @@ impl Arrangement {
         let mut flattened_fallback = false;
         let top = match sweep(&paths) {
             Ok(top) => top,
+            Err(PathOpsError::TooComplex) => return Err(PathOpsError::TooComplex),
             Err(_) => {
                 // Quality-plan retry ladder: snap-round, then sweep flattened polygons.
                 // Never retry invalid coordinates. Keep the original input untouched.
@@ -366,6 +367,7 @@ impl Arrangement {
                         paths = snapped;
                         top
                     }
+                    Err(PathOpsError::TooComplex) => return Err(PathOpsError::TooComplex),
                     Err(_) => {
                         // Bound the fallback arrangement: pathological self-crossing curves can
                         // otherwise create millions of polygon intersections and exhaust RAM.
@@ -802,16 +804,21 @@ mod dsfix_tests {
         assert!(flatten_fallback(&[(ring(8194), FillRule::NonZero)], 200.).is_err());
     }
 
-    #[test]
-    fn compact_self_crossing_path_is_refused_when_segment_bounds_exceed_budget() {
-        let mut anchors = Vec::with_capacity(4097);
+    /// A closed path out to the unit circle and back to the origin, `count` times.
+    fn spokes(count: usize) -> PathData {
+        let mut anchors = Vec::with_capacity(2 * count + 1);
         anchors.push(Anchor::corner(Point::ZERO));
-        for i in 0..2048 {
-            let angle = std::f64::consts::TAU * i as f64 / 2048.0;
+        for i in 0..count {
+            let angle = std::f64::consts::TAU * i as f64 / count as f64;
             anchors.push(Anchor::corner(Point::new(angle.cos(), angle.sin())));
             anchors.push(Anchor::corner(Point::ZERO));
         }
-        let path = PathData::single(SubPath::new(anchors, true));
+        PathData::single(SubPath::new(anchors, true))
+    }
+
+    #[test]
+    fn compact_self_crossing_path_is_refused_when_segment_bounds_exceed_budget() {
+        let path = spokes(2048);
 
         let result = try_normalize(&path, FillRule::NonZero);
         assert_eq!(
@@ -819,5 +826,24 @@ mod dsfix_tests {
             Some("the shapes cross themselves and each other too often to combine".to_owned()),
             "all segment bounds meet at the center, so this compact path must stop at the operation budget",
         );
+    }
+
+    #[test]
+    fn over_budget_geometry_is_refused_instead_of_retried() {
+        // More segments than the flatten fallback's chord cap.
+        let past_the_chord_cap = spokes(5000);
+        // The quadrant bounds of concentric circles all meet at the centre, but these are small
+        // enough to flatten into few chords, whose bounds fit the budget and the chord cap.
+        let flattenable_curves = PathData::new(
+            (0..800)
+                .flat_map(|i| {
+                    let radius = 0.001 + f64::from(i) * 1.4e-5;
+                    crate::geom::shapes::ellipse(kurbo::Rect::new(-radius, -radius, radius, radius)).subpaths
+                })
+                .collect(),
+        );
+
+        let results = [past_the_chord_cap, flattenable_curves].map(|path| try_normalize(&path, FillRule::NonZero).err());
+        assert_eq!(results, [Some(PathOpsError::TooComplex); 2]);
     }
 }
