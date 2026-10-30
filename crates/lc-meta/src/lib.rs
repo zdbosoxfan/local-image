@@ -347,9 +347,7 @@ pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
         Some(t) => from_tiff_with_bytes(bytes, t),
         None => e.exif.as_deref().map(read_exif).unwrap_or_default(),
     };
-    // A TIFF-based file's packet is IFD0's, which `from_tiff_with_bytes` has already read and logged.
-    let parse = if tiff.is_some() { parse_xmp } else { xmp::parse_xmp_logged };
-    let xmp = e.xmp.as_deref().and_then(|x| parse(x).ok()).map(|x| x.metadata);
+    let xmp = e.xmp.as_deref().and_then(|x| xmp::parse_xmp_logged(x).ok()).map(|x| x.metadata);
     (extract_embedded(&e, m, xmp), e.xmp)
 }
 

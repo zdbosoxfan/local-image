@@ -13,6 +13,7 @@ use lightcraft_geom::{Point, Rect};
 use quick_xml::escape::{escape, partial_escape};
 use quick_xml::events::Event;
 use std::collections::BTreeMap;
+use std::sync::atomic::AtomicU64;
 
 /// LightCraft's XMP namespace URI (prefix `lc`).
 pub const LC_NS: &str = "http://ns.lightcraft.app/lc/1.0/";
@@ -523,8 +524,9 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
 
 /// [`parse_xmp`] for this crate's own readers, whose callers never see [`XmpData::property_keys_truncated`].
 pub(crate) fn parse_xmp_logged(s: &str) -> Result<XmpData, XmpError> {
+    static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
     let data = parse_xmp(s)?;
-    if data.property_keys_truncated {
+    if data.property_keys_truncated && lightcraft_tiff::is_new_block(&LAST_WARNED, s.as_bytes()) {
         log::warn!("XMP packet: properties past the {MAX_FLATTENED_PROPERTY_KEY_BYTES}-byte flattened-key budget were ignored, so later fields are missing");
     }
     Ok(data)

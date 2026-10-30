@@ -6,8 +6,9 @@
 //! vendors' own published notes; no third-party code was consulted.
 
 use crate::reader::parse_ifd_counted;
-use crate::{ByteOrder, Ifd, ParseOptions};
+use crate::{ByteOrder, Ifd, ParseOptions, is_new_block};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::AtomicU64;
 
 /// Maker-note dialects we know how to locate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,7 +66,8 @@ pub fn parse_makernote(data: &[u8], offset: u64, len: u64, order: ByteOrder, mak
         if ifd.entries.is_empty() {
             return None;
         }
-        if over_budget > 0 {
+        static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
+        if over_budget > 0 && is_new_block(&LAST_WARNED, note) {
             log::warn!("{kind:?} maker note: entries dropped past the {VALUE_BUDGET}-byte value budget: {over_budget}");
         }
         Some(MakerNote { kind, order: ord, base, ifd })
