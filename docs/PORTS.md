@@ -1047,3 +1047,9 @@ The literal/pattern-only method-field adaptations in dc209948 are local: `crates
 `crates/pc-ui-egui/src/vector_packages/appearance.rs`, `crates/pc-ui-egui/tests/gpu/vector_integration.rs`
 and `crates/pc-vector/src/profile_tests.rs`.
 The Smooth measurements retain upstream's black-to-white and red-to-blue rows and two-level tolerance.
+
+## PhotoCraft parser hardening (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`1121b7979bc6`](https://github.com/storytold/photocraft/commit/1121b7979bc61f398619c2951c9ece1fb8c8fc08) | fix(format): bound ZIP expansion by declared size | `crates/pc-format/src/zip.rs` | MIT OR Apache-2.0 |
