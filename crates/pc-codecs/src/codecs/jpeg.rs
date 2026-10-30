@@ -46,6 +46,8 @@ enum DataEnd {
     Complete,
     Truncated,
     Empty,
+    /// The walk stopped at a byte it can't read past, before any end of image.
+    Unread,
 }
 
 /// Walk marker segments and entropy-coded scans together. Segment lengths prevent an embedded
@@ -67,9 +69,7 @@ pub(crate) fn scan_metadata(b: &[u8]) -> JpegMeta {
         if byte != 0xFF {
             // The Library historically accepted padding between header segments.
             if saw_scan {
-                // The walk can't read past here, so the rest of the file may all be scan data.
-                m.scan_bytes = m.scan_bytes.saturating_add(u64::try_from(b.len() - i).unwrap_or(u64::MAX));
-                break DataEnd::Complete;
+                break DataEnd::Unread;
             }
             i += 1;
             continue;
@@ -191,7 +191,8 @@ fn decode_jpeg_scaled_inner(bytes: &[u8], limits: &Limits, max_size: Option<(u32
     }
     let (w, h, nc) = meta.frame.ok_or_else(|| err("no frame header"))?;
     limits.check_bytes(w, h, u64::from(nc.max(1)) * if meta.precision > 8 { 2 } else { 1 })?;
-    // A truncated file keeps opening as the partial image its decoder recovers.
+    // Only a file whose end was reached is measured: a truncated one warns about its partial
+    // image, and an unread one may hold scan data the walk never saw.
     if meta.end == DataEnd::Complete && u64::from(w) * u64::from(h) / MAX_PIXELS_PER_BYTE > meta.scan_bytes {
         return Err(err("the scan data is too short for the frame it declares"));
     }
@@ -630,8 +631,30 @@ mod decode_tests {
         odd[sof + 5..sof + 9].copy_from_slice(&[0x08, 0x00, 0x08, 0x00]);
         odd.extend_from_slice(&[0xFF, 0x01]);
         odd.resize(odd.len() + 2 * 2048, 0x55);
+        assert_eq!(scan_metadata(&odd).end, DataEnd::Unread);
         let (decoded, source) = decode_jpeg_scaled(&odd, &Limits::default(), None).unwrap();
         assert_eq!((decoded.dimensions(), source), ((2048, 2048), (2048, 2048)));
+    }
+
+    /// A stray marker's length skips bytes the walk never counts, so a cut file proves nothing
+    /// about how much scan data it holds.
+    #[test]
+    fn cut_file_with_a_stray_marker_opens_without_a_warning() {
+        let full = flat_gray_jpeg(4096, 4096, false, 0);
+        let sos = full.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+        let scan = sos + 2 + usize::from(u16::from_be_bytes([full[sos + 2], full[sos + 3]]));
+        let mut cut = full[..scan + 1024].to_vec();
+        cut.extend_from_slice(&[0xFF, 0x02, 0x80, 0x00]);
+        cut.resize(cut.len() + 36_000, 0x55);
+        let meta = scan_metadata(&cut);
+        assert!(meta.scan_bytes < 4096 * 4096 / MAX_PIXELS_PER_BYTE, "{} scan bytes", meta.scan_bytes);
+        let (decoded, source) = decode_jpeg_scaled(&cut, &Limits::default(), None).unwrap();
+        assert_eq!(source, (4096, 4096));
+        assert_eq!(decoded.warnings, vec![]);
+        assert_eq!(decoded.data(), decode_zune(&cut, &Limits::default()).unwrap().data());
+        let scaled = decode_jpeg_scaled(&cut, &Limits::default(), Some((256, 256))).map(|(image, _)| image.data().to_vec());
+        let direct = decode_jpeg_decoder(&cut, &Limits::default(), 8, Some((256, 256))).map(|image| image.data().to_vec());
+        assert_eq!(scaled.map_err(|error| error.to_string()), direct.map_err(|error| error.to_string()));
     }
 
     #[test]
