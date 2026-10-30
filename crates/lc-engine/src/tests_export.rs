@@ -978,6 +978,35 @@ fn remove_location_reads_jpeg_extended_xmp() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[test]
+fn remove_location_refuses_location_fields_metadata_does_not_carry() {
+    let dir = temp_dir("export-noloc-other-fields");
+    let structure = |name: &str| {
+        rdf(&format!(
+            r#"><{name}><rdf:Bag><rdf:li rdf:parseType="Resource"><Iptc4xmpExt:City>Boston</Iptc4xmpExt:City></rdf:li></rdf:Bag></{name}></rdf:Description>"#
+        ))
+    };
+    let packets = [
+        structure("Iptc4xmpExt:LocationCreated"),
+        structure("loc:LocationShown"),
+        rdf(r#"Iptc4xmpCore:CountryCode="US"/>"#),
+        rdf(r#"exif:GPSDestLatitude="42,21.6N"/>"#),
+        rdf(r#"exif:GPSAreaInformation="Boston"/>"#),
+        rdf(r#"><exif:GPSAltitude>125/10</exif:GPSAltitude></rdf:Description>"#),
+        rdf(r#"exif:GPSLatitude="42,21.6N"/>"#),
+        rdf(r#"exif:GPSLatitude="north" exif:GPSLongitude="71,3.6W"/>"#),
+    ];
+    let mut copied = Vec::new();
+    for packet in packets {
+        let result = remove_location_from(&dir, &tiff_with_xmp(&packet));
+        if !result.as_ref().is_err_and(|error| error.contains("embeds location info")) {
+            copied.push(format!("{packet}: {:?}", result.map(|bytes| bytes.len())));
+        }
+    }
+    assert!(copied.is_empty(), "{copied:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// The refusals above must not reach a file that has nothing to hide.
 #[test]
 fn remove_location_copies_readable_packets_without_a_location() {

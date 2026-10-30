@@ -136,6 +136,10 @@ pub struct Metadata {
     pub white_balance: Option<u16>,
     pub orientation: Option<Orientation>,
     pub gps: Option<Gps>,
+    /// The file says where the photo is in a place no field here carries: GPS values short of a
+    /// position, a GPS destination or area, IPTC LocationCreated or LocationShown, a country code.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub other_location: bool,
     /// Pixel dimensions as recorded (not oriented).
     pub width: Option<u32>,
     pub height: Option<u32>,
@@ -209,6 +213,7 @@ impl Metadata {
     pub fn fill_missing(&mut self, other: &Metadata) {
         self.lens_corrections_baked |= other.lens_corrections_baked;
         self.chromatic_aberration_baked |= other.chromatic_aberration_baked;
+        self.other_location |= other.other_location;
         if self.artist.is_none() {
             self.artist = other.artist.clone();
             self.creators = other.creators.clone();

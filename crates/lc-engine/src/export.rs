@@ -985,6 +985,7 @@ fn original_embeds_location(bytes: &[u8]) -> Result<bool, String> {
     let m = lightcraft_meta::try_extract(bytes).map_err(|e| e.to_string())?;
     Ok(m.dji.is_some()
         || m.gps.is_some()
+        || m.other_location
         || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty())))
 }
 

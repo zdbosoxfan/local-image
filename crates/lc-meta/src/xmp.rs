@@ -8,6 +8,7 @@
 //! Writing emits the interchange subset in standard namespaces (dc, xmp, photoshop, exif, exifEX, tiff, lr) and
 //! LightCraft's full develop settings as an opaque JSON string in `lc:settings`.
 
+use crate::xmp_merge::listed;
 use crate::{DateTime, Flash, Gps, Metadata, Orientation, Region, RegionKind, parse_number};
 use lightcraft_geom::{Point, Rect};
 use quick_xml::escape::{escape, partial_escape};
@@ -30,6 +31,8 @@ const NAMESPACES: &[(&str, &str)] = &[
     ("aux", "http://ns.adobe.com/exif/1.0/aux/"),
     ("lr", "http://ns.adobe.com/lightroom/1.0/"),
     ("Iptc4xmpCore", "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"),
+    // Read-only: its location structures matter to privacy checks under any prefix.
+    ("Iptc4xmpExt", "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"),
     ("lc", LC_NS),
     ("drone-dji", crate::DJI_NS),
     // Read-only: develop settings written by other raw developers (interchange).
@@ -159,6 +162,18 @@ pub(crate) const MAX_OPAQUE_NAME_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PROPERTY_KEY_BYTES: usize = 64 * 1024 * 1024;
 // Flattened property keys repeat every ancestor name for each leaf.
 const MAX_FLATTENED_PROPERTY_KEY_BYTES: usize = 1 << 20;
+/// Properties that say where a photo is, read only while they don't amount to a [`Gps`] position.
+/// The other [`Metadata`] location fields have their own properties.
+const OTHER_LOCATION_PROPERTIES: &[&str] = &[
+    "Iptc4xmpExt:LocationCreated",
+    "Iptc4xmpExt:LocationShown",
+    "Iptc4xmpCore:CountryCode",
+    "exif:GPSAreaInformation",
+    "exif:GPSDest*",
+    "exif:GPSLatitude",
+    "exif:GPSLongitude",
+    "exif:GPSAltitude",
+];
 
 /// Canonical names preserve foreign bindings without allowing unbounded URI expansion.
 pub(crate) fn canonical_name(qname: &str, scopes: &[Vec<(String, String)>], opaque_budget: &mut usize) -> Result<String, XmpError> {
@@ -423,6 +438,19 @@ fn find_descriptions<'a>(n: &'a Node, out: &mut Vec<&'a Node>) {
     }
 }
 
+fn has_value(n: &Node) -> bool {
+    !n.text.trim().is_empty()
+        || n.attrs.iter().any(|(k, v)| (k == "rdf:resource" || !is_rdf_meta_attr(k)) && !v.trim().is_empty())
+        || n.children.iter().any(has_value)
+}
+
+/// Whether any node in the packet, however it is nested, fills an [`OTHER_LOCATION_PROPERTIES`] name.
+fn names_other_location(n: &Node) -> bool {
+    (listed(OTHER_LOCATION_PROPERTIES, &n.name) && has_value(n))
+        || n.attrs.iter().any(|(k, v)| listed(OTHER_LOCATION_PROPERTIES, k) && !v.trim().is_empty())
+        || n.children.iter().any(names_other_location)
+}
+
 /// XMP GPS coordinate `DDD,MM,SSk` or `DDD,MM.mmk` (k = N/S/E/W) → signed degrees.
 fn parse_gps_coord(s: &str) -> Option<f64> {
     let s = s.trim();
@@ -626,6 +654,7 @@ fn parse_xmp_within(s: &str, flattened_key_bytes: usize) -> Result<XmpData, XmpE
         let altitude = num("exif:GPSAltitude").map(|a| if first("exif:GPSAltitudeRef").as_deref() == Some("1") { -a } else { a });
         m.gps = Some(Gps { latitude: lat, longitude: lon, altitude });
     }
+    m.other_location = m.gps.is_none() && names_other_location(&tree);
     m.dji = crate::DjiMetadata::from_properties(&props);
     m.regions = values.get("mwg-rs:Regions").map(parse_regions).unwrap_or_default();
     let lc_settings = props.get("lc:settings").and_then(|v| v.first()).cloned();
@@ -708,7 +737,7 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     x.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Local Image\">\n");
     x.push_str(" <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
     x.push_str("  <rdf:Description rdf:about=\"\"");
-    for (p, u) in NAMESPACES.iter().skip(2).filter(|(p, _)| *p != "crs") {
+    for (p, u) in NAMESPACES.iter().skip(2).filter(|(p, _)| !matches!(*p, "crs" | "Iptc4xmpExt")) {
         x.push_str(&format!("\n    xmlns:{p}=\"{u}\""));
     }
     x.push_str(">\n");
@@ -853,6 +882,7 @@ mod tests {
             white_balance: Some(1),
             orientation: Some(Orientation::Rotate270),
             gps: Some(Gps { latitude: 48.858222, longitude: -2.2945, altitude: Some(-3.5) }),
+            other_location: false,
             width: Some(8000),
             height: Some(6000),
             artist: Some("Ann \"Photo\" Lee".into()),
