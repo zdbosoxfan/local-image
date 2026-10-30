@@ -3,6 +3,7 @@
 
 use serde_json::{Value, json};
 
+use crate::xmp::parse_whole_xmp;
 use crate::{MergeRules, Metadata, XmpError, merge_xmp, parse_xmp, write_xmp};
 
 const FIELDS: [(&str, &str); 8] = [
@@ -100,7 +101,7 @@ pub fn try_write_file_info(xmp: Option<&str>, info: &Value) -> Result<String, Xm
 /// Build Save for Web's privacy-limited packet from the same namespace-aware metadata.
 /// Never carry camera settings, locations, keywords, ratings or opaque developer properties.
 pub fn copyright_xmp(xmp: &str, contact: bool) -> Result<Option<String>, XmpError> {
-    let source = parse_xmp(xmp)?.metadata;
+    let source = parse_whole_xmp(xmp)?.metadata;
     let m = Metadata {
         copyright: source.copyright,
         copyright_marked: source.copyright_marked,

@@ -155,7 +155,7 @@ const MAX_DEPTH: usize = 64;
 pub(crate) const MAX_NODES: usize = 200_000;
 // Bound amplification from namespace expansion and flattened struct paths separately.
 pub(crate) const MAX_OPAQUE_NAME_BYTES: usize = 8 * 1024 * 1024;
-// Retain the existing hard stop for packets whose total flattened paths exceed this budget.
+// Hard stop for packets whose total flattened paths exceed this budget.
 const MAX_PROPERTY_KEY_BYTES: usize = 64 * 1024 * 1024;
 // Flattened property keys repeat every ancestor name for each leaf.
 const MAX_FLATTENED_PROPERTY_KEY_BYTES: usize = 1 << 20;
@@ -518,13 +518,23 @@ fn fmt_gps_coord(v: f64, pos: char, neg: char) -> String {
 
 /// Parse an XMP packet (with or without the `<?xpacket?>` wrapper / `x:xmpmeta` element).
 pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
+    parse_xmp_within(s, MAX_FLATTENED_PROPERTY_KEY_BYTES)
+}
+
+/// [`parse_xmp`] up to the hard stop alone, for saves and exports: they compare or carry what the packet holds, so
+/// the read-side retention budget would turn into lost properties.
+pub(crate) fn parse_whole_xmp(s: &str) -> Result<XmpData, XmpError> {
+    parse_xmp_within(s, MAX_PROPERTY_KEY_BYTES)
+}
+
+fn parse_xmp_within(s: &str, flattened_key_bytes: usize) -> Result<XmpData, XmpError> {
     let s = s.trim_start_matches('\u{feff}');
     let tree = parse_tree(s)?;
     let mut descs = Vec::new();
     find_descriptions(&tree, &mut descs);
     let mut props = BTreeMap::new();
     let mut key_budget = MAX_PROPERTY_KEY_BYTES;
-    let mut flattened_budget = MAX_FLATTENED_PROPERTY_KEY_BYTES;
+    let mut flattened_budget = flattened_key_bytes;
     let mut property_keys_truncated = false;
     let mut values = BTreeMap::new();
     for d in descs {
