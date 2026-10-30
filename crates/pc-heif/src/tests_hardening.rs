@@ -324,16 +324,7 @@ fn primary_with_wide_extents(extent_count: usize) -> Vec<u8> {
         hdlr(),
         pitm(1),
         iinf(&[infe(1, b"hvc1", None)]),
-        iloc(
-            &[Location {
-                id: 1,
-                method: 1,
-                extents: vec![Extent { index: 0, offset: 0, length: 1 }; extent_count],
-            }],
-            8,
-            8,
-            0,
-        ),
+        iloc(&[Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 1 }; extent_count] }], 8, 8, 0),
         iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])]),
         idat(b"x"),
     ])
@@ -364,14 +355,7 @@ fn primary_with_over_budget_iloc_items() -> Vec<u8> {
         payload.extend_from_slice(&[0; 6]);
     }
     let locations = full_box(b"iloc", 2, 0, &payload);
-    heif(&[
-        hdlr(),
-        pitm(1),
-        iinf(&[infe(1, b"hvc1", None)]),
-        locations,
-        iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])]),
-        idat(b"x"),
-    ])
+    heif(&[hdlr(), pitm(1), iinf(&[infe(1, b"hvc1", None)]), locations, iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])]), idat(b"x")])
 }
 
 #[test]

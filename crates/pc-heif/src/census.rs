@@ -76,11 +76,7 @@ fn iloc_allocations(payload: &[u8]) -> Option<(usize, usize)> {
         return None;
     }
 
-    let item_count = if version < 2 {
-        usize::from(reader.u16("iloc item count").ok()?)
-    } else {
-        usize::try_from(reader.u32("iloc item count").ok()?).ok()?
-    };
+    let item_count = if version < 2 { usize::from(reader.u16("iloc item count").ok()?) } else { usize::try_from(reader.u32("iloc item count").ok()?).ok()? };
     let id_size = if version < 2 { 2 } else { 4 };
     let method_size = if version >= 1 { 2 } else { 0 };
     let minimum_item_size = id_size + method_size + 2 + usize::from(base_offset_size) + 2;
