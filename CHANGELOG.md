@@ -12,6 +12,10 @@ All notable changes to Local Image are recorded here. The format follows
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
+- Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.
+- Remove Location Info now checks JPEG extended XMP, IPTC Location Created and Location Shown, country codes, GPS destination and area fields, and GPS values short of a full position.
+- Remove Location Info offers DNG in its refusals only for raw photos.
+- Remove Location Info on an Original export is best-effort, not a guarantee. Corrupt Exif in a file other than PSD or PSB reads as no Exif, so a location inside it isn't seen and the file is copied. The same goes for JPEG data past the first scan, XMP or IPTC outside a TIFF's first directory, CR3 previews and PNG text chunks under other keywords. Export as JPEG or TIFF when the location must go.
 
 ## [0.8.0-alpha] - 2026-10-29
 
