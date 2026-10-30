@@ -1072,3 +1072,11 @@ Already covered here: failed archive reads spend the extraction allowance before
 | [`0f8521851eda61b05f9c5a1201e313e2cbb3a199`](https://github.com/storytold/photocraft/commit/0f8521851eda61b05f9c5a1201e313e2cbb3a199) | Integration: Vanishing Point clone dabs stay on the canvas | `crates/pc-algo/src/vanishing.rs`<br>`crates/pc-algo/tests/coverage/vanishing_coverage.rs`<br>`crates/pc-engine/src/vp_cmds.rs` | MIT OR Apache-2.0 |
 
 Only canvas clamping is ported: dab rectangles are clipped before surface access, and command copy-back is clipped to the document bounds. The stamp-preview and paste changes are not included.
+
+## PhotoCraft package links (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`1e5b5f76170e7fdfc5cdc8aaa1a9ecfc6e2ca81f`](https://github.com/storytold/photocraft/commit/1e5b5f76170e7fdfc5cdc8aaa1a9ecfc6e2ca81f) | Package: never overwrite one link's copy with another, list a missing link once (#9185) | `crates/pc-engine/src/print_cmds.rs`<br>`crates/pc-engine/src/print_cmds/tests.rs` | MIT OR Apache-2.0 |
+
+Package link names are unique case-insensitively across both the current run and files already in `Links`; repeated missing paths are reported once. Contributor metadata was not part of this code port.
