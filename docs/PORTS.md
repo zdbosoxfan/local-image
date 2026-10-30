@@ -1070,4 +1070,5 @@ The gap grouping (`gap_from`) and 3D-effect hunks of `cd80d1d8` are not ported: 
 code exists in this tree.
 Local addition: `WorkBudget` caps the pairs of all sweeps in one path operation at four sweep
 limits (16,777,216). Upstream limits each sweep only, which leaves a many-component path to run
-every sweep up to the limit.
+every sweep up to the limit. `check_sweep_size` in `planar.rs` is also local: a trial sweep that
+stops a planar map or an N-way arrangement once it would add too many edges or winding values.

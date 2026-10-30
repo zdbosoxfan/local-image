@@ -16,6 +16,7 @@ use crate::PathOpsError;
 use crate::kernel::boolean::{
     Arrangement, Multi, Seg, all_contours_to_path, contours_to_path, fill_bezpath, normalize_bez, segs_to_subpath, try_unite_all, unite_all,
 };
+use crate::kernel::planar::check_sweep_size;
 
 /// A filled shape in a Pathfinder stack. `key` identifies its paint (e.g. a hashed fill colour);
 /// results carry the key of the object whose paint they keep.
@@ -78,9 +79,14 @@ impl Region {
     }
 }
 
+/// Most edges an arrangement's sweep may add to its shapes' own segments.
+const MAX_ARRANGEMENT_CUTS: usize = 1 << 20;
+
 fn arrangement(shapes: &[Shape]) -> Result<Arrangement, PathOpsError> {
     let bps: Vec<(BezPath, FillRule)> = shapes.iter().map(|s| (fill_bezpath(&s.path), s.rule)).collect();
-    Arrangement::new(bps)
+    // Each edge keeps a dense `Multi` on either side, whatever its place in the sweep line.
+    let edge_bytes = 2 * size_of::<i32>() * shapes.len();
+    Arrangement::checked(bps, |paths, eps| check_sweep_size(paths.iter().map(|(path, _)| path), eps, MAX_ARRANGEMENT_CUTS, |_| edge_bytes))
 }
 
 fn topmost(m: &[bool]) -> Option<usize> {

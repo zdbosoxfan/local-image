@@ -38,12 +38,11 @@ use crate::kernel::pathfinder::{Region, Shape};
 const SHEAR: Affine = Affine::new([1.0, 1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 const UNSHEAR: Affine = Affine::new([1.0, -1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 
-/// Most edges of the sweep's output a map is built from, counting an open path's two passes
-/// twice. A map this size takes about 10 seconds and 1.1 GB to build.
-const MAX_MAP_EDGES: usize = 1 << 19;
-/// Most [`Crossings`] entries the sweep may keep, which is 2 GiB: each edge has a value on either
-/// side, with up to one entry for each path slot to its west.
-const MAX_MAP_CROSSINGS: usize = 1 << 26;
+/// Most edges a map's sweep may add to its paths' own segments, counting an open path's two
+/// passes twice. A map this size takes 10 to 20 seconds and about 1 GB to build.
+const MAX_MAP_CUTS: usize = 1 << 19;
+/// Most memory a sweep may keep in winding values on the edges it adds.
+const MAX_SWEEP_VALUE_BYTES: usize = 1 << 31;
 
 /// Boundary crossings per input, counted from the far west: slot `2i` counts input `i`'s
 /// segments running one way, slot `2i + 1` the other. An open path traced there and back adds one
@@ -298,7 +297,7 @@ fn find(parent: &mut [usize], mut v: usize) -> usize {
 /// Faces are the bounded areas the paths enclose, holes included, each with the inputs whose fill
 /// covers it (ascending; empty for an area only enclosed by paths). Edges are the paths split
 /// wherever they meet another path, keyed by the input they came from (the front-most where
-/// inputs share one). Empty when the paths can't be swept (non-finite or too degenerate).
+/// inputs share one). Empty when the paths can't be swept (non-finite, too degenerate or too big).
 pub fn live_paint(shapes: &[Shape]) -> (Vec<Region>, Vec<Shape>) {
     build(shapes).unwrap_or_default()
 }
@@ -481,27 +480,37 @@ fn span(sp: &SubPath, u0: f64, u1: f64) -> Option<SubPath> {
     segs_to_subpath(&segs, false)
 }
 
-/// Refuse a map too big to build, from a trial sweep that keeps nothing. [`Topology`] has no way
-/// to stop partway, and near the pair limit it takes half a minute and 8 GB on its own.
-fn check_map_size(inputs: &[(BezPath, usize)], eps: f64) -> Result<(), PathOpsError> {
-    let mut paths = BezPath::new();
-    for (path, _) in inputs {
-        paths.extend(path.iter());
+/// Refuse a sweep of `paths` that would add more than `max_cuts` edges to their segments, or keep
+/// more than [`MAX_SWEEP_VALUE_BYTES`] on those edges, `value_bytes` giving what one edge keeps
+/// from its place in the sweep line. Art that nothing cuts is never refused.
+///
+/// This is a trial sweep that keeps nothing: [`Topology`] has no way to stop partway, and near the
+/// pair limit it takes half a minute and 8 GB on its own.
+pub(crate) fn check_sweep_size<'a>(
+    paths: impl Iterator<Item = &'a BezPath>,
+    eps: f64,
+    max_cuts: usize,
+    value_bytes: impl Fn(usize) -> usize,
+) -> Result<(), PathOpsError> {
+    let mut all = BezPath::new();
+    for path in paths {
+        all.extend(path.iter());
     }
     let mut segments = Segments::default();
-    segments.add_bez_path(&paths).map_err(|_| PathOpsError::OpenPath)?;
-    let slots = 2 * inputs.len();
+    segments.add_bez_path(&all).map_err(|_| PathOpsError::OpenPath)?;
     let mut sweeper = Sweeper::new(&segments, eps);
     let (mut line_buffers, mut range_buffers) = (SweepLineBuffers::default(), SweepLineRangeBuffers::default());
-    let (mut edges, mut crossings) = (0, 0);
+    let (mut edges, mut bytes) = (0, 0);
     while let Some(mut line) = sweeper.next_line(&mut line_buffers) {
         while let Some(mut range) = line.next_range(&mut range_buffers, &segments) {
             while let Some(events) = range.events() {
                 for event in events.iter().filter(|event| event.connected_below) {
                     edges += 1;
-                    crossings += event.sweep_idx.unwrap_or(0).min(slots);
+                    if edges > segments.len() {
+                        bytes += value_bytes(event.sweep_idx.unwrap_or(0));
+                    }
                 }
-                if edges > MAX_MAP_EDGES || crossings > MAX_MAP_CROSSINGS {
+                if edges.saturating_sub(segments.len()) > max_cuts || bytes > MAX_SWEEP_VALUE_BYTES {
                     return Err(crate::budget::refused());
                 }
             }
@@ -536,7 +545,9 @@ fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     crate::budget::charge_sweep(inputs.iter().map(|(path, _)| path))?;
     // The sweep can panic on rare near-degenerate input; that must never take the app down.
     let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        check_map_size(&inputs, eps)?;
+        // Each edge keeps a `Crossings` on either side, with up to one entry per slot to its west.
+        let edge_bytes = |west: usize| 2 * size_of::<(usize, u32)>() * west.min(2 * inputs.len());
+        check_sweep_size(inputs.iter().map(|(path, _)| path), eps, MAX_MAP_CUTS, edge_bytes)?;
         Topology::<Crossings>::from_paths(inputs.iter().map(|(p, i)| (p, *i)), eps).map_err(|_| PathOpsError::OpenPath)
     }));
     let top = sweep.map_err(|_| PathOpsError::Degenerate)??;
@@ -864,8 +875,32 @@ mod tests {
     }
 
     #[test]
+    fn a_closed_arrangement_with_too_many_edges_is_refused_for_the_watch_to_see() {
+        let combs = [comb(1950, false, 0), comb(1950, true, 1)];
+        let watch = crate::RefusalWatch::begin();
+        assert_eq!(try_shape_builder(&combs, false), Err(PathOpsError::TooComplex));
+        assert_eq!(crate::kernel::try_pathfinder(crate::PathfinderOp::Divide, &combs), Err(PathOpsError::TooComplex));
+        assert!(watch.refused());
+    }
+
+    #[test]
+    fn an_arrangement_of_many_crossing_shapes_is_refused_for_what_they_keep_per_edge() {
+        let strip = |start: f64, end: f64, key: u64| {
+            let corners = [Point::new(start, 0.0), Point::new(start + 1.0, 0.0), Point::new(end + 1.0, 5000.0), Point::new(end, 5000.0)];
+            Shape::new(PathData::single(SubPath::polyline(&corners, true)), FillRule::NonZero, key)
+        };
+        let strips: Vec<Shape> = (0..270)
+            .flat_map(|i| {
+                let at = f64::from(i) * 3.0;
+                [strip(at, at + 5000.0, 0), strip(at + 5000.0, at, 1)]
+            })
+            .collect();
+        assert_eq!(crate::kernel::try_regions(&strips).map(|regions| regions.len()), Err(PathOpsError::TooComplex));
+    }
+
+    #[test]
     fn overlapping_bounds_alone_do_not_refuse_a_map() {
-        // Parallel diagonals: more than MAX_MAP_EDGES pairs of bounds overlap, and nothing meets.
+        // Parallel diagonals: more than MAX_MAP_CUTS pairs of bounds overlap, and nothing meets.
         let lines: Vec<Shape> = (0..1100).map(|i| line((f64::from(i), 0.0), (f64::from(i) + 2000.0, 2000.0), 0)).collect();
         assert_eq!(try_shape_builder(&lines, true).map(|map| map.lines.len()), Ok(1100));
     }

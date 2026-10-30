@@ -310,14 +310,24 @@ fn flatten_fallback(paths: &[(BezPath, FillRule)], extent: f64) -> Result<Vec<(B
 }
 
 impl Arrangement {
-    pub(crate) fn new(mut paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
+    pub(crate) fn new(paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
+        Self::checked(paths, |_, _| Ok(()))
+    }
+
+    /// [`Arrangement::new`], with `check` able to refuse each sweep before it starts.
+    pub(crate) fn checked(
+        mut paths: Vec<(BezPath, FillRule)>,
+        check: impl Fn(&[(BezPath, FillRule)], f64) -> Result<(), PathOpsError>,
+    ) -> Result<Self, PathOpsError> {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
         snap_horizontals(&mut paths.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
         let sweep = |paths: &[(BezPath, FillRule)]| {
             crate::budget::charge_sweep(paths.iter().map(|(path, _)| path))?;
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps)))
-                .map_err(|_| PathOpsError::Degenerate)?
-                .map_err(|_| PathOpsError::OpenPath)
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                check(paths, eps)?;
+                Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps).map_err(|_| PathOpsError::OpenPath)
+            }))
+            .map_err(|_| PathOpsError::Degenerate)?
         };
         let mut flattened_fallback = false;
         let top = match sweep(&paths) {
