@@ -55,8 +55,9 @@ pub(super) fn convert(
         if root.blend_mode() == usvg::BlendMode::Normal && !root.should_isolate() {
             layer.blend = BlendMode::PassThrough;
         }
-        if let Some(clip) = root.clip_path() {
-            let mut path = state.clip(clip, m, 1)?;
+        if let Some(clip) = root.clip_path()
+            && let Some(mut path) = state.budgeted_clip(clip, m, 1)?
+        {
             // Native empty vector masks reveal all; an empty SVG clip hides all.
             if path.is_empty() {
                 path.inverted = true;
@@ -150,8 +151,9 @@ impl State<'_, '_> {
                     if g.blend_mode() == usvg::BlendMode::Normal && !g.should_isolate() {
                         l.blend = BlendMode::PassThrough;
                     }
-                    if let Some(clip) = g.clip_path() {
-                        let mut p = self.clip(clip, m, depth + 1)?;
+                    if let Some(clip) = g.clip_path()
+                        && let Some(mut p) = self.budgeted_clip(clip, m, depth + 1)?
+                    {
                         if p.is_empty() {
                             p.inverted = true;
                         }
@@ -355,6 +357,18 @@ impl State<'_, '_> {
             warn(&mut self.warnings, "paint-order", p.id(), "The stroke draws beneath the fill. Editing this shape may change that order.");
         }
         Ok(Layer::new(self.name(p.id(), "Path"), LayerContent::Shape(ShapeLayer { path, fill, stroke, cache: Some(cache), ..Default::default() })))
+    }
+    /// One budget per applied clip, nested clips included. A clip it refuses is left out with a
+    /// warning, so that one clip cannot fail the whole Open or Place.
+    fn budgeted_clip(&mut self, c: &usvg::ClipPath, m: Affine, depth: usize) -> Result<Option<Path>> {
+        let budget = photocraft_pathops::WorkBudget::begin();
+        match self.clip(c, m, depth) {
+            Err(_) if budget.exhausted() => {
+                warn(&mut self.warnings, "clip-too-complex", c.id(), "An SVG clip was too complex to apply; the clipped objects were imported without it.");
+                Ok(None)
+            }
+            clip => clip.map(Some),
+        }
     }
     fn clip(&mut self, c: &usvg::ClipPath, m: Affine, depth: usize) -> Result<Path> {
         if depth >= self.options.limits.depth {
