@@ -444,6 +444,19 @@ fn page_limit_spans_embedded_documents() {
 }
 
 #[test]
+fn facing_page_counts_share_the_document_limit() {
+    let mut spreads = vec![F::Def(
+        1,
+        vec![tag(b"Sprd")],
+        vec![(tag(b"SprB"), F::F64s(vec![0., 0., 160., 10.])), (tag(b"PagC"), F::I32(16)), (tag(b"Chld"), F::Shared(vec![]))],
+    )];
+    spreads.extend((0..1 << 14).map(|_| F::Ref(1)));
+    let stream = synth::stream(&[(tag(b"DocR"), F::Obj(tag(b"DocN"), vec![(tag(b"Chld"), F::Shared(spreads))]))]);
+    let bytes = synth::container(&[("doc.dat", &stream, Method::Stored)], None);
+    assert!(matches!(photocraft_affinity::read(&bytes, Limits::default()), Err(Error::Limit("too many pages"))));
+}
+
+#[test]
 fn table_cell_product_is_capped_before_expanding_cells() {
     let positions = (0..258).map(|v| v as f64).collect::<Vec<_>>();
     let table = F::Obj(
