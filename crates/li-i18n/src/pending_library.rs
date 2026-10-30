@@ -41,8 +41,9 @@ pub const PENDING_AI_DENOISE_TRANSLATIONS: &[&str] = &[
 /// File-input robustness English messages awaiting translations.
 pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
     "the file changed meanwhile after import review; review it again before copying or moving",
-    "{label}: can't remove the location from an original file that embeds location info; export as JPEG, TIFF or DNG instead",
-    "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as JPEG or TIFF instead",
+    "{label}: can't remove the location from an original file that embeds location info; export as {formats} instead",
+    "{label}: can't verify location metadata in this original file: {e}; export as {formats} instead",
+    "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as {formats} instead",
     "Preview decoder failed unexpectedly",
     "file preview failed unexpectedly",
     "decoded PSD exceeds memory limit",

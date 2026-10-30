@@ -999,7 +999,13 @@ fn unreadable_original(bytes: &[u8], file_name: &str) -> String {
             extension => extension,
         },
     };
+    let formats = location_free_formats(bytes);
     format!(
-        "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as JPEG or TIFF instead"
+        "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as {formats} instead"
     )
+}
+
+/// What a refused original can be exported as. DNG export needs a raw photo.
+fn location_free_formats(bytes: &[u8]) -> &'static str {
+    if lightcraft_raw::probe(bytes).is_some() { "JPEG, TIFF or DNG" } else { "JPEG or TIFF" }
 }

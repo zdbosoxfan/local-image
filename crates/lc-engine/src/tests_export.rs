@@ -1028,6 +1028,28 @@ fn remove_location_copies_readable_packets_without_a_location() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// DNG export needs a raw photo, so a refusal offers it only for one.
+#[test]
+fn remove_location_offers_dng_only_for_raw_photos() {
+    const HEIC: &[u8] = include_bytes!("../../lc-codecs/tests/fixtures/shared-decode-heic/checker-64.heic");
+    let dir = temp_dir("export-noloc-advice");
+    let mut raf = b"FUJIFILMCCD-RAW 0201FF000000TEST".to_vec();
+    raf.resize(92, 0);
+    let advice = [
+        (synthetic_psd_with_metadata(1, &gps_metadata()), "embeds location info", "export as JPEG or TIFF instead"),
+        (synthetic_psd(1, &[(1060, b"<x:xmpmeta><broken")]), "can't verify location metadata", "export as JPEG or TIFF instead"),
+        (HEIC.to_vec(), "can't check this", "export as JPEG or TIFF instead"),
+        (synthetic_dng_with(None, gps_metadata()), "embeds location info", "export as JPEG, TIFF or DNG instead"),
+        (synthetic_dng_with(Some("<x:xmpmeta><broken"), Default::default()), "can't verify location metadata", "export as JPEG, TIFF or DNG instead"),
+        (raf, "can't check this", "export as JPEG, TIFF or DNG instead"),
+    ];
+    for (file, refusal, formats) in advice {
+        let error = remove_location_from(&dir, &file).err().unwrap();
+        assert!(error.contains(refusal) && error.contains(formats), "{error}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Exports write what the catalog holds, so an import that stopped at the budget loses these fields
 /// from every later file.
 #[test]
