@@ -71,6 +71,34 @@ fn blob40_straight_area_fill_uses_stroke_color_merge_and_different_color() {
     assert!(!s.undo());
 }
 #[test]
+fn a_blob_stroke_is_refused_on_the_sum_of_its_merges() {
+    let strips = |shift: f64| {
+        Path::new(
+            (0..350)
+                .map(|i| {
+                    let x = shift + f64::from(i);
+                    Subpath::polygon(&[(x, 0.), (x + 0.5, 0.), (x + 1000.5, 1000.), (x + 1000., 1000.)]).with_op(if i == 0 {
+                        PathOp::Combine
+                    } else {
+                        PathOp::Join
+                    })
+                })
+                .collect(),
+        )
+    };
+    let mut s = session();
+    s.tools.foreground = [0., 0., 0., 1.];
+    for target in 0..3 {
+        insert(&mut s, strips(f64::from(target) * 0.2), true);
+    }
+
+    let merged_alone = ops::boolean(&strips(0.), &strips(0.2), BoolOp::Union);
+    let refused = prepare(&s, &request(&s, Mode::Blob, &[(20., 40.), (100., 40.)], 10.)).err().map(|e| e.to_string());
+
+    assert!(merged_alone.is_ok());
+    assert_eq!(refused.as_deref(), Some("the shapes cross themselves and each other too often to combine"));
+}
+#[test]
 fn blob40_merge_only_selection_keep_selected_and_pressure() {
     let mut s = session();
     let mut r = request(&s, Mode::Blob, &[(30., 40.), (100., 40.)], 12.);

@@ -983,6 +983,57 @@ mod integration_tests {
         assert!(refused.0.contains("Crowded symbol"), "{}", refused.0);
     }
     #[test]
+    fn every_output_route_fails_naming_the_layer_over_the_path_budget() {
+        use serde_json::json;
+        let effect = with_offset(crowded("Crowded effect", 2047));
+        let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        doc.layers = vec![effect.clone(), object("Other")];
+        let session = || {
+            let mut s = crate::Session::new();
+            s.add_document(doc.clone(), None);
+            s.active_mut().unwrap().active_layer = Some(effect.id);
+            s
+        };
+        let format = doc.pixel_format();
+        let bytes = crate::smart_cmds::encode_source(&doc).unwrap();
+        let profile = crate::color_cmds::working_profile(format.mode);
+        let mut paint = Layer::group("Crowded effect", vec![crowded("Source", 2047)]);
+        packages::live_paint::evaluator::write_spec(&mut paint, &packages::live_paint::LivePaintSpec::default()).unwrap();
+        let paint_id = paint.id;
+        let mut expanding = crate::Session::new();
+        let mut live = doc.clone();
+        live.layers = vec![paint];
+        expanding.add_document(live, None);
+        let expand = packages::expand::Request {
+            capture: packages::path_commands::Capture::begin(&expanding, &[paint_id]).unwrap(),
+            options: Default::default(),
+            appearance: false,
+        };
+
+        let routes: [(&str, Result<()>); 10] = [
+            ("Flatten Image", session().execute("layer.flattenImage", json!({})).map(drop)),
+            ("Merge Visible", session().execute("layer.mergeVisible", json!({})).map(drop)),
+            ("flattened", crate::file_cmds::flattened(&doc, format).map(drop)),
+            ("Print", session().execute("file.print", json!({"dryRun": true})).map(drop)),
+            ("Save for Web", crate::web_cmds::web_document(&doc, &json!({}), &Default::default()).map(drop)),
+            ("Rasterize Shape", session().execute("shape.rasterize", json!({"layer": effect.id.0})).map(drop)),
+            ("Convert to Smart Object", crate::smart_cmds::layer_to_smart(&doc, &effect).map(drop)),
+            ("Smart object source", crate::smart_cmds::source_image_in_profile("source.pcraft", &bytes, format, &profile).map(drop)),
+            (
+                "Smart object stack",
+                crate::smart_cmds::stack_image_in_profile("source.pcraft", &bytes, format, photocraft_doc::StackMode::Mean, &profile).map(drop),
+            ),
+            ("Expand", packages::expand::prepare(&expanding, &expand).map(drop)),
+        ];
+
+        let unnamed: Vec<_> = routes
+            .iter()
+            .filter(|(_, result)| !result.as_ref().is_err_and(|e| e.to_string().contains("Crowded effect")))
+            .map(|(route, result)| format!("{route}: {:?}", result.as_ref().err()))
+            .collect();
+        assert!(unnamed.is_empty(), "{unnamed:#?}");
+    }
+    #[test]
     fn operations_inside_one_live_evaluation_keep_their_own_budgets() {
         // Parallel strips: their bounds overlap in pairs, but each path sweeps quickly.
         let strips = photocraft_doc::Path::new(
