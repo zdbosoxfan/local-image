@@ -51,13 +51,10 @@ fn candidates<'a>(data: &'a [u8], ifd: &Ifd, base: u64, out: &mut Vec<&'a [u8]>)
     }
     if matches!(ifd.u16(t::COMPRESSION), Some(6) | Some(7) | Some(34892))
         && let Ok(info) = ifd.image()
+        && let Some(chunk) = info.single_chunk(data.len() as u64)
+        && let Some(s) = chunk_bytes(data, &chunk)
     {
-        let chunks = info.chunks(data.len() as u64);
-        if chunks.len() == 1
-            && let Some(s) = chunk_bytes(data, &chunks[0])
-        {
-            out.push(s);
-        }
+        out.push(s);
     }
 }
 
@@ -111,7 +108,10 @@ fn cr3_preview(bytes: &[u8]) -> Option<&[u8]> {
 /// sample) is `u32 size, "PRVW", u32 0, u16 ?, u16 width, u16 height, u16 ?, u32 jpeg length, JPEG`; the smaller
 /// `THMB` box has the same shape. Returns the larger valid one.
 fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
+    // Candidate boxes may overlap; bound their combined marker scan.
+    const MAX_WALK_BYTES: usize = 8 << 20;
     let mut best: Option<&[u8]> = None;
+    let mut walked = 0usize;
     for tag in [b"PRVW", b"THMB"] {
         let mut from = 0;
         while let Some(i) = bytes.get(from..).and_then(|s| s.windows(4).position(|w| w == tag)).map(|p| p + from) {
@@ -124,6 +124,10 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
                 continue;
             }
             let jpeg = &bytes[j..j + len];
+            if jpeg.len() > MAX_WALK_BYTES - walked {
+                continue;
+            }
+            walked += jpeg.len();
             if is_dct_jpeg(jpeg) {
                 if best.is_none_or(|b| b.len() < jpeg.len()) {
                     best = Some(jpeg);
@@ -241,5 +245,27 @@ mod tests {
         // a track pointing past the end falls back to PRVW
         file.truncate(at as usize + 100);
         assert_eq!(embedded_preview(&file).unwrap(), small);
+    }
+
+    #[test]
+    fn cr3_preview_marker_walk_is_bounded() {
+        let blocks = 9000usize;
+        let total = blocks * 256;
+        let mut file = Vec::with_capacity(total);
+        for block in 0..blocks {
+            let base = block * 256;
+            file.extend_from_slice(&[0xff, 0x01, 0, 0x3e, b'P', b'R', b'V', b'W']);
+            file.extend_from_slice(&[0; 12]);
+            file.extend_from_slice(&u32::try_from(total - base - 24).unwrap().to_be_bytes());
+            file.extend_from_slice(&[0xff, 0xd8, 0xff, 0x01, 0, 0x24]);
+            file.resize(base + 64, 0);
+            for _ in 0..48 {
+                file.extend_from_slice(&[0xff, 0x01, 0, 2]);
+            }
+        }
+        assert_eq!(file.len(), total);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(cr3_preview_boxes(&file).map(<[u8]>::len)));
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(2)), Ok(None));
     }
 }
