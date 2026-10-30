@@ -320,6 +320,9 @@ fn plane(r: &mut Reader, bitmap: ObjId, c: usize, bps: usize, (x0, y0, w, h): (u
         Some(Value::Array(a)) => a,
         _ => &[],
     };
+    if !r.charge_slots(states.len().min(tw.saturating_mul(th))) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
     if !r.charge_slots(s.array_len(bitmap, &tag(b"Idx", c))) {
         return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
     }

@@ -481,6 +481,10 @@ const MAX_TREE_DEPTH: usize = 128;
 const MAX_NODES: usize = 500_000;
 const MAX_CHILD_SLOTS: usize = 8_000_000;
 const MAX_NAME_BYTES: usize = 64 << 20;
+/// Page rectangles retained across the document; real books have a few hundred.
+const MAX_PAGES: usize = 1 << 18;
+/// Font-name bytes retained by text runs across the document.
+const MAX_FONT_NAME_BYTES: usize = 16 << 20;
 const MAX_DOCUMENT_CHARS: usize = 16 << 20;
 const MAX_DOCUMENT_CELLS: usize = 1 << 18;
 const MAX_EMBED_DEPTH: usize = 4;
@@ -524,6 +528,8 @@ pub(crate) struct Reader<'s, 'a, 'b> {
     master_ids: BTreeMap<ObjId, usize>,
     active: HashSet<ObjId>,
     pub(crate) segments: usize,
+    pages: usize,
+    font_name_bytes: usize,
     pub(crate) failure: Option<Error>,
 }
 
@@ -546,6 +552,8 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             master_ids: BTreeMap::new(),
             active: HashSet::new(),
             segments: 0,
+            pages: 0,
+            font_name_bytes: 0,
             failure: None,
         }
     }
@@ -562,6 +570,11 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             return false;
         }
         true
+    }
+
+    pub(crate) fn charge_font_name(&mut self, bytes: usize) -> bool {
+        self.font_name_bytes = self.font_name_bytes.saturating_add(bytes);
+        self.font_name_bytes <= MAX_FONT_NAME_BYTES
     }
 
     pub(crate) fn charge_owned(&mut self, bytes: usize) -> bool {
@@ -686,17 +699,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         {
             return Err(Error::Malformed("spread bounds"));
         }
-        if let Some(md) = s.obj(spread, b"SpMd") {
-            for page in s.objs(md, b"PagR") {
-                s.check_finite(page, b"rctp")?;
-                if let Some(v) = s.floats::<4>(page, b"rctp")
-                    && (v[2] <= v[0] || v[3] <= v[1])
-                {
-                    return Err(Error::Malformed("page bounds"));
-                }
-            }
-        }
-        let pages = pages(s, spread);
+        let pages = self.pages(spread)?;
         let default_size = s.floats::<2>(doc, b"DfSz").filter(|[w, h]| *w > 0.0 && *h > 0.0).map(|[w, h]| Rect { x0: 0.0, y0: 0.0, x1: w, y1: h });
         let bounds = s.floats::<4>(spread, b"SprB").map(rect).or_else(|| pages.iter().copied().reduce(union)).or(default_size).unwrap_or(Rect {
             x0: 0.0,
@@ -1272,21 +1275,50 @@ fn kind_points(kind: &Kind, add: &mut dyn FnMut(Point)) {
     }
 }
 
-/// Page rectangles: `SpMd.PagR[].rctp` (Publisher 2, Affinity 3) or `SprB` split into `PagC`
-/// equal pages (Publisher 1 facing spreads).
-fn pages(s: &Stream, spread: ObjId) -> Vec<Rect> {
-    if let Some(md) = s.obj(spread, b"SpMd") {
-        let v: Vec<Rect> = s.objs(md, b"PagR").into_iter().filter_map(|p| s.floats::<4>(p, b"rctp").map(rect)).filter(|r| r.x1 > r.x0 && r.y1 > r.y0).collect();
-        if !v.is_empty() {
-            return v;
+impl Reader<'_, '_, '_> {
+    /// Page rectangles across Publisher 2/Affinity 3 arrays or Publisher 1 facing spreads.
+    fn pages(&mut self, spread: ObjId) -> Result<Vec<Rect>, Error> {
+        let s = self.s;
+        if let Some(md) = s.obj(spread, b"SpMd") {
+            if !self.charge_slots(s.array_len(md, b"PagR")) {
+                return Err(self.failure.unwrap_or(Error::Limit("array traversal slots")));
+            }
+            let remaining = MAX_PAGES.saturating_sub(self.pages);
+            let mut pages = Vec::new();
+            for page in s.objs(md, b"PagR") {
+                s.check_finite(page, b"rctp")?;
+                if let Some(v) = s.floats::<4>(page, b"rctp") {
+                    if v[2] <= v[0] || v[3] <= v[1] {
+                        return Err(Error::Malformed("page bounds"));
+                    }
+                    let page = rect(v);
+                    if page.x1 > page.x0 && page.y1 > page.y0 {
+                        if pages.len() >= remaining {
+                            return Err(Error::Limit("too many pages"));
+                        }
+                        pages.push(page);
+                    }
+                }
+            }
+            if !pages.is_empty() {
+                self.charge_pages(pages.len())?;
+                return Ok(pages);
+            }
+        }
+        match (s.floats::<4>(spread, b"SprB").map(rect), s.int(spread, b"PagC")) {
+            (Some(bounds), Some(count @ 2..=16)) => {
+                let count_usize = usize::try_from(count).map_err(|_| Error::Malformed("page count"))?;
+                self.charge_pages(count_usize)?;
+                let width = (bounds.x1 - bounds.x0) / count as f64;
+                Ok((0..count).map(|i| Rect { x0: bounds.x0 + width * i as f64, x1: bounds.x0 + width * (i + 1) as f64, ..bounds }).collect())
+            }
+            _ => Ok(Vec::new()),
         }
     }
-    match (s.floats::<4>(spread, b"SprB").map(rect), s.int(spread, b"PagC")) {
-        (Some(b), Some(n @ 2..=16)) => {
-            let w = (b.x1 - b.x0) / n as f64;
-            (0..n).map(|i| Rect { x0: b.x0 + w * i as f64, x1: b.x0 + w * (i + 1) as f64, ..b }).collect()
-        }
-        _ => Vec::new(),
+
+    fn charge_pages(&mut self, count: usize) -> Result<(), Error> {
+        self.pages = self.pages.saturating_add(count);
+        if self.pages > MAX_PAGES { Err(Error::Limit("too many pages")) } else { Ok(()) }
     }
 }
 

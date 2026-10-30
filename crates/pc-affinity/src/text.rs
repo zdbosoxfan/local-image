@@ -562,12 +562,17 @@ fn charge_attributes(r: &mut Reader, budget: &mut Option<usize>, bytes: usize) -
     }
 }
 
-/// Longest font name kept (OpenType names are far shorter); every run and paragraph carries it.
+/// Longest font name kept; real PostScript and family names are far shorter.
 const MAX_FONT_NAME: usize = 16 << 10;
 
 fn font_name(r: &mut Reader, budget: &mut Option<usize>, value: &str) -> String {
     if value.len() > MAX_FONT_NAME {
         r.warn("font names longer than 16384 bytes (the default font is used)");
+        return String::new();
+    }
+    let bytes = value.len().saturating_add(std::mem::size_of::<String>());
+    if budget.is_some_and(|remaining| remaining >= bytes) && !r.charge_font_name(value.len()) {
+        r.warn("font names beyond the document metadata budget (left empty)");
         return String::new();
     }
     metadata_string(r, budget, value)

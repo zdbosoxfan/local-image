@@ -1055,3 +1055,12 @@ The Smooth measurements retain upstream's black-to-white and red-to-blue rows an
 | [`a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad`](https://github.com/storytold/photocraft/commit/a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad) | PSD: drop a kept merged-transparency marker when the composite is opaque | `crates/pc-io/src/psd_export.rs`<br>`crates/pc-io/src/psd_export/tests.rs` | MIT OR Apache-2.0 |
 
 The opaque-composite export drops preserved `MTrn`, `Mtrn`, `Mt16` and `Mt32` markers, while alpha-bearing composites retain them. The layer-info block placement follows any retained marker.
+
+## PhotoCraft Affinity importer bounds (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b278ff72459cbf9754863365edd822ba2248aa07`](https://github.com/storytold/photocraft/commit/b278ff72459cbf9754863365edd822ba2248aa07) | security(affinity): charge archive names, failed reads, corner arrays, attachments, pages and font names (#9257) | `crates/pc-affinity/src/container.rs`<br>`crates/pc-affinity/src/geometry.rs`<br>`crates/pc-affinity/src/model.rs`<br>`crates/pc-affinity/src/paint.rs`<br>`crates/pc-affinity/src/raster.rs`<br>`crates/pc-affinity/src/text.rs`<br>`crates/pc-affinity/tests/text.rs` | MIT OR Apache-2.0 |
+
+Already covered here: failed archive reads spend the extraction allowance before decoding, attached-mask arrays use `Reader::charge_slots`, and that slot-budget method is already crate-visible. The port adds aggregate archive-name and page limits, a document-wide font-name budget, and accounting for curve-corner, gradient and pixel-state scans. Curve-corner work uses the existing `OutlineBudget`. The existing 16 KiB per-name font limit remains: reducing it to 256 bytes conflicts with existing text tests, so that upstream reduction is flagged for human decision.
+
