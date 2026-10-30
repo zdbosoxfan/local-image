@@ -67,6 +67,8 @@ pub(crate) fn scan_metadata(b: &[u8]) -> JpegMeta {
         if byte != 0xFF {
             // The Library historically accepted padding between header segments.
             if saw_scan {
+                // The walk can't read past here, so the rest of the file may all be scan data.
+                m.scan_bytes = m.scan_bytes.saturating_add(u64::try_from(b.len() - i).unwrap_or(u64::MAX));
                 break DataEnd::Complete;
             }
             i += 1;
@@ -597,6 +599,24 @@ mod decode_tests {
             Ok((_, dimensions)) => panic!("decoded frame {dimensions:?} with too little scan data"),
         };
         assert!(error.to_string().contains("too short"), "{error}");
+    }
+
+    /// A stray marker stops the walk, so the unread rest of the file may all be scan data.
+    #[test]
+    fn unread_tail_after_an_odd_layout_counts_as_scan_data() {
+        let small = jpeg(16, 16);
+        let sof = small.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+        let eoi = small.len() - 2;
+        let mut odd = small[..eoi].to_vec();
+        odd[sof + 5..sof + 9].copy_from_slice(&[0x08, 0x00, 0x08, 0x00]);
+        odd.extend_from_slice(&[0xFF, 0x01]);
+        let tail = 2 * 2048;
+        odd.resize(odd.len() + tail, 0x55);
+        let meta = scan_metadata(&odd);
+        assert_eq!(meta.end, DataEnd::Complete);
+        assert!(meta.scan_bytes >= tail as u64, "{} scan bytes", meta.scan_bytes);
+        let (decoded, source) = decode_jpeg_scaled(&odd, &Limits::default(), None).unwrap();
+        assert_eq!((decoded.dimensions(), source), ((2048, 2048), (2048, 2048)));
     }
 
     #[test]
