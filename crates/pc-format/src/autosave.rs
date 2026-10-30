@@ -483,11 +483,16 @@ fn sweep_orphans(recovery_dir: &Path, min_age: std::time::Duration) {
     }
 }
 
-/// Whether the first autosave of `bundle` never finished: its manifest, written last, is missing
-/// or stops short. Every other read failure (a format limit, a newer build's bundle, an I/O error)
-/// says nothing about the work inside, so it counts as committed.
+/// Whether `bundle` holds no committed autosave: its manifest, published last, is missing, a link
+/// (never read, as the writer only publishes regular files) or stops short. The writer never
+/// leaves a short manifest, but no build could load one. Every other read failure (a format
+/// limit, a newer build's bundle, an I/O error) says nothing about the work inside, so it counts
+/// as committed.
 #[cfg(not(target_arch = "wasm32"))]
 fn is_uncommitted(bundle: &Path) -> bool {
+    if std::fs::symlink_metadata(bundle.join(crate::store::MANIFEST)).is_ok_and(|m| m.is_symlink()) {
+        return true;
+    }
     let source = crate::store::DirSource { root: bundle.to_path_buf() };
     match crate::store::read_manifest(&source, &crate::LoadOptions::default()) {
         Err(FormatError::Io(e)) => e.kind() == std::io::ErrorKind::NotFound,
@@ -732,12 +737,27 @@ mod tests {
         std::fs::write(newer.join(crate::store::MANIFEST), br#"{"format_version":4294967295}"#).unwrap();
         let blocked = dir.join("blocked.pcraft");
         std::fs::create_dir_all(blocked.join(crate::store::MANIFEST)).unwrap();
+        let garbled = dir.join("garbled.pcraft");
+        std::fs::create_dir_all(&garbled).unwrap();
+        std::fs::write(garbled.join(crate::store::MANIFEST), b"{]").unwrap();
+        // The writer never publishes a link, so this one is no commit, and its target stays put.
+        #[cfg(unix)]
+        let (linked, link_target) = (dir.join("linked.pcraft"), dir.join("target.txt"));
+        #[cfg(unix)]
+        {
+            std::fs::create_dir_all(&linked).unwrap();
+            std::fs::write(&link_target, &saved).unwrap();
+            std::os::unix::fs::symlink(&link_target, linked.join(crate::store::MANIFEST)).unwrap();
+        }
 
         assert!(list_recovery(&dir).is_empty());
         sweep_orphans(&dir, std::time::Duration::ZERO);
         assert!(manifest.is_file(), "a bundle over the manifest limit is kept");
         assert!(newer.is_dir(), "a bundle from a newer build is kept");
         assert!(blocked.is_dir(), "a manifest that fails with an I/O error keeps its bundle");
+        assert!(garbled.is_dir(), "a manifest that is complete but malformed keeps its bundle");
+        #[cfg(unix)]
+        assert!(!linked.exists() && link_target.is_file(), "a linked manifest is swept without touching its target");
 
         // With its sidecar the entry is listed, fails to load cleanly and stays on disk.
         std::fs::write(&sidecar, info).unwrap();
