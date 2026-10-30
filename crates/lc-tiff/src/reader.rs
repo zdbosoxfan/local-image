@@ -2,8 +2,6 @@
 
 use crate::{ByteOrder, Entry, FieldType, Ifd, Result, Tiff, TiffError, Value, tags};
 use std::collections::HashSet;
-use std::hash::{DefaultHasher, Hasher};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Limits applied while parsing. The defaults are generous for real files and safe for hostile ones.
 #[derive(Clone, Debug)]
@@ -121,15 +119,6 @@ pub(crate) fn parse_ifd_counted(
     let mut ctx = Ctx::new(data, order, bigtiff, opts);
     let (ifd, next) = ctx.ifd(offset, base, 0)?;
     Ok((ifd, next, ctx.over_budget))
-}
-
-/// Whether `block` differs from the last one `last` saw. One read of a file parses the same block several times, so a
-/// warning about its contents passes through this to appear once.
-pub(crate) fn is_new_block(last: &AtomicU64, block: &[u8]) -> bool {
-    let mut hasher = DefaultHasher::new();
-    hasher.write(block);
-    let hash = hasher.finish();
-    last.swap(hash, Ordering::Relaxed) != hash
 }
 
 struct Ctx<'a> {
@@ -292,18 +281,6 @@ pub(crate) fn decode(o: ByteOrder, typ: FieldType, b: &[u8]) -> Value {
         FieldType::Long8 => Value::Long8(b.as_chunks::<8>().0.iter().map(|c| o.u64(arr(c))).collect()),
         FieldType::Ifd8 => Value::Ifd8(b.as_chunks::<8>().0.iter().map(|c| o.u64(arr(c))).collect()),
         FieldType::SLong8 => Value::SLong8(b.as_chunks::<8>().0.iter().map(|c| o.u64(arr(c)) as i64).collect()),
-    }
-}
-
-#[cfg(test)]
-mod repeat_filter_tests {
-    #[test]
-    fn a_block_counts_as_new_until_it_repeats() {
-        let last = std::sync::atomic::AtomicU64::new(0);
-        assert!(super::is_new_block(&last, b"first file"));
-        assert!(!super::is_new_block(&last, b"first file"));
-        assert!(super::is_new_block(&last, b"second file"));
-        assert!(super::is_new_block(&last, b"first file"));
     }
 }
 

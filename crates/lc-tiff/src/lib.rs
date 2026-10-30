@@ -28,7 +28,6 @@ mod reader;
 pub mod tags;
 pub mod writer;
 
-pub(crate) use reader::is_new_block;
 pub use reader::{ParseOptions, parse_ifd_at};
 pub use writer::{IfdBuilder, ImageData, TiffWriter};
 

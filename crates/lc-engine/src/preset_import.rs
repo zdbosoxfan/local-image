@@ -532,7 +532,7 @@ pub fn read_presets(name: &str, bytes: &[u8], group: Option<String>) -> Result<V
         "xmp" => {
             let text = String::from_utf8_lossy(bytes);
             let d = lightcraft_meta::parse_xmp(text.trim_start_matches('\u{feff}')).map_err(|e| e.to_string())?;
-            crate::sidecar::warn_if_truncated(&d, name);
+            crate::crs::warn_if_truncated(&d, name);
             let props = &d.properties;
             let name = props.get("crs:Name").and_then(|v| v.first()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or(stem);
             build(props, &d.values, name, group, false).map(|i| vec![i]).ok_or_else(|| "no develop settings in this XMP file".into())
@@ -541,7 +541,7 @@ pub fn read_presets(name: &str, bytes: &[u8], group: Option<String>) -> Result<V
         "dng" | "jpg" | "jpeg" | "tif" | "tiff" => {
             let xmp = embedded_xmp(bytes).ok_or("this photo carries no edits (no XMP)")?;
             let d = lightcraft_meta::parse_xmp(&xmp).map_err(|e| e.to_string())?;
-            crate::sidecar::warn_if_truncated(&d, name);
+            crate::crs::warn_if_truncated(&d, name);
             build(&d.properties, &d.values, stem, group, true).map(|i| vec![i]).ok_or_else(|| "this photo carries no edits we can use".into())
         }
         _ => crate::presets::parse_preset_file(name, bytes).map(|v| {

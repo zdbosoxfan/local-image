@@ -116,13 +116,6 @@ pub enum DevelopPatch {
     Partial(Value),
 }
 
-/// Log that `source` lost properties to the flattened-key budget of [`lightcraft_meta::parse_xmp`].
-pub(crate) fn warn_if_truncated(data: &lightcraft_meta::XmpData, source: &str) {
-    if data.property_keys_truncated {
-        log::warn!("{source}: properties past the flattened-key budget were ignored, so later fields are missing");
-    }
-}
-
 /// Parse a sidecar / XMP packet. `raw` selects absolute (raw) vs relative white balance for `crs:`.
 pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, String> {
     // Text with no markup at all (empty, or a stray text file) is not an XMP packet. Anything that

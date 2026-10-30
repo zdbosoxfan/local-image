@@ -6,9 +6,19 @@
 //! vendors' own published notes; no third-party code was consulted.
 
 use crate::reader::parse_ifd_counted;
-use crate::{ByteOrder, Ifd, ParseOptions, is_new_block};
+use crate::{ByteOrder, Ifd, ParseOptions};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::AtomicU64;
+use std::hash::{DefaultHasher, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Whether `block` differs from the last one `last` saw. One read of a file parses the same block several times, so a
+/// warning about its contents passes through this to appear once.
+fn is_new_block(last: &AtomicU64, block: &[u8]) -> bool {
+    let mut hasher = DefaultHasher::new();
+    hasher.write(block);
+    let hash = hasher.finish();
+    last.swap(hash, Ordering::Relaxed) != hash
+}
 
 /// Maker-note dialects we know how to locate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +127,15 @@ pub fn parse_makernote(data: &[u8], offset: u64, len: u64, order: ByteOrder, mak
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_block_counts_as_new_until_it_repeats() {
+        let last = std::sync::atomic::AtomicU64::new(0);
+        assert!(super::is_new_block(&last, b"first file"));
+        assert!(!super::is_new_block(&last, b"first file"));
+        assert!(super::is_new_block(&last, b"second file"));
+        assert!(super::is_new_block(&last, b"first file"));
+    }
+
     use super::*;
     use crate::{IfdBuilder, TiffWriter, Value, tags};
 
