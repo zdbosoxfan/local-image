@@ -6,6 +6,13 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0-alpha] - 2026-10-29
+
+The first published alpha of the rebuilt Local Image. It was developed as 2.0.0-alpha.1, which was
+never released, so this release includes everything listed under 2.0.0-alpha.1 below as well as
+the changes in this section. The version follows on from the 0.7 previews so update checks see it
+as newer.
+
 ### Added
 
 - Custom ONNX models with external weights are copied as one self-contained file, and

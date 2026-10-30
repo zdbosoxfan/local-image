@@ -7,7 +7,7 @@ members = ["crates/*", "apps/*", "xtask"]
 default-members = ["apps/local-image", "apps/local-image-cli"]
 
 [workspace.package]
-version = "2.0.0-alpha.1"
+version = "0.8.0-alpha"
 edition = "2024"
 license = "GPL-3.0-or-later"
 rust-version = "1.95"

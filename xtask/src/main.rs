@@ -1019,7 +1019,7 @@ mod tests {
 
     #[test]
     fn version_reads_the_workspace() {
-        assert!(version().unwrap().starts_with("2."));
+        assert_eq!(version().unwrap(), env!("CARGO_PKG_VERSION"));
     }
 }
 
