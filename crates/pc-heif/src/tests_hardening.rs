@@ -470,6 +470,18 @@ fn iloc_census_counts_every_record_heic_rs_builds() {
 }
 
 #[test]
+fn iloc_caps_accept_files_exactly_at_their_record_limits() {
+    let at_extent_cap = probe(&primary_with_iloc_entries(1, 0, 2, &[1, 65_535]));
+    let mut extent_counts = vec![0; 65_536];
+    extent_counts[0] = 1;
+    let at_item_cap = probe(&primary_with_iloc_entries(2, 0, 65_536, &extent_counts));
+    assert!(
+        matches!(&at_extent_cap, Ok(Info { width: 1, height: 1, .. })) && matches!(&at_item_cap, Ok(Info { width: 1, height: 1, .. })),
+        "at the extent cap: {at_extent_cap:?}; at the item cap: {at_item_cap:?}"
+    );
+}
+
+#[test]
 fn metadata_skips_xmp_when_reconstruction_exceeds_the_shared_extent_budget() {
     let over_budget = metadata(&xmp_with_source_extents(4096)).2;
     assert!(over_budget.is_none(), "metadata returned {} bytes", over_budget.as_ref().map_or(0, String::len));
