@@ -34,7 +34,7 @@ pub use file_info::{copyright_xmp, read_file_info, try_write_file_info};
 pub use xmp_orientation::upright_xmp;
 mod xmp_merge;
 
-pub use container::{Embedded, embedded, jpeg_segments, png_chunks, webp_chunks};
+pub use container::{Embedded, embedded, jpeg_segments, png_chunks, reads_container, webp_chunks};
 pub use datetime::DateTime;
 pub use exif::{exif_ifd, from_tiff, from_tiff_with_bytes, read_exif, strip_exif_header, try_read_exif, write_exif};
 pub use gpx::{GpxError, Match, TrackPoint, Tracklog, parse_gpx};

@@ -11,6 +11,7 @@ All notable changes to Local Image are recorded here. The format follows
 - RAW/TIFF imports bound hostile tile, opcode, and maker-note work before it can multiply memory or CPU use. Truncated Deflate tiles are rejected, and non-finite DNG WhiteLevel uses the bit-depth default.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
+- Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 
 ## [0.8.0-alpha] - 2026-10-29
 

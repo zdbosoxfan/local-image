@@ -287,6 +287,9 @@ impl PreparedExport {
                 let Some(dng) = dng else {
                     // the file is copied byte for byte: refuse rather than leak a location it embeds
                     if remove_location {
+                        if !lightcraft_meta::reads_container(&bytes) {
+                            return Err(unreadable_original(&bytes, &label));
+                        }
                         let embeds_location = original_embeds_location(&bytes).map_err(|e| {
                             format!("{label}: can't verify location metadata in this original file: {e}; export as JPEG, TIFF or DNG instead")
                         })?;

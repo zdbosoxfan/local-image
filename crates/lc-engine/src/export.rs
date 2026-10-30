@@ -987,3 +987,16 @@ fn original_embeds_location(bytes: &[u8]) -> Result<bool, String> {
         || m.gps.is_some()
         || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty())))
 }
+
+/// Why an original the location check has no reader for can't be copied. The format comes from the
+/// bytes, or from the extension where they don't name one (non-TIFF raws, unknown files).
+fn unreadable_original(bytes: &[u8], file_name: &str) -> String {
+    let format = lightcraft_codecs::sniff(bytes)
+        .and_then(lightcraft_codecs::Format::raster)
+        .map(|format| format.name().to_owned())
+        .or_else(|| std::path::Path::new(file_name).extension().map(|extension| extension.to_string_lossy().to_uppercase()))
+        .unwrap_or_else(|| "unrecognized".to_owned());
+    format!(
+        "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as JPEG or TIFF instead"
+    )
+}

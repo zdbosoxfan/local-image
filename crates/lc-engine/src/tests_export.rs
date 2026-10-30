@@ -757,6 +757,55 @@ fn remove_location_refuses_an_xmp_packet_too_complex_to_read() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// A container the check has no reader for reads as a file without metadata, so nothing vouches for
+/// the copy.
+#[test]
+fn remove_location_refuses_an_original_format_it_cannot_read() {
+    const HEIC: &[u8] = include_bytes!("../../lc-codecs/tests/fixtures/shared-decode-heic/checker-64.heic");
+    const JXL: &[u8] = include_bytes!("../../pc-codecs/tests/fixtures/jxl-conformance/alpha_premultiplied.jxl");
+    let dir = temp_dir("export-noloc-unreadable");
+    let mut copied = Vec::new();
+    for (name, bytes, format) in [("a.heic", HEIC, "HEIF"), ("b.heif", HEIC, "HEIF"), ("c.hif", HEIC, "HEIF"), ("d.jxl", JXL, "JPEG XL")] {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        let mut session = Session::new().with_fs();
+        session.execute("library.import", &json!({"paths": [path]})).unwrap();
+        let id = session.catalog.photos().next().unwrap().id;
+        let keep = ExportOptions::from_json(&json!({"format": "original"}));
+        assert_eq!(export_photo(&mut session, id, &keep, 1).unwrap().bytes, bytes, "{name}");
+        let remove = ExportOptions::from_json(&json!({"format": "original", "removeLocation": true}));
+        let result = export_photo(&mut session, id, &remove, 1).map(|exported| exported.file_name);
+        if !result.as_ref().is_err_and(|error| error.contains(name) && error.contains(format) && error.contains("export as JPEG")) {
+            copied.push(format!("{name}: {result:?}"));
+        }
+    }
+    assert!(copied.is_empty(), "{copied:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn remove_location_still_copies_originals_it_can_read() {
+    let dir = temp_dir("export-noloc-readable");
+    let files: [(&str, Vec<u8>); 6] = [
+        ("a.jpg", include_bytes!("../../lc-codecs/tests/fixtures/shared-export/rgb8-444.jpg").to_vec()),
+        ("b.png", include_bytes!("../../lc-codecs/tests/fixtures/shared-export/rgb8.png").to_vec()),
+        ("c.webp", include_bytes!("../../lc-codecs/tests/fixtures/shared-export/rgb8.webp").to_vec()),
+        ("d.tif", include_bytes!("../../lc-codecs/tests/fixtures/shared-export/rgb8.tif").to_vec()),
+        ("e.dng", synthetic_dng_with(None, Default::default())),
+        ("f.psd", synthetic_psd_with_metadata(1, &lightcraft_meta::Metadata::default())),
+    ];
+    for (name, bytes) in files {
+        let path = dir.join(name);
+        std::fs::write(&path, &bytes).unwrap();
+        let mut session = Session::new().with_fs();
+        session.execute("library.import", &json!({"paths": [path]})).unwrap();
+        let id = session.catalog.photos().next().unwrap().id;
+        let remove = ExportOptions::from_json(&json!({"format": "original", "removeLocation": true}));
+        assert_eq!(export_photo(&mut session, id, &remove, 1).unwrap().bytes, bytes, "{name}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Exports write what the catalog holds, so an import that stopped at the budget loses these fields
 /// from every later file.
 #[test]
