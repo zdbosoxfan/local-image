@@ -346,55 +346,55 @@ pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
 }
 
 fn extract_blocks(bytes: &[u8], e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff>) -> Metadata {
-    let m = match tiff {
+    let xmp = e.xmp.as_deref().and_then(|x| parse_whole_xmp(x).ok()).map(|x| x.metadata);
+    extract_embedded(e, exif_metadata(bytes, e, tiff), xmp)
+}
+
+fn exif_metadata(bytes: &[u8], e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff>) -> Metadata {
+    match tiff {
         // a TIFF-based file is its own Exif block: read it in place, from the parse already made
         Some(t) => from_tiff_with_bytes(bytes, t),
         None => e.exif.as_deref().map(read_exif).unwrap_or_default(),
-    };
-    let xmp = e.xmp.as_deref().and_then(|x| parse_whole_xmp(x).ok()).map(|x| x.metadata);
-    extract_embedded(e, m, xmp)
+    }
 }
 
-/// Read metadata, reporting malformed PSD/PSB containers and embedded EXIF/XMP.
-/// Other formats retain [`extract`]'s best-effort behavior, except for a packet past the XMP
-/// parser's hard limits: the readers skip it whole, which would read as a file without XMP.
+/// Read metadata for a promise about what a file does not hold, so what a best-effort read would
+/// take for absent is an error: malformed PSD/PSB resources, and in any container an XMP packet that
+/// is malformed or past the parser's hard limits, or a block named by [`Embedded::unread`].
+///
+/// Corrupt Exif outside PSD/PSB is the limit of that promise: it stays best-effort and reads as no
+/// Exif, so a location inside it goes unseen.
 pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
     if !bytes.starts_with(b"8BPS") {
         let (e, tiff) = container::blocks(bytes);
-        if e.xmp.as_deref().is_some_and(xmp_too_complex) || exif_xmp_too_complex(&e) {
-            return Err(ExtractError::XmpTooComplex);
+        if let Some(block) = e.unread {
+            return Err(ExtractError::UnreadBlock(block));
         }
-        return Ok(extract_blocks(bytes, &e, tiff.as_ref()));
+        check_exif_xmp(&e)?;
+        let xmp = e.xmp.as_deref().map(strict_xmp).transpose()?.map(|x| x.metadata);
+        return Ok(extract_embedded(&e, exif_metadata(bytes, &e, tiff.as_ref()), xmp));
     }
     let e = psd::parse(bytes).ok_or(ExtractError::MalformedPsd)?;
-    if exif_xmp_too_complex(&e) {
-        return Err(ExtractError::XmpTooComplex);
-    }
+    check_exif_xmp(&e)?;
     let m = e.exif.as_deref().map(try_read_exif).transpose().map_err(|_| ExtractError::MalformedPsd)?.unwrap_or_default();
-    let xmp = e
-        .xmp
-        .as_deref()
-        .map(|packet| {
-            // Best-effort parsing tolerates broken XML; privacy checks need strict syntax validation.
-            xmp_merge::scan(packet)?;
-            parse_whole_xmp(packet)
-        })
-        .transpose()
-        .map_err(|_| ExtractError::MalformedPsd)?
-        .map(|x| x.metadata);
+    let xmp = e.xmp.as_deref().map(strict_xmp).transpose().map_err(|_| ExtractError::MalformedPsd)?.map(|x| x.metadata);
     Ok(extract_embedded(&e, m, xmp))
 }
 
-fn xmp_too_complex(packet: &str) -> bool {
-    matches!(parse_whole_xmp(packet), Err(XmpError::TooComplex))
+/// Best-effort parsing tolerates broken XML; privacy checks need strict syntax validation.
+fn strict_xmp(packet: &str) -> Result<XmpData, XmpError> {
+    xmp_merge::scan(packet)?;
+    parse_whole_xmp(packet)
 }
 
 /// An Exif block can hold an XMP packet of its own, which only [`from_tiff`] reads.
-fn exif_xmp_too_complex(e: &Embedded) -> bool {
+fn check_exif_xmp(e: &Embedded) -> Result<(), ExtractError> {
     let tiff = e.exif.as_deref().and_then(|x| lightcraft_tiff::Tiff::parse(strip_exif_header(x)).ok());
-    tiff.is_some_and(|t| {
-        t.ifds.first().and_then(|ifd| ifd.bytes(lightcraft_tiff::tags::XMP)).is_some_and(|x| xmp_too_complex(&String::from_utf8_lossy(x)))
-    })
+    let Some(packet) = tiff.as_ref().and_then(|t| t.ifds.first()).and_then(|ifd| ifd.bytes(lightcraft_tiff::tags::XMP)) else {
+        return Ok(());
+    };
+    strict_xmp(std::str::from_utf8(packet).map_err(|_| ExtractError::MalformedXmp)?)?;
+    Ok(())
 }
 
 fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<Metadata>) -> Metadata {
@@ -416,6 +416,10 @@ pub enum ExtractError {
     MalformedPsd,
     /// An XMP packet is past the parser's hard limits, so none of it was read.
     XmpTooComplex,
+    /// An XMP packet is not well-formed, so a best-effort read of it can miss what it holds.
+    MalformedXmp,
+    /// A metadata block has no reader, as named by [`Embedded::unread`].
+    UnreadBlock(&'static str),
 }
 
 impl std::fmt::Display for ExtractError {
@@ -423,11 +427,22 @@ impl std::fmt::Display for ExtractError {
         match self {
             Self::MalformedPsd => f.write_str("malformed PSD/PSB header, image-resource section, or embedded EXIF/XMP structure"),
             Self::XmpTooComplex => write!(f, "{}", XmpError::TooComplex),
+            Self::MalformedXmp => f.write_str("its XMP packet is malformed"),
+            Self::UnreadBlock(block) => write!(f, "it holds {block}, which this check can't read"),
         }
     }
 }
 
 impl std::error::Error for ExtractError {}
+
+impl From<XmpError> for ExtractError {
+    fn from(error: XmpError) -> Self {
+        match error {
+            XmpError::TooComplex => Self::XmpTooComplex,
+            XmpError::Xml(_) => Self::MalformedXmp,
+        }
+    }
+}
 
 /// Lenient number parsing used by XMP/IPTC: `"28/10"`, `"2.8"`, `"+0.7"`.
 pub(crate) fn parse_number(s: &str) -> Option<f64> {
@@ -467,6 +482,20 @@ mod tests {
         webp.extend_from_slice(&u32::try_from(exif.len()).unwrap().to_le_bytes());
         webp.extend_from_slice(&exif);
         assert_eq!(try_extract(&webp), Err(ExtractError::XmpTooComplex));
+    }
+
+    #[test]
+    fn try_extract_reports_a_broken_packet_inside_an_exif_block() {
+        let broken = b"<rdf:RDF><rdf:Description exif:GPSLatitude=45,0N/></rdf:RDF>";
+        let mut not_utf8 = lightcraft_tiff::IfdBuilder::new();
+        not_utf8.set(lightcraft_tiff::tags::XMP, lightcraft_tiff::Value::Byte(b"<a b=\"\xff\"/>".to_vec()));
+        let exifs = [exif_with_xmp(std::str::from_utf8(broken).unwrap()), lightcraft_tiff::TiffWriter::default().write(&[not_utf8]).unwrap()];
+        for exif in exifs {
+            let mut webp = b"RIFF\0\0\0\0WEBPEXIF".to_vec();
+            webp.extend_from_slice(&u32::try_from(exif.len()).unwrap().to_le_bytes());
+            webp.extend_from_slice(&exif);
+            assert_eq!(try_extract(&webp), Err(ExtractError::MalformedXmp));
+        }
     }
 
     /// Catalogs, sidecars and exports all take their fields from these readers.

@@ -13,6 +13,7 @@
 //!   XMP `uuid` box.
 
 use lightcraft_tiff::{Tiff, tags};
+use std::borrow::Cow;
 
 /// Metadata blocks found in a file.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -26,6 +27,9 @@ pub struct Embedded {
     pub icc: Option<Vec<u8>>,
     /// IPTC-IIM stream.
     pub iptc: Option<Vec<u8>>,
+    /// The first metadata block the walk met and could not read, named for an error message. Reads
+    /// stay best-effort about it, but nothing can be promised about what the block holds.
+    pub unread: Option<&'static str>,
 }
 
 /// Sniff the container and collect its metadata blocks. Unknown containers yield an empty result.
@@ -64,7 +68,8 @@ fn read_blocks(bytes: &[u8]) -> Option<(Embedded, Option<Tiff>)> {
         return jpeg.filter(|j| j.starts_with(&[0xff, 0xd8])).map(|j| (jpeg_segments(j), None));
     }
     if let Some(c) = crate::cr3::parse_cr3(bytes) {
-        let e = Embedded { exif: crate::cr3::merged_exif(&c), xmp: c.xmp.map(|b| String::from_utf8_lossy(b).into_owned()), ..Default::default() };
+        let mut e = Embedded { exif: crate::cr3::merged_exif(&c), ..Default::default() };
+        e.xmp = c.xmp.map(|b| xmp_text(b, &mut e.unread));
         return Some((e, None));
     }
     if bytes.starts_with(&[0xff, 0xd8]) {
@@ -75,20 +80,28 @@ fn read_blocks(bytes: &[u8]) -> Option<(Embedded, Option<Tiff>)> {
         Some((webp_chunks(bytes), None))
     } else if let Ok(t) = Tiff::parse(bytes) {
         let ifd0 = &t.ifds[0];
-        let e = Embedded {
-            exif: None,
-            xmp: ifd0.bytes(tags::XMP).map(|b| String::from_utf8_lossy(b).into_owned()),
-            xmp_extended: None,
+        let mut e = Embedded {
             icc: ifd0.bytes(tags::ICC_PROFILE).map(|b| b.to_vec()),
             iptc: ifd0.value(tags::IPTC_NAA).map(|v| match v {
                 lightcraft_tiff::Value::Byte(b) | lightcraft_tiff::Value::Undefined(b) => b.clone(),
                 other => lightcraft_tiff::writer::encode(t.order, other),
             }),
+            ..Default::default()
         };
+        e.xmp = ifd0.bytes(tags::XMP).map(|b| xmp_text(b, &mut e.unread));
         Some((e, Some(t)))
     } else {
         None
     }
+}
+
+/// An XMP packet as text. Replacing bytes that aren't UTF-8 can hide a value, so the packet counts as unread.
+fn xmp_text(packet: &[u8], unread: &mut Option<&'static str>) -> String {
+    let text = String::from_utf8_lossy(packet);
+    if matches!(text, Cow::Owned(_)) {
+        unread.get_or_insert("XMP that isn't UTF-8");
+    }
+    text.into_owned()
 }
 
 const XMP_SIG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
@@ -128,7 +141,7 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
         match marker {
             0xe1 if payload.starts_with(b"Exif\0") && out.exif.is_none() => out.exif = Some(payload.get(6..).unwrap_or(&[]).to_vec()),
             0xe1 if payload.starts_with(XMP_SIG) && out.xmp.is_none() => {
-                out.xmp = Some(String::from_utf8_lossy(&payload[XMP_SIG.len()..]).into_owned());
+                out.xmp = Some(xmp_text(&payload[XMP_SIG.len()..], &mut out.unread));
             }
             0xe1 if payload.starts_with(XMP_EXT_SIG) => {
                 // GUID (32) + full length (4) + offset (4) + data
@@ -191,7 +204,7 @@ pub fn png_chunks(b: &[u8]) -> Embedded {
                     let mut parts = rest.splitn(3, |&c| c == 0);
                     let (_, _, text) = (parts.next(), parts.next(), parts.next());
                     if let Some(t) = text {
-                        out.xmp = Some(String::from_utf8_lossy(t).into_owned());
+                        out.xmp = Some(xmp_text(t, &mut out.unread));
                     }
                 }
             }
@@ -213,7 +226,7 @@ pub fn webp_chunks(b: &[u8]) -> Embedded {
         let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else { break };
         match id {
             b"EXIF" => out.exif = Some(crate::strip_exif_header(data).to_vec()),
-            b"XMP " => out.xmp = Some(String::from_utf8_lossy(data).into_owned()),
+            b"XMP " => out.xmp = Some(xmp_text(data, &mut out.unread)),
             b"ICCP" => out.icc = Some(data.to_vec()),
             _ => {}
         }

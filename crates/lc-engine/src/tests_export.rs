@@ -806,6 +806,131 @@ fn remove_location_still_copies_originals_it_can_read() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// `crafted` through an Original export, swapped in after a clean import because the check reads the
+/// bytes it copies. Without Remove Location Info the copy is exact whatever the file holds.
+fn remove_location_from(dir: &std::path::Path, crafted: &[u8]) -> Result<Vec<u8>, String> {
+    let path = dir.join("photo.png");
+    std::fs::write(&path, include_bytes!("../../lc-codecs/tests/fixtures/shared-export/rgb8.png")).unwrap();
+    let mut session = Session::new().with_fs();
+    session.execute("library.import", &json!({"paths": [path]})).unwrap();
+    let id = session.catalog.photos().next().unwrap().id;
+    std::fs::write(&path, crafted).unwrap();
+    let keep = ExportOptions::from_json(&json!({"format": "original"}));
+    assert_eq!(export_photo(&mut session, id, &keep, 1).unwrap().bytes, crafted);
+    let remove = ExportOptions::from_json(&json!({"format": "original", "removeLocation": true}));
+    export_photo(&mut session, id, &remove, 1).map(|exported| exported.bytes)
+}
+
+fn jpeg_with(segments: &[(u8, Vec<u8>)]) -> Vec<u8> {
+    let mut out = vec![0xff, 0xd8];
+    for (marker, payload) in segments {
+        out.extend_from_slice(&[0xff, *marker]);
+        out.extend_from_slice(&u16::try_from(payload.len() + 2).unwrap().to_be_bytes());
+        out.extend_from_slice(payload);
+    }
+    out.extend_from_slice(&[0xff, 0xd9]);
+    out
+}
+
+fn jpeg_xmp(packet: &[u8]) -> (u8, Vec<u8>) {
+    (0xe1, [b"http://ns.adobe.com/xap/1.0/\0", packet].concat())
+}
+
+fn png_with(chunks: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    for (kind, data) in chunks.iter().chain([&(b"IEND", Vec::new())]) {
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_be_bytes());
+        out.extend_from_slice(*kind);
+        out.extend_from_slice(data);
+        out.extend_from_slice(&[0; 4]);
+    }
+    out
+}
+
+fn png_xmp(packet: &[u8]) -> (&'static [u8; 4], Vec<u8>) {
+    (b"iTXt", [b"XML:com.adobe.xmp\0\0\0\0\0", packet].concat())
+}
+
+fn webp_with(chunks: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+    let mut out = b"RIFF\0\0\0\0WEBP".to_vec();
+    for (id, data) in chunks {
+        out.extend_from_slice(*id);
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_le_bytes());
+        out.extend_from_slice(data);
+        if !data.len().is_multiple_of(2) {
+            out.push(0);
+        }
+    }
+    out
+}
+
+/// `packet` in every container that holds a packet as text. A TIFF is patched: its writer takes UTF-8.
+fn containers_with_xmp(packet: &[u8]) -> [(&'static str, Vec<u8>); 4] {
+    let mut tiff = tiff_with_xmp(&"0".repeat(packet.len()));
+    let at = tiff.windows(packet.len()).position(|bytes| bytes.iter().all(|&byte| byte == b'0')).unwrap();
+    tiff[at..at + packet.len()].copy_from_slice(packet);
+    [
+        ("JPEG", jpeg_with(&[jpeg_xmp(packet)])),
+        ("PNG", png_with(&[png_xmp(packet)])),
+        ("WebP", webp_with(&[(b"XMP ", packet)])),
+        ("TIFF", tiff),
+    ]
+}
+
+fn rdf(properties: &str) -> String {
+    format!(
+        r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/" xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/" xmlns:loc="http://iptc.org/std/Iptc4xmpExt/2008-02-29/" {properties}</rdf:RDF>"#
+    )
+}
+
+/// The lenient reader takes each of these packets for one without a location.
+#[test]
+fn remove_location_refuses_xmp_it_cannot_read_in_any_container() {
+    let dir = temp_dir("export-noloc-broken-xmp");
+    let whole = rdf(r#"exif:GPSLatitude="45,0N"><exif:GPSLongitude>7,0E</exif:GPSLongitude></rdf:Description>"#);
+    let mut not_utf8 = rdf(r#"exif:GPSLatitude="45,0N" exif:GPSLongitude="7,0E"/>"#).into_bytes();
+    let longitude = not_utf8.windows(4).position(|bytes| bytes == b"7,0E").unwrap();
+    not_utf8[longitude] = 0xff;
+    let packets = [
+        ("unquoted", rdf(r#"exif:GPSLatitude="45,0N" exif:GPSLongitude=7,0E/>"#).into_bytes()),
+        ("repeated", rdf(r#"exif:GPSLatitude="" exif:GPSLatitude="45,0N" exif:GPSLongitude="7,0E"/>"#).into_bytes()),
+        ("cut off", whole.as_bytes()[..whole.find("7,0E").unwrap()].to_vec()),
+        ("not UTF-8", not_utf8),
+    ];
+    let mut copied = Vec::new();
+    for (case, packet) in &packets {
+        for (container, file) in containers_with_xmp(packet) {
+            let result = remove_location_from(&dir, &file);
+            if !result.as_ref().is_err_and(|error| error.contains("can't verify location metadata")) {
+                copied.push(format!("{container} {case}: {:?}", result.map(|bytes| bytes.len())));
+            }
+        }
+    }
+    assert!(copied.is_empty(), "{copied:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// The refusals above must not reach a file that has nothing to hide.
+#[test]
+fn remove_location_copies_readable_packets_without_a_location() {
+    let dir = temp_dir("export-noloc-clean-packets");
+    let written = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { title: Some("Plain".into()), ..Default::default() }, None);
+    let packets = [
+        written.clone(),
+        format!("\u{feff}{written}"),
+        format!("{written}\0\0"),
+        rdf(r#"Iptc4xmpCore:CountryCode="" exif:GPSLatitude=" "/>"#),
+        rdf(r#"><Iptc4xmpExt:LocationCreated><rdf:Bag/></Iptc4xmpExt:LocationCreated></rdf:Description>"#),
+        rdf(r#"exif:GPSVersionID="2.3.0.0" exif:GPSTimeStamp="2026-10-30T12:00:00Z"/>"#),
+    ];
+    for packet in packets {
+        for (container, file) in containers_with_xmp(packet.as_bytes()) {
+            assert_eq!(remove_location_from(&dir, &file).as_deref(), Ok(&file[..]), "{container}: {packet}");
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Exports write what the catalog holds, so an import that stopped at the budget loses these fields
 /// from every later file.
 #[test]
