@@ -1065,5 +1065,10 @@ The wrapper has no thumbnail API, so thumbnail-candidate changes do not apply. `
 checks a grid's actual canvas against the decode limit before allocating the output image.
 
 Local extension: alpha-grid tile extent chains share the 4096-read budget with primary reconstruction.
-Local extension: `iloc` record counts bound allocation while allowing larger payloads with counts
-within the limit; zero-width extents still count as allocated records.
+Local extension: `iloc` record counts replace upstream's 64 KiB `iloc` payload cap, which is not
+ported: zero-width extents cost no bytes, so payload size did not price the allocation. The census
+walks every `iloc` box as `heic-rs` 0.1.4 parses it and totals the records across all of them, so a
+list cut short or using unknown field widths still pays for every record `heic-rs` builds from it.
+`Context::open` therefore builds at most 65,536 item records and 65,536 extent records; a file
+declaring more is refused first. Re-check the census against `heic-rs`'s `iloc` parser when the pin
+moves.

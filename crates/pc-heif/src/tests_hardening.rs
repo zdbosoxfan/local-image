@@ -347,15 +347,25 @@ fn primary_with_over_budget_zero_width_extents() -> Vec<u8> {
     ])
 }
 
-fn primary_with_over_budget_iloc_items() -> Vec<u8> {
-    let mut payload = vec![0, 0];
-    payload.extend_from_slice(&65_537_u32.to_be_bytes());
-    for id in 2..=65_538_u32 {
-        payload.extend_from_slice(&id.to_be_bytes());
-        payload.extend_from_slice(&[0; 6]);
+// Entries carry no extent bytes, so a nonzero extent count needs zero-width fields to parse.
+fn primary_with_iloc_entries(version: u8, field_sizes: u8, declared_items: u32, extent_counts: &[u16]) -> Vec<u8> {
+    let id_width = if version < 2 { 2 } else { 4 };
+    let mut payload = vec![field_sizes, 0];
+    push_uint(&mut payload, declared_items, id_width);
+    for (id, extent_count) in (1..).zip(extent_counts) {
+        push_uint(&mut payload, id, id_width);
+        if version >= 1 {
+            payload.extend_from_slice(&[0, 1]);
+        }
+        payload.extend_from_slice(&[0, 0]);
+        payload.extend_from_slice(&extent_count.to_be_bytes());
     }
-    let locations = full_box(b"iloc", 2, 0, &payload);
+    let locations = full_box(b"iloc", version, 0, &payload);
     heif(&[hdlr(), pitm(1), iinf(&[infe(1, b"hvc1", None)]), locations, iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])]), idat(b"x")])
+}
+
+fn primary_with_over_budget_iloc_items() -> Vec<u8> {
+    primary_with_iloc_entries(2, 0, 65_537, &vec![0; 65_537])
 }
 
 #[test]
@@ -441,6 +451,21 @@ fn iloc_extent_budget_bounds_allocations_without_rejecting_large_payloads() {
             && matches!(&zero_width_extents, Err(Error::Limit(message)) if message.contains("extent"))
             && matches!(&item_entries, Err(Error::Limit(message)) if message.contains("item locations")),
         "many extents: {many_extents:?}; zero-width extents: {zero_width_extents:?}; item entries: {item_entries:?}"
+    );
+}
+
+#[test]
+fn iloc_census_counts_every_record_heic_rs_builds() {
+    // Each list declares one entry more than it holds, and heic-rs parses until the bytes run out.
+    let cut_short_extents = probe(&primary_with_iloc_entries(0, 0, 3, &[40_000, 40_000]));
+    let cut_short_items = probe(&primary_with_iloc_entries(2, 0, 65_538, &vec![0; 65_537]));
+    // heic-rs checks a field width only when it reads one, so entries without extents still parse.
+    let unknown_width_items = probe(&primary_with_iloc_entries(2, 0x10, 65_537, &vec![0; 65_537]));
+    assert!(
+        matches!(&cut_short_extents, Err(Error::Limit(message)) if message.contains("item extents"))
+            && matches!(&cut_short_items, Err(Error::Limit(message)) if message.contains("item locations"))
+            && matches!(&unknown_width_items, Err(Error::Limit(message)) if message.contains("item locations")),
+        "cut-short extents: {cut_short_extents:?}; cut-short items: {cut_short_items:?}; unknown-width items: {unknown_width_items:?}"
     );
 }
 

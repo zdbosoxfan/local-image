@@ -45,10 +45,7 @@ fn depth_boxes(census: &mut Census, boxes: BoxIter<'_>, depth: u32) {
         if box_header.is(b"ipma") {
             census.ipma = census.ipma.saturating_add(box_header.payload.len());
         } else if box_header.is(b"iloc") {
-            if let Some((items, extents)) = iloc_allocations(box_header.payload) {
-                census.iloc_items = census.iloc_items.saturating_add(items);
-                census.iloc_extents = census.iloc_extents.saturating_add(extents);
-            }
+            count_iloc_records(census, box_header.payload);
         } else if box_header.is(b"meta") {
             if box_header.payload.len() >= 4 {
                 depth_boxes(census, BoxIter::new(&box_header.payload[4..]), depth + 1);
@@ -59,7 +56,9 @@ fn depth_boxes(census: &mut Census, boxes: BoxIter<'_>, depth: u32) {
     }
 }
 
-fn iloc_allocations(payload: &[u8]) -> Option<(usize, usize)> {
+// Walks the box as heic-rs 0.1.4 parses it and charges each record once heic-rs would have built
+// it. Where the walk stops, heic-rs refuses the file, so the records before the stop stay counted.
+fn count_iloc_records(census: &mut Census, payload: &[u8]) -> Option<()> {
     let mut reader = Reader::new(payload);
     let (version, _) = reader.full_box("iloc").ok()?;
     if version > 2 {
@@ -72,40 +71,21 @@ fn iloc_allocations(payload: &[u8]) -> Option<(usize, usize)> {
     let sizes2 = reader.u8("iloc field sizes").ok()?;
     let base_offset_size = sizes2 >> 4;
     let index_size = if version >= 1 { sizes2 & 0x0f } else { 0 };
-    if ![offset_size, length_size, base_offset_size, index_size].into_iter().all(valid_field_width) {
-        return None;
-    }
 
-    let item_count = if version < 2 { usize::from(reader.u16("iloc item count").ok()?) } else { usize::try_from(reader.u32("iloc item count").ok()?).ok()? };
+    let item_count = if version < 2 { u32::from(reader.u16("iloc item count").ok()?) } else { reader.u32("iloc item count").ok()? };
     let id_size = if version < 2 { 2 } else { 4 };
     let method_size = if version >= 1 { 2 } else { 0 };
-    let minimum_item_size = id_size + method_size + 2 + usize::from(base_offset_size) + 2;
-    if item_count.checked_mul(minimum_item_size)? > reader.remaining() {
-        return None;
-    }
-    if item_count > MAX_ILOC_ITEMS {
-        return Some((item_count, 0));
-    }
-
+    let item_header_size = id_size + method_size + 2 + usize::from(base_offset_size);
+    // Unknown widths are skipped as declared: heic-rs refuses one only when it reads that field,
+    // which entries without extents never do.
     let extent_size = usize::from(offset_size) + usize::from(length_size) + usize::from(index_size);
-    let mut extent_count = 0_usize;
+    // Each pass consumes at least six bytes or stops, so a hostile item_count ends with the data.
     for _ in 0..item_count {
-        reader.skip(id_size, "iloc item id").ok()?;
-        if version >= 1 {
-            reader.skip(2, "iloc construction method").ok()?;
-        }
-        reader.skip(2, "iloc data reference index").ok()?;
-        reader.skip(usize::from(base_offset_size), "iloc base offset").ok()?;
-        let count = usize::from(reader.u16("iloc extent count").ok()?);
-        reader.skip(count.checked_mul(extent_size)?, "iloc extents").ok()?;
-        extent_count = extent_count.saturating_add(count);
-        if extent_count > MAX_ILOC_EXTENTS {
-            return Some((item_count, extent_count));
-        }
+        reader.skip(item_header_size, "iloc item header").ok()?;
+        let extent_count = usize::from(reader.u16("iloc extent count").ok()?);
+        reader.skip(extent_count.checked_mul(extent_size)?, "iloc extents").ok()?;
+        census.iloc_items = census.iloc_items.saturating_add(1);
+        census.iloc_extents = census.iloc_extents.saturating_add(extent_count);
     }
-    Some((item_count, extent_count))
-}
-
-fn valid_field_width(width: u8) -> bool {
-    matches!(width, 0 | 4 | 8)
+    Some(())
 }
