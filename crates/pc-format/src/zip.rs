@@ -241,7 +241,7 @@ impl<'a> ZipReader<'a> {
                 // preallocation is capped (DEFLATE expands at most ~1032x).
                 let mut out = Vec::with_capacity(e.uncompressed.min(raw.len().saturating_mul(1032)).min(64 << 20));
                 // One surplus byte proves a false size without expanding to the caller's larger budget.
-                flate2::bufread::DeflateDecoder::new(raw)
+                flate2::read::DeflateDecoder::new(raw)
                     .take(u64::try_from(e.uncompressed).unwrap_or(u64::MAX).saturating_add(1))
                     .read_to_end(&mut out)
                     .map_err(|err| FormatError::corrupt(format!("zip entry `{}`: {err}", e.name)))?;
