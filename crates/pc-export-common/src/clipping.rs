@@ -148,7 +148,7 @@ impl Clipping<'_> {
                 opaque.alpha = 1.0;
                 let mut body = isolated_group("Clipping colors", vec![Layer::new("Base color", LayerContent::Fill(Fill::Solid(opaque)))]);
                 body.opacity = color.alpha;
-                let geometry = normalized_fill(&shape.path, self.rect)?;
+                let geometry = normalized_fill(base, &shape.path, self.rect)?;
                 if geometry.is_empty() {
                     // Compound fill operations can cancel while the original
                     // subpaths still have a visible centered stroke.

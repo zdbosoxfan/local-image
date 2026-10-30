@@ -288,12 +288,22 @@ pub fn mask_allocation_bytes(pixels: u64, bytes_per_pixel: u64) -> Result<usize>
 pub fn effect_margin(layer: &Layer) -> i32 {
     if photocraft_compose::effects::has_effects(layer) { photocraft_compose::effects::margin(layer) } else { 0 }
 }
-pub fn normalized_fill(path: &Path, rect: Rect) -> Result<Path> {
+/// A failed path operation on `layer`. One the work budget refuses names the layer: the file
+/// cannot be written without it.
+pub fn path_error(layer: &Layer, error: photocraft_pathops::PathOpsError) -> Error {
+    match error {
+        photocraft_pathops::PathOpsError::TooComplex => {
+            invalid(format!("the path of layer \"{}\" could not be exported: {error}. Simplify the layer.", layer.name))
+        }
+        other => invalid(other.to_string()),
+    }
+}
+pub fn normalized_fill(layer: &Layer, path: &Path, rect: Rect) -> Result<Path> {
     if !path.inverted && path.components().len() <= 1 {
         return Ok(path.clone());
     }
     photocraft_pathops::finish_compound(path, Some(kurbo::Rect::new(rect.x0 as f64, rect.y0 as f64, rect.x1 as f64, rect.y1 as f64)))
-        .map_err(|e| invalid(e.to_string()))
+        .map_err(|e| path_error(layer, e))
 }
 
 #[cfg(test)]

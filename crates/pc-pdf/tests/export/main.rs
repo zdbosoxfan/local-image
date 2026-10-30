@@ -7,7 +7,9 @@ use hayro_syntax::{
     object::{Name, Object, Stream},
 };
 use photocraft_doc::vector_design::exchange::ExportScope;
-use photocraft_doc::{Color, ColorMode, Document, Fill, GradientStyle, Layer, LayerContent, Path, SampleType, ShapeLayer, Size};
+use photocraft_doc::{
+    Color, ColorMode, Document, Fill, GradientStyle, Layer, LayerContent, Path, PathOp, SampleType, ShapeLayer, ShapeStroke, Size, StrokeAlign, Subpath,
+};
 use photocraft_pdf::export::{self, ExportError, ExportOptions};
 use std::{path::PathBuf, process::Command};
 fn scene(path: Path, fill: Fill) -> Document {
@@ -109,6 +111,30 @@ fn oracle(d: &Document, label: &str) {
     let expected = image::RgbImage::from_raw(got.width(), got.height(), cpu.into_iter().flatten().collect()).unwrap();
     let path = std::env::current_dir().unwrap().join("target/refvec/pdf21").join(format!("{label}-cpu.png"));
     expected.save(path).unwrap();
+}
+/// A path that must be combined, with too many overlapping segments for one sweep.
+fn over_budget() -> Path {
+    let triangle = |op| Subpath::polygon(&[(10.0, 10.0), (150.0, 10.0), (80.0, 120.0)]).with_op(op);
+    let mut subpaths = vec![triangle(PathOp::Join); 1100];
+    subpaths.push(triangle(PathOp::Combine));
+    Path::new(subpaths)
+}
+#[test]
+fn pdf_export_of_an_over_budget_path_fails_naming_its_layer() {
+    let fill = Fill::Solid(Color::WHITE);
+    let filled = scene(over_budget(), fill.clone());
+    let mut clipped = scene(rect(), fill.clone());
+    clipped.layers[0].vector.clip = Some(over_budget());
+    let mut stroked = scene(over_budget(), fill);
+    let LayerContent::Shape(shape) = &mut stroked.layers[0].content else { panic!("the scene is a shape") };
+    shape.fill = None;
+    shape.stroke = Some(ShapeStroke { width: 2.0, align: StrokeAlign::Inside, ..Default::default() });
+    for doc in [filled, clipped, stroked] {
+        let Err(ExportError::Invalid(message)) = export::export(&doc, &ExportScope::Document, &ExportOptions::default()) else {
+            panic!("the export must fail, not write the file without the path")
+        };
+        assert!(message.contains("layer \"Artwork\""), "{message}");
+    }
 }
 #[test]
 fn pdf_export_pure_vector_structural_and_dpi_y_flip() {
