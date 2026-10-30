@@ -1,3 +1,8 @@
+//! Adapted from VectorCraft `crates/pathops/src/budget.rs` at caf10cc5816d5f26bee02837650ce6952b69b878.
+//! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
+//! SPDX-License-Identifier: MIT OR Apache-2.0
+//! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}.
+//!
 //! Bounds on the number of segment pairs supplied to a planar sweep.
 
 use kurbo::{BezPath, ParamCurveExtrema, Rect};

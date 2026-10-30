@@ -1052,9 +1052,9 @@ The Smooth measurements retain upstream's black-to-white and red-to-blue rows an
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
-| [`cd80d1d859`](https://github.com/storytold/vectorcraft/commit/cd80d1d859cdefb4f095c362c52c9cae63f41f62) | Security: planar map budgets for booleans, Live Paint, Offset Path and 3D effects | `crates/pc-pathops/src/budget.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
-| [`0eebd533c5`](https://github.com/storytold/vectorcraft/commit/0eebd533c58c357a1b5b09769b6890066b05d80e) | security(pathops): signed zeros, reported budget rejections, and a fill-only fallback | `crates/pc-pathops/src/budget.rs` (signed-zero bounds)<br>`crates/pc-engine/src/pathops_cmds.rs` (command-boundary regression) | MIT OR Apache-2.0 |
-| [`caf10cc581`](https://github.com/storytold/vectorcraft/commit/caf10cc5816d5f26bee02837650ce6952b69b878) | security(pathops): count the sweep budget on the snapped geometry | `crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+| [`cd80d1d859cd`](https://github.com/storytold/vectorcraft/commit/cd80d1d859cdefb4f095c362c52c9cae63f41f62) | Security: planar map budgets for booleans, Live Paint, Offset Path and 3D effects | `crates/pc-pathops/src/budget.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/lib.rs` (error variant)<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+| [`0eebd533c58c`](https://github.com/storytold/vectorcraft/commit/0eebd533c58c357a1b5b09769b6890066b05d80e) | security(pathops): signed zeros, reported budget rejections, and a fill-only fallback | `crates/pc-pathops/src/budget.rs` (signed-zero bounds)<br>`crates/pc-engine/src/pathops_cmds.rs` (command-boundary regression) | MIT OR Apache-2.0 |
+| [`caf10cc5816d`](https://github.com/storytold/vectorcraft/commit/caf10cc5816d5f26bee02837650ce6952b69b878) | security(pathops): count the sweep budget on the snapped geometry | `crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
 
 Adapted ports: `cd80d1d8` counts overlapping segment bounds before every arrangement sweep and
 the Live Paint map sweep, and stores Live Paint crossing counts sparsely. In Local Image the
@@ -1066,3 +1066,5 @@ are unnecessary here: no workspace caller uses the infallible N-ary helper, and 
 adapter already returns errors for boolean and area operations. The fill-only Shape Builder
 fallback is not used because Local Image's checked builder contract reports incomplete geometry
 instead of silently dropping cutting lines.
+The gap grouping (`gap_from`) and 3D-effect hunks of `cd80d1d8` are not ported: neither piece of
+code exists in this tree.
