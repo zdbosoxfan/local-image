@@ -422,9 +422,12 @@ mod tests {
         let scene = Scene::new(VpPlane { corners: [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]] }, [50.0, 50.0], None, 500.0);
         let mut surface = Surface::new(PixelFormat::RGBA8);
         surface.fill_rect(canvas, &[0.2, 0.2, 0.2, 1.0]);
+        let tiles = surface.tiles().count();
+        let points = [[50.0, 50.0], [-30.0, 50.0], [5000.0, 5000.0], [-90_000.0, 70_000.0]];
 
-        let dabs = clone_stroke(&scene, &mut surface, [85.0, 50.0], &[[50.0, 50.0], [-30.0, 50.0]], 20.0, 0.8, 1.0, Some(canvas));
+        let dabs = clone_stroke(&scene, &mut surface, [85.0, 50.0], &points, 20.0, 0.8, 1.0, Some(canvas));
 
+        assert_eq!(surface.tiles().count(), tiles);
         assert_eq!(dabs, 1);
         assert!(canvas.contains_rect(&surface.content_bounds()), "{:?}", surface.content_bounds());
     }

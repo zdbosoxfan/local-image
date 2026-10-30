@@ -274,12 +274,9 @@ mod tests {
             })
             .unwrap();
 
-            let result = s
-                .execute(
-                    VP,
-                    json!({"planes": planes, "newLayer": new_layer, "clone": [{"source": [150, 100], "points": [[100, 100], [-30, 100]], "size": 20}]}),
-                )
-                .unwrap();
+            let points = json!([[100, 100], [-30, 100], [9_000_000, 9_000_000]]);
+            let result =
+                s.execute(VP, json!({"planes": planes, "newLayer": new_layer, "clone": [{"source": [150, 100], "points": points, "size": 20}]})).unwrap();
 
             assert_eq!(result["dabs"].as_u64(), Some(1), "newLayer={new_layer}: {result}");
             let id = if new_layer { LayerId(result["layer"].as_u64().unwrap()) } else { original };
