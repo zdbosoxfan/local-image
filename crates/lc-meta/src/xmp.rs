@@ -527,7 +527,9 @@ pub(crate) fn parse_xmp_logged(s: &str) -> Result<XmpData, XmpError> {
     static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
     let data = parse_xmp(s)?;
     if data.property_keys_truncated && lightcraft_tiff::is_new_block(&LAST_WARNED, s.as_bytes()) {
-        log::warn!("XMP packet: properties past the {MAX_FLATTENED_PROPERTY_KEY_BYTES}-byte flattened-key budget were ignored, so later fields are missing");
+        log::warn!(
+            "XMP packet: properties past the {MAX_FLATTENED_PROPERTY_KEY_BYTES}-byte flattened-key budget were ignored, so later fields are missing"
+        );
     }
     Ok(data)
 }

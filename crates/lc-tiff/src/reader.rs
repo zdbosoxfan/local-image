@@ -110,7 +110,14 @@ pub fn parse_ifd_at(data: &[u8], offset: u64, order: ByteOrder, base: u64, bigti
 }
 
 /// [`parse_ifd_at`] and how many entries [`ParseOptions::value_budget`] left out.
-pub(crate) fn parse_ifd_counted(data: &[u8], offset: u64, order: ByteOrder, base: u64, bigtiff: bool, opts: &ParseOptions) -> Result<(Ifd, u64, usize)> {
+pub(crate) fn parse_ifd_counted(
+    data: &[u8],
+    offset: u64,
+    order: ByteOrder,
+    base: u64,
+    bigtiff: bool,
+    opts: &ParseOptions,
+) -> Result<(Ifd, u64, usize)> {
     let mut ctx = Ctx::new(data, order, bigtiff, opts);
     let (ifd, next) = ctx.ifd(offset, base, 0)?;
     Ok((ifd, next, ctx.over_budget))
