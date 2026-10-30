@@ -347,12 +347,8 @@ pub fn extract(bytes: &[u8]) -> Metadata {
 /// [`extract`] and the file's XMP packet ([`Embedded::xmp`]) from one pass over the container.
 pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
     let (e, tiff) = container::blocks(bytes);
-    (extract_blocks(bytes, &e, tiff.as_ref()), e.xmp)
-}
-
-fn extract_blocks(bytes: &[u8], e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff>) -> Metadata {
     let xmp = e.xmp.as_deref().and_then(|x| parse_whole_xmp(x).ok()).map(|x| x.metadata);
-    extract_embedded(e, exif_metadata(bytes, e, tiff), xmp)
+    (extract_embedded(&e, exif_metadata(bytes, &e, tiff.as_ref()), xmp), e.xmp)
 }
 
 fn exif_metadata(bytes: &[u8], e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff>) -> Metadata {
