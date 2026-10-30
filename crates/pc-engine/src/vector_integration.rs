@@ -218,7 +218,8 @@ fn evaluate_live<T>(layer: &str, over_budget: OverBudget, evaluate: impl FnOnce(
 
 /// One detached projection traversal for the canvas and other views.
 /// Sources remain native and editable; evaluated metadata is cleared only on this copy.
-/// A live effect the path work budget refuses is left out with a logged warning.
+/// A live effect the path work budget refuses is left out with a logged warning, and so is a
+/// refused stroke, with the rest of its layer still showing.
 pub fn project_document(source: &Document) -> Result<Document> {
     project_document_cancellable(source, &|| false, true, OverBudget::Skip)
 }
@@ -230,6 +231,7 @@ pub fn project_for_output(source: &Document) -> Result<Document> {
 }
 
 fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool, refresh_type: bool, over_budget: OverBudget) -> Result<Document> {
+    use photocraft_doc::vector_design::appearance::AppearanceItem;
     use photocraft_doc::vector_design::live::LiveGroup;
     fn ids(layer: &photocraft_doc::Layer, out: &mut std::collections::HashSet<photocraft_doc::LayerId>) {
         out.insert(layer.id);
@@ -316,9 +318,17 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
                 *shape = packages::corners::project_shape(shape, &layer.vector.corners)?;
             }
             if !layer.vector.is_empty() || shape.cache.is_none() {
-                let vector = VectorData { appearance: layer.vector.appearance.clone(), ..Default::default() };
-                if let Some(cache) = evaluate_live(&layer.name, over_budget, || render_shape(source, shape, &vector))? {
-                    shape.cache = Some(cache);
+                let mut vector = VectorData { appearance: layer.vector.appearance.clone(), ..Default::default() };
+                let mut cache = evaluate_live(&layer.name, over_budget, || render_shape(source, shape, &vector))?;
+                if cache.is_none()
+                    && let Some(appearance) = &mut vector.appearance
+                {
+                    // Only strokes outlined through the path kernel can be refused; the rest still shows.
+                    appearance.items.retain(|item| !matches!(item, AppearanceItem::Stroke(s) if s.profile.is_some() || s.brush.is_some()));
+                    cache = evaluate_live(&layer.name, over_budget, || render_shape(source, shape, &vector))?;
+                }
+                if cache.is_some() {
+                    shape.cache = cache;
                 }
             }
             layer.vector.live_shape = None;
@@ -947,6 +957,22 @@ mod integration_tests {
             let refused = export_document(&with_crowded_master(vec![layer]), "budget.png", &Default::default()).unwrap_err().to_string();
             assert!(refused.contains(name), "{refused}");
         }
+    }
+    #[test]
+    fn a_stroke_over_the_path_budget_leaves_the_fill_on_screen() {
+        use photocraft_doc::vector_design::appearance::{AppearanceItem, FillItem};
+        let mut layer = with_profile_stroke(crowded("Crowded stroke", 1000));
+        if let LayerContent::Shape(shape) = &mut layer.content {
+            shape.path.subpaths.push(Subpath::polygon(&[(2., 2.), (12., 2.), (12., 12.), (2., 12.)]));
+        }
+        layer.vector.appearance.as_mut().unwrap().items.insert(0, AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::BLACK))));
+        let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        doc.layers = vec![layer];
+
+        let shown = photocraft_compose::flatten(&project_document(&doc).unwrap());
+
+        assert_eq!(shown.px[4 * 32 + 4][3], 1., "inside the fill");
+        assert_eq!(shown.px[30 * 32 + 30][3], 0., "outside the shape");
     }
     #[test]
     fn a_symbol_over_the_path_budget_fails_the_zoomed_view_instead_of_recursing() {
