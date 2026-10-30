@@ -10,6 +10,7 @@
 #![cfg_attr(test, expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed"))]
 
 mod adapter;
+mod budget;
 pub mod geom;
 pub mod kernel;
 pub use adapter::*;
@@ -24,6 +25,8 @@ pub enum PathOpsError {
     OpenPath,
     #[error("the shapes are too degenerate to combine")]
     Degenerate,
+    #[error("the shapes cross themselves and each other too often to combine")]
+    TooComplex,
     #[error("inverted paths need a finite clipping rectangle")]
     NeedsClip,
     #[error("invalid geometry option or segment index")]

@@ -314,6 +314,9 @@ impl Arrangement {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
         snap_horizontals(&mut paths.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
         let sweep = |paths: &[(BezPath, FillRule)]| {
+            if !crate::budget::sweep_fits(paths.iter().map(|(path, _)| path)) {
+                return Err(PathOpsError::TooComplex);
+            }
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps)))
                 .map_err(|_| PathOpsError::Degenerate)?
                 .map_err(|_| PathOpsError::OpenPath)
@@ -797,5 +800,24 @@ mod dsfix_tests {
         assert!(recovered[0].0.segments().count() > 1024);
         assert!((recovered[0].0.area().abs() - std::f64::consts::PI * 10000.).abs() < 1.);
         assert!(flatten_fallback(&[(ring(8194), FillRule::NonZero)], 200.).is_err());
+    }
+
+    #[test]
+    fn compact_self_crossing_path_is_refused_when_segment_bounds_exceed_budget() {
+        let mut anchors = Vec::with_capacity(4097);
+        anchors.push(Anchor::corner(Point::ZERO));
+        for i in 0..2048 {
+            let angle = std::f64::consts::TAU * i as f64 / 2048.0;
+            anchors.push(Anchor::corner(Point::new(angle.cos(), angle.sin())));
+            anchors.push(Anchor::corner(Point::ZERO));
+        }
+        let path = PathData::single(SubPath::new(anchors, true));
+
+        let result = try_normalize(&path, FillRule::NonZero);
+        assert_eq!(
+            result.err().map(|error| error.to_string()),
+            Some("the shapes cross themselves and each other too often to combine".to_owned()),
+            "all segment bounds meet at the center, so this compact path must stop at the operation budget",
+        );
     }
 }

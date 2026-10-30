@@ -36,24 +36,16 @@ use crate::kernel::pathfinder::{Region, Shape};
 const SHEAR: Affine = Affine::new([1.0, 1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 const UNSHEAR: Affine = Affine::new([1.0, -1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 
-/// Boundary crossings per input, counted from the far west: slot `2i` counts input `i`'s
-/// segments running one way, slot `2i + 1` the other. An open path traced there and back adds one
-/// to each, so its edges never cancel out of the map.
-#[derive(Clone, Debug, Default)]
-struct Crossings(Vec<u32>);
+/// Boundary crossings per input, counted from the far west. Only nonzero slots are stored because
+/// the sweep keeps one crossing value for every edge.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Crossings(Vec<(usize, u32)>);
 
 impl Crossings {
     fn get(&self, slot: usize) -> u32 {
-        self.0.get(slot).copied().unwrap_or(0)
+        self.0.binary_search_by_key(&slot, |(index, _)| *index).map_or(0, |i| self.0.get(i).map_or(0, |(_, count)| *count))
     }
 }
-
-impl PartialEq for Crossings {
-    fn eq(&self, other: &Self) -> bool {
-        (0..self.0.len().max(other.0.len())).all(|i| self.get(i) == other.get(i))
-    }
-}
-impl Eq for Crossings {}
 
 impl std::ops::Add for Crossings {
     type Output = Crossings;
@@ -65,33 +57,35 @@ impl std::ops::Add for Crossings {
 
 impl std::ops::AddAssign for Crossings {
     fn add_assign(&mut self, rhs: Self) {
-        if self.0.len() < rhs.0.len() {
-            self.0.resize(rhs.0.len(), 0);
+        if rhs.0.is_empty() {
+            return;
         }
-        for (a, b) in self.0.iter_mut().zip(rhs.0) {
-            *a = a.saturating_add(b);
+        let mut out = Vec::with_capacity(self.0.len() + rhs.0.len());
+        let (mut a, mut b) = (std::mem::take(&mut self.0).into_iter().peekable(), rhs.0.into_iter().peekable());
+        loop {
+            let next = match (a.peek(), b.peek()) {
+                (Some(x), Some(y)) if x.0 == y.0 => {
+                    let (x, y) = (a.next(), b.next());
+                    x.zip(y).map(|(x, y)| (x.0, x.1.saturating_add(y.1)))
+                }
+                (Some(x), Some(y)) if x.0 < y.0 => a.next(),
+                (Some(_), Some(_)) | (None, Some(_)) => b.next(),
+                (Some(_), None) => a.next(),
+                (None, None) => break,
+            };
+            out.extend(next.filter(|(_, count)| *count != 0));
         }
+        self.0 = out;
     }
 }
 
 impl WindingNumber for Crossings {
     type Tag = usize;
     fn single(tag: usize, positive: bool) -> Self {
-        let slot = 2 * tag + usize::from(!positive);
-        let mut v = vec![0; slot + 1];
-        if let Some(c) = v.get_mut(slot) {
-            *c = 1;
-        }
-        Crossings(v)
+        Crossings(vec![(2 * tag + usize::from(!positive), 1)])
     }
     fn of_tag(&self, tag: usize) -> Self {
-        let mut v = vec![0; 2 * tag + 2];
-        for slot in [2 * tag, 2 * tag + 1] {
-            if let Some(c) = v.get_mut(slot) {
-                *c = self.get(slot);
-            }
-        }
-        Crossings(v)
+        Crossings([2 * tag, 2 * tag + 1].into_iter().map(|slot| (slot, self.get(slot))).filter(|(_, count)| *count != 0).collect())
     }
 }
 
@@ -499,6 +493,9 @@ fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     }
     let eps = eps_for(inputs.iter().map(|p| &p.0))?;
     snap_horizontals(&mut inputs.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
+    if !crate::budget::sweep_fits(inputs.iter().map(|(path, _)| path)) {
+        return Err(PathOpsError::TooComplex);
+    }
     // The sweep can panic on rare near-degenerate input; that must never take the app down.
     let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Crossings>::from_paths(inputs.iter().map(|(p, i)| (p, *i)), eps)));
     let top = sweep.map_err(|_| PathOpsError::Degenerate)?.map_err(|_| PathOpsError::OpenPath)?;
@@ -790,8 +787,26 @@ mod tests {
         Shape::new(shapes::rectangle(Rect::new(x0, y0, x1, y1)), FillRule::NonZero, key)
     }
 
+    #[test]
+    fn planar_sweep_refuses_too_many_overlapping_segment_bounds() {
+        let lines = vec![line((0.0, 0.0), (10.0, 10.0), 0); 2050];
+        assert_eq!(try_shape_builder(&lines, false), Err(PathOpsError::TooComplex));
+    }
+
     fn area(r: &Region) -> f64 {
         r.path.to_bezpath().area()
+    }
+
+    #[test]
+    fn crossings_store_only_nonzero_counts() {
+        let mut crossings = Crossings::single(7, true);
+        crossings += Crossings::single(2, false);
+        crossings += Crossings::single(7, true);
+        assert_eq!((crossings.get(14), crossings.get(5), crossings.get(15), crossings.get(0)), (2, 1, 0, 0));
+        assert_eq!(crossings.0.len(), 2);
+        assert_eq!(crossings.of_tag(7), Crossings(vec![(14, 2)]));
+        assert_eq!(Crossings::single(2, false) + Crossings::single(7, true) + Crossings::single(7, true), crossings);
+        assert_eq!(Crossings::default() + Crossings::default(), Crossings::default());
     }
 
     fn at(faces: &[Region], x: f64, y: f64) -> Vec<&Region> {
