@@ -832,8 +832,18 @@ fn jpeg_with(segments: &[(u8, Vec<u8>)]) -> Vec<u8> {
     out
 }
 
+fn jpeg_exif(exif: &[u8]) -> (u8, Vec<u8>) {
+    (0xe1, [b"Exif\0\0", exif].concat())
+}
+
 fn jpeg_xmp(packet: &[u8]) -> (u8, Vec<u8>) {
     (0xe1, [b"http://ns.adobe.com/xap/1.0/\0", packet].concat())
+}
+
+/// One extended-XMP segment: signature, GUID, full length, offset, data.
+fn jpeg_extended_xmp(packet: &[u8]) -> (u8, Vec<u8>) {
+    let length = u32::try_from(packet.len()).unwrap().to_be_bytes();
+    (0xe1, [&b"http://ns.adobe.com/xmp/extension/\0"[..], &[b'A'; 32], &length, &[0; 4], packet].concat())
 }
 
 fn png_with(chunks: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
@@ -883,6 +893,10 @@ fn rdf(properties: &str) -> String {
     )
 }
 
+fn gps_metadata() -> lightcraft_meta::Metadata {
+    lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 42.36, longitude: -71.06, altitude: None }), ..Default::default() }
+}
+
 /// The lenient reader takes each of these packets for one without a location.
 #[test]
 fn remove_location_refuses_xmp_it_cannot_read_in_any_container() {
@@ -907,6 +921,60 @@ fn remove_location_refuses_xmp_it_cannot_read_in_any_container() {
         }
     }
     assert!(copied.is_empty(), "{copied:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Well-formed files with blocks no walker reads, each named in the refusal. PNG and WebP keep the
+/// last repeat and JPEG the first, so the block holding the location is the one left unread.
+#[test]
+fn remove_location_refuses_metadata_blocks_it_cannot_read() {
+    let dir = temp_dir("export-noloc-unread-blocks");
+    let plain = lightcraft_meta::Metadata::default();
+    let (exif, gps_exif) = (lightcraft_meta::write_exif(&plain), lightcraft_meta::write_exif(&gps_metadata()));
+    let (xmp, gps_xmp) = (lightcraft_meta::write_xmp(&plain, None).into_bytes(), lightcraft_meta::write_xmp(&gps_metadata(), None).into_bytes());
+    let cut_off = {
+        let mut file = png_with(&[(b"eXIf", gps_exif.clone())]);
+        file.truncate(8 + 8 + gps_exif.len() / 2);
+        file
+    };
+    let files = [
+        ("compressed XMP", png_with(&[(b"iTXt", b"XML:com.adobe.xmp\0\x01\0\0\0deflated".to_vec())])),
+        ("XMP in a text chunk", png_with(&[(b"zTXt", b"XML:com.adobe.xmp\0\0deflated".to_vec())])),
+        ("XMP in a text chunk", png_with(&[(b"tEXt", [b"XML:com.adobe.xmp\0", &gps_xmp[..]].concat())])),
+        ("raw metadata profile", png_with(&[(b"zTXt", b"Raw profile type exif\0\0deflated".to_vec())])),
+        ("raw metadata profile", png_with(&[(b"tEXt", b"Raw profile type xmp\0\nxmp\n   2\n3c61".to_vec())])),
+        ("raw metadata profile", png_with(&[(b"iTXt", b"Raw profile type iptc\0\0\0\0\0text".to_vec())])),
+        ("a second Exif block", jpeg_with(&[jpeg_exif(&exif), jpeg_exif(&gps_exif)])),
+        ("a second XMP packet", jpeg_with(&[jpeg_xmp(&xmp), jpeg_xmp(&gps_xmp)])),
+        ("a second Exif block", png_with(&[(b"eXIf", gps_exif.clone()), (b"eXIf", exif.clone())])),
+        ("a second XMP packet", png_with(&[png_xmp(&gps_xmp), png_xmp(&xmp)])),
+        ("a second Exif block", webp_with(&[(b"EXIF", &gps_exif), (b"EXIF", &exif)])),
+        ("a second XMP packet", webp_with(&[(b"XMP ", &gps_xmp), (b"XMP ", &xmp)])),
+        ("a cut-off metadata block", cut_off),
+    ];
+    let mut copied = Vec::new();
+    for (index, (block, file)) in files.iter().enumerate() {
+        let result = remove_location_from(&dir, file);
+        if !result.as_ref().is_err_and(|error| error.contains("can't verify location metadata") && error.contains(block)) {
+            copied.push(format!("{index} {block}: {:?}", result.map(|bytes| bytes.len())));
+        }
+    }
+    assert!(copied.is_empty(), "{copied:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn remove_location_reads_jpeg_extended_xmp() {
+    let dir = temp_dir("export-noloc-extended-xmp");
+    let main = jpeg_xmp(lightcraft_meta::write_xmp(&Default::default(), None).as_bytes());
+    let extended = |packet: &[u8]| jpeg_with(&[main.clone(), jpeg_extended_xmp(packet)]);
+    let location = extended(lightcraft_meta::write_xmp(&gps_metadata(), None).as_bytes());
+    let error = remove_location_from(&dir, &location).err().unwrap();
+    assert!(error.contains("embeds location info"), "{error}");
+    let error = remove_location_from(&dir, &extended(b"<x:xmpmeta><cut")).err().unwrap();
+    assert!(error.contains("can't verify location metadata"), "{error}");
+    let clean = extended(lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { title: Some("Long".into()), ..Default::default() }, None).as_bytes());
+    assert_eq!(remove_location_from(&dir, &clean).unwrap(), clean);
     std::fs::remove_dir_all(dir).unwrap();
 }
 

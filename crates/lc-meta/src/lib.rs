@@ -372,7 +372,12 @@ pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
         }
         check_exif_xmp(&e)?;
         let xmp = e.xmp.as_deref().map(strict_xmp).transpose()?.map(|x| x.metadata);
-        return Ok(extract_embedded(&e, exif_metadata(bytes, &e, tiff.as_ref()), xmp));
+        let extended = e.xmp_extended.as_deref().map(strict_xmp).transpose()?;
+        let mut m = extract_embedded(&e, exif_metadata(bytes, &e, tiff.as_ref()), xmp);
+        if let Some(x) = extended {
+            m.fill_missing(&x.metadata);
+        }
+        return Ok(m);
     }
     let e = psd::parse(bytes).ok_or(ExtractError::MalformedPsd)?;
     check_exif_xmp(&e)?;

@@ -104,6 +104,10 @@ fn xmp_text(packet: &[u8], unread: &mut Option<&'static str>) -> String {
     text.into_owned()
 }
 
+const SECOND_EXIF: &str = "a second Exif block";
+const SECOND_XMP: &str = "a second XMP packet";
+const CUT_OFF: &str = "a cut-off metadata block";
+
 const XMP_SIG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 const XMP_EXT_SIG: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
 
@@ -139,9 +143,19 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
         let end = (i + 2 + len).min(b.len());
         let payload = &b[i + 4..end];
         match marker {
-            0xe1 if payload.starts_with(b"Exif\0") && out.exif.is_none() => out.exif = Some(payload.get(6..).unwrap_or(&[]).to_vec()),
-            0xe1 if payload.starts_with(XMP_SIG) && out.xmp.is_none() => {
-                out.xmp = Some(xmp_text(&payload[XMP_SIG.len()..], &mut out.unread));
+            0xe1 if payload.starts_with(b"Exif\0") => {
+                if out.exif.is_some() {
+                    out.unread.get_or_insert(SECOND_EXIF);
+                } else {
+                    out.exif = Some(payload.get(6..).unwrap_or(&[]).to_vec());
+                }
+            }
+            0xe1 if payload.starts_with(XMP_SIG) => {
+                if out.xmp.is_some() {
+                    out.unread.get_or_insert(SECOND_XMP);
+                } else {
+                    out.xmp = Some(xmp_text(&payload[XMP_SIG.len()..], &mut out.unread));
+                }
             }
             0xe1 if payload.starts_with(XMP_EXT_SIG) => {
                 // GUID (32) + full length (4) + offset (4) + data
@@ -149,6 +163,8 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
                 if p.len() >= 40 {
                     let off = u32::from_be_bytes([p[36], p[37], p[38], p[39]]);
                     ext.push((off, p[40..].to_vec()));
+                } else {
+                    out.unread.get_or_insert(CUT_OFF);
                 }
             }
             0xe2 if payload.starts_with(b"ICC_PROFILE\0") && payload.len() >= 14 => icc_parts.push((payload[12], payload[14..].to_vec())),
@@ -163,7 +179,7 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
     }
     if !ext.is_empty() {
         ext.sort_by_key(|p| p.0);
-        out.xmp_extended = Some(String::from_utf8_lossy(&ext.into_iter().flat_map(|p| p.1).collect::<Vec<u8>>()).into_owned());
+        out.xmp_extended = Some(xmp_text(&ext.into_iter().flat_map(|p| p.1).collect::<Vec<u8>>(), &mut out.unread));
     }
     out
 }
@@ -186,16 +202,27 @@ fn photoshop_iptc(mut b: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// PNG chunks: `eXIf`, uncompressed `iTXt` XMP.
+/// PNG chunks: `eXIf`, uncompressed `iTXt` XMP. XMP in any other chunk and raw metadata profiles
+/// (hex-encoded `Raw profile type ...` text chunks) count as unread.
 pub fn png_chunks(b: &[u8]) -> Embedded {
     let mut out = Embedded::default();
     let mut i = 8usize;
     while i + 12 <= b.len() {
         let len = u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as usize;
         let typ = &b[i + 4..i + 8];
-        let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else { break };
+        let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else {
+            if matches!(typ, b"eXIf" | b"iTXt" | b"zTXt" | b"tEXt") {
+                out.unread.get_or_insert(CUT_OFF);
+            }
+            break;
+        };
         match typ {
-            b"eXIf" => out.exif = Some(crate::strip_exif_header(data).to_vec()),
+            b"eXIf" => {
+                if out.exif.is_some() {
+                    out.unread.get_or_insert(SECOND_EXIF);
+                }
+                out.exif = Some(crate::strip_exif_header(data).to_vec());
+            }
             b"iTXt" if data.starts_with(b"XML:com.adobe.xmp\0") => {
                 // keyword\0 compression-flag compression-method language\0 translated\0 text
                 let rest = &data[18..];
@@ -204,9 +231,22 @@ pub fn png_chunks(b: &[u8]) -> Embedded {
                     let mut parts = rest.splitn(3, |&c| c == 0);
                     let (_, _, text) = (parts.next(), parts.next(), parts.next());
                     if let Some(t) = text {
+                        if out.xmp.is_some() {
+                            out.unread.get_or_insert(SECOND_XMP);
+                        }
                         out.xmp = Some(xmp_text(t, &mut out.unread));
+                    } else {
+                        out.unread.get_or_insert(CUT_OFF);
                     }
+                } else {
+                    out.unread.get_or_insert("compressed XMP");
                 }
+            }
+            b"zTXt" | b"tEXt" if data.starts_with(b"XML:com.adobe.xmp\0") => {
+                out.unread.get_or_insert("XMP in a text chunk");
+            }
+            b"iTXt" | b"zTXt" | b"tEXt" if data.starts_with(b"Raw profile type ") => {
+                out.unread.get_or_insert("a raw metadata profile");
             }
             b"IEND" => break,
             _ => {}
@@ -223,10 +263,25 @@ pub fn webp_chunks(b: &[u8]) -> Embedded {
     while i + 8 <= b.len() {
         let id = &b[i..i + 4];
         let len = u32::from_le_bytes([b[i + 4], b[i + 5], b[i + 6], b[i + 7]]) as usize;
-        let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else { break };
+        let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else {
+            if matches!(id, b"EXIF" | b"XMP ") {
+                out.unread.get_or_insert(CUT_OFF);
+            }
+            break;
+        };
         match id {
-            b"EXIF" => out.exif = Some(crate::strip_exif_header(data).to_vec()),
-            b"XMP " => out.xmp = Some(xmp_text(data, &mut out.unread)),
+            b"EXIF" => {
+                if out.exif.is_some() {
+                    out.unread.get_or_insert(SECOND_EXIF);
+                }
+                out.exif = Some(crate::strip_exif_header(data).to_vec());
+            }
+            b"XMP " => {
+                if out.xmp.is_some() {
+                    out.unread.get_or_insert(SECOND_XMP);
+                }
+                out.xmp = Some(xmp_text(data, &mut out.unread));
+            }
             b"ICCP" => out.icc = Some(data.to_vec()),
             _ => {}
         }
