@@ -322,7 +322,7 @@ fn repeated_tiny_embedded_documents_share_the_node_allowance() {
 }
 
 /// One text story of 512 runs, each repeating two 16 KiB font names through a shared object. The
-/// story's own attribute budget keeps about 16.7 MiB of them, just under the document's 16 MiB
+/// story's own attribute budget keeps about 15.97 MiB of them, just under the document's 16 MiB
 /// cap on font-name bytes, so only a second story can reach that cap.
 fn font_heavy_story(id: u32) -> F {
     let name = "F".repeat(16 * 1024);
@@ -388,7 +388,7 @@ fn page_rectangles_share_a_document_limit() {
 fn page_limit_spans_embedded_documents() {
     let mut data = b"EmDc\0\0\0\0".to_vec();
     data.extend(paged_document(1 << 16));
-    let bytes = container(vec![embedded("inner"); 3], vec![], None, &[("inner", &data, Method::Stored)]);
+    let bytes = container(vec![embedded("inner"); 5], vec![], None, &[("inner", &data, Method::Stored)]);
     let limits = Limits { max_objects: 1 << 20, ..Default::default() };
     assert!(matches!(photocraft_affinity::read(&bytes, limits), Err(Error::Limit("too many pages"))));
 }
