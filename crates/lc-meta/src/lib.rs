@@ -342,27 +342,34 @@ pub fn extract(bytes: &[u8]) -> Metadata {
 /// [`extract`] and the file's XMP packet ([`Embedded::xmp`]) from one pass over the container.
 pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
     let (e, tiff) = container::blocks(bytes);
-    let m = match &tiff {
+    (extract_blocks(bytes, &e, tiff.as_ref()), e.xmp)
+}
+
+fn extract_blocks(bytes: &[u8], e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff>) -> Metadata {
+    let m = match tiff {
         // a TIFF-based file is its own Exif block: read it in place, from the parse already made
         Some(t) => from_tiff_with_bytes(bytes, t),
         None => e.exif.as_deref().map(read_exif).unwrap_or_default(),
     };
     let xmp = e.xmp.as_deref().and_then(|x| parse_whole_xmp(x).ok()).map(|x| x.metadata);
-    (extract_embedded(&e, m, xmp), e.xmp)
+    extract_embedded(e, m, xmp)
 }
 
 /// Read metadata, reporting malformed PSD/PSB containers and embedded EXIF/XMP.
 /// Other formats retain [`extract`]'s best-effort behavior, except for a packet past the XMP
-/// parser's hard limits: [`extract`] skips it whole, which would read as a file without XMP.
+/// parser's hard limits: the readers skip it whole, which would read as a file without XMP.
 pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
     if !bytes.starts_with(b"8BPS") {
-        let (m, packet) = extract_with_xmp(bytes);
-        if packet.is_some_and(|x| matches!(parse_whole_xmp(&x), Err(XmpError::TooComplex))) {
+        let (e, tiff) = container::blocks(bytes);
+        if e.xmp.as_deref().is_some_and(xmp_too_complex) || exif_xmp_too_complex(&e) {
             return Err(ExtractError::XmpTooComplex);
         }
-        return Ok(m);
+        return Ok(extract_blocks(bytes, &e, tiff.as_ref()));
     }
     let e = psd::parse(bytes).ok_or(ExtractError::MalformedPsd)?;
+    if exif_xmp_too_complex(&e) {
+        return Err(ExtractError::XmpTooComplex);
+    }
     let m = e.exif.as_deref().map(try_read_exif).transpose().map_err(|_| ExtractError::MalformedPsd)?.unwrap_or_default();
     let xmp = e
         .xmp
@@ -376,6 +383,18 @@ pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
         .map_err(|_| ExtractError::MalformedPsd)?
         .map(|x| x.metadata);
     Ok(extract_embedded(&e, m, xmp))
+}
+
+fn xmp_too_complex(packet: &str) -> bool {
+    matches!(parse_whole_xmp(packet), Err(XmpError::TooComplex))
+}
+
+/// An Exif block can hold an XMP packet of its own, which only [`from_tiff`] reads.
+fn exif_xmp_too_complex(e: &Embedded) -> bool {
+    let tiff = e.exif.as_deref().and_then(|x| lightcraft_tiff::Tiff::parse(strip_exif_header(x)).ok());
+    tiff.is_some_and(|t| {
+        t.ifds.first().and_then(|ifd| ifd.bytes(lightcraft_tiff::tags::XMP)).is_some_and(|x| xmp_too_complex(&String::from_utf8_lossy(x)))
+    })
 }
 
 fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<Metadata>) -> Metadata {
@@ -434,6 +453,22 @@ mod tests {
         assert_eq!(try_extract(&jpeg).unwrap(), Metadata::default());
     }
 
+    /// An Exif block holding `packet` in its own XMP tag, which no container walk looks at.
+    pub(crate) fn exif_with_xmp(packet: &str) -> Vec<u8> {
+        let mut ifd = lightcraft_tiff::IfdBuilder::new();
+        ifd.set(lightcraft_tiff::tags::XMP, lightcraft_tiff::Value::Byte(packet.as_bytes().to_vec()));
+        lightcraft_tiff::TiffWriter::default().write(&[ifd]).unwrap()
+    }
+
+    #[test]
+    fn try_extract_reports_a_packet_too_complex_to_read_inside_an_exif_block() {
+        let exif = exif_with_xmp(&"<a>".repeat(70));
+        let mut webp = b"RIFF\0\0\0\0WEBPEXIF".to_vec();
+        webp.extend_from_slice(&u32::try_from(exif.len()).unwrap().to_le_bytes());
+        webp.extend_from_slice(&exif);
+        assert_eq!(try_extract(&webp), Err(ExtractError::XmpTooComplex));
+    }
+
     /// Catalogs, sidecars and exports all take their fields from these readers.
     #[test]
     fn file_readers_see_fields_past_the_xmp_retention_budget() {
@@ -443,10 +478,7 @@ mod tests {
              <r:Description xmlns:p='http://ns.adobe.com/photoshop/1.0/' p:City='Boston'/></r:RDF>"
         );
         assert_eq!(parse_xmp(&packet).unwrap().metadata.city, None);
-        let mut ifd = lightcraft_tiff::IfdBuilder::new();
-        ifd.set(lightcraft_tiff::tags::XMP, lightcraft_tiff::Value::Byte(packet.clone().into_bytes()));
-        let tiff = lightcraft_tiff::TiffWriter::default().write(&[ifd]).unwrap();
-        assert_eq!(read_exif(&tiff).city.as_deref(), Some("Boston"));
+        assert_eq!(read_exif(&exif_with_xmp(&packet)).city.as_deref(), Some("Boston"));
         let mut webp = b"RIFF\0\0\0\0WEBPXMP ".to_vec();
         webp.extend_from_slice(&u32::try_from(packet.len()).unwrap().to_le_bytes());
         webp.extend_from_slice(packet.as_bytes());

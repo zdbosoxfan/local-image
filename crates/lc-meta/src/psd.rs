@@ -168,6 +168,12 @@ mod tests {
     }
 
     #[test]
+    fn try_extract_reports_a_packet_too_complex_to_read_in_the_exif_resource() {
+        let exif = crate::tests::exif_with_xmp(&"<a>".repeat(70));
+        assert_eq!(crate::try_extract(&image(1, &[], &resource(1058, b"", &exif))), Err(crate::ExtractError::XmpTooComplex));
+    }
+
+    #[test]
     fn try_extract_rejects_structurally_malformed_psd_exif() {
         for version in [1, 2] {
             let file = image(version, &[], &resource(1058, b"", b"not a TIFF stream"));
