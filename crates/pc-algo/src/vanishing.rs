@@ -260,7 +260,16 @@ pub fn paste(scene: &Scene, i: usize, src: &Surface, src_rect: Rect, at: [f64; 2
 /// Perspective clone stamp: one stroke of dabs at image points `points` on the destination
 /// plane, copying from `source` (image px) with the offset fixed in plane-metric units at the
 /// first dab. `size` is the brush diameter in px at the first dab; `hardness` 0..=1.
-pub fn clone_stroke(scene: &Scene, surf: &mut Surface, source: [f64; 2], points: &[[f64; 2]], size: f64, hardness: f64, opacity: f32) -> usize {
+pub fn clone_stroke(
+    scene: &Scene,
+    surf: &mut Surface,
+    source: [f64; 2],
+    points: &[[f64; 2]],
+    size: f64,
+    hardness: f64,
+    opacity: f32,
+    clip: Option<Rect>,
+) -> usize {
     let Some(first) = points.first() else { return 0 };
     let (Some(ps), Some(pd)) = (scene.plane_at(source), scene.plane_at(*first)) else { return 0 };
     let (Some((hs, lus, lvs)), Some((hd, lud, lvd))) = (scene.frame(ps), scene.frame(pd)) else { return 0 };
@@ -291,6 +300,11 @@ pub fn clone_stroke(scene: &Scene, surf: &mut Surface, source: [f64; 2], points:
         }
         let area = Rect::new(bb[0].floor() as i32, bb[1].floor() as i32, (bb[2].ceil() as i32).saturating_add(1), (bb[3].ceil() as i32).saturating_add(1));
         if area.is_empty() || area.width() > 4096 || area.height() > 4096 {
+            continue;
+        }
+        // A dab can be far outside the document; clip before reading or writing the surface.
+        let area = clip.map_or(area, |clip| area.intersect(&clip));
+        if area.is_empty() {
             continue;
         }
         let mut data = surf.read_region(area);
@@ -397,8 +411,21 @@ mod tests {
         let (sx, sy) = h.apply(0.5, 0.8);
         s.fill_rect(Rect::new(sx as i32 - 6, sy as i32 - 6, sx as i32 + 6, sy as i32 + 6), &[1.0, 0.0, 0.0, 1.0]);
         let (dx, dy) = h.apply(0.5, 0.3);
-        let n = clone_stroke(&sc, &mut s, [sx, sy], &[[dx, dy]], 10.0, 0.8, 1.0);
+        let n = clone_stroke(&sc, &mut s, [sx, sy], &[[dx, dy]], 10.0, 0.8, 1.0, None);
         assert_eq!(n, 1);
         assert!(s.rgba(dx as i32, dy as i32)[0] > 0.8, "{:?}", s.rgba(dx as i32, dy as i32));
+    }
+
+    #[test]
+    fn clone_stroke_clips_dabs_before_surface_access() {
+        let canvas = Rect::new(0, 0, 100, 100);
+        let scene = Scene::new(VpPlane { corners: [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]] }, [50.0, 50.0], None, 500.0);
+        let mut surface = Surface::new(PixelFormat::RGBA8);
+        surface.fill_rect(canvas, &[0.2, 0.2, 0.2, 1.0]);
+
+        let dabs = clone_stroke(&scene, &mut surface, [85.0, 50.0], &[[50.0, 50.0], [-30.0, 50.0]], 20.0, 0.8, 1.0, Some(canvas));
+
+        assert_eq!(dabs, 1);
+        assert!(canvas.contains_rect(&surface.content_bounds()), "{:?}", surface.content_bounds());
     }
 }

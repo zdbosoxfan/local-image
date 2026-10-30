@@ -179,7 +179,7 @@ fn clone_stroke_empty_points_returns_zero() {
     let c = [400.0, 300.0];
     let scene = Scene::new(floor_quad(500.0, c), c, None, 800.0);
     let mut surf = Surface::new(PixelFormat::RGBA8);
-    let count = clone_stroke(&scene, &mut surf, [0.0, 0.0], &[], 10.0, 0.5, 1.0);
+    let count = clone_stroke(&scene, &mut surf, [0.0, 0.0], &[], 10.0, 0.5, 1.0, None);
     assert_eq!(count, 0);
 }
 
@@ -188,7 +188,7 @@ fn clone_stroke_source_not_on_plane_returns_zero() {
     let c = [400.0, 300.0];
     let scene = Scene::new(floor_quad(500.0, c), c, None, 800.0);
     let mut surf = Surface::new(PixelFormat::RGBA8);
-    let count = clone_stroke(&scene, &mut surf, [9999.0, 9999.0], &[[400.0, 300.0]], 10.0, 0.5, 1.0);
+    let count = clone_stroke(&scene, &mut surf, [9999.0, 9999.0], &[[400.0, 300.0]], 10.0, 0.5, 1.0, None);
     assert_eq!(count, 0);
 }
 
@@ -199,6 +199,6 @@ fn clone_stroke_destination_not_on_plane_returns_zero() {
     let mut surf = Surface::new(PixelFormat::RGBA8);
     let h = scene.planes[0].homography().unwrap();
     let (sx, sy) = h.apply(0.5, 0.5);
-    let count = clone_stroke(&scene, &mut surf, [sx, sy], &[[9999.0, 9999.0]], 10.0, 0.5, 1.0);
+    let count = clone_stroke(&scene, &mut surf, [sx, sy], &[[9999.0, 9999.0]], 10.0, 0.5, 1.0, None);
     assert_eq!(count, 0);
 }

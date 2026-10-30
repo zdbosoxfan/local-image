@@ -1064,3 +1064,11 @@ The opaque-composite export drops preserved `MTrn`, `Mtrn`, `Mt16` and `Mt32` ma
 
 Already covered here: failed archive reads spend the extraction allowance before decoding, attached-mask arrays use `Reader::charge_slots`, and that slot-budget method is already crate-visible. The port adds aggregate archive-name and page limits, a document-wide font-name budget, and accounting for curve-corner, gradient and pixel-state scans. Curve-corner work uses the existing `OutlineBudget`. The existing 16 KiB per-name font limit remains: reducing it to 256 bytes conflicts with existing text tests, so that upstream reduction is flagged for human decision.
 
+## PhotoCraft Vanishing Point canvas clamp (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`248972cfa343ef46cee8f06ea16173310b2abba2`](https://github.com/storytold/photocraft/commit/248972cfa343ef46cee8f06ea16173310b2abba2) | Integration: clip VP clone copy-back to the canvas, paste in the stamp preview (#3281) | `crates/pc-engine/src/vp_cmds.rs` | MIT OR Apache-2.0 |
+| [`0f8521851eda61b05f9c5a1201e313e2cbb3a199`](https://github.com/storytold/photocraft/commit/0f8521851eda61b05f9c5a1201e313e2cbb3a199) | Integration: Vanishing Point clone dabs stay on the canvas | `crates/pc-algo/src/vanishing.rs`<br>`crates/pc-algo/tests/coverage/vanishing_coverage.rs`<br>`crates/pc-engine/src/vp_cmds.rs` | MIT OR Apache-2.0 |
+
+Only canvas clamping is ported: dab rectangles are clipped before surface access, and command copy-back is clipped to the document bounds. The stamp-preview and paste changes are not included.
