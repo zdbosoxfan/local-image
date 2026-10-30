@@ -1,4 +1,6 @@
 use lightcraft_geom::Homography;
+use li_raster::RgbFrame;
+use lightcraft_merge::frame::Frame;
 use lightcraft_merge::linalg;
 use lightcraft_merge::pano::Projection;
 use lightcraft_merge::pano::blend::{Blender, Buf, down, push_pull, up};
@@ -86,6 +88,15 @@ fn push_pull_fills_holes_from_valid_pixels() {
     }
     push_pull(&mut vals, &wgt);
     assert!(vals.data.iter().all(|&v| (v - 0.7).abs() < 1e-4));
+}
+
+#[test]
+fn stitch_refuses_more_than_256_frames_before_matching() {
+    let frames: Vec<Frame> = (0..257)
+        .map(|_| Frame::from_linear_rec2020(RgbFrame::filled(8, 8, [0.5; 3]), None))
+        .collect();
+    let error = stitch(frames, &PanoOptions::default(), &no_progress).unwrap_err();
+    assert!(error.to_string().contains("refused"), "stitch began matching instead of refusing the input: {error}");
 }
 
 #[test]

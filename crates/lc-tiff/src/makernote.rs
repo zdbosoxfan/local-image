@@ -55,7 +55,8 @@ pub fn parse_makernote(data: &[u8], offset: u64, len: u64, order: ByteOrder, mak
         Some(b"MM") => Some(ByteOrder::Big),
         _ => None,
     };
-    let opts = ParseOptions { max_ifds: 64, max_depth: 3, ..Default::default() };
+    // Keep maker-note values independent of the full TIFF buffer's logical size.
+    let opts = ParseOptions { max_ifds: 64, max_depth: 3, value_budget: Some(1 << 20), ..Default::default() };
     let try_parse = |kind: MakerNoteKind, ifd_at: u64, base: u64, ord: ByteOrder| -> Option<MakerNote> {
         let (ifd, _) = parse_ifd_at(data, ifd_at, ord, base, false, &opts).ok()?;
         (!ifd.entries.is_empty()).then_some(MakerNote { kind, order: ord, base, ifd })
@@ -198,5 +199,26 @@ mod tests {
         assert!(parse_makernote(&bytes, off, len, ByteOrder::Little, "X").is_none());
         assert!(parse_makernote(&bytes, 1 << 40, 10, ByteOrder::Little, "X").is_none());
         assert!(parse_makernote(&bytes, off, u64::MAX, ByteOrder::Little, "X").is_none());
+    }
+
+    #[test]
+    fn maker_note_values_stay_within_a_fixed_budget() {
+        let order = ByteOrder::Little;
+        let mut note = b"SONY DSC \0\0\0".to_vec();
+        order.put_u16(&mut note, 2);
+        order.put_u16(&mut note, 0x201b);
+        order.put_u16(&mut note, 1);
+        order.put_u32(&mut note, 1);
+        note.extend([3, 0, 0, 0]);
+        order.put_u16(&mut note, 0x9900);
+        order.put_u16(&mut note, 1);
+        order.put_u32(&mut note, 2 << 20);
+        order.put_u32(&mut note, 200);
+        order.put_u32(&mut note, 0);
+        let mut bytes = note.clone();
+        bytes.resize(200 + (2 << 20), 0);
+        let maker_note = parse_makernote(&bytes, 0, note.len() as u64, order, "SONY").unwrap();
+        assert!(maker_note.ifd.get(0x201b).is_some());
+        assert!(maker_note.ifd.get(0x9900).is_none());
     }
 }
