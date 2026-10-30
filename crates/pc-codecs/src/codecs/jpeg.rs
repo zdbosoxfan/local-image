@@ -138,15 +138,11 @@ pub(crate) fn scan_metadata(b: &[u8]) -> JpegMeta {
             }
             saw_scan = true;
             let start = i;
-            let mut fill_bytes = 0usize;
             while let Some(p) = b.get(i..).and_then(|r| r.iter().position(|&v| v == 0xFF)) {
                 i += p;
                 match b.get(i + 1) {
                     Some(0x00 | 0xD0..=0xD7) => i += 2,
-                    Some(0xFF) => {
-                        i += 1;
-                        fill_bytes = fill_bytes.saturating_add(1);
-                    }
+                    Some(0xFF) => i += 1,
                     _ => break,
                 }
             }
@@ -155,8 +151,7 @@ pub(crate) fn scan_metadata(b: &[u8]) -> JpegMeta {
                 i = b.len();
             }
             scan_data |= i > start;
-            let count = i.saturating_sub(start).saturating_sub(fill_bytes);
-            m.scan_bytes = m.scan_bytes.saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
+            m.scan_bytes = m.scan_bytes.saturating_add(u64::try_from(i - start).unwrap_or(u64::MAX));
         }
     };
     if !icc_parts.is_empty() {
