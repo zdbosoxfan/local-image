@@ -197,7 +197,8 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
 
     let float = matches!(data, RawData::F32(_));
     let default_white = if float { 1.0 } else { ((1u64 << bits.min(16)) - 1) as f32 };
-    let mut white: Vec<f32> = raw.f64s(t::WHITE_LEVEL).unwrap_or_default().into_iter().map(|v| v as f32).filter(|v| v.is_finite() && *v > 0.0).collect();
+    let mut white: Vec<f32> =
+        raw.f64s(t::WHITE_LEVEL).unwrap_or_default().into_iter().map(|v| v as f32).filter(|v| v.is_finite() && *v > 0.0).collect();
     if white.is_empty() {
         white = vec![default_white];
     }

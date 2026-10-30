@@ -155,11 +155,7 @@ fn non_finite_white_level_uses_the_default() {
 #[test]
 fn deflate_writer_caps_large_tile_edges() {
     let raw = synthetic(16, 16, Some(Cfa::bayer("RGGB").unwrap()), 1);
-    let bytes = write_dng(
-        &raw,
-        &DngWriteOptions { compression: DngCompression::Deflate { tile: 2064, half: false }, ..Default::default() },
-    )
-    .unwrap();
+    let bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Deflate { tile: 2064, half: false }, ..Default::default() }).unwrap();
     let tiff = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
     assert_eq!(tiff.ifds[0].u32(t::TILE_WIDTH), Some(2048));
     assert_eq!(tiff.ifds[0].u32(t::TILE_LENGTH), Some(2048));

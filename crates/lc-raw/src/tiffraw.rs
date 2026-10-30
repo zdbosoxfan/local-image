@@ -405,7 +405,10 @@ fn decode_chunk(data: &[u8], info: &ImageInfo, c: &Chunk, order: ByteOrder, pack
             let raw = inflate(src, inflate_len)?;
             // Edge tiles may omit padding, but every in-image row must be present.
             if (raw.len() as u64) < visible {
-                return Err(RawError::Corrupt(format!("a deflated chunk holds {} bytes, fewer than the {visible} bytes its in-image samples span", raw.len())));
+                return Err(RawError::Corrupt(format!(
+                    "a deflated chunk holds {} bytes, fewer than the {visible} bytes its in-image samples span",
+                    raw.len()
+                )));
             }
             unpack_chunk(&raw, order, packing, cw, ch, cpp, bits, float, info.predictor)
         }

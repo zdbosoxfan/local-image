@@ -336,13 +336,7 @@ fn take_key_bytes(key: &str, budget: &mut usize, limited: &mut bool) -> bool {
     true
 }
 
-fn collect_description(
-    d: &Node,
-    prefix: &str,
-    props: &mut BTreeMap<String, Vec<String>>,
-    key_budget: &mut usize,
-    limited: &mut bool,
-) {
+fn collect_description(d: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>, key_budget: &mut usize, limited: &mut bool) {
     for (k, v) in &d.attrs {
         if !is_rdf_meta_attr(k)
             && let Some(key) = property_key(prefix, k, key_budget, limited)
@@ -356,13 +350,7 @@ fn collect_description(
     }
 }
 
-fn collect_property(
-    p: &Node,
-    prefix: &str,
-    props: &mut BTreeMap<String, Vec<String>>,
-    key_budget: &mut usize,
-    limited: &mut bool,
-) {
+fn collect_property(p: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>, key_budget: &mut usize, limited: &mut bool) {
     let Some(key) = property_key(prefix, &p.name, key_budget, limited) else { return };
     if let Some(arr) = p.children.iter().find(|c| matches!(c.name.as_str(), "rdf:Seq" | "rdf:Bag" | "rdf:Alt")) {
         let mut items: Vec<(bool, String)> = arr
