@@ -75,7 +75,7 @@ pub struct Decoded {
 pub enum Error {
     /// A valid file using something this decoder does not handle (image sequences, overlays…).
     Unsupported(String),
-    /// The image is larger than [`Options::max_pixels`] or holds an oversized box.
+    /// The image exceeds a pixel or decoder-work limit, or carries an oversized metadata box.
     Limit(String),
     /// Broken or truncated data (or a decoder bug, reported the same way).
     Malformed(String),
@@ -154,6 +154,11 @@ fn probe_with_context(bytes: &[u8], ctx: &Context<'_>, visits: &mut usize) -> Re
     let info = heic_rs::probe(bytes).map_err(open_error)?;
     if let Some(alpha) = ctx.alpha_item(id).map_err(err)? {
         item_visits(ctx, alpha, 0, visits)?;
+        if let Some((_, tiles)) = ctx.grid(alpha).map_err(err)? {
+            for tile in tiles {
+                item_visits(ctx, tile, 0, visits)?;
+            }
+        }
     }
     let mut coded = match ctx.grid(id).map_err(err)? {
         Some((_, tiles)) => tiles,

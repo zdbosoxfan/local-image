@@ -8,8 +8,8 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Security
 
-- HEIF decoding bounds metadata parsing, item reconstruction, transform work and output samples;
-  inputs exceeding those limits return a clear limit error.
+- HEIF decoding bounds metadata parsing, extent-record allocations, item reconstruction,
+  transforms and output samples. Alpha-grid tiles share the primary reconstruction budget.
 
 ## [0.8.0-alpha] - 2026-10-29
 

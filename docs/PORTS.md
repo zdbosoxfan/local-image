@@ -1057,8 +1057,13 @@ The Smooth measurements retain upstream's black-to-white and red-to-blue rows an
 | [`269495cd3867`](https://github.com/storytold/lightcraft/commit/269495cd3867e9feee1876ac641627ba23c7dabb) | security(heif): budget every reconstruction before it runs | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
 | [`0c71f75325b5`](https://github.com/storytold/lightcraft/commit/0c71f75325b5f707bbe8e7ef6324e6e14a8f51e6) | security(heif): scan the primary item before heic_rs::probe, the alpha plane, and each thumbnail candidate | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
 
-Partial port into the pinned `heic-rs = 0.1.4` wrapper: `ipma` payloads and `iloc` payloads are
-each capped at 64 KiB in aggregate, item extent visits at 4096, coded-item reconstruction at the file size,
-transform properties at 12, and output samples at 2³⁰ even when a caller raises `max_pixels`.
+Partial port into the pinned `heic-rs = 0.1.4` wrapper: `ipma` payloads are capped at 64 KiB in
+aggregate, `iloc` item and extent records at 65,536 each, item extent visits at 4096, coded-item
+reconstruction at the file size, transform properties at 12, and output samples at 2³⁰ even when a
+caller raises `max_pixels`.
 The wrapper has no thumbnail API, so thumbnail-candidate changes do not apply. `heic-rs` already
 checks a grid's actual canvas against the decode limit before allocating the output image.
+
+Local extension: alpha-grid tile extent chains share the 4096-read budget with primary reconstruction.
+Local extension: `iloc` record counts bound allocation while allowing larger payloads with counts
+within the limit; zero-width extents still count as allocated records.

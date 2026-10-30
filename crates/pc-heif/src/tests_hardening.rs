@@ -103,17 +103,25 @@ fn iloc(locations: &[Location], offset_size: u8, length_size: u8, index_size: u8
 
 fn push_uint(out: &mut Vec<u8>, value: u32, width: u8) {
     for index in (0..usize::from(width)).rev() {
-        out.push((value >> (index * 8)) as u8);
+        out.push((u64::from(value) >> (index * 8)) as u8);
     }
 }
 
 fn iref(kind: &[u8; 4], from: u16, to: &[u16]) -> Vec<u8> {
-    let mut reference = from.to_be_bytes().to_vec();
-    reference.extend_from_slice(&(to.len() as u16).to_be_bytes());
-    for id in to {
-        reference.extend_from_slice(&id.to_be_bytes());
+    iref_relations(&[(kind, from, to)])
+}
+
+fn iref_relations(references: &[(&[u8; 4], u16, &[u16])]) -> Vec<u8> {
+    let mut children = Vec::new();
+    for (kind, from, to) in references {
+        let mut reference = from.to_be_bytes().to_vec();
+        reference.extend_from_slice(&(to.len() as u16).to_be_bytes());
+        for id in *to {
+            reference.extend_from_slice(&id.to_be_bytes());
+        }
+        children.extend(boxed(kind, &reference));
     }
-    full_box(b"iref", 0, 0, &boxed(kind, &reference))
+    full_box(b"iref", 0, 0, &children)
 }
 
 fn idat(bytes: &[u8]) -> Vec<u8> {
@@ -168,7 +176,7 @@ fn xmp_with_source_extents(source_extent_count: usize) -> Vec<u8> {
 
 fn repeated_tile_grid(rows: u16, columns: u16) -> Vec<u8> {
     let mut idat_bytes = grid(rows, columns, columns, rows);
-    idat_bytes.push(0);
+    idat_bytes.extend_from_slice(&[0; 3]);
     let tile_ids = vec![2; usize::from(rows) * usize::from(columns)];
     heif(&[
         hdlr(),
@@ -178,7 +186,7 @@ fn repeated_tile_grid(rows: u16, columns: u16) -> Vec<u8> {
         iloc(
             &[
                 Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 8 }] },
-                Location { id: 2, method: 1, extents: vec![Extent { index: 0, offset: 8, length: 1 }] },
+                Location { id: 2, method: 1, extents: vec![Extent { index: 0, offset: 8, length: 3 }] },
             ],
             4,
             4,
@@ -239,6 +247,31 @@ fn alpha_with_many_extents(extent_count: usize) -> Vec<u8> {
     ])
 }
 
+fn alpha_grid_with_tile_extents(extent_count: usize) -> Vec<u8> {
+    let alpha = full_box(b"auxC", 0, 0, b"urn:mpeg:hevc:2015:auxid:1\0");
+    let mut descriptor = grid(1, 1, 1, 1);
+    descriptor.push(0);
+    let tile_extents = vec![Extent { index: 0, offset: 0, length: 0 }; extent_count];
+    heif(&[
+        hdlr(),
+        pitm(1),
+        iinf(&[infe(1, b"hvc1", None), infe(2, b"grid", None), infe(3, b"hvc1", None)]),
+        iref_relations(&[(b"auxl", 2, &[1]), (b"dimg", 2, &[3])]),
+        iloc(
+            &[
+                Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 0 }] },
+                Location { id: 2, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 0 }] },
+                Location { id: 3, method: 1, extents: tile_extents },
+            ],
+            0,
+            0,
+            0,
+        ),
+        iprp(&[hvc_c(), ispe(1, 1), alpha], &[(1, vec![1, 2]), (2, vec![2, 3]), (3, vec![1, 2])]),
+        idat(&descriptor),
+    ])
+}
+
 fn overlapping_tile_grid(tile_bytes: usize) -> Vec<u8> {
     let mut idat_bytes = grid(1, 2, 2, 1);
     idat_bytes.extend(vec![0x5a; tile_bytes]);
@@ -263,18 +296,86 @@ fn overlapping_tile_grid(tile_bytes: usize) -> Vec<u8> {
 }
 
 fn primary_with_dimensions(width: u32, height: u32) -> Vec<u8> {
+    primary_with_dimensions_and_alpha(width, height, false)
+}
+
+fn primary_with_dimensions_and_alpha(width: u32, height: u32, has_alpha: bool) -> Vec<u8> {
+    let alpha = full_box(b"auxC", 0, 0, b"urn:mpeg:hevc:2015:auxid:1\0");
+    let mut items = vec![infe(1, b"hvc1", None)];
+    let mut references = Vec::new();
+    let mut locations = vec![Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 1 }] }];
+    let mut properties = vec![hvc_c(), ispe(width, height)];
+    let mut associations = vec![(1, vec![1, 2])];
+    if has_alpha {
+        items.push(infe(2, b"hvc1", None));
+        references.push(iref(b"auxl", 2, &[1]));
+        locations.push(Location { id: 2, method: 1, extents: vec![Extent { index: 0, offset: 1, length: 1 }] });
+        properties.push(alpha);
+        associations.push((2, vec![1, 2, 3]));
+    }
+    let mut children = vec![hdlr(), pitm(1), iinf(&items)];
+    children.extend(references);
+    children.extend([iloc(&locations, 4, 4, 0), iprp(&properties, &associations), idat(b"xy")]);
+    heif(&children)
+}
+
+fn primary_with_wide_extents(extent_count: usize) -> Vec<u8> {
     heif(&[
         hdlr(),
         pitm(1),
         iinf(&[infe(1, b"hvc1", None)]),
-        iloc(&[Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 1 }] }], 4, 4, 0),
-        iprp(&[hvc_c(), ispe(width, height)], &[(1, vec![1, 2])]),
+        iloc(
+            &[Location {
+                id: 1,
+                method: 1,
+                extents: vec![Extent { index: 0, offset: 0, length: 1 }; extent_count],
+            }],
+            8,
+            8,
+            0,
+        ),
+        iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])]),
+        idat(b"x"),
+    ])
+}
+
+fn primary_with_over_budget_zero_width_extents() -> Vec<u8> {
+    let empty_extent = Extent { index: 0, offset: 0, length: 0 };
+    let locations = [
+        Location { id: 1, method: 1, extents: vec![empty_extent.clone()] },
+        Location { id: 2, method: 1, extents: vec![empty_extent.clone(); 32_768] },
+        Location { id: 3, method: 1, extents: vec![empty_extent; 32_768] },
+    ];
+    heif(&[
+        hdlr(),
+        pitm(1),
+        iinf(&[infe(1, b"hvc1", None), infe(2, b"hvc1", None), infe(3, b"hvc1", None)]),
+        iloc(&locations, 0, 0, 0),
+        iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])]),
+        idat(b"x"),
+    ])
+}
+
+fn primary_with_over_budget_iloc_items() -> Vec<u8> {
+    let mut payload = vec![0, 0];
+    payload.extend_from_slice(&65_537_u32.to_be_bytes());
+    for id in 2..=65_538_u32 {
+        payload.extend_from_slice(&id.to_be_bytes());
+        payload.extend_from_slice(&[0; 6]);
+    }
+    let locations = full_box(b"iloc", 2, 0, &payload);
+    heif(&[
+        hdlr(),
+        pitm(1),
+        iinf(&[infe(1, b"hvc1", None)]),
+        locations,
+        iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])]),
         idat(b"x"),
     ])
 }
 
 #[test]
-fn oversized_metadata_boxes_are_refused_before_heic_rs_parses_them() {
+fn ipma_payloads_over_the_cap_are_refused_and_near_cap_are_accepted() {
     let base = [hdlr(), pitm(1), iinf(&[infe(1, b"hvc1", None)]), iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])])];
 
     let mut associations = vec![0, 0, 0, 0];
@@ -289,33 +390,23 @@ fn oversized_metadata_boxes_are_refused_before_heic_rs_parses_them() {
     iprp_children.extend(boxed(b"ipma", &associations));
     let oversized_ipma = boxed(b"iprp", &iprp_children);
 
-    let mut locations = vec![0, 0, 0, 0, 4, 0];
-    locations.extend_from_slice(&1u16.to_be_bytes());
-    locations.extend_from_slice(&1u16.to_be_bytes());
-    locations.extend_from_slice(&1u16.to_be_bytes());
-    locations.extend_from_slice(&[0, 0, 0, 1]);
-    locations.resize((64 << 10) + 1, 0);
-    let cases = [
-        {
-            let mut children = base.to_vec();
-            children[3] = oversized_ipma;
-            heif(&children)
-        },
-        {
-            let mut children = base.to_vec();
-            children.push(boxed(b"iloc", &locations));
-            heif(&children)
-        },
-    ];
-    let failures: Vec<_> = cases
-        .into_iter()
-        .zip(["associations", "item locations"])
-        .filter_map(|(bytes, label)| {
-            let result = probe(&bytes);
-            (!matches!(&result, Err(Error::Limit(message)) if message.contains(label))).then_some((label, result))
-        })
-        .collect();
-    assert!(failures.is_empty(), "{failures:?}");
+    let mut children = base.to_vec();
+    children[3] = oversized_ipma;
+    let result = probe(&heif(&children));
+    assert!(matches!(&result, Err(Error::Limit(message)) if message.contains("associations")), "{result:?}");
+
+    let mut associations = Vec::with_capacity(21_841);
+    associations.push((1, vec![1, 2]));
+    associations.extend((1..21_841).map(|_| (1, Vec::new())));
+    let under_cap = heif(&[
+        hdlr(),
+        pitm(1),
+        iinf(&[infe(1, b"hvc1", None)]),
+        iprp(&[hvc_c(), ispe(1, 1)], &associations),
+        iloc(&[Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 1 }] }], 4, 4, 0),
+        idat(b"x"),
+    ]);
+    assert!(matches!(probe(&under_cap), Ok(Info { width: 1, height: 1, .. })));
 }
 
 #[test]
@@ -342,6 +433,34 @@ fn decode_bounds_the_alpha_item_before_heic_rs_reconstructs_it() {
 }
 
 #[test]
+fn probe_counts_alpha_grid_tile_extents_with_the_primary_work_budget() {
+    let bytes = alpha_grid_with_tile_extents(4095);
+    let result = probe(&bytes);
+    assert!(matches!(&result, Err(Error::Limit(message)) if message.contains("extent reads")), "{result:?}");
+}
+
+#[test]
+fn probe_reports_alpha_for_regular_and_grid_auxiliary_items() {
+    for bytes in [alpha_with_many_extents(1), alpha_grid_with_tile_extents(1)] {
+        let result = probe(&bytes);
+        assert!(matches!(&result, Ok(Info { has_alpha: true, .. })), "{result:?}");
+    }
+}
+
+#[test]
+fn iloc_extent_budget_bounds_allocations_without_rejecting_large_payloads() {
+    let many_extents = probe(&primary_with_wide_extents(4096));
+    let zero_width_extents = probe(&primary_with_over_budget_zero_width_extents());
+    let item_entries = probe(&primary_with_over_budget_iloc_items());
+    assert!(
+        matches!(&many_extents, Ok(Info { width: 1, height: 1, .. }))
+            && matches!(&zero_width_extents, Err(Error::Limit(message)) if message.contains("extent"))
+            && matches!(&item_entries, Err(Error::Limit(message)) if message.contains("item locations")),
+        "many extents: {many_extents:?}; zero-width extents: {zero_width_extents:?}; item entries: {item_entries:?}"
+    );
+}
+
+#[test]
 fn metadata_skips_xmp_when_reconstruction_exceeds_the_shared_extent_budget() {
     let over_budget = metadata(&xmp_with_source_extents(4096)).2;
     assert!(over_budget.is_none(), "metadata returned {} bytes", over_budget.as_ref().map_or(0, String::len));
@@ -352,28 +471,35 @@ fn metadata_skips_xmp_when_reconstruction_exceeds_the_shared_extent_budget() {
 
 #[test]
 fn decode_refuses_more_than_twelve_transform_properties() {
-    let mut properties: Vec<_> = (0..13).map(|_| property(b"irot", &[0])).collect();
-    properties.extend([hvc_c(), ispe(1, 1)]);
-    let mut associations = (1..=13).map(|index| (1, vec![index])).collect::<Vec<_>>();
-    associations.push((1, vec![14, 15]));
-    let bytes = heif(&[
-        hdlr(),
-        pitm(1),
-        iinf(&[infe(1, b"hvc1", None)]),
-        iprp(&properties, &associations),
-        iloc(&[Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 1 }] }], 4, 4, 0),
-        idat(b"x"),
-    ]);
-    let result = decode(&bytes, &Options::default());
-    assert!(matches!(&result, Err(Error::Limit(message)) if message.contains("transform")), "{result:?}");
+    let with_transforms = |count: usize| {
+        let mut properties: Vec<_> = (0..count).map(|_| property(b"irot", &[0])).collect();
+        properties.extend([hvc_c(), ispe(1, 1)]);
+        let mut associations = (1..=count).map(|index| (1, vec![index as u8])).collect::<Vec<_>>();
+        associations.push((1, vec![(count + 1) as u8, (count + 2) as u8]));
+        heif(&[
+            hdlr(),
+            pitm(1),
+            iinf(&[infe(1, b"hvc1", None)]),
+            iprp(&properties, &associations),
+            iloc(&[Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 1 }] }], 4, 4, 0),
+            idat(b"x"),
+        ])
+    };
+    let over_limit = decode(&with_transforms(13), &Options::default());
+    assert!(matches!(&over_limit, Err(Error::Limit(message)) if message.contains("transform")), "{over_limit:?}");
+
+    let at_limit = decode(&with_transforms(12), &Options::default());
+    assert!(!matches!(&at_limit, Err(Error::Limit(_))), "{at_limit:?}");
 }
 
 #[test]
 fn decode_caps_output_samples_even_when_the_caller_raises_the_pixel_limit() {
-    let bytes = primary_with_dimensions(600_000, 600_000);
     let options = Options { max_pixels: u64::MAX, ..Options::default() };
-    let result = decode(&bytes, &options);
-    assert!(matches!(&result, Err(Error::Limit(_))), "{result:?}");
+    let rgb = decode(&primary_with_dimensions(20_000, 20_000), &options);
+    assert!(matches!(&rgb, Err(Error::Limit(_))), "{rgb:?}");
+
+    let rgba = decode(&primary_with_dimensions_and_alpha(17_000, 17_000, true), &options);
+    assert!(matches!(&rgba, Err(Error::Limit(_))), "{rgba:?}");
 }
 
 #[test]
