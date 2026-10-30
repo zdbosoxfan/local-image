@@ -621,6 +621,17 @@ mod decode_tests {
         assert!(scan_metadata(&progressive).scan_bytes > (progressive.len() - last_scan) as u64, "every scan counts");
     }
 
+    /// A 4096x4096 `bytes` decodes, full and scaled, as the decoders do with no guard in front.
+    fn assert_decodes_as_without_the_scan_bound(bytes: &[u8], warnings: Vec<DecodeWarning>) {
+        let (decoded, source) = decode_jpeg_scaled(bytes, &Limits::default(), None).unwrap();
+        assert_eq!(source, (4096, 4096));
+        assert_eq!(decoded.warnings, warnings);
+        assert_eq!(decoded.data(), decode_zune(bytes, &Limits::default()).unwrap().data());
+        let scaled = decode_jpeg_scaled(bytes, &Limits::default(), Some((256, 256))).map(|(image, _)| image.data().to_vec());
+        let direct = decode_jpeg_decoder(bytes, &Limits::default(), 8, Some((256, 256))).map(|image| image.data().to_vec());
+        assert_eq!(scaled.map_err(|error| error.to_string()), direct.map_err(|error| error.to_string()));
+    }
+
     /// A stray marker stops the walk, so the rest of the file goes unread.
     #[test]
     fn stray_marker_after_a_scan_still_decodes() {
@@ -648,13 +659,7 @@ mod decode_tests {
         cut.resize(cut.len() + 36_000, 0x55);
         let meta = scan_metadata(&cut);
         assert!(meta.scan_bytes < 4096 * 4096 / MAX_PIXELS_PER_BYTE, "{} scan bytes", meta.scan_bytes);
-        let (decoded, source) = decode_jpeg_scaled(&cut, &Limits::default(), None).unwrap();
-        assert_eq!(source, (4096, 4096));
-        assert_eq!(decoded.warnings, vec![]);
-        assert_eq!(decoded.data(), decode_zune(&cut, &Limits::default()).unwrap().data());
-        let scaled = decode_jpeg_scaled(&cut, &Limits::default(), Some((256, 256))).map(|(image, _)| image.data().to_vec());
-        let direct = decode_jpeg_decoder(&cut, &Limits::default(), 8, Some((256, 256))).map(|image| image.data().to_vec());
-        assert_eq!(scaled.map_err(|error| error.to_string()), direct.map_err(|error| error.to_string()));
+        assert_decodes_as_without_the_scan_bound(&cut, vec![]);
     }
 
     #[test]
@@ -666,13 +671,7 @@ mod decode_tests {
         let meta = scan_metadata(cut);
         assert_eq!(meta.end, DataEnd::Truncated);
         assert!(meta.scan_bytes < 4096 * 4096 / MAX_PIXELS_PER_BYTE, "{} scan bytes", meta.scan_bytes);
-        let (decoded, source) = decode_jpeg_scaled(cut, &Limits::default(), None).unwrap();
-        assert_eq!(source, (4096, 4096));
-        assert_eq!(decoded.warnings, vec![DecodeWarning::Truncated { format: F }]);
-        assert_eq!(decoded.data(), decode_zune(cut, &Limits::default()).unwrap().data());
-        let scaled = decode_jpeg_scaled(cut, &Limits::default(), Some((256, 256))).map(|(image, _)| image.data().to_vec());
-        let direct = decode_jpeg_decoder(cut, &Limits::default(), 8, Some((256, 256))).map(|image| image.data().to_vec());
-        assert_eq!(scaled.map_err(|error| error.to_string()), direct.map_err(|error| error.to_string()));
+        assert_decodes_as_without_the_scan_bound(cut, vec![DecodeWarning::Truncated { format: F }]);
     }
 
     #[test]

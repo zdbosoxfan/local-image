@@ -1059,8 +1059,8 @@ The Smooth measurements retain upstream's black-to-white and red-to-blue rows an
 Local adaptations: 8f782cab1 edits a JPEG frame-size guard from c9892c8f8 and 07f91c6d3, which are not
 ported. Local Image adds only the guard on files whose walk reached an EOI, so a truncated JPEG still
 opens with its warning. Where upstream counts the unread tail of a walk stopped by an odd layout, Local
-Image leaves that file unmeasured (`DataEnd::Unread`), so with no EOI it opens as before the port. A
-stray EOI inside a scan counts as the end, so a damaged file can fail the guard, as upstream.
+Image leaves that file unmeasured (`DataEnd::Unread`), so it opens as before the port, whether or not an
+EOI follows. A stray EOI inside a scan counts as the end, so a damaged file can fail the guard, as upstream.
 Scan bytes are counted in the existing `scan_metadata` walker instead of upstream's `data_end`, and that
 walker keeps skipping stray bytes before the first scan, so header padding never counts. The ZIP reader
 keeps `flate2::read::DeflateDecoder`; upstream's `bufread` decoder comes from 51788e665, which is not ported.
