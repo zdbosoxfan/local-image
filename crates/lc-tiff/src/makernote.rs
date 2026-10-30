@@ -55,8 +55,8 @@ pub fn parse_makernote(data: &[u8], offset: u64, len: u64, order: ByteOrder, mak
         Some(b"MM") => Some(ByteOrder::Big),
         _ => None,
     };
-    // Keep maker-note values independent of the full TIFF buffer's logical size.
-    let opts = ParseOptions { max_ifds: 64, max_depth: 3, value_budget: Some(1 << 20), ..Default::default() };
+    // Maker notes can place large previews before calibration entries; keep their value budget independent of the TIFF size.
+    let opts = ParseOptions { max_ifds: 64, max_depth: 3, value_budget: Some(8 << 20), ..Default::default() };
     let try_parse = |kind: MakerNoteKind, ifd_at: u64, base: u64, ord: ByteOrder| -> Option<MakerNote> {
         let (ifd, _) = parse_ifd_at(data, ifd_at, ord, base, false, &opts).ok()?;
         (!ifd.entries.is_empty()).then_some(MakerNote { kind, order: ord, base, ifd })
@@ -212,11 +212,11 @@ mod tests {
         note.extend([3, 0, 0, 0]);
         order.put_u16(&mut note, 0x9900);
         order.put_u16(&mut note, 1);
-        order.put_u32(&mut note, 2 << 20);
+        order.put_u32(&mut note, 9 << 20);
         order.put_u32(&mut note, 200);
         order.put_u32(&mut note, 0);
         let mut bytes = note.clone();
-        bytes.resize(200 + (2 << 20), 0);
+        bytes.resize(200 + (9 << 20), 0);
         let maker_note = parse_makernote(&bytes, 0, note.len() as u64, order, "SONY").unwrap();
         assert!(maker_note.ifd.get(0x201b).is_some());
         assert!(maker_note.ifd.get(0x9900).is_none());
