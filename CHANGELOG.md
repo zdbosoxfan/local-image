@@ -6,6 +6,11 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- HEIF decoding bounds metadata parsing, item reconstruction, transform work and output samples;
+  inputs exceeding those limits return a clear limit error.
+
 ## [0.8.0-alpha] - 2026-10-29
 
 The first published alpha of the rebuilt Local Image. It was developed as 2.0.0-alpha.1, which was

@@ -1047,3 +1047,18 @@ The literal/pattern-only method-field adaptations in dc209948 are local: `crates
 `crates/pc-ui-egui/src/vector_packages/appearance.rs`, `crates/pc-ui-egui/tests/gpu/vector_integration.rs`
 and `crates/pc-vector/src/profile_tests.rs`.
 The Smooth measurements retain upstream's black-to-white and red-to-blue rows and two-level tolerance.
+
+## LightCraft HEIF hardening (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b88f72b9df68`](https://github.com/storytold/lightcraft/commit/b88f72b9df68f07a080772d7fb16a92d6f7db837) | sec: bound heic-rs 0.1.4 work around hostile HEIF containers | `crates/pc-heif/src/census.rs`, `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`178eef790bd8`](https://github.com/storytold/lightcraft/commit/178eef790bd8872a6f60f7b1a0fb7b67499acc59) | heif: bound iloc item-extent visits before reconstructing in probe | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`269495cd3867`](https://github.com/storytold/lightcraft/commit/269495cd3867e9feee1876ac641627ba23c7dabb) | security(heif): budget every reconstruction before it runs | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`0c71f75325b5`](https://github.com/storytold/lightcraft/commit/0c71f75325b5f707bbe8e7ef6324e6e14a8f51e6) | security(heif): scan the primary item before heic_rs::probe, the alpha plane, and each thumbnail candidate | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+
+Partial port into the pinned `heic-rs = 0.1.4` wrapper: `ipma` payloads and `iloc` payloads are
+each capped at 64 KiB in aggregate, item extent visits at 4096, coded-item reconstruction at the file size,
+transform properties at 12, and output samples at 2³⁰ even when a caller raises `max_pixels`.
+The wrapper has no thumbnail API, so thumbnail-candidate changes do not apply. `heic-rs` already
+checks a grid's actual canvas against the decode limit before allocating the output image.
