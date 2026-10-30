@@ -517,8 +517,8 @@ fn fmt_gps_coord(v: f64, pos: char, neg: char) -> String {
 }
 
 /// Parse an XMP packet (with or without the `<?xpacket?>` wrapper / `x:xmpmeta` element). Properties past the
-/// flattened-key budget are omitted ([`XmpData::property_keys_truncated`]), so this is only for reads whose result
-/// reaches no catalog, sidecar, save or export; those use [`parse_whole_xmp`].
+/// flattened-key budget are omitted ([`XmpData::property_keys_truncated`]), so this is only for develop presets,
+/// listings and validation; anything that reaches a catalog, sidecar, image file or export uses [`parse_whole_xmp`].
 pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
     parse_xmp_within(s, MAX_FLATTENED_PROPERTY_KEY_BYTES)
 }
