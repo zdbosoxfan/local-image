@@ -18,7 +18,7 @@ use linesweeper::topology::{ContourIdx, Contours, Topology, WindingNumber};
 
 use crate::PathOpsError;
 use crate::kernel::fit::{end_tangent, fit_single, is_straight, sample, start_tangent};
-use crate::kernel::planar::check_sweep_size;
+use crate::kernel::planar::{MAX_SWEEP_VALUE_BYTES, check_sweep_size};
 
 /// Default curve-refit tolerance (document points) used to merge split curve pieces back together.
 /// Similar in spirit to Illustrator's Pathfinder "Precision" option (0.028 pt).
@@ -312,11 +312,8 @@ fn flatten_fallback(paths: &[(BezPath, FillRule)], extent: f64) -> Result<Vec<(B
 
 /// Most edges an arrangement's sweep may add to its paths' own segments.
 const MAX_ARRANGEMENT_CUTS: usize = 1 << 20;
-/// Paths with fewer segments skip the trial sweep, because they cannot reach its limits: two cubics
-/// meet at most nine times and each meeting adds two edges, so 300 segments add about 800,000 at
-/// most. That counts every pair, not only those with overlapping bounds, because the sweep also
-/// cuts segments that merely pass within its tolerance.
-const MIN_TRIAL_SEGMENTS: usize = 300;
+/// Two cubics meet at most nine times, and each meeting adds two edges.
+const MOST_CUTS_PER_PAIR: usize = 18;
 
 impl Arrangement {
     pub(crate) fn new(mut paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
@@ -326,8 +323,12 @@ impl Arrangement {
         let edge_bytes = 2 * size_of::<i32>() * paths.len();
         let sweep = |paths: &[(BezPath, FillRule)]| {
             crate::budget::charge_sweep(paths.iter().map(|(path, _)| path))?;
+            // Art that cannot reach the limits is not swept twice. The sweep moves points by a few
+            // `eps` and cuts what they land on, so overlapping bounds alone would undercount.
+            let close_pairs = crate::budget::pairs_within(paths.iter().map(|(path, _)| path), 16.0 * eps, MAX_ARRANGEMENT_CUTS / MOST_CUTS_PER_PAIR);
+            let may_refuse = close_pairs.is_none_or(|pairs| (pairs * MOST_CUTS_PER_PAIR).saturating_mul(edge_bytes) > MAX_SWEEP_VALUE_BYTES);
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if paths.iter().map(|(path, _)| path.segments().count()).sum::<usize>() >= MIN_TRIAL_SEGMENTS {
+                if may_refuse {
                     check_sweep_size(paths.iter().map(|(path, _)| path), eps, MAX_ARRANGEMENT_CUTS, |_| edge_bytes)?;
                 }
                 Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps).map_err(|_| PathOpsError::OpenPath)

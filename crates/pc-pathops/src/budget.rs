@@ -134,6 +134,13 @@ pub(crate) fn charge_sweep<'a>(paths: impl IntoIterator<Item = &'a BezPath>) -> 
     Ok(())
 }
 
+/// How many pairs of segments in `paths` overlap once their bounds grow by `margin`, if at most
+/// `cap` do.
+pub(crate) fn pairs_within<'a>(paths: impl IntoIterator<Item = &'a BezPath>, margin: f64, cap: usize) -> Option<usize> {
+    let boxes: Vec<Rect> = paths.into_iter().flat_map(|path| path.segments().map(|segment| segment.bounding_box().inflate(margin, margin))).collect();
+    overlaps_within(&boxes, cap)
+}
+
 /// The error for work refused as too big, which [`RefusalWatch`] notices.
 pub(crate) fn refused() -> PathOpsError {
     REFUSED_SWEEPS.set(REFUSED_SWEEPS.get().wrapping_add(1));
@@ -166,6 +173,19 @@ mod tests {
         let above = Rect::new(0.0, 0.0, 1.0, 1.0);
         assert_eq!(overlaps_within(&[below, above], 0), None);
         assert_eq!(overlaps_within(&[below, above], 1), Some(1));
+    }
+
+    #[test]
+    fn segments_a_sweep_can_cut_count_as_a_pair_without_overlapping() {
+        let mut upright = BezPath::new();
+        upright.move_to((0.0, 0.0));
+        upright.line_to((0.0, 10.0));
+        let mut along = BezPath::new();
+        along.move_to((1e-7, 5.0));
+        along.line_to((10.0, 5.0));
+
+        assert_eq!(pairs_within([&upright, &along], 0.0, 10), Some(0));
+        assert_eq!(pairs_within([&upright, &along], 1e-6, 10), Some(1));
     }
 
     /// 2048 lines crossing 2048 others: exactly the sweep limit.

@@ -1072,10 +1072,9 @@ Local addition: `WorkBudget` caps the pairs of all sweeps in one path operation 
 limits (16,777,216). Upstream limits each sweep only, which leaves a many-component path to run
 every sweep up to the limit. `check_sweep_size` in `planar.rs` is also local: a trial sweep that
 stops a planar map or any arrangement once it would add too many edges or winding values, so it
-covers booleans, normalize, offset, `finish_compound` and Pathfinder Unite as well. Arrangements
-under 300 segments skip it, because they cannot reach those limits. `RefusalWatch` is local too:
-it lets the canvas skip a refused effect and lets output fail naming the layer, without sharing
-a budget.
+covers booleans, normalize, offset, `finish_compound` and Pathfinder Unite as well. Art with too
+few segments close together to reach those limits skips it. `RefusalWatch` is local too: it lets
+the canvas skip a refused effect and lets output fail naming the layer, without sharing a budget.
 The trial sweep counts only edges a sweep adds, so art that nothing cuts passes it. The pair limit
 and the operation budget count overlapping bounds instead, so they do refuse art that never
 crosses: 730 concentric circles in one component, or 2,400 circles held as separate components.

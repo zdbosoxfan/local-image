@@ -42,7 +42,7 @@ const UNSHEAR: Affine = Affine::new([1.0, -1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 /// passes twice. A map this size takes 10 to 20 seconds and about 1 GB to build.
 const MAX_MAP_CUTS: usize = 1 << 19;
 /// Most memory a sweep may keep in winding values on the edges it adds.
-const MAX_SWEEP_VALUE_BYTES: usize = 1 << 31;
+pub(crate) const MAX_SWEEP_VALUE_BYTES: usize = 1 << 31;
 
 /// Boundary crossings per input, counted from the far west: slot `2i` counts input `i`'s
 /// segments running one way, slot `2i + 1` the other. An open path traced there and back adds one
