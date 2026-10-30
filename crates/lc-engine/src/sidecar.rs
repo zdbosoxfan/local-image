@@ -124,6 +124,9 @@ pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, S
         return Err("not an XMP packet (no XML markup)".to_string());
     }
     let d = lightcraft_meta::parse_xmp(xmp).map_err(|e| e.to_string())?;
+    if d.property_keys_truncated {
+        log::warn!("XMP packet: properties past the flattened-key budget were ignored, so later fields are missing");
+    }
     let m = &d.metadata;
     let creator_stated = d.values.contains_key("dc:creator") || d.properties.contains_key("dc:creator");
     let lc = |k: &str| d.properties.get(&format!("lc:{k}")).and_then(|v| v.first()).cloned();
