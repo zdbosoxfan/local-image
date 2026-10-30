@@ -5,7 +5,8 @@
 //! follow the public descriptions in the ExifTool tag documentation (`MakerNotes` table) and the
 //! vendors' own published notes; no third-party code was consulted.
 
-use crate::{ByteOrder, Ifd, ParseOptions, parse_ifd_at};
+use crate::reader::parse_ifd_counted;
+use crate::{ByteOrder, Ifd, ParseOptions};
 use serde::{Deserialize, Serialize};
 
 /// Maker-note dialects we know how to locate.
@@ -57,10 +58,17 @@ pub fn parse_makernote(data: &[u8], offset: u64, len: u64, order: ByteOrder, mak
     };
     // A fixed value budget: a maker note is at most tens of kilobytes of values in any honest file, and a budget
     // computed from the buffer's length would let one hostile entry decode allocations in proportion to the file.
-    let opts = ParseOptions { max_ifds: 64, max_depth: 3, value_budget: Some(1 << 20), ..Default::default() };
+    const VALUE_BUDGET: u64 = 1 << 20;
+    let opts = ParseOptions { max_ifds: 64, max_depth: 3, value_budget: Some(VALUE_BUDGET), ..Default::default() };
     let try_parse = |kind: MakerNoteKind, ifd_at: u64, base: u64, ord: ByteOrder| -> Option<MakerNote> {
-        let (ifd, _) = parse_ifd_at(data, ifd_at, ord, base, false, &opts).ok()?;
-        (!ifd.entries.is_empty()).then_some(MakerNote { kind, order: ord, base, ifd })
+        let (ifd, _, over_budget) = parse_ifd_counted(data, ifd_at, ord, base, false, &opts).ok()?;
+        if ifd.entries.is_empty() {
+            return None;
+        }
+        if over_budget > 0 {
+            log::warn!("{kind:?} maker note: entries dropped past the {VALUE_BUDGET}-byte value budget: {over_budget}");
+        }
+        Some(MakerNote { kind, order: ord, base, ifd })
     };
     if note.starts_with(b"Nikon\0") {
         if note.get(6) == Some(&1) {

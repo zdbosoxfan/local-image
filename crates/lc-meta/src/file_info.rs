@@ -3,8 +3,8 @@
 
 use serde_json::{Value, json};
 
-use crate::xmp::parse_whole_xmp;
-use crate::{MergeRules, Metadata, XmpError, merge_xmp, parse_xmp, write_xmp};
+use crate::xmp::{parse_whole_xmp, parse_xmp_logged};
+use crate::{MergeRules, Metadata, XmpError, merge_xmp, write_xmp};
 
 const FIELDS: [(&str, &str); 8] = [
     ("title", "dc:title"),
@@ -20,7 +20,7 @@ const FIELDS: [(&str, &str); 8] = [
 /// Read File Info using namespace URIs, entities, CDATA and x-default language alternatives.
 /// Missing or unreadable packets yield the existing command's empty-field defaults.
 pub fn read_file_info(xmp: Option<&str>) -> Value {
-    let m = xmp.and_then(|x| parse_xmp(x).ok()).map(|x| x.metadata).unwrap_or_default();
+    let m = xmp.and_then(|x| parse_xmp_logged(x).ok()).map(|x| x.metadata).unwrap_or_default();
     file_info(&m)
 }
 
@@ -53,7 +53,7 @@ fn list(v: &Value, split: bool) -> Vec<String> {
 pub fn try_write_file_info(xmp: Option<&str>, info: &Value) -> Result<String, XmpError> {
     let xmp = xmp.filter(|x| !x.trim().is_empty());
     let mut m = match xmp {
-        Some(x) => parse_xmp(x)?.metadata,
+        Some(x) => parse_xmp_logged(x)?.metadata,
         None => Metadata::default(),
     };
     let current = file_info(&m);
@@ -119,6 +119,7 @@ pub fn copyright_xmp(xmp: &str, contact: bool) -> Result<Option<String>, XmpErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse_xmp;
 
     #[test]
     fn file_info_partial_edits_preserve_creators_locales_and_unknown_properties() {

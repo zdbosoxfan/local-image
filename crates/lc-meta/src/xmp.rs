@@ -521,6 +521,15 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
     parse_xmp_within(s, MAX_FLATTENED_PROPERTY_KEY_BYTES)
 }
 
+/// [`parse_xmp`] for this crate's own readers, whose callers never see [`XmpData::property_keys_truncated`].
+pub(crate) fn parse_xmp_logged(s: &str) -> Result<XmpData, XmpError> {
+    let data = parse_xmp(s)?;
+    if data.property_keys_truncated {
+        log::warn!("XMP packet: properties past the {MAX_FLATTENED_PROPERTY_KEY_BYTES}-byte flattened-key budget were ignored, so later fields are missing");
+    }
+    Ok(data)
+}
+
 /// [`parse_xmp`] up to the hard stop alone, for saves and exports: they compare or carry what the packet holds, so
 /// the read-side retention budget would turn into lost properties.
 pub fn parse_whole_xmp(s: &str) -> Result<XmpData, XmpError> {

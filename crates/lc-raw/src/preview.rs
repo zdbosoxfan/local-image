@@ -112,6 +112,7 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
     const MAX_WALK_BYTES: usize = 8 << 20;
     let mut best: Option<&[u8]> = None;
     let mut walked = 0usize;
+    let mut skipped = 0usize;
     for tag in [b"PRVW", b"THMB"] {
         let mut from = 0;
         while let Some(i) = bytes.get(from..).and_then(|s| s.windows(4).position(|w| w == tag)).map(|p| p + from) {
@@ -125,6 +126,7 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
             }
             let jpeg = &bytes[j..j + len];
             if jpeg.len() > MAX_WALK_BYTES - walked {
+                skipped += 1;
                 continue;
             }
             walked += jpeg.len();
@@ -135,6 +137,9 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
                 break;
             }
         }
+    }
+    if skipped > 0 {
+        log::warn!("CR3 preview: candidate boxes skipped past the {MAX_WALK_BYTES}-byte scan budget: {skipped}");
     }
     best
 }

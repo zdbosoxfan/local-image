@@ -9,6 +9,7 @@ description = "LightCraft TIFF/IFD reader and writer (L0)"
 workspace = true
 
 [dependencies]
+log = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

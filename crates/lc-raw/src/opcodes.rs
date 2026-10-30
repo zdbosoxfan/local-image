@@ -374,6 +374,22 @@ pub fn parse_list(d: &[u8]) -> Vec<Opcode> {
     out
 }
 
+/// Log once for a file what the polynomial and `OpcodeList3` pass caps leave unapplied.
+pub(crate) fn warn_capped(lists: &OpcodeLists) {
+    // Past the cap, `parse_list` keeps each polynomial as an `Unknown` without its coefficients.
+    let over_cap = |list: &[Opcode]| {
+        list.iter().filter(|op| matches!(op, Opcode::MapPolynomial { .. })).count() == MAX_POLYNOMIALS
+            && list.iter().any(|op| matches!(op, Opcode::Unknown { id: 8, params, .. } if params.is_empty()))
+    };
+    if [&lists.list1, &lists.list2, &lists.list3].into_iter().any(|list| over_cap(list)) {
+        log::warn!("DNG opcodes: MapPolynomial entries past {MAX_POLYNOMIALS} in a list were ignored");
+    }
+    let passes = lists.list3.iter().filter(|op| is_list3_pass(op)).count();
+    if passes > MAX_LIST3_PASSES {
+        log::warn!("DNG OpcodeList3: only the first {MAX_LIST3_PASSES} of {passes} passes will run");
+    }
+}
+
 /// Run `f(x, y, plane, sample)` on every sample `a` selects in an interleaved `w × h × cpp` buffer, rows
 /// in parallel (the area opcodes are pointwise).
 fn for_area(buf: &mut [f32], w: usize, h: usize, cpp: usize, a: &Area, f: impl Fn(usize, usize, usize, &mut f32) + Sync) {
@@ -602,6 +618,10 @@ pub fn list3_binnable(list: &[Opcode]) -> bool {
 /// Bound full-image resampling and per-pixel work from one hostile OpcodeList3.
 const MAX_LIST3_PASSES: usize = 8;
 
+fn is_list3_pass(op: &Opcode) -> bool {
+    !matches!(op, Opcode::TrimBounds { .. } | Opcode::Unknown { .. })
+}
+
 /// [`apply_list3`] on the demosaic of a mosaic binned as `b` says (`RawImage::develop_binned`
 /// blocks): the warps, the vignette and the gain maps are evaluated at the sensor positions the
 /// binned pixels stand for. Only meaningful when [`list3_binnable`].
@@ -610,7 +630,7 @@ pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, b: Binning) {
     let b = Binning { k: b.k.max(1), ..b };
     let mut passes = 0;
     for op in list {
-        if !matches!(op, Opcode::TrimBounds { .. } | Opcode::Unknown { .. }) {
+        if is_list3_pass(op) {
             if passes >= MAX_LIST3_PASSES {
                 continue;
             }

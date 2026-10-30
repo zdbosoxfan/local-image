@@ -120,7 +120,7 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
         m.fill_missing(&crate::parse_iptc(&bytes));
     }
     if let Some(x) = ifd0.and_then(|i| i.bytes(t::XMP)).map(String::from_utf8_lossy)
-        && let Ok(x) = crate::parse_xmp(&x)
+        && let Ok(x) = crate::xmp::parse_xmp_logged(&x)
     {
         m.overlay_user_fields(&x.metadata);
         m.fill_missing(&x.metadata);
