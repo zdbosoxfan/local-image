@@ -91,7 +91,8 @@ pub fn check_image(data: &[u8], info: &ImageInfo) -> Result<usize> {
     // The tile grid decides how much is decoded, whatever the file's bytes: the nominal sizes of all the chunks
     // stay within a few times the image (edge tiles pad it).
     let chunk_cpp = cpp / planes;
-    let nominal = chunks.iter().fold(0usize, |sum, c| sum.saturating_add((c.width as usize).saturating_mul(c.height as usize).saturating_mul(chunk_cpp)));
+    let nominal =
+        chunks.iter().fold(0usize, |sum, c| sum.saturating_add((c.width as usize).saturating_mul(c.height as usize).saturating_mul(chunk_cpp)));
     if nominal > total.saturating_mul(4).saturating_add(1 << 24) {
         return Err(RawError::Corrupt("the tile grid is much larger than the image".into()));
     }
