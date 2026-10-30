@@ -736,7 +736,7 @@ fn build() -> Vec<CommandSpec> {
                 let mut bg = Layer::raster("Background", fmt);
                 bg.locks.transparency = true;
                 *crate::pixels_mut(&mut bg)? =
-                    photocraft_compose::flatten_to_surface(&crate::vector_integration::project_document(doc)?, fmt, Some([1.0, 1.0, 1.0]));
+                    photocraft_compose::flatten_to_surface(&crate::vector_integration::project_for_output(doc)?, fmt, Some([1.0, 1.0, 1.0]));
                 *active = Some(bg.id);
                 doc.layers = vec![bg];
                 Ok(())

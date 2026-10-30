@@ -783,7 +783,7 @@ fn shape_rasterize(s: &mut Session, p: &Value) -> Result<Value> {
         isolated.effects = Default::default();
         isolated.blend_if = Default::default();
         one.layers = vec![isolated];
-        let projected = crate::vector_integration::project_document(&one)?;
+        let projected = crate::vector_integration::project_for_output(&one)?;
         let surface = photocraft_compose::flatten_to_surface(&projected, snapshot.pixel_format(), None);
         l.content = LayerContent::Raster(surface);
         l.vector = Default::default();

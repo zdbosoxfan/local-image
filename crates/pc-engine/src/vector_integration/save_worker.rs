@@ -39,7 +39,7 @@ fn project(source: &Document, engine: &mut photocraft_text::TextEngine, cancel: 
         }
         Ok(())
     }
-    let mut output = project_document_cancellable(source, cancel, false)?;
+    let mut output = project_document_cancellable(source, cancel, false, OverBudget::Fail)?;
     refresh(source, &mut output.layers, engine, cancel)?;
     if cancel() {
         return Err(EngineError::Cancelled);
