@@ -9,7 +9,7 @@ All notable changes to Local Image are recorded here. The format follows
 ### Fixed
 
 - RAW/TIFF imports bound hostile tile, opcode, and metadata work before it can multiply memory or CPU use. Truncated Deflate tiles are rejected, and non-finite DNG WhiteLevel uses the bit-depth default.
-- Panorama matching refuses selections over 256 photos before pairwise registration.
+- Panorama merges refuse selections over 256 photos before loading any frame.
 
 ## [0.8.0-alpha] - 2026-10-29
 
