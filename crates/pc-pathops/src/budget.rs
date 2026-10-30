@@ -79,7 +79,12 @@ impl RefusalWatch {
     }
 
     pub fn refused(&self) -> bool {
-        REFUSED_SWEEPS.get() != self.refused_before
+        self.refusals() != 0
+    }
+
+    /// How many sweeps this thread has refused since the watch began.
+    pub fn refusals(&self) -> u64 {
+        REFUSED_SWEEPS.get().wrapping_sub(self.refused_before)
     }
 }
 

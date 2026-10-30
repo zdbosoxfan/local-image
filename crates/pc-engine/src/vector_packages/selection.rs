@@ -10,6 +10,7 @@ use photocraft_doc::{Color, DocId, Document, Fill, Layer, LayerContent, LayerId,
 use photocraft_geom::Point;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
@@ -529,12 +530,30 @@ fn intersects(a: Point, b: Point, c: Point, d: Point) -> bool {
     }
     [(a, c, d), (b, c, d), (c, a, b), (d, a, b)].iter().any(|(p, a, b)| distance_segment(*p, *a, *b) <= 1e-9)
 }
-/// Whether `q` is inside `path`. A path the work budget refuses counts as outside, so one crowded
-/// layer can't fail the query for every layer behind it; its outline can still be hit.
-fn fill_contains(path: &Path, q: Point) -> Result<bool> {
+const MAX_REFUSED_FILLS: usize = 8;
+thread_local! {
+    /// Fills the work budget refused, which depends only on the path. A refusal can take seconds
+    /// and the canvas repeats a lasso's query every frame of the drag.
+    static REFUSED_FILLS: RefCell<Vec<Path>> = const { RefCell::new(Vec::new()) };
+}
+/// Whether `q` is inside `path`, or `None` if the work budget refuses the path. That counts as
+/// outside, so one crowded layer can't fail the query for every layer behind it; its outline can
+/// still be hit.
+fn fill_contains(path: &Path, q: Point) -> Result<Option<bool>> {
+    if REFUSED_FILLS.with_borrow(|refused| refused.contains(path)) {
+        return Ok(None);
+    }
     match photocraft_pathops::contains(path, q) {
-        Err(photocraft_pathops::PathOpsError::TooComplex) => Ok(false),
-        inside => inside.map_err(|e| error(e.to_string())),
+        Err(photocraft_pathops::PathOpsError::TooComplex) => {
+            REFUSED_FILLS.with_borrow_mut(|refused| {
+                if refused.len() == MAX_REFUSED_FILLS {
+                    refused.remove(0);
+                }
+                refused.push(path.clone());
+            });
+            Ok(None)
+        }
+        inside => inside.map(Some).map_err(|e| error(e.to_string())),
     }
 }
 fn touches(l: &Layer, poly: &[Point], readers: Readers) -> Result<bool> {
@@ -543,8 +562,10 @@ fn touches(l: &Layer, poly: &[Point], readers: Readers) -> Result<bool> {
         // V1 contains preserves compound holes, fill rule, and PSD component order.
         if fill(&a).is_some() {
             for q in poly {
-                if fill_contains(p, *q)? {
-                    return Ok(true);
+                match fill_contains(p, *q)? {
+                    Some(true) => return Ok(true),
+                    Some(false) => {}
+                    None => break,
                 }
             }
         }
@@ -605,7 +626,7 @@ fn hit_impl(doc: &Document, scope: &Scope, p: [f64; 2], tolerance: f64, readers:
     for e in index.entries.iter().rev().filter(|e| index.allowed(e, true) && (paintable(e.layer, readers) || pixels && e.layer.surface().is_some())) {
         let a = appearance(e.layer, readers)?;
         if let Some(p) = path(e.layer) {
-            let inside = fill(&a).is_some() && fill_contains(p, q)?;
+            let inside = fill(&a).is_some() && fill_contains(p, q)?.unwrap_or(false);
             let nearest = photocraft_pathops::nearest(p, q).map_err(|e| error(e.to_string()))?;
             if inside || nearest.is_some_and(|(_, _, _, _, d)| d <= tolerance + weight(&a) * 0.5) {
                 return Ok(Some(e.layer.id));
