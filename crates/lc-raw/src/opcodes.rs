@@ -232,7 +232,7 @@ fn parse_one(id: u32, flags: u32, params: &[u8]) -> Option<Opcode> {
         10..=13 => {
             let area = r.area()?;
             let n = r.u32()? as usize;
-            if n * 4 > r.remaining() {
+            if n > r.remaining() / 4 {
                 return None;
             }
             // deltas are signed offsets (row/column bias corrections); only scales must be non-negative
@@ -345,16 +345,31 @@ pub fn write_list(list: &[Opcode]) -> Vec<u8> {
     out
 }
 
+/// Maximum polynomial maps in one list; every map runs over each selected sample.
+const MAX_POLYNOMIALS: usize = 64;
+
 /// Parse an opcode list blob. Malformed opcodes become [`Opcode::Unknown`]; a truncated list stops early.
 pub fn parse_list(d: &[u8]) -> Vec<Opcode> {
     let mut r = Rd { d, p: 0 };
     let Some(count) = r.u32() else { return vec![] };
     let mut out = Vec::new();
+    let mut polynomials = 0;
     for _ in 0..count.min(4096) {
         let (Some(id), Some(_ver), Some(flags), Some(size)) = (r.u32(), r.u32(), r.u32(), r.u32()) else { break };
         let Some(params) = d.get(r.p..r.p.saturating_add(size as usize)) else { break };
         r.p += size as usize;
-        out.push(parse_one(id, flags, params).unwrap_or(Opcode::Unknown { id, flags, params: params.to_vec() }));
+        let op = if id == 8 && polynomials >= MAX_POLYNOMIALS {
+            // The skipped polynomial is a no-op; its coefficients need not be retained.
+            Opcode::Unknown { id, flags, params: Vec::new() }
+        } else if let Some(op) = parse_one(id, flags, params) {
+            if matches!(&op, Opcode::MapPolynomial { .. }) {
+                polynomials += 1;
+            }
+            op
+        } else {
+            Opcode::Unknown { id, flags, params: params.to_vec() }
+        };
+        out.push(op);
     }
     out
 }
@@ -584,19 +599,45 @@ pub fn list3_binnable(list: &[Opcode]) -> bool {
     })
 }
 
+/// Bound full-image resampling and per-pixel work from one hostile OpcodeList3.
+const MAX_LIST3_PASSES: usize = 8;
+
 /// [`apply_list3`] on the demosaic of a mosaic binned as `b` says (`RawImage::develop_binned`
 /// blocks): the warps, the vignette and the gain maps are evaluated at the sensor positions the
 /// binned pixels stand for. Only meaningful when [`list3_binnable`].
 pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, b: Binning) {
     let (w, h) = (img.width, img.height);
     let b = Binning { k: b.k.max(1), ..b };
+    let mut passes = 0;
     for op in list {
         match op {
-            Opcode::WarpRectilinear { planes, center } => *img = warp_rectilinear_binned(img, planes, *center, b),
-            Opcode::WarpFisheye { planes, center } => *img = warp_fisheye_binned(img, planes, *center, b),
+            Opcode::WarpRectilinear { planes, center } => {
+                if passes >= MAX_LIST3_PASSES {
+                    continue;
+                }
+                passes += 1;
+                *img = warp_rectilinear_binned(img, planes, *center, b);
+            }
+            Opcode::WarpFisheye { planes, center } => {
+                if passes >= MAX_LIST3_PASSES {
+                    continue;
+                }
+                passes += 1;
+                *img = warp_fisheye_binned(img, planes, *center, b);
+            }
             Opcode::TrimBounds { .. } | Opcode::Unknown { .. } => {}
-            Opcode::FixVignetteRadial { k, center } => vignette(img.data.as_flattened_mut(), w, h, 3, k, *center, b),
+            Opcode::FixVignetteRadial { k, center } => {
+                if passes >= MAX_LIST3_PASSES {
+                    continue;
+                }
+                passes += 1;
+                vignette(img.data.as_flattened_mut(), w, h, 3, k, *center, b);
+            }
             Opcode::GainMap { area, points_v, points_h, spacing, origin, map_planes, gains } if b.k > 1 => {
+                if passes >= MAX_LIST3_PASSES {
+                    continue;
+                }
+                passes += 1;
                 // the binned pixels whose centre lies in the area's sensor pixels
                 let edge = |e: u32, axis: usize| b.binned_at(e as f64 - 0.5, axis).ceil().clamp(0.0, u32::MAX as f64) as u32;
                 let binned =
@@ -608,7 +649,13 @@ pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, b: Binning) {
                     *v *= gain_at(*points_v, *points_h, *spacing, *origin, *map_planes, gains, rv, rh, p - area.plane as usize);
                 });
             }
-            other => apply_list(std::slice::from_ref(other), img.data.as_flattened_mut(), w, h, 3, None, 1.0),
+            other => {
+                if passes >= MAX_LIST3_PASSES {
+                    continue;
+                }
+                passes += 1;
+                apply_list(std::slice::from_ref(other), img.data.as_flattened_mut(), w, h, 3, None, 1.0);
+            }
         }
     }
 }
@@ -1040,5 +1087,26 @@ pub(crate) mod tests {
             let mut buf = vec![0.5f32; 12];
             apply_list(&l, &mut buf, 4, 3, 1, None, 1.0);
         }
+    }
+
+    #[test]
+    fn map_polynomials_past_the_per_list_cap_are_not_applied() {
+        let area = Area { bottom: 4, right: 4, planes: 3, row_pitch: 1, col_pitch: 1, ..Default::default() };
+        let polynomial = Opcode::MapPolynomial { area, coefficients: vec![0.0, 1.0] };
+        let ops = vec![polynomial; 65];
+        let parsed = parse_list(&write_list(&ops));
+        assert_eq!(parsed.iter().filter(|op| matches!(op, Opcode::MapPolynomial { .. })).count(), 64);
+        assert!(matches!(parsed.last(), Some(Opcode::Unknown { id: 8, .. })));
+    }
+
+    #[test]
+    fn list3_stops_after_eight_full_image_passes() {
+        let warp = Opcode::WarpRectilinear { planes: vec![[1.4, 0.0, 0.0, 0.0, 0.0, 0.0]], center: [0.5, 0.5] };
+        let list = vec![warp; 9];
+        let mut actual = RgbFrame::from_fn(32, 24, |x, y| [x as f32 / 32.0, y as f32 / 24.0, (x + y) as f32 / 56.0]);
+        let mut expected = actual.clone();
+        apply_list3(&list, &mut actual);
+        apply_list3(&list[..8], &mut expected);
+        assert_eq!(actual.data, expected.data);
     }
 }

@@ -8,6 +8,13 @@ use lightcraft_tiff::writer::{rational, srational};
 use lightcraft_tiff::{ByteOrder, IfdBuilder, ImageData, TiffWriter, Value};
 use rayon::prelude::*;
 
+/// Bound the square padding buffer for a caller-selected Deflate tile edge.
+const MAX_DEFLATE_TILE: u32 = 2048;
+
+fn deflate_tile(tile: u32) -> usize {
+    ((tile.max(16) & !15).min(MAX_DEFLATE_TILE)) as usize
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DngCompression {
     Uncompressed,
@@ -283,7 +290,7 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     };
     match (&raw.data, compression) {
         (RawData::F32(v), DngCompression::Deflate { tile, half }) => {
-            let tile = (tile.max(16) & !15) as usize;
+            let tile = deflate_tile(tile);
             let bp = if half { 2 } else { 4 };
             ifd.set(t::BITS_PER_SAMPLE, Value::Short(vec![(bp * 8) as u16; cpp]));
             ifd.set(t::SAMPLE_FORMAT, Value::Short(vec![3; cpp]));
@@ -351,7 +358,7 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
                     ifd.set_image(ImageData::Strips { rows_per_strip: rows as u32, strips });
                 }
                 DngCompression::Deflate { tile, .. } => {
-                    let tile = (tile.max(16) & !15) as usize;
+                    let tile = deflate_tile(tile);
                     ifd.set(t::BITS_PER_SAMPLE, Value::Short(vec![16; cpp]));
                     ifd.set(t::COMPRESSION, Value::Short(vec![compression::ADOBE_DEFLATE]));
                     ifd.set(t::PREDICTOR, Value::Short(vec![2]));

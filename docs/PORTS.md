@@ -1047,3 +1047,17 @@ The literal/pattern-only method-field adaptations in dc209948 are local: `crates
 `crates/pc-ui-egui/src/vector_packages/appearance.rs`, `crates/pc-ui-egui/tests/gpu/vector_integration.rs`
 and `crates/pc-vector/src/profile_tests.rs`.
 The Smooth measurements retain upstream's black-to-white and red-to-blue rows and two-level tolerance.
+
+## RAW and metadata memory bounds (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/lightcraft@`d00df6319cd382b67c25f2d4bd540b87261318eb`](https://github.com/storytold/lightcraft/commit/d00df6319cd382b67c25f2d4bd540b87261318eb) | security/raw: bound hostile-memory paths in raw decoders | `crates/lc-raw/src/dngwrite.rs`<br>`crates/lc-raw/src/opcodes.rs`<br>`crates/lc-raw/src/preview.rs`<br>`crates/lc-raw/src/tiffraw.rs`<br>`crates/lc-raw/tests/it/dng.rs`<br>`crates/lc-tiff/src/image.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`d8ceb3a6af2b5bd86fdcb947eb8a4f5b1c372125`](https://github.com/storytold/lightcraft/commit/d8ceb3a6af2b5bd86fdcb947eb8a4f5b1c372125) | security/meta,merge,raw,tiff,denoise: bound memory sized by attacker-shaped inputs | `crates/lc-meta/src/xmp.rs`<br>`crates/lc-tiff/src/makernote.rs`<br>`crates/lc-merge/src/lib.rs`<br>`crates/lc-merge/src/pano/camera.rs`<br>`crates/lc-merge/src/pano/mod.rs`<br>`crates/lc-merge/tests/it/pano_coverage.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`3022baa8615a2956e239b7febf3fe4ff98289885`](https://github.com/storytold/lightcraft/commit/3022baa8615a2956e239b7febf3fe4ff98289885) | security(raw,meta): follow-ups from review | `crates/lc-raw/src/preview.rs`<br>`crates/lc-raw/src/tiffraw.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`ca69e74b62c819e4dee07fb50eb674ef39b8557a`](https://github.com/storytold/lightcraft/commit/ca69e74b62c819e4dee07fb50eb674ef39b8557a) | fix(raw): check opcode byte counts without overflow | `crates/lc-raw/src/opcodes.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`dcf5c61a64716bec507ee79735ef18ce0837fbce`](https://github.com/storytold/photocraft/commit/dcf5c61a64716bec507ee79735ef18ce0837fbce) | Integration: cap MapPolynomial opcodes, finite WhiteLevel, RGB-only JPEG XL preview (#8402) | `crates/lc-raw/src/dng.rs`<br>`crates/lc-raw/src/opcodes.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `d00df631` uses `ImageInfo::single_chunk` for TIFF previews and retains the chunk-scoped decoder budget already used by raw imports; `d8ceb3a6` reports flattened-key omissions through `XmpData::property_keys_truncated` without adding a logging dependency; `3022baa8` skips a CR3 candidate that exceeds the remaining scan budget so a later smaller box can still be checked. The `dcf5c61a` JPEG XL preview filter is out of scope.
+
+Already covered or not applicable: `d00df631`'s lossy-JPEG size ceiling is already enforced by the tile-bounded JPEG header and `chunk_working_bytes` checks in `crates/lc-raw/src/tiffraw.rs`; its sparse TIFF range-planning and MEF-strip changes are outside the task triage. `d8ceb3a6`'s TIFF chunk batching is already bounded by `chunk_batches` and the caller's memory budget; its denoise crate is not present, and its EXIF, focus, sparse, and TIFF reader hunks are outside the task triage. `3022baa8`'s sparse walker and document-wide XMP budget are already covered by `crates/lc-raw/src/sparse.rs` limits and the existing parse-wide `key_budget` in `crates/lc-meta/src/xmp.rs`.
