@@ -124,10 +124,15 @@ pub(crate) fn charge_sweep<'a>(paths: impl IntoIterator<Item = &'a BezPath>) -> 
     let spent = OPERATION_PAIRS.get().unwrap_or(0).saturating_add(pairs);
     OPERATION_PAIRS.set(OPERATION_PAIRS.get().map(|_| spent));
     if spent > MAX_OPERATION_PAIRS {
-        REFUSED_SWEEPS.set(REFUSED_SWEEPS.get().wrapping_add(1));
-        return Err(PathOpsError::TooComplex);
+        return Err(refused());
     }
     Ok(())
+}
+
+/// The error for work refused as too big, which [`RefusalWatch`] notices.
+pub(crate) fn refused() -> PathOpsError {
+    REFUSED_SWEEPS.set(REFUSED_SWEEPS.get().wrapping_add(1));
+    PathOpsError::TooComplex
 }
 
 #[cfg(test)]

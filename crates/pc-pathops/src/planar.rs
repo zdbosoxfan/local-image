@@ -27,6 +27,8 @@ use std::collections::HashMap;
 use crate::PathOpsError;
 use crate::geom::{FillRule, PathData, SubPath};
 use kurbo::{Affine, BezPath, CubicBez, ParamCurve, PathSeg, Point, Shape as _};
+use linesweeper::Segments;
+use linesweeper::sweep::{SweepLineBuffers, SweepLineRangeBuffers, Sweeper};
 use linesweeper::topology::{Topology, WindingNumber};
 
 use crate::kernel::boolean::{DEFAULT_PRECISION, Seg, Tidy, eps_for, is_sliver, segs_to_subpath, snap_horizontals, tidy_segments, to_seg};
@@ -35,6 +37,13 @@ use crate::kernel::pathfinder::{Region, Shape};
 /// The sweep's frame: y + x / 32. Only edges sloping -1/32 in the document are horizontal in it.
 const SHEAR: Affine = Affine::new([1.0, 1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 const UNSHEAR: Affine = Affine::new([1.0, -1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
+
+/// Most edges of the sweep's output a map is built from, counting an open path's two passes
+/// twice. A map this size takes about 10 seconds and 1.1 GB to build.
+const MAX_MAP_EDGES: usize = 1 << 19;
+/// Most [`Crossings`] entries the sweep may keep, which is 2 GiB: each edge has a value on either
+/// side, with up to one entry for each path slot to its west.
+const MAX_MAP_CROSSINGS: usize = 1 << 26;
 
 /// Boundary crossings per input, counted from the far west: slot `2i` counts input `i`'s
 /// segments running one way, slot `2i + 1` the other. An open path traced there and back adds one
@@ -472,6 +481,35 @@ fn span(sp: &SubPath, u0: f64, u1: f64) -> Option<SubPath> {
     segs_to_subpath(&segs, false)
 }
 
+/// Refuse a map too big to build, from a trial sweep that keeps nothing. [`Topology`] has no way
+/// to stop partway, and near the pair limit it takes half a minute and 8 GB on its own.
+fn check_map_size(inputs: &[(BezPath, usize)], eps: f64) -> Result<(), PathOpsError> {
+    let mut paths = BezPath::new();
+    for (path, _) in inputs {
+        paths.extend(path.iter());
+    }
+    let mut segments = Segments::default();
+    segments.add_bez_path(&paths).map_err(|_| PathOpsError::OpenPath)?;
+    let slots = 2 * inputs.len();
+    let mut sweeper = Sweeper::new(&segments, eps);
+    let (mut line_buffers, mut range_buffers) = (SweepLineBuffers::default(), SweepLineRangeBuffers::default());
+    let (mut edges, mut crossings) = (0, 0);
+    while let Some(mut line) = sweeper.next_line(&mut line_buffers) {
+        while let Some(mut range) = line.next_range(&mut range_buffers, &segments) {
+            while let Some(events) = range.events() {
+                for event in events.iter().filter(|event| event.connected_below) {
+                    edges += 1;
+                    crossings += event.sweep_idx.unwrap_or(0).min(slots);
+                }
+                if edges > MAX_MAP_EDGES || crossings > MAX_MAP_CROSSINGS {
+                    return Err(crate::budget::refused());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     let mut inputs: Vec<(BezPath, usize)> = Vec::new();
     for (i, s) in shapes.iter().enumerate() {
@@ -497,8 +535,11 @@ fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     snap_horizontals(&mut inputs.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
     crate::budget::charge_sweep(inputs.iter().map(|(path, _)| path))?;
     // The sweep can panic on rare near-degenerate input; that must never take the app down.
-    let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Crossings>::from_paths(inputs.iter().map(|(p, i)| (p, *i)), eps)));
-    let top = sweep.map_err(|_| PathOpsError::Degenerate)?.map_err(|_| PathOpsError::OpenPath)?;
+    let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        check_map_size(&inputs, eps)?;
+        Topology::<Crossings>::from_paths(inputs.iter().map(|(p, i)| (p, *i)), eps).map_err(|_| PathOpsError::OpenPath)
+    }));
+    let top = sweep.map_err(|_| PathOpsError::Degenerate)??;
     let tidy = Tidy::keeping(DEFAULT_PRECISION, inputs.iter().map(|p| &p.0));
 
     // The planar graph: vertices are the sweep's points, edges its segments. Points closer than
@@ -791,6 +832,42 @@ mod tests {
     fn planar_sweep_refuses_too_many_overlapping_segment_bounds() {
         let lines = vec![line((0.0, 0.0), (10.0, 10.0), 0); 2050];
         assert_eq!(try_shape_builder(&lines, false), Err(PathOpsError::TooComplex));
+    }
+
+    /// A closed zigzag of `segments` long teeth, one tooth wide, upright or laid across.
+    fn comb(segments: usize, across: bool, key: u64) -> Shape {
+        let length = 2.0 * segments as f64;
+        let point = |x: f64, y: f64| if across { Point::new(y - 1.0, x + 1.0) } else { Point::new(x + 1.0, y - 1.0) };
+        let teeth: Vec<Point> = (0..segments).map(|i| point(i as f64, if i % 2 == 0 { 0.0 } else { length })).collect();
+        Shape::new(PathData::single(SubPath::polyline(&teeth, true)), FillRule::NonZero, key)
+    }
+
+    #[test]
+    fn a_map_with_too_many_edges_is_refused_for_the_watch_to_see() {
+        let combs = [comb(512, false, 0), comb(512, true, 1)];
+        let watch = crate::RefusalWatch::begin();
+        assert_eq!(try_shape_builder(&combs, true), Err(PathOpsError::TooComplex));
+        assert!(watch.refused());
+        assert_eq!(live_paint(&combs), (Vec::new(), Vec::new()));
+    }
+
+    #[test]
+    fn a_map_of_many_crossing_paths_is_refused_for_what_they_keep_per_edge() {
+        // Every line spans every sweep line, so each edge has them all to its west or east.
+        let lines: Vec<Shape> = (0..220)
+            .flat_map(|i| {
+                let at = f64::from(i) * 3.0;
+                [line((at, 0.0), (at + 5000.0, 5000.0), 0), line((at + 5000.0, 0.0), (at, 5000.0), 0)]
+            })
+            .collect();
+        assert_eq!(try_shape_builder(&lines, true), Err(PathOpsError::TooComplex));
+    }
+
+    #[test]
+    fn overlapping_bounds_alone_do_not_refuse_a_map() {
+        // Parallel diagonals: more than MAX_MAP_EDGES pairs of bounds overlap, and nothing meets.
+        let lines: Vec<Shape> = (0..1100).map(|i| line((f64::from(i), 0.0), (f64::from(i) + 2000.0, 2000.0), 0)).collect();
+        assert_eq!(try_shape_builder(&lines, true).map(|map| map.lines.len()), Ok(1100));
     }
 
     fn area(r: &Region) -> f64 {
