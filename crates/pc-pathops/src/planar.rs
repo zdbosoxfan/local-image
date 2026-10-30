@@ -883,6 +883,38 @@ mod tests {
         assert!(watch.refused());
     }
 
+    /// A closed star of `chords` that all cross each other.
+    fn star(chords: usize) -> PathData {
+        let step = (chords - 1) / 2;
+        let corners: Vec<Point> = (0..chords)
+            .map(|i| {
+                let angle = std::f64::consts::TAU * ((i * step) % chords) as f64 / chords as f64;
+                Point::new(1000.0 * angle.cos(), 1000.0 * angle.sin())
+            })
+            .collect();
+        PathData::single(SubPath::polyline(&corners, true))
+    }
+
+    #[test]
+    fn every_path_operation_stops_a_path_past_the_edge_limit() {
+        // Just past the limit: 1,101 chords add about 1,210,000 edges, 750 teeth across 750 teeth
+        // about 1,125,000.
+        let star = crate::from_geometry(&star(1101));
+        let combs = [comb(750, false, 0), comb(750, true, 1)].map(|shape| crate::from_geometry(&shape.path));
+        let input = [crate::Shape::new(star.clone(), 0)];
+
+        let results = [
+            crate::finish_compound(&star, None).err(),
+            crate::contains(&star, photocraft_geom::Point::new(0.0, 0.0)).err(),
+            crate::pathfinder(crate::PathfinderOp::Unite, &input).err(),
+            crate::shape_builder(&input, true).err(),
+            crate::offset_path(&star, 1.0, crate::Join::Miter, 4.0).err(),
+            crate::boolean(&combs[0], &combs[1], crate::BoolOp::Intersect).err(),
+        ];
+
+        assert_eq!(results, [Some(PathOpsError::TooComplex); 6]);
+    }
+
     #[test]
     fn an_arrangement_of_many_crossing_shapes_is_refused_for_what_they_keep_per_edge() {
         let strip = |start: f64, end: f64, key: u64| {
