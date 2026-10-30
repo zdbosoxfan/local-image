@@ -196,9 +196,9 @@ fn decode_jpeg_scaled_inner(bytes: &[u8], limits: &Limits, max_size: Option<(u32
     }
     let (w, h, nc) = meta.frame.ok_or_else(|| err("no frame header"))?;
     limits.check_bytes(w, h, u64::from(nc.max(1)) * if meta.precision > 8 { 2 } else { 1 })?;
-    if u64::from(w) * u64::from(h) / MAX_PIXELS_PER_BYTE > meta.scan_bytes {
-        let what = if meta.end == DataEnd::Truncated { "the truncated scan" } else { "the scan data" };
-        return Err(err(format!("{what} is too short for the frame it declares")));
+    // A truncated file keeps opening as the partial image its decoder recovers.
+    if meta.end == DataEnd::Complete && u64::from(w) * u64::from(h) / MAX_PIXELS_PER_BYTE > meta.scan_bytes {
+        return Err(err("the scan data is too short for the frame it declares"));
     }
     let scale = max_size.filter(|&(mw, mh)| mw > 0 && mh > 0 && (w >= mw.saturating_mul(2) || h >= mh.saturating_mul(2)));
     // zune-jpeg 0.5 misdecodes subsampled non-interleaved sequential scans. jpeg-decoder also
@@ -601,6 +601,17 @@ mod decode_tests {
         assert!(error.to_string().contains("too short"), "{error}");
     }
 
+    /// A flat gray frame under optimized tables: the smallest scan a valid JPEG of this size has.
+    fn flat_gray_jpeg(w: u16, h: u16, progressive: bool, restart_interval: u16) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut encoder = jpeg_encoder::Encoder::new(&mut out, 95);
+        encoder.set_optimized_huffman_tables(true);
+        encoder.set_progressive(progressive);
+        encoder.set_restart_interval(restart_interval);
+        encoder.encode(&vec![128u8; w as usize * h as usize], w, h, jpeg_encoder::ColorType::Luma).unwrap();
+        out
+    }
+
     /// A stray marker stops the walk, so the unread rest of the file may all be scan data.
     #[test]
     fn unread_tail_after_an_odd_layout_counts_as_scan_data() {
@@ -617,6 +628,24 @@ mod decode_tests {
         assert!(meta.scan_bytes >= tail as u64, "{} scan bytes", meta.scan_bytes);
         let (decoded, source) = decode_jpeg_scaled(&odd, &Limits::default(), None).unwrap();
         assert_eq!((decoded.dimensions(), source), ((2048, 2048), (2048, 2048)));
+    }
+
+    #[test]
+    fn truncated_frame_below_the_scan_bound_still_decodes_with_a_warning() {
+        let full = flat_gray_jpeg(4096, 4096, false, 0);
+        let sos = full.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+        let scan = sos + 2 + usize::from(u16::from_be_bytes([full[sos + 2], full[sos + 3]]));
+        let cut = &full[..scan + 1024];
+        let meta = scan_metadata(cut);
+        assert_eq!(meta.end, DataEnd::Truncated);
+        assert!(meta.scan_bytes < 4096 * 4096 / MAX_PIXELS_PER_BYTE, "{} scan bytes", meta.scan_bytes);
+        let (decoded, source) = decode_jpeg_scaled(cut, &Limits::default(), None).unwrap();
+        assert_eq!(source, (4096, 4096));
+        assert_eq!(decoded.warnings, vec![DecodeWarning::Truncated { format: F }]);
+        assert_eq!(decoded.data(), decode_zune(cut, &Limits::default()).unwrap().data());
+        let scaled = decode_jpeg_scaled(cut, &Limits::default(), Some((256, 256))).map(|(image, _)| image.data().to_vec());
+        let direct = decode_jpeg_decoder(cut, &Limits::default(), 8, Some((256, 256))).map(|image| image.data().to_vec());
+        assert_eq!(scaled.map_err(|error| error.to_string()), direct.map_err(|error| error.to_string()));
     }
 
     #[test]
