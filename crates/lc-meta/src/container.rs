@@ -45,7 +45,7 @@ pub(crate) fn blocks(bytes: &[u8]) -> (Embedded, Option<Tiff>) {
 
 /// Whether the file is in a container this module has a reader for. Anything else yields no blocks
 /// whatever it holds, so "no metadata found" says nothing about it. This is the allow-list behind
-/// promises about what a file does not contain: a format is refused until [`read_blocks`] reads it.
+/// promises about what a file does not contain: a format is refused until `read_blocks` reads it.
 pub fn reads_container(bytes: &[u8]) -> bool {
     read_blocks(bytes).is_some()
 }

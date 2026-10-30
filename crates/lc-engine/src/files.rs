@@ -176,7 +176,7 @@ pub(crate) fn is_lens_opcode(op: &lightcraft_raw::Opcode) -> bool {
     )
 }
 
-fn ext_upper(name: &str) -> String {
+pub(crate) fn ext_upper(name: &str) -> String {
     std::path::Path::new(name).extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default()
 }
 
