@@ -630,6 +630,10 @@ pub fn project_view(
             let mut isolated = doc.clone();
             isolated.layers = vec![bare];
             let projected = project_document(&isolated).map_err(|e| error(e.to_string()))?;
+            // A refused expansion stays a Symbol, and flattening that would lead straight back here.
+            if projected.layers.iter().any(|l| matches!(l.content, photocraft_doc::LayerContent::Symbol(_))) {
+                return Err(error(format!("the symbol of layer \"{}\" is over the path budget", layer.name)));
+            }
             let visible = photocraft_geom::Rect::new(
                 (f64::from(clip.x0) / scale).floor() as i32,
                 (f64::from(clip.y0) / scale).floor() as i32,
@@ -917,27 +921,40 @@ mod integration_tests {
         layer.vector.appearance = Some(Appearance { items: vec![AppearanceItem::Stroke(stroke)] });
         layer
     }
+    /// An instance of symbol 7, whose master has a stroke over the path budget.
+    fn crowded_symbol() -> Layer {
+        use photocraft_doc::vector_design::structure::{SymbolId, SymbolInstance};
+        let instance = SymbolInstance { symbol: SymbolId(7), transform: photocraft_doc::Affine::IDENTITY, cache: None };
+        Layer::new("Crowded symbol", LayerContent::Symbol(instance))
+    }
+    fn with_crowded_master(layers: Vec<Layer>) -> Document {
+        use photocraft_doc::vector_design::structure::{SymbolDef, SymbolId};
+        let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        doc.symbols.push(SymbolDef { id: SymbolId(7), name: "Master".into(), layers: vec![with_profile_stroke(crowded("Master stroke", 1000))] });
+        doc.layers = layers;
+        doc
+    }
     #[test]
     fn a_stroke_or_symbol_over_the_path_budget_is_skipped_on_screen_and_fails_output() {
-        use photocraft_doc::vector_design::structure::{SymbolDef, SymbolId, SymbolInstance};
         let stroked = with_profile_stroke(crowded("Crowded stroke", 1000));
-        let instance = SymbolInstance { symbol: SymbolId(7), transform: photocraft_doc::Affine::IDENTITY, cache: None };
-        let symbol = Layer::new("Crowded symbol", LayerContent::Symbol(instance));
-        let document = |layers: Vec<Layer>| {
-            let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
-            doc.symbols.push(SymbolDef { id: SymbolId(7), name: "Master".into(), layers: vec![with_profile_stroke(crowded("Master stroke", 1000))] });
-            doc.layers = layers;
-            doc
-        };
+        let symbol = crowded_symbol();
 
-        let shown = project_document(&document(vec![stroked.clone(), symbol.clone()])).unwrap();
+        let shown = project_document(&with_crowded_master(vec![stroked.clone(), symbol.clone()])).unwrap();
 
         assert!(matches!(shown.layer(stroked.id).unwrap().content, LayerContent::Shape(_)));
         assert!(matches!(shown.layer(symbol.id).unwrap().content, LayerContent::Symbol(_)));
         for (layer, name) in [(stroked, "Crowded stroke"), (symbol, "Crowded symbol")] {
-            let refused = export_document(&document(vec![layer]), "budget.png", &Default::default()).unwrap_err().to_string();
+            let refused = export_document(&with_crowded_master(vec![layer]), "budget.png", &Default::default()).unwrap_err().to_string();
             assert!(refused.contains(name), "{refused}");
         }
+    }
+    #[test]
+    fn a_symbol_over_the_path_budget_fails_the_zoomed_view_instead_of_recursing() {
+        let doc = with_crowded_master(vec![crowded_symbol()]);
+
+        let refused = photocraft_compose::scaled_view::flatten_scaled_with(&doc, doc.bounds(), 2., project_view).err().unwrap();
+
+        assert!(refused.0.contains("Crowded symbol"), "{}", refused.0);
     }
     #[test]
     fn operations_inside_one_live_evaluation_keep_their_own_budgets() {
