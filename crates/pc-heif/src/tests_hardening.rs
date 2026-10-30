@@ -364,10 +364,6 @@ fn primary_with_iloc_entries(version: u8, field_sizes: u8, declared_items: u32, 
     heif(&[hdlr(), pitm(1), iinf(&[infe(1, b"hvc1", None)]), locations, iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])]), idat(b"x")])
 }
 
-fn primary_with_over_budget_iloc_items() -> Vec<u8> {
-    primary_with_iloc_entries(2, 0, 65_537, &vec![0; 65_537])
-}
-
 #[test]
 fn ipma_payloads_over_the_cap_are_refused_and_near_cap_are_accepted() {
     let base = [hdlr(), pitm(1), iinf(&[infe(1, b"hvc1", None)]), iprp(&[hvc_c(), ispe(1, 1)], &[(1, vec![1, 2])])];
@@ -445,7 +441,7 @@ fn probe_reports_alpha_for_regular_and_grid_auxiliary_items() {
 fn iloc_extent_budget_bounds_allocations_without_rejecting_large_payloads() {
     let many_extents = probe(&primary_with_wide_extents(4096));
     let zero_width_extents = probe(&primary_with_over_budget_zero_width_extents());
-    let item_entries = probe(&primary_with_over_budget_iloc_items());
+    let item_entries = probe(&primary_with_iloc_entries(2, 0, 65_537, &vec![0; 65_537]));
     assert!(
         matches!(&many_extents, Ok(Info { width: 1, height: 1, .. }))
             && matches!(&zero_width_extents, Err(Error::Limit(message)) if message.contains("extent"))
@@ -461,11 +457,17 @@ fn iloc_census_counts_every_record_heic_rs_builds() {
     let cut_short_items = probe(&primary_with_iloc_entries(2, 0, 65_538, &vec![0; 65_537]));
     // heic-rs checks a field width only when it reads one, so entries without extents still parse.
     let unknown_width_items = probe(&primary_with_iloc_entries(2, 0x10, 65_537, &vec![0; 65_537]));
+    // A walk that lost its place in the extent bytes would read the second entry's count as zero.
+    let indexed_extent = Extent { index: 0, offset: 0, length: 0 };
+    let locations =
+        [Location { id: 1, method: 1, extents: vec![indexed_extent.clone(); 40_000] }, Location { id: 2, method: 1, extents: vec![indexed_extent; 25_537] }];
+    let extents_with_bytes = probe(&heif(&[hdlr(), pitm(1), iinf(&[infe(1, b"hvc1", None)]), iloc(&locations, 4, 0, 4)]));
     assert!(
         matches!(&cut_short_extents, Err(Error::Limit(message)) if message.contains("item extents"))
             && matches!(&cut_short_items, Err(Error::Limit(message)) if message.contains("item locations"))
-            && matches!(&unknown_width_items, Err(Error::Limit(message)) if message.contains("item locations")),
-        "cut-short extents: {cut_short_extents:?}; cut-short items: {cut_short_items:?}; unknown-width items: {unknown_width_items:?}"
+            && matches!(&unknown_width_items, Err(Error::Limit(message)) if message.contains("item locations"))
+            && matches!(&extents_with_bytes, Err(Error::Limit(message)) if message.contains("item extents")),
+        "cut-short extents: {cut_short_extents:?}; cut-short items: {cut_short_items:?}; unknown-width items: {unknown_width_items:?}; extents with bytes: {extents_with_bytes:?}"
     );
 }
 

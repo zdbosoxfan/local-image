@@ -56,8 +56,9 @@ fn depth_boxes(census: &mut Census, boxes: BoxIter<'_>, depth: u32) {
     }
 }
 
-// Walks the box as heic-rs 0.1.4 parses it and charges each record once heic-rs would have built
-// it. Where the walk stops, heic-rs refuses the file, so the records before the stop stay counted.
+// Walks the box as heic-rs 0.1.4 parses it and never charges less than heic-rs builds: every stop
+// here is a refusal there, so the records before it stay counted. The walk can only overcharge a
+// list heic-rs has already refused.
 fn count_iloc_records(census: &mut Census, payload: &[u8]) -> Option<()> {
     let mut reader = Reader::new(payload);
     let (version, _) = reader.full_box("iloc").ok()?;
@@ -76,8 +77,8 @@ fn count_iloc_records(census: &mut Census, payload: &[u8]) -> Option<()> {
     let id_size = if version < 2 { 2 } else { 4 };
     let method_size = if version >= 1 { 2 } else { 0 };
     let item_header_size = id_size + method_size + 2 + usize::from(base_offset_size);
-    // Unknown widths are skipped as declared: heic-rs refuses one only when it reads that field,
-    // which entries without extents never do.
+    // Unknown extent field widths are skipped as declared: heic-rs refuses one only when it reads
+    // that field, which entries without extents never do.
     let extent_size = usize::from(offset_size) + usize::from(length_size) + usize::from(index_size);
     // Each pass consumes at least six bytes or stops, so a hostile item_count ends with the data.
     for _ in 0..item_count {
