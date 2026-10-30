@@ -333,11 +333,13 @@ fn font_heavy_story(id: u32) -> F {
     text_fixture::text_node(vec![block], false, text_fixture::IDENTITY, [10., 20., 210., 120.], 18.)
 }
 fn font_name_bytes(nodes: &[model::Node]) -> usize {
+    let names = |run: &model::TextRun| run.family.len() + run.postscript.len();
     nodes
         .iter()
         .map(|node| {
             let own = match &node.kind {
-                model::Kind::Text(text) => text.runs.iter().map(|run| run.family.len() + run.postscript.len()).sum(),
+                model::Kind::Text(text) => text.runs.iter().map(names).sum(),
+                model::Kind::Table(table) => table.cells.iter().flat_map(|cell| &cell.runs).map(names).sum(),
                 _ => 0,
             };
             own + font_name_bytes(&node.children)
@@ -361,6 +363,34 @@ fn font_name_budget_spans_embedded_documents() {
     let mut data = b"EmDc\0\0\0\0".to_vec();
     data.extend(container(vec![font_heavy_story(42)], vec![], None, &[]));
     assert_font_names_stop_at_the_budget(&container(vec![embedded("inner"); 2], vec![], None, &[("inner", &data, Method::Stored)]));
+}
+
+/// One table row of `cells` cells whose story is a single run: every cell copies that run's two
+/// 16 KiB font names.
+fn font_heavy_table(cells: usize) -> F {
+    let name = "F".repeat(16 * 1024);
+    let attrs = text_fixture::attrs(&name, &name, 400, false, 12.);
+    let block = text_fixture::block(text_fixture::utf8(&"x\u{1f}".repeat(cells)), vec![text_fixture::run(2 * cells as i32, Some(attrs))], &[]);
+    let positions = |values: &[f64]| F::Obj(tag(b"Posn"), vec![(tag(b"Posn"), text_fixture::array_f64(b"Posn", values))]);
+    let grid = F::Obj(tag(b"Tabl"), vec![(tag(b"CPos"), positions(&(0..=cells).map(|v| v as f64).collect::<Vec<_>>())), (tag(b"RPos"), positions(&[0., 30.]))]);
+    F::Obj(
+        tag(b"TxtT"),
+        vec![
+            (tag(b"StSt"), F::Obj(tag(b"Stry"), vec![(tag(b"Blok"), F::Shared(vec![block]))])),
+            (tag(b"TxtH"), F::Obj(tag(b"TabH"), vec![(tag(b"Tabl"), grid)])),
+        ],
+    )
+}
+
+#[test]
+fn font_name_budget_spans_table_cells_and_keeps_their_text() {
+    let bytes = container(vec![font_heavy_table(1100)], vec![], None, &[]);
+    assert_font_names_stop_at_the_budget(&bytes);
+    let doc = photocraft_affinity::read(&bytes, Limits::default()).unwrap();
+    let model::Kind::Table(table) = &doc.spreads[0].nodes[0].kind else { panic!() };
+    assert!(table.cells.iter().all(|cell| cell.runs.len() == 1 && cell.runs[0].text == "x"));
+    assert_eq!(table.cells[0].runs[0].family.len(), 16 * 1024);
+    assert!(table.cells[1099].runs[0].family.is_empty());
 }
 
 fn paged_document(pages: usize) -> Vec<u8> {

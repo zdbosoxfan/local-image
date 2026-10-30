@@ -129,12 +129,21 @@ pub(crate) fn table(r: &mut Reader, id: ObjId, world: Affine) -> Option<Table> {
     let mut target = owners.next();
     let mut extra = false;
     let (runs, _) = story_runs(r, story, world);
-    for run in runs {
+    for mut run in runs {
         let mut parts = run.text.split(CELL_BREAK).peekable();
+        // The story charged one copy of the run's font names; each further cell keeps its own.
+        let mut copied = false;
         while let Some(part) = parts.next() {
             if !part.is_empty() {
                 match target.and_then(|i| cells.get_mut(i)) {
                     Some(cell) => {
+                        let names = run.family.len() + run.postscript.len();
+                        if copied && names > 0 && !r.charge_font_name(names) {
+                            r.warn("font names beyond the document metadata budget (left empty)");
+                            run.family.clear();
+                            run.postscript.clear();
+                        }
+                        copied = true;
                         let stops = match &run.fill {
                             Paint::Gradient(g) => g.stops.len() * std::mem::size_of::<paint::Stop>(),
                             _ => 0,
