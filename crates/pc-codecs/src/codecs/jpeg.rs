@@ -596,7 +596,7 @@ mod decode_tests {
         assert!(error.to_string().contains("too short"), "{error}");
     }
 
-    /// A flat gray frame under optimized tables: the smallest scan a valid JPEG of this size has.
+    /// A flat gray frame under optimized tables: a near-minimal scan for a valid JPEG of this size.
     fn flat_gray_jpeg(w: u16, h: u16, progressive: bool, restart_interval: u16) -> Vec<u8> {
         let mut out = Vec::new();
         let mut encoder = jpeg_encoder::Encoder::new(&mut out, 95);
@@ -633,7 +633,7 @@ mod decode_tests {
         odd.resize(odd.len() + tail, 0x55);
         let meta = scan_metadata(&odd);
         assert_eq!(meta.end, DataEnd::Complete);
-        assert!(meta.scan_bytes >= tail as u64, "{} scan bytes", meta.scan_bytes);
+        assert_eq!(meta.scan_bytes, scan_metadata(&small).scan_bytes + tail as u64);
         let (decoded, source) = decode_jpeg_scaled(&odd, &Limits::default(), None).unwrap();
         assert_eq!((decoded.dimensions(), source), ((2048, 2048), (2048, 2048)));
     }
