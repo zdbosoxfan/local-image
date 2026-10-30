@@ -121,6 +121,29 @@ fn pdf_export_includes_only_the_selected_file_info_fields() {
     }
 }
 
+/// File Info is written after a foreign packet's keys, which spend the read budget and shrink so nothing longer fits.
+#[test]
+fn pdf_export_keeps_file_info_past_the_xmp_retention_budget() {
+    use serde_json::json;
+    let foreign: String = (0..130_000).rev().map(|i| format!("<crs:a{i}>v</crs:a{i}>")).collect();
+    let imported = format!(
+        "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:crs='http://ns.adobe.com/camera-raw-settings/1.0/'>{foreign}</r:Description></r:RDF>"
+    );
+    let mut session = session();
+    session
+        .edit("metadata", |document, _| {
+            document.metadata.xmp = Some(imported);
+            Ok(())
+        })
+        .unwrap();
+    session.execute("file.fileInfo", json!({"author": "Studio", "copyright": "© Studio"})).unwrap();
+    assert!(lightcraft_meta::parse_xmp(session.active().unwrap().doc.metadata.xmp.as_deref().unwrap()).unwrap().property_keys_truncated);
+    let output = export(&session, &request(&session), &|| false).unwrap();
+    let actual = lightcraft_meta::read_file_info(Some(&exported_xmp(&output.bytes)));
+    assert_eq!(actual["author"], "Studio");
+    assert_eq!(actual["copyright"], "© Studio");
+}
+
 #[test]
 fn pdf_export_rejects_malformed_file_info_without_mutation() {
     let mut session = session();

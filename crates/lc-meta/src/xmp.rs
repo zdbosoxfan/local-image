@@ -523,7 +523,7 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
 
 /// [`parse_xmp`] up to the hard stop alone, for saves and exports: they compare or carry what the packet holds, so
 /// the read-side retention budget would turn into lost properties.
-pub(crate) fn parse_whole_xmp(s: &str) -> Result<XmpData, XmpError> {
+pub fn parse_whole_xmp(s: &str) -> Result<XmpData, XmpError> {
     parse_xmp_within(s, MAX_PROPERTY_KEY_BYTES)
 }
 

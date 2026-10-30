@@ -59,7 +59,7 @@ pub fn export_document(doc: &Document, r: &Request, cancelled: &dyn Fn() -> bool
     }
     let info = match doc.metadata.xmp.as_deref() {
         Some(packet) => {
-            let metadata = lightcraft_meta::parse_xmp(packet)
+            let metadata = lightcraft_meta::parse_whole_xmp(packet)
                 .map_err(|cause| error(format!("PDF File Info could not be read: {cause}; correct File Info before exporting")))?
                 .metadata;
             photocraft_pdf::export::FileInfo {

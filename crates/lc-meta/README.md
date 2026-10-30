@@ -11,6 +11,7 @@ Photo metadata: EXIF, XMP (read + write), IPTC-IIM, and the containers that carr
 | `embedded(&[u8]) -> Embedded` | Sniffs JPEG / PNG / WebP / TIFF / PSD / PSB and returns the Exif, XMP (+ extended XMP), ICC and IPTC blocks. `jpeg_segments`, `png_chunks`, `webp_chunks` are the per-container walkers. |
 | `try_extract(&[u8]) -> Result<Metadata, ExtractError>` | Reports malformed PSD/PSB resources or embedded EXIF/XMP; other containers remain best-effort. |
 | `parse_xmp(&str) -> Result<XmpData>` | Metadata + the opaque `lc:settings` JSON + flattened properties (`prefix:name`, structs as `a:b/c:d`). When the 1 MiB flattened-key retention budget is reached, `property_keys_truncated` reports omitted keys; the 64 MiB complexity ceiling remains an error. |
+| `parse_whole_xmp(&str) -> Result<XmpData>` | `parse_xmp` without the retention budget, for saves and exports; only the 64 MiB ceiling applies. |
 | `write_xmp(&Metadata, Option<&str>) -> String` | Complete `<?xpacket?>` packet; the second argument is LightCraft's full develop settings JSON. |
 | `parse_iptc(&[u8]) -> Metadata` | IIM record 2: title (2:5), keywords (2:25), by-line (2:80), copyright (2:116), caption (2:120), date/time created (2:55/2:60). |
 | `extract(&[u8]) -> Metadata` | Everything for a whole file. Precedence: EXIF → IPTC fills gaps → XMP overrides user fields (rating, label, title, caption, artist, copyright, keywords, GPS) and fills the rest. |
