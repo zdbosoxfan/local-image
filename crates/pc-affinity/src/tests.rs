@@ -268,6 +268,15 @@ mod archive {
     }
 
     #[test]
+    fn archive_entry_names_share_a_size_limit() {
+        let names: Vec<String> = (0..513).map(|i| format!("{i:04}-{}", "n".repeat(65_530))).collect();
+        let mut entries = vec![("doc.dat", &[][..], Method::Stored)];
+        entries.extend(names.iter().map(|name| (name.as_str(), &[][..], Method::Stored)));
+        let bytes = synth::container(&entries, None);
+        assert!(matches!(Archive::open(&bytes, Limits::default()), Err(Error::Limit("archive entry names too large"))));
+    }
+
+    #[test]
     fn a_declared_size_smaller_than_the_data_is_rejected_not_truncated() {
         let big = vec![7u8; 1 << 20];
         let mut file = synth::container(&[("doc.dat", &big, Method::Zlib)], None);

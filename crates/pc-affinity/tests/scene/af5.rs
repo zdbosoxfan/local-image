@@ -379,6 +379,12 @@ fn paged_document(pages: usize) -> Vec<u8> {
 }
 
 #[test]
+fn page_rectangles_share_a_document_limit() {
+    let limits = Limits { max_objects: 1 << 20, ..Default::default() };
+    assert!(matches!(photocraft_affinity::read(&paged_document((1 << 18) + 1), limits), Err(Error::Limit("too many pages"))));
+}
+
+#[test]
 fn page_limit_spans_embedded_documents() {
     let mut data = b"EmDc\0\0\0\0".to_vec();
     data.extend(paged_document(1 << 16));
