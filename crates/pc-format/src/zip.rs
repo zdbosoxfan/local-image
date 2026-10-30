@@ -349,14 +349,8 @@ mod tests {
     fn deflate_requires_a_complete_stream_including_empty_entries() {
         for (raw, content) in [(&[0, 1, 0, 0xfe, 0xff, b'x', 1, 0, 0, 0xff, 0xff][..], &b"x"[..]), (&[3, 0][..], &b""[..])] {
             let reader = ZipReader { bytes: raw, entries: Vec::new() };
-            let mut entry = Entry {
-                name: "complete".into(),
-                method: 8,
-                crc: crc32(content),
-                compressed: raw.len(),
-                uncompressed: content.len(),
-                data_offset: 0,
-            };
+            let mut entry =
+                Entry { name: "complete".into(), method: 8, crc: crc32(content), compressed: raw.len(), uncompressed: content.len(), data_offset: 0 };
             assert_eq!(reader.read(&entry, content.len()).unwrap(), content);
             for cut in 0..raw.len() {
                 entry.compressed = cut;
