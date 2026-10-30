@@ -529,13 +529,21 @@ fn intersects(a: Point, b: Point, c: Point, d: Point) -> bool {
     }
     [(a, c, d), (b, c, d), (c, a, b), (d, a, b)].iter().any(|(p, a, b)| distance_segment(*p, *a, *b) <= 1e-9)
 }
+/// Whether `q` is inside `path`. A path the work budget refuses counts as outside, so one crowded
+/// layer can't fail the query for every layer behind it; its outline can still be hit.
+fn fill_contains(path: &Path, q: Point) -> Result<bool> {
+    match photocraft_pathops::contains(path, q) {
+        Err(photocraft_pathops::PathOpsError::TooComplex) => Ok(false),
+        inside => inside.map_err(|e| error(e.to_string())),
+    }
+}
 fn touches(l: &Layer, poly: &[Point], readers: Readers) -> Result<bool> {
     if let Some(p) = path(l) {
         let a = appearance(l, readers)?;
         // V1 contains preserves compound holes, fill rule, and PSD component order.
         if fill(&a).is_some() {
             for q in poly {
-                if photocraft_pathops::contains(p, *q).map_err(|e| error(e.to_string()))? {
+                if fill_contains(p, *q)? {
                     return Ok(true);
                 }
             }
@@ -597,7 +605,7 @@ fn hit_impl(doc: &Document, scope: &Scope, p: [f64; 2], tolerance: f64, readers:
     for e in index.entries.iter().rev().filter(|e| index.allowed(e, true) && (paintable(e.layer, readers) || pixels && e.layer.surface().is_some())) {
         let a = appearance(e.layer, readers)?;
         if let Some(p) = path(e.layer) {
-            let inside = fill(&a).is_some() && photocraft_pathops::contains(p, q).map_err(|e| error(e.to_string()))?;
+            let inside = fill(&a).is_some() && fill_contains(p, q)?;
             let nearest = photocraft_pathops::nearest(p, q).map_err(|e| error(e.to_string()))?;
             if inside || nearest.is_some_and(|(_, _, _, _, d)| d <= tolerance + weight(&a) * 0.5) {
                 return Ok(Some(e.layer.id));
