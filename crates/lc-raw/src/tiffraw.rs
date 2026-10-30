@@ -907,6 +907,9 @@ mod batch_tests {
         assert!(read_image(&small, &info(16, small.len() as u64), ByteOrder::Little, Packing::Msb).is_ok());
         let data = vec![1u8; 4096];
         assert!(matches!(read_image(&data, &info(16384, data.len() as u64), ByteOrder::Little, Packing::Msb), Err(RawError::Corrupt(_))));
+        // this tile is within the grid bound, so the refusal is the data check's
+        let refused = read_image(&data, &info(4096, data.len() as u64), ByteOrder::Little, Packing::Msb).err();
+        assert!(matches!(&refused, Some(RawError::Corrupt(message)) if message.contains("uncompressed chunk")), "{refused:?}");
     }
 
     #[test]
