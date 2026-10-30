@@ -400,6 +400,7 @@ pub fn to_partial_report(props: &Props, values: Option<&crate::crs_masks::Values
 /// Returns `None` when the packet has no adjustments we understand.
 pub fn preset_from_xmp(xmp: &str, fallback_name: &str) -> Option<Preset> {
     let d = lightcraft_meta::parse_xmp(xmp).ok()?;
+    crate::sidecar::warn_if_truncated(&d, fallback_name);
     let props = &d.properties;
     let settings = to_partial(props, None);
     if settings.as_object().is_none_or(Map::is_empty) {
