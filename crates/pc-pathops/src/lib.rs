@@ -14,6 +14,7 @@ mod budget;
 pub mod geom;
 pub mod kernel;
 pub use adapter::*;
+pub use budget::WorkBudget;
 pub use kernel::{BoolOp, Cap, DEFAULT_PRECISION, Join, PathfinderOp, SimplifyOptions};
 pub use photocraft_vector::{Polyline, flatten_path, flatten_subpath};
 

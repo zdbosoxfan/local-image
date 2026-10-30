@@ -149,6 +149,8 @@ fn run(s: &mut Session, p: &Value, operation: Operation, cmd: &str, label: &str)
     };
     let mut results: Vec<(usize, Path)> = Vec::new();
     let combine = matches!(operation, Operation::Boolean | Operation::Pathfinder | Operation::Join);
+    // One gesture over many layers folds them through a growing result, so it spends one budget.
+    let _budget = matches!(operation, Operation::Boolean | Operation::Pathfinder).then(ops::WorkBudget::begin);
     match operation {
         Operation::Boolean => {
             if paths.len() < 2 {

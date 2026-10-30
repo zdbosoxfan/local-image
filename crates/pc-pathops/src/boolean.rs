@@ -314,9 +314,7 @@ impl Arrangement {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
         snap_horizontals(&mut paths.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
         let sweep = |paths: &[(BezPath, FillRule)]| {
-            if !crate::budget::sweep_fits(paths.iter().map(|(path, _)| path)) {
-                return Err(PathOpsError::TooComplex);
-            }
+            crate::budget::charge_sweep(paths.iter().map(|(path, _)| path))?;
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps)))
                 .map_err(|_| PathOpsError::Degenerate)?
                 .map_err(|_| PathOpsError::OpenPath)

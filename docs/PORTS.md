@@ -1068,3 +1068,6 @@ fallback is not used because Local Image's checked builder contract reports inco
 instead of silently dropping cutting lines.
 The gap grouping (`gap_from`) and 3D-effect hunks of `cd80d1d8` are not ported: neither piece of
 code exists in this tree.
+Local addition: `WorkBudget` caps the pairs of all sweeps in one path operation at four sweep
+limits (16,777,216). Upstream limits each sweep only, which leaves a many-component path to run
+every sweep up to the limit.
