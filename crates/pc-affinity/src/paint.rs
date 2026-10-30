@@ -222,8 +222,7 @@ pub(crate) fn descriptor(r: &mut Reader, id: ObjId, local: Affine) -> Option<Pai
             };
             let grad = s.obj(fill, b"Grad")?;
             if !r.charge_slots(s.array_len(grad, b"Cols").saturating_add(s.array_len(grad, b"Posn"))) {
-                r.warn("gradients beyond the document work budget (left empty)");
-                return Some(Paint::None);
+                return None;
             }
             let cols = s.objs(grad, b"Cols");
             let posn: Vec<Vec<f64>> = match s.field(grad, b"Posn") {
