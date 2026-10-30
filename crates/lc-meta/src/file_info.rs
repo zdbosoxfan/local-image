@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 
-use crate::xmp::{parse_whole_xmp, parse_xmp_logged};
+use crate::xmp::parse_whole_xmp;
 use crate::{MergeRules, Metadata, XmpError, merge_xmp, write_xmp};
 
 const FIELDS: [(&str, &str); 8] = [
@@ -20,7 +20,7 @@ const FIELDS: [(&str, &str); 8] = [
 /// Read File Info using namespace URIs, entities, CDATA and x-default language alternatives.
 /// Missing or unreadable packets yield the existing command's empty-field defaults.
 pub fn read_file_info(xmp: Option<&str>) -> Value {
-    let m = xmp.and_then(|x| parse_xmp_logged(x).ok()).map(|x| x.metadata).unwrap_or_default();
+    let m = xmp.and_then(|x| parse_whole_xmp(x).ok()).map(|x| x.metadata).unwrap_or_default();
     file_info(&m)
 }
 
@@ -53,7 +53,7 @@ fn list(v: &Value, split: bool) -> Vec<String> {
 pub fn try_write_file_info(xmp: Option<&str>, info: &Value) -> Result<String, XmpError> {
     let xmp = xmp.filter(|x| !x.trim().is_empty());
     let mut m = match xmp {
-        Some(x) => parse_xmp_logged(x)?.metadata,
+        Some(x) => parse_whole_xmp(x)?.metadata,
         None => Metadata::default(),
     };
     let current = file_info(&m);
@@ -120,6 +120,21 @@ pub fn copyright_xmp(xmp: &str, contact: bool) -> Result<Option<String>, XmpErro
 mod tests {
     use super::*;
     use crate::parse_xmp;
+
+    /// `merge_xmp` writes File Info after a foreign packet's keys, which spend the read budget and shrink so nothing
+    /// longer fits. The dialog sends back what it was shown, so reading and saving must see the same fields.
+    #[test]
+    fn file_info_reads_and_clears_fields_past_the_xmp_retention_budget() {
+        let foreign: String = (0..130_000).rev().map(|i| format!("<crs:a{i}>v</crs:a{i}>")).collect();
+        let imported = format!(
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:crs='http://ns.adobe.com/camera-raw-settings/1.0/'>{foreign}</r:Description></r:RDF>"
+        );
+        let saved = try_write_file_info(Some(&imported), &json!({"author": "Studio"})).unwrap();
+        assert!(parse_xmp(&saved).unwrap().property_keys_truncated);
+        assert_eq!(read_file_info(Some(&saved))["author"], "Studio");
+        let cleared = try_write_file_info(Some(&saved), &json!({"author": ""})).unwrap();
+        assert!(!cleared.contains("Studio"));
+    }
 
     #[test]
     fn file_info_partial_edits_preserve_creators_locales_and_unknown_properties() {
