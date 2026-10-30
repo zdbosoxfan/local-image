@@ -130,8 +130,7 @@ pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, S
     if !xmp.contains('<') {
         return Err("not an XMP packet (no XML markup)".to_string());
     }
-    let d = lightcraft_meta::parse_xmp(xmp).map_err(|e| e.to_string())?;
-    warn_if_truncated(&d, "XMP packet");
+    let d = lightcraft_meta::parse_whole_xmp(xmp).map_err(|e| e.to_string())?;
     let m = &d.metadata;
     let creator_stated = d.values.contains_key("dc:creator") || d.properties.contains_key("dc:creator");
     let lc = |k: &str| d.properties.get(&format!("lc:{k}")).and_then(|v| v.first()).cloned();

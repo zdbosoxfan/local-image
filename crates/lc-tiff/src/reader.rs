@@ -125,7 +125,7 @@ pub(crate) fn parse_ifd_counted(
 
 /// Whether `block` differs from the last one `last` saw. One read of a file parses the same block several times, so a
 /// warning about its contents passes through this to appear once.
-pub fn is_new_block(last: &AtomicU64, block: &[u8]) -> bool {
+pub(crate) fn is_new_block(last: &AtomicU64, block: &[u8]) -> bool {
     let mut hasher = DefaultHasher::new();
     hasher.write(block);
     let hash = hasher.finish();

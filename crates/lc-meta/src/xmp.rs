@@ -13,7 +13,6 @@ use lightcraft_geom::{Point, Rect};
 use quick_xml::escape::{escape, partial_escape};
 use quick_xml::events::Event;
 use std::collections::BTreeMap;
-use std::sync::atomic::AtomicU64;
 
 /// LightCraft's XMP namespace URI (prefix `lc`).
 pub const LC_NS: &str = "http://ns.lightcraft.app/lc/1.0/";
@@ -517,25 +516,15 @@ fn fmt_gps_coord(v: f64, pos: char, neg: char) -> String {
     format!("{},{:.6}{}", d as i64, m, if v < 0.0 { neg } else { pos })
 }
 
-/// Parse an XMP packet (with or without the `<?xpacket?>` wrapper / `x:xmpmeta` element).
+/// Parse an XMP packet (with or without the `<?xpacket?>` wrapper / `x:xmpmeta` element). Properties past the
+/// flattened-key budget are omitted ([`XmpData::property_keys_truncated`]), so this is only for reads whose result
+/// reaches no catalog, sidecar, save or export; those use [`parse_whole_xmp`].
 pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
     parse_xmp_within(s, MAX_FLATTENED_PROPERTY_KEY_BYTES)
 }
 
-/// [`parse_xmp`] for this crate's own readers, whose callers never see [`XmpData::property_keys_truncated`].
-pub(crate) fn parse_xmp_logged(s: &str) -> Result<XmpData, XmpError> {
-    static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
-    let data = parse_xmp(s)?;
-    if data.property_keys_truncated && lightcraft_tiff::is_new_block(&LAST_WARNED, s.as_bytes()) {
-        log::warn!(
-            "XMP packet: properties past the {MAX_FLATTENED_PROPERTY_KEY_BYTES}-byte flattened-key budget were ignored, so later fields are missing"
-        );
-    }
-    Ok(data)
-}
-
-/// [`parse_xmp`] up to the hard stop alone, for saves and exports: they compare or carry what the packet holds, so
-/// the read-side retention budget would turn into lost properties.
+/// [`parse_xmp`] up to the hard stop alone, for reads that can reach a catalog, sidecar, save or export: the budget
+/// would turn into lost properties, or a location a privacy check never sees.
 pub fn parse_whole_xmp(s: &str) -> Result<XmpData, XmpError> {
     parse_xmp_within(s, MAX_PROPERTY_KEY_BYTES)
 }

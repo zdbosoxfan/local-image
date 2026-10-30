@@ -28,7 +28,8 @@ mod reader;
 pub mod tags;
 pub mod writer;
 
-pub use reader::{ParseOptions, is_new_block, parse_ifd_at};
+pub(crate) use reader::is_new_block;
+pub use reader::{ParseOptions, parse_ifd_at};
 pub use writer::{IfdBuilder, ImageData, TiffWriter};
 
 use serde::{Deserialize, Serialize};

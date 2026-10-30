@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::Session;
 use crate::export::{ExportFormat, ExportOptions, export_photo};
-use crate::tests_xmp::{synthetic_dng_with, temp_dir};
+use crate::tests_xmp::{packet_past_xmp_budget, synthetic_dng_with, temp_dir, tiff_with_xmp};
 
 struct EnhanceHost(std::sync::Arc<std::sync::Mutex<Vec<crate::enhance::UpscaleRequest>>>);
 impl crate::enhance::AiHost for EnhanceHost {
@@ -710,5 +710,50 @@ fn remove_location_refuses_psd_xmp_with_duplicate_or_unquoted_gps() {
             assert!(error.contains("can't verify location metadata") && error.contains("malformed PSD/PSB"), "{error}");
         }
     }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// An Original export copies the whole packet, so the check must read as far as the copy goes.
+#[test]
+fn remove_location_refuses_a_location_past_the_xmp_retention_budget() {
+    let dir = temp_dir("export-noloc-past-budget");
+    let metadata = lightcraft_meta::Metadata {
+        gps: Some(lightcraft_meta::Gps { latitude: 42.36, longitude: -71.06, altitude: None }),
+        city: Some("Boston".into()),
+        ..Default::default()
+    };
+    let packet = packet_past_xmp_budget(&metadata);
+    for (name, bytes) in [("Geo.tif", tiff_with_xmp(&packet)), ("Geo.psd", synthetic_psd(1, &[(1060, packet.as_bytes())]))] {
+        let path = dir.join(name);
+        std::fs::write(&path, &bytes).unwrap();
+        let mut session = Session::new().with_fs();
+        session.execute("library.import", &json!({"paths": [path]})).unwrap();
+        let id = session.catalog.photos().next().unwrap().id;
+        let remove = ExportOptions::from_json(&json!({"format": "original", "removeLocation": true}));
+        let result = export_photo(&mut session, id, &remove, 1).map(|exported| exported.file_name);
+        assert!(result.as_ref().is_err_and(|error| error.contains("embeds location info")), "{name}: {result:?}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Exports write what the catalog holds, so an import that stopped at the budget loses these fields
+/// from every later file.
+#[test]
+fn library_exports_keep_fields_past_the_xmp_retention_budget() {
+    let dir = temp_dir("export-past-budget");
+    let metadata = lightcraft_meta::Metadata {
+        copyright: Some("(c) Studio".into()),
+        artist: Some("Ann Lee".into()),
+        city: Some("Boston".into()),
+        ..Default::default()
+    };
+    let path = dir.join("Shot.tif");
+    std::fs::write(&path, tiff_with_xmp(&packet_past_xmp_budget(&metadata))).unwrap();
+    let mut session = Session::new().with_fs();
+    session.execute("library.import", &json!({"paths": [path]})).unwrap();
+    let id = session.catalog.photos().next().unwrap().id;
+    let exported = export_photo(&mut session, id, &ExportOptions::from_json(&json!({"format": "png"})), 1).unwrap();
+    let back = lightcraft_meta::extract(&exported.bytes);
+    assert_eq!((back.copyright, back.artist, back.city), (metadata.copyright, metadata.artist, metadata.city));
     std::fs::remove_dir_all(dir).unwrap();
 }

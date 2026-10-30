@@ -347,7 +347,7 @@ pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
         Some(t) => from_tiff_with_bytes(bytes, t),
         None => e.exif.as_deref().map(read_exif).unwrap_or_default(),
     };
-    let xmp = e.xmp.as_deref().and_then(|x| xmp::parse_xmp_logged(x).ok()).map(|x| x.metadata);
+    let xmp = e.xmp.as_deref().and_then(|x| parse_whole_xmp(x).ok()).map(|x| x.metadata);
     (extract_embedded(&e, m, xmp), e.xmp)
 }
 
@@ -365,7 +365,7 @@ pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
         .map(|packet| {
             // Best-effort parsing tolerates broken XML; privacy checks need strict syntax validation.
             xmp_merge::scan(packet)?;
-            xmp::parse_xmp_logged(packet)
+            parse_whole_xmp(packet)
         })
         .transpose()
         .map_err(|_| ExtractError::MalformedPsd)?
@@ -424,6 +424,25 @@ mod tests {
         jpeg.extend_from_slice(payload);
         jpeg.extend_from_slice(&[0xff, 0xd9]);
         assert_eq!(try_extract(&jpeg).unwrap(), Metadata::default());
+    }
+
+    /// Catalogs, sidecars and exports all take their fields from these readers.
+    #[test]
+    fn file_readers_see_fields_past_the_xmp_retention_budget() {
+        let foreign: String = (0..130_000).rev().map(|i| format!("<crs:a{i}>v</crs:a{i}>")).collect();
+        let packet = format!(
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:crs='{CRS_NS}'>{foreign}</r:Description>\
+             <r:Description xmlns:p='http://ns.adobe.com/photoshop/1.0/' p:City='Boston'/></r:RDF>"
+        );
+        assert_eq!(parse_xmp(&packet).unwrap().metadata.city, None);
+        let mut ifd = lightcraft_tiff::IfdBuilder::new();
+        ifd.set(lightcraft_tiff::tags::XMP, lightcraft_tiff::Value::Byte(packet.clone().into_bytes()));
+        let tiff = lightcraft_tiff::TiffWriter::default().write(&[ifd]).unwrap();
+        assert_eq!(read_exif(&tiff).city.as_deref(), Some("Boston"));
+        let mut webp = b"RIFF\0\0\0\0WEBPXMP ".to_vec();
+        webp.extend_from_slice(&u32::try_from(packet.len()).unwrap().to_le_bytes());
+        webp.extend_from_slice(packet.as_bytes());
+        assert_eq!(extract(&webp).city.as_deref(), Some("Boston"));
     }
 
     /// A TIFF-based file is read in place (not copied into an Exif block): EXIF facts, then XMP

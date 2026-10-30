@@ -27,6 +27,22 @@ fn only(s: &Session) -> PhotoId {
     s.catalog.photos().next().unwrap().id
 }
 
+/// `metadata`'s packet behind enough foreign properties to spend the flattened-key budget of
+/// [`lightcraft_meta::parse_xmp`]; the keys shrink, so nothing after them fits in what is left.
+pub(crate) fn packet_past_xmp_budget(metadata: &lightcraft_meta::Metadata) -> String {
+    let foreign: String = (0..130_000).rev().map(|i| format!("<crs:a{i}>v</crs:a{i}>")).collect();
+    let description = format!("<rdf:Description xmlns:crs=\"{}\">{foreign}</rdf:Description>\n<rdf:Description", lightcraft_meta::CRS_NS);
+    let packet = lightcraft_meta::write_xmp(metadata, None).replacen("<rdf:Description", &description, 1);
+    assert!(lightcraft_meta::parse_xmp(&packet).unwrap().property_keys_truncated);
+    packet
+}
+
+pub(crate) fn tiff_with_xmp(packet: &str) -> Vec<u8> {
+    let image = li_raster::Rgba8 { width: 2, height: 2, data: vec![[20, 30, 40, 255]; 4] };
+    let meta = lightcraft_codecs::EncodeMeta { xmp: Some(packet), ..Default::default() };
+    lightcraft_codecs::encode_tiff(&lightcraft_codecs::EncodeImage::rgba8(&image), lightcraft_codecs::TiffCompression::Deflate, &meta).unwrap()
+}
+
 #[test]
 fn save_delete_library_reimport_restores_edits() {
     let src = temp_dir("roundtrip-src");
@@ -960,6 +976,30 @@ fn bugfix_develop_dng_refreshes_content_identity_and_virtual_copies() {
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!(s.catalog.photo(id).unwrap().content_hash.as_deref(), Some("old-raw"));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A save removes every owned property the catalog has no value for, so a field the import could
+/// not see would be deleted from the user's sidecar.
+#[test]
+fn saving_a_sidecar_keeps_owned_fields_past_the_xmp_retention_budget() {
+    let dir = temp_dir("sidecar-past-budget");
+    let image = dir.join("photo.png");
+    let sidecar = dir.join("photo.xmp");
+    write_png(&image, 1);
+    let metadata = lightcraft_meta::Metadata {
+        copyright: Some("(c) Studio".into()),
+        artist: Some("Ann Lee".into()),
+        city: Some("Boston".into()),
+        ..Default::default()
+    };
+    std::fs::write(&sidecar, packet_past_xmp_budget(&metadata)).unwrap();
+    let mut session = Session::new().with_fs();
+    session.execute("library.import", &json!({"paths":[image.to_string_lossy()]})).unwrap();
+    session.save_sidecar(only(&session)).unwrap();
+    let saved = lightcraft_meta::parse_whole_xmp(&std::fs::read_to_string(&sidecar).unwrap()).unwrap().metadata;
+    assert_eq!((saved.copyright, saved.artist, saved.city), (metadata.copyright, metadata.artist, metadata.city));
+    drop(session);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 fn creator_packet(items: &str) -> (String, String) {
