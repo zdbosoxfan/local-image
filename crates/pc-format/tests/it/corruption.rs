@@ -94,6 +94,24 @@ fn over_deep_manifest_fails_cleanly() {
     assert!(matches!(e, FormatError::Corrupt(_)), "{e}");
 }
 
+/// A manifest with millions of tiny JSON values is refused before constructing a large value tree.
+#[test]
+fn manifest_with_too_many_values_is_refused() {
+    let n = (4 << 20) + 16;
+    let mut manifest = Vec::with_capacity(2 * n + 1);
+    manifest.push(b'[');
+    for i in 0..n {
+        manifest.extend_from_slice(if i == 0 { b"0" } else { b",0" });
+    }
+    manifest.push(b']');
+    let bytes = rebuild(&sample(), |name, data| Some(if name == "manifest.json" { manifest.clone() } else { data }));
+
+    let error = load_from_bytes(&bytes).unwrap_err();
+    assert!(matches!(error, FormatError::LimitExceeded(_)), "{error}");
+    let error = read_manifest(&bytes).unwrap_err();
+    assert!(matches!(error, FormatError::LimitExceeded(_)), "{error}");
+}
+
 #[test]
 fn too_new_version_rejected() {
     let b = rebuild(&sample(), |n, d| {
