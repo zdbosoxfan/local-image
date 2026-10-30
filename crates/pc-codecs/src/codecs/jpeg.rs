@@ -607,6 +607,19 @@ mod decode_tests {
         out
     }
 
+    #[test]
+    fn flat_frames_clear_the_scan_bound_in_every_scan_layout() {
+        for (name, progressive, restart_interval) in [("baseline", false, 0), ("restart", false, 64), ("progressive", true, 0)] {
+            let bytes = flat_gray_jpeg(4096, 4096, progressive, restart_interval);
+            let (decoded, source) = decode_jpeg_scaled(&bytes, &Limits::default(), None).unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert_eq!(source, (4096, 4096), "{name}");
+            assert!(decoded.data().iter().all(|&v| v.abs_diff(128) <= 1), "{name}");
+        }
+        let progressive = flat_gray_jpeg(4096, 4096, true, 0);
+        let last_scan = progressive.windows(2).rposition(|w| w == [0xFF, 0xDA]).unwrap();
+        assert!(scan_metadata(&progressive).scan_bytes > (progressive.len() - last_scan) as u64, "every scan counts");
+    }
+
     /// A stray marker stops the walk, so the unread rest of the file may all be scan data.
     #[test]
     fn unread_tail_after_an_odd_layout_counts_as_scan_data() {
