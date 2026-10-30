@@ -1047,3 +1047,11 @@ The literal/pattern-only method-field adaptations in dc209948 are local: `crates
 `crates/pc-ui-egui/src/vector_packages/appearance.rs`, `crates/pc-ui-egui/tests/gpu/vector_integration.rs`
 and `crates/pc-vector/src/profile_tests.rs`.
 The Smooth measurements retain upstream's black-to-white and red-to-blue rows and two-level tolerance.
+
+## PhotoCraft PSD export safety (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad`](https://github.com/storytold/photocraft/commit/a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad) | PSD: drop a kept merged-transparency marker when the composite is opaque | `crates/pc-io/src/psd_export.rs`<br>`crates/pc-io/src/psd_export/tests.rs` | MIT OR Apache-2.0 |
+
+The opaque-composite export drops preserved `MTrn`, `Mtrn`, `Mt16` and `Mt32` markers, while alpha-bearing composites retain them. The layer-info block placement follows any retained marker.

@@ -1364,7 +1364,12 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, m
         if !ex.records.is_empty() && matches!(key, b"Layr" | b"Lr16" | b"Lr32") {
             continue;
         }
-        global_blocks.push(global_block(block_signature(*sig, version), *key, data));
+        let block = global_block(block_signature(*sig, version), *key, data);
+        // A kept marker describes the opened composite and would reinterpret the first alpha channel.
+        if !has_alpha && matches!(&block.key, b"MTrn" | b"Mtrn" | b"Mt16" | b"Mt32") {
+            continue;
+        }
+        global_blocks.push(block);
     }
     let comps_resource = ex.comps.is_some().then(|| crate::comps_map::write_comps_resource(doc));
     let (slices_resource, slices_warning) = crate::slices_map::export_resource(doc, &ex.layer_ids);
@@ -1402,7 +1407,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, m
     // Photoshop writes a merged-transparency marker (`Mtrn`, `Mt16`, `Mt32`) before the layer
     // block and won't open a file whose `Lr16`/`Lr32` comes first: the layer block goes right
     // after the last kept marker, else first.
-    let index = global_blocks.iter().rposition(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32")).map_or(0, |i| i + 1);
+    let index = global_blocks.iter().rposition(|b| matches!(&b.key, b"MTrn" | b"Mtrn" | b"Mt16" | b"Mt32")).map_or(0, |i| i + 1);
     let mut placement = match (has_layers, sample) {
         (true, SampleType::U16) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr16", padding: None },
         (true, SampleType::F32) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr32", padding: None },
