@@ -364,8 +364,9 @@ fn exif_metadata(bytes: &[u8], e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff
 /// is malformed or past the parser's hard limits, or a block named by [`Embedded::unread`].
 ///
 /// The promise has limits. Corrupt Exif outside PSD/PSB stays best-effort and reads as no Exif, so a
-/// location inside it goes unseen. Nothing looks at JPEG data past the first scan, XMP or IPTC outside
-/// TIFF IFD0, CR3 preview boxes, or PNG text chunks under other keywords.
+/// location inside it goes unseen. Nothing looks at JPEG data past the first scan, IPTC past the first
+/// APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3
+/// preview boxes, or PNG text chunks under other keywords.
 pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
     if !bytes.starts_with(b"8BPS") {
         let (e, tiff) = container::blocks(bytes);
