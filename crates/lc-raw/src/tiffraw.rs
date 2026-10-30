@@ -390,12 +390,6 @@ fn decode_chunk(data: &[u8], info: &ImageInfo, c: &Chunk, order: ByteOrder, pack
         comp::ADOBE_DEFLATE | comp::DEFLATE => {
             let row_bytes = packed_row_bytes(cw as u64 * cpp as u64, bits, packing, float);
             let inflate_len = row_bytes.checked_mul(ch as u64).ok_or(RawError::Limit("chunk too large"))?;
-            // Reject impossible expansion ratios before asking the inflater for a nominal tile.
-            if (src.len() as u64).saturating_mul(2048) < inflate_len {
-                return Err(RawError::Corrupt(format!("a deflated chunk of {inflate_len} bytes is packed into only {} bytes", src.len())));
-            }
-            let inflate_len = usize::try_from(inflate_len).map_err(|_| RawError::Limit("chunk too large"))?;
-            let raw = inflate(src, inflate_len)?;
             let vw = cw.min(info.width.saturating_sub(c.x) as usize);
             let vh = ch.min(info.height.saturating_sub(c.y) as usize);
             let last = packed_row_bytes(vw as u64 * cpp as u64, bits, packing, float);
@@ -403,6 +397,12 @@ fn decode_chunk(data: &[u8], info: &ImageInfo, c: &Chunk, order: ByteOrder, pack
                 .checked_mul(vh.saturating_sub(1) as u64)
                 .and_then(|bytes| bytes.checked_add(last))
                 .ok_or(RawError::Limit("chunk too large"))?;
+            // Edge tiles need visible pixels, not the padding outside the image.
+            if (src.len() as u64).saturating_mul(2048) < visible {
+                return Err(RawError::Corrupt(format!("a deflated chunk needs {visible} visible bytes, but has only {} packed bytes", src.len())));
+            }
+            let inflate_len = usize::try_from(inflate_len).map_err(|_| RawError::Limit("chunk too large"))?;
+            let raw = inflate(src, inflate_len)?;
             // Edge tiles may omit padding, but every in-image row must be present.
             if (raw.len() as u64) < visible {
                 return Err(RawError::Corrupt(format!("a deflated chunk holds {} bytes, fewer than the {visible} bytes its in-image samples span", raw.len())));
@@ -723,11 +723,21 @@ mod hostile_tile_tests {
     }
 
     #[test]
-    fn deflate_chunks_cannot_exceed_the_compression_ratio_bound() {
-        let mut info = deflate_info(16, 1, 512, 16);
+    fn deflate_chunks_must_cover_the_full_tile() {
+        let mut info = deflate_info(16, 16, 16, 16);
         let packed = miniz_oxide::deflate::compress_to_vec_zlib(&[0u8; 32], 6);
         info.byte_counts = vec![packed.len() as u64];
         assert!(matches!(read_image(&packed, &info, ByteOrder::Little, Packing::Msb), Err(RawError::Corrupt(_))));
+    }
+
+    #[test]
+    fn deflate_edge_tiles_may_omit_padding_outside_the_image() {
+        let visible_bytes = 15 * 512 * 2 + 16 * 2;
+        let visible = vec![0u8; visible_bytes];
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&visible, 6);
+        let mut info = deflate_info(16, 16, 512, 16);
+        info.byte_counts = vec![packed.len() as u64];
+        assert_eq!(read_image(&packed, &info, ByteOrder::Little, Packing::Msb), Ok(RawData::U16(vec![0; 16 * 16])));
     }
 
     #[test]

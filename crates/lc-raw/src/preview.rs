@@ -268,4 +268,25 @@ mod tests {
         std::thread::spawn(move || tx.send(cr3_preview_boxes(&file).map(<[u8]>::len)));
         assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(2)), Ok(None));
     }
+
+    #[test]
+    fn a_multi_strip_jpeg_ifd_does_not_build_chunk_descriptors() {
+        const STRIPS: u32 = 20_000_000;
+        let mut ifd = IfdBuilder::new();
+        ifd.set(t::COMPRESSION, Value::Short(vec![7]));
+        ifd.set(t::IMAGE_WIDTH, Value::Long(vec![16]));
+        ifd.set(t::IMAGE_LENGTH, Value::Long(vec![STRIPS]));
+        ifd.set(t::ROWS_PER_STRIP, Value::Short(vec![1]));
+        ifd.set(t::STRIP_OFFSETS, Value::Long((0..STRIPS).collect()));
+        let file = TiffWriter::default().write(&[ifd]).unwrap();
+        {
+            let tiff = Tiff::parse(&file).unwrap();
+            let info = tiff.ifds[0].image().unwrap();
+            assert_eq!(info.offsets.len(), STRIPS as usize);
+            assert_eq!(info.grid(), (1, STRIPS));
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(embedded_preview(&file)));
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(2)), Ok(None));
+    }
 }
