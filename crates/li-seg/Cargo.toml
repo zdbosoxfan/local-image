@@ -27,4 +27,4 @@ serde_json = { workspace = true }
 lightcraft-sysmem = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"] }
