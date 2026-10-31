@@ -251,8 +251,8 @@ pub(crate) mod tests {
             (t::GPS_LATITUDE, coordinate.clone()),
             (t::GPS_LONGITUDE, coordinate.clone()),
             (t::GPS_ALTITUDE, Value::Rational(vec![(125, 10)])),
-            (20, coordinate.clone()), // GPSDestLatitude
-            (26, Value::Rational(vec![(125, 10)])), // GPSDestDistance
+            (20, coordinate.clone()),                              // GPSDestLatitude
+            (26, Value::Rational(vec![(125, 10)])),                // GPSDestDistance
             (28, Value::Undefined(b"ASCII\0\0\0Boston".to_vec())), // GPSAreaInformation
         ];
         for entry in located {

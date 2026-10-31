@@ -879,12 +879,7 @@ fn containers_with_xmp(packet: &[u8]) -> [(&'static str, Vec<u8>); 4] {
     let mut tiff = tiff_with_xmp(&"0".repeat(packet.len()));
     let at = tiff.windows(packet.len()).position(|bytes| bytes.iter().all(|&byte| byte == b'0')).unwrap();
     tiff[at..at + packet.len()].copy_from_slice(packet);
-    [
-        ("JPEG", jpeg_with(&[jpeg_xmp(packet)])),
-        ("PNG", png_with(&[png_xmp(packet)])),
-        ("WebP", webp_with(&[(b"XMP ", packet)])),
-        ("TIFF", tiff),
-    ]
+    [("JPEG", jpeg_with(&[jpeg_xmp(packet)])), ("PNG", png_with(&[png_xmp(packet)])), ("WebP", webp_with(&[(b"XMP ", packet)])), ("TIFF", tiff)]
 }
 
 fn rdf(properties: &str) -> String {
@@ -972,7 +967,8 @@ fn remove_location_reads_jpeg_extended_xmp() {
     assert!(error.contains("embeds location info"), "{error}");
     let error = remove_location_from(&dir, &extended(b"<x:xmpmeta><cut")).err().unwrap();
     assert!(error.contains("can't verify location metadata"), "{error}");
-    let clean = extended(lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { title: Some("Long".into()), ..Default::default() }, None).as_bytes());
+    let clean =
+        extended(lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { title: Some("Long".into()), ..Default::default() }, None).as_bytes());
     assert_eq!(remove_location_from(&dir, &clean).unwrap(), clean);
     std::fs::remove_dir_all(dir).unwrap();
 }
