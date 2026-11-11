@@ -5854,7 +5854,7 @@ dependencies = [
  "photocraft-geom",
  "photocraft-psd",
  "photocraft-raster",
- "skrifa 0.44.0",
+ "skrifa 0.46.2",
 ]
 
 [[package]]
