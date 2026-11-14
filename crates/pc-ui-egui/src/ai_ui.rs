@@ -2,8 +2,8 @@
 //!
 //! - **AI Remove Brush** (R): paint over a distraction; after confirmation the painted mask is removed by the
 //!   local model and the repair lands on its own layer (`ai.remove`).
-//! - **AI Cutout** (K): Remove Background makes a layer mask from the AI matte
-//!   (`ai.removeBackground`); dragging paints that mask (Erase hides, Restore reveals; X swaps);
+//! - **AI Cutout** (K): Remove Background makes a layer mask from the on-device matte
+//!   (`layer.removeBackground`); dragging paints that mask (Erase hides, Restore reveals; X swaps);
 //!   Add Background puts a solid colour, an image or a generated plate below the cutout.
 //! - The **AI status pill** in the status bar and the **Local AI** window (connection, ComfyUI
 //!   installation, start/stop, verified model downloads, GPU).
@@ -45,17 +45,15 @@ use crate::widgets;
 pub struct AiOptions {
     /// Expanded model families in AI Preferences.
     pub settings_families: std::collections::BTreeSet<String>,
-    /// AI Remove engine: `auto`, `lama`, `klein`, `qwen-int8` or `qwen-bf16`.
+    /// AI Remove engine: `auto`, `lama` or `klein`.
     pub remove_engine: String,
     /// Apply a painted removal stroke on release. Off by default (owner decision): the user brushes,
     /// adjusts the mask, then confirms with Remove.
     pub remove_immediately: bool,
-    /// Shared single/batch cutout engine: `fast`, `better`, `qwen-int8` or `qwen-bf16`.
+    /// Shared single/batch cutout tier: `fast` or `better`.
     pub cutout_engine: String,
     pub cutout_refine: bool,
     pub cutout_decontaminate: bool,
-    /// What to keep, passed to the cutout model ("the red car").
-    pub cutout_hint: String,
     /// Shared output for Properties, the AI Cutout options bar and the contextual task bar.
     pub cutout_output: String,
     pub cutout_color: [f32; 3],
@@ -83,7 +81,6 @@ impl Default for AiOptions {
             cutout_engine: "fast".into(),
             cutout_refine: true,
             cutout_decontaminate: false,
-            cutout_hint: String::new(),
             cutout_output: "mask".into(),
             cutout_color: [1.0; 3],
             cutout_blur: 12.0,
@@ -637,9 +634,7 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir
     for method in li_ai::enhance::Method::ALL {
         enhance_settings::row(ui, t, dls, dir, method);
     }
-    if let Some(spec) = li_seg::spec("inspyrenet") {
-        model_function_row(ui, t, dls, dir, li_seg::Group::Subject, spec, false);
-    }
+    model_function_row(ui, t, dls, dir, li_seg::Group::Subject, li_seg::tier_spec(true), false);
 }
 
 /// One function: its name and what it does, the model in use, and the custom-model controls.
@@ -1115,17 +1110,21 @@ fn opt(ui: &mut egui::Ui, s: &str) {
     ui.label(RichText::new(s).color(t.text_dim));
 }
 
-pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
-    ("klein", "FLUX.2 Klein", ModelId::KleinRemove, "bf16"),
-    ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
-    ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
-];
+pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 1] = [("klein", "FLUX.2 Klein", ModelId::KleinRemove, "bf16")];
 #[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! { pub(crate) static TEST_LAMA_READY: std::cell::RefCell<Option<bool>> = const { std::cell::RefCell::new(None) }; }
 
-/// Resolve Automatic from the background connection status. Explicit choices persist.
+/// Resolve Automatic, and a saved key this build no longer offers, from the background connection
+/// status. Explicit choices persist.
 pub fn effective_remove_key(key: &str) -> &str {
-    if key == "auto" || key.is_empty() { if status().connected { "klein" } else { "lama" } } else { key }
+    let offered = key == "lama" || REMOVE_ENGINES.iter().any(|e| e.0 == key);
+    if offered {
+        key
+    } else if status().connected {
+        "klein"
+    } else {
+        "lama"
+    }
 }
 
 /// Shared readiness for Remove, selection actions and the Develop host.
@@ -1157,17 +1156,9 @@ pub(crate) fn remove_readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The model behind an AI Remove engine key (`klein`, `qwen-int8`, `qwen-bf16`).
+/// The model behind a ComfyUI AI Remove engine key; unknown keys run FLUX.2 Klein.
 pub fn remove_engine(key: &str) -> (ModelId, &'static str) {
-    engine_for(key)
-}
-
-fn engine_for(key: &str) -> (ModelId, &'static str) {
-    match key {
-        "qwen-bf16" => (ModelId::Qwen, "bf16"),
-        "qwen-int8" => (ModelId::Qwen, "int8"),
-        _ => (ModelId::KleinRemove, "bf16"),
-    }
+    REMOVE_ENGINES.iter().find(|e| e.0 == key).map_or((ModelId::KleinRemove, "bf16"), |e| (e.2, e.3))
 }
 
 /// An engine problem as a one-line warning with the button that fixes it.
@@ -1330,10 +1321,7 @@ fn prompt_dialog(app: &mut PhotocraftApp, ctx: &egui::Context, title: &str, hint
             let r = ui.add(egui::TextEdit::multiline(text).hint_text(hint).desired_rows(3).desired_width(f32::INFINITY));
             r.request_focus();
             ui.add_space(8.0);
-            let (m, v) = (ModelId::Qwen, "int8");
-            if let Err(why) = status().ready(m, v) {
-                ui.label(RichText::new(li_i18n::fmt(tl!("{why} Qwen Image 2.1 runs these."), &[("why", &why)])).color(Tokens::get(ctx).warning));
-            }
+            readiness(app, ui, ModelId::Klein4B, catalog::default_variant(ModelId::Klein4B));
             ui.add_space(4.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
@@ -1801,8 +1789,8 @@ mod tests {
             h.get_by_label(title);
         }
         for model in [
-            "Fast · BRIA RMBG-1.4",
-            "Better Quality · InSPyReNet SwinB Plus-Ultra",
+            "Fast · InSPyReNet SwinB Plus-Ultra",
+            "Better Quality · BiRefNet lite",
             "PP-MobileSeg",
             "Depth Anything V2 Small",
             "CLIP ViT-B-32 LAION",

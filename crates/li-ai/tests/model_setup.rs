@@ -326,48 +326,48 @@ fn a_shape_mismatch_names_the_installed_and_declared_text_encoders() {
 }
 
 #[test]
-fn verifying_one_precision_of_a_curated_model_renders_and_records_that_file() {
+fn verifying_one_curated_model_renders_and_records_only_that_file() {
     let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let s = Setup::new(&[
-        ("diffusion_models/qwen_image_2.1_bf16.safetensors", "local__diffusion_models~qwen_image_2.1_bf16"),
-        ("diffusion_models/qwen_image_2.1_int8_convrot.safetensors", "local__diffusion_models~qwen_image_2.1_int8_convrot"),
-        ("text_encoders/qwen3vl_8b_bf16.safetensors", "local__text_encoders~qwen3vl_8b_bf16"),
-        ("text_encoders/qwen3vl_8b_int8_convrot.safetensors", "local__text_encoders~qwen3vl_8b_int8_convrot"),
-        ("vae/qwen_image_2.1_vae_bf16.safetensors", "local__vae~qwen_image_2.1_vae_bf16"),
+        ("diffusion_models/flux-2-klein-4b.safetensors", "Comfy-Org_Flux-2-Klein-4B__split_files~diffusion_models~flux-2-klein-4b"),
+        ("diffusion_models/flux-2-klein-9b-fp8.safetensors", "local__diffusion_models~flux-2-klein-9b-fp8"),
+        ("text_encoders/qwen_3_4b.safetensors", "local__text_encoders~qwen_3_4b"),
+        ("text_encoders/qwen_3_8b_fp8mixed.safetensors", "local__text_encoders~qwen_3_8b_fp8mixed"),
+        ("vae/flux2-vae.safetensors", "local__vae~flux2-vae"),
     ]);
-    // The curated Qwen builder's nodes, beyond what the official templates use.
+    // The curated builders' nodes, beyond what the official templates use.
     let mut info = object_info(&s.dir.0);
     for (class, node) in li_ai::mock::object_info().as_object().unwrap() {
         info.as_object_mut().unwrap().entry(class.clone()).or_insert_with(|| node.clone());
     }
     s.mock.set_object_info(info);
-    let (bf16, int8) = ("unet:qwen_image_2.1_bf16.safetensors", "unet:qwen_image_2.1_int8_convrot.safetensors");
+    let (k4, k9) = ("unet:flux-2-klein-4b.safetensors", "unet:flux-2-klein-9b-fp8.safetensors");
     let scan = s.scan();
-    for (key, variant) in [(bf16, "bf16"), (int8, "int8")] {
+    for (key, id, variant) in [(k4, "flux2-klein-4b", "bf16"), (k9, "flux2-klein-9b", "fp8")] {
         let m = &scan.server.models[key];
-        assert_eq!((m.status, m.catalog_id.as_str(), m.variant.as_str()), (Status::Builtin, "qwen", variant), "{:?}", m.issues);
+        assert_eq!((m.status, m.catalog_id.as_str(), m.variant.as_str()), (Status::Builtin, id, variant), "{:?}", m.issues);
     }
-    // A flat Create render: its message names the files that precision loads.
-    let (w, h) = create_size("qwen");
+    // A flat Create render: its message names the files that model loads.
+    let (w, h) = create_size("flux2-klein-4b");
     s.mock.queue_outputs([png(&RgbImage::from_pixel(w, h, Rgb([90, 140, 60])))]);
-    let done = modelsetup::verify_models(&s.options(), &scan, &[bf16.to_owned()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    let done = modelsetup::verify_models(&s.options(), &scan, &[k4.to_owned()], &JobControl::new(), &mut |_, _| {}).unwrap();
     assert!(done[0].result.is_ok(), "{:?}", done[0].result.as_ref().err());
     let prompts = s.mock.prompts();
     assert!(!prompts.is_empty());
     for p in &prompts {
         let unets: Vec<&str> =
             p.as_object().unwrap().values().filter(|n| n["class_type"] == "UNETLoader").filter_map(|n| n["inputs"]["unet_name"].as_str()).collect();
-        assert_eq!(unets, ["qwen_image_2.1_bf16.safetensors"], "every test renders the file being verified: {p}");
+        assert_eq!(unets, ["flux-2-klein-4b.safetensors"], "every test renders the file being verified: {p}");
     }
     let stored = li_ai::modelsetup::state::SetupState::load(&s.options().state_path);
     let server = stored.server(s.mock.host()).unwrap();
-    assert!(server.models[bf16].verified.is_some());
-    let flat = server.models[bf16].issues.iter().find(|i| i.code == "VerifyFailed:flat").expect("the flat render failed Create").english();
-    assert!(flat.contains("Check the text encoder (qwen3vl_8b_bf16.safetensors) and the VAE (qwen_image_2.1_vae_bf16.safetensors)."), "{flat}");
-    assert_eq!((server.models[int8].status, server.models[int8].verified.as_ref()), (Status::Builtin, None), "the other precision is untouched");
+    assert!(server.models[k4].verified.is_some());
+    let flat = server.models[k4].issues.iter().find(|i| i.code == "VerifyFailed:flat").expect("the flat render failed Create").english();
+    assert!(flat.contains("Check the text encoder (qwen_3_4b.safetensors) and the VAE (flux2-vae.safetensors)."), "{flat}");
+    assert_eq!((server.models[k9].status, server.models[k9].verified.as_ref()), (Status::Builtin, None), "the other model is untouched");
     let summary = modelsetup::summary::summarise(Some(server), &li_ai::catalog::catalog().models, Some("0.42.5"));
-    assert_eq!(summary.status_for("qwen", "int8"), Some(Status::Builtin));
-    assert_eq!(summary.status_for("qwen", "bf16"), Some(server.models[bf16].status));
+    assert_eq!(summary.status_for("flux2-klein-9b", "fp8"), Some(Status::Builtin));
+    assert_eq!(summary.status_for("flux2-klein-4b", "bf16"), Some(server.models[k4].status));
 }
 
 #[test]

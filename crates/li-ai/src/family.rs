@@ -2,12 +2,12 @@
 //! newer copies fetched from Local Image's GitHub repository and cached; the user's own profiles in
 //! `<data>/families/`). A profile says how ComfyUI loads and samples the family (the pipeline
 //! recipe the graph builders follow), its native sizes and sampling ranges, what it can do
-//! (create, edit, references, inpaint, transparent output), which LoRAs fit it, which text encoder
+//! (create, edit, references, inpaint), which LoRAs fit it, which text encoder
 //! and VAE files it needs, and the curated models it ships with (each with pinned download
 //! presets).
 //!
-//! A profile can name a `base` family; it inherits everything it does not set (Pony and
-//! Illustrious from SDXL, FLUX.1 Kontext and Fill from FLUX.1, Qwen Image Edit from Qwen Image).
+//! A profile can name a `base` family; it inherits everything it does not set (Pony from SDXL,
+//! Qwen Image Edit from Qwen Image).
 //!
 //! The registry is loaded once and replaced as a whole when profiles update; [`registry`] hands
 //! out a `&'static` snapshot (the few replaced snapshots are leaked, which keeps every reference
@@ -30,17 +30,11 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("sd15", include_str!("../families/sd15.json")),
     ("sdxl", include_str!("../families/sdxl.json")),
     ("pony", include_str!("../families/pony.json")),
-    ("illustrious", include_str!("../families/illustrious.json")),
     ("sd35", include_str!("../families/sd35.json")),
-    ("flux1", include_str!("../families/flux1.json")),
-    ("flux1-kontext", include_str!("../families/flux1-kontext.json")),
-    ("flux1-fill", include_str!("../families/flux1-fill.json")),
     ("flux2", include_str!("../families/flux2.json")),
     ("flux2-klein", include_str!("../families/flux2-klein.json")),
     ("qwen-image", include_str!("../families/qwen-image.json")),
     ("qwen-edit", include_str!("../families/qwen-edit.json")),
-    ("qwen-image-21", include_str!("../families/qwen-image-21.json")),
-    ("z-image", include_str!("../families/z-image.json")),
     ("ernie", include_str!("../families/ernie.json")),
     ("hidream", include_str!("../families/hidream.json")),
     ("flux3-klein", include_str!("../families/flux3-klein.json")),
@@ -136,8 +130,6 @@ pub enum Encode {
     /// `CLIPTextEncode` for positive and negative.
     #[default]
     ClipText,
-    /// Qwen Image 2.1's `TextEncodeQwenImage21` (positive, negative and the reference latent).
-    QwenImage21,
     /// `TextEncodeQwenImageEditPlus` with up to three images (Qwen Image Edit 2509 / 2511).
     QwenEditPlus,
     /// The original single-image Qwen Image Edit encoder.
@@ -165,16 +157,12 @@ pub enum SamplerStyle {
 pub enum RefMethod {
     #[default]
     None,
-    /// `ReferenceLatent` per image on both conditionings (FLUX.2, Kontext).
+    /// `ReferenceLatent` per image on both conditionings (FLUX.2).
     ReferenceLatent,
-    /// The text encoder takes the images (Qwen Image 2.1, Qwen Edit).
+    /// The text encoder takes the images (Qwen Edit).
     TextEncoder,
-    /// A starting image (img2img with denoise), e.g. Z-Image.
-    InitImage,
     /// IP-Adapter (ComfyUI_IPAdapter_plus: `IPAdapterUnifiedLoader`, `IPAdapterAdvanced`).
     IpAdapter,
-    /// FLUX.1 Redux (`CLIPVisionEncode` + `StyleModelApply`).
-    Redux,
 }
 
 /// How a masked area is regenerated.
@@ -185,8 +173,6 @@ pub enum InpaintMethod {
     None,
     /// `VAEEncode` + `SetLatentNoiseMask` (+ `DifferentialDiffusion`), with denoise.
     NoiseMask,
-    /// `InpaintModelConditioning` (inpainting models such as FLUX.1 Fill).
-    ModelConditioning,
     /// The model edits from an instruction; the result is composited through the mask.
     Instruction,
 }
@@ -206,7 +192,7 @@ pub struct Pipeline {
     /// `checkpoint` or `file` (a separate `VAELoader`).
     pub vae: String,
     pub encode: Encode,
-    /// `FluxGuidance` value on the positive conditioning (FLUX.1/2), if any.
+    /// `FluxGuidance` value on the positive conditioning (FLUX.2), if any.
     pub flux_guidance: Option<f32>,
     /// Negative conditioning is zeroed (distilled models at CFG 1).
     pub zero_negative: bool,
@@ -255,12 +241,11 @@ pub struct Sampling {
 #[serde(default)]
 pub struct Capabilities {
     pub create: bool,
-    /// Instruction edits natively (Qwen Edit, Kontext, FLUX.2); otherwise edits run as inpaint.
+    /// Instruction edits natively (Qwen Edit, FLUX.2); otherwise edits run as inpaint.
     pub edit: bool,
-    /// Reference images it takes natively (0 = none, or through IP-Adapter / Redux).
+    /// Reference images it takes natively (0 = none, or through IP-Adapter).
     pub references: u32,
     pub inpaint: bool,
-    pub transparent: bool,
     pub negative_prompt: bool,
     pub upscale: bool,
 }
@@ -275,7 +260,7 @@ pub struct LoraRule {
     pub max: u32,
 }
 
-/// Prompt conventions (Pony's score tags, Illustrious' quality tags).
+/// Prompt conventions (Pony's score tags).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PromptRules {
@@ -311,8 +296,6 @@ pub enum Role {
     Clip4,
     Vae,
     Lora,
-    ClipVision,
-    StyleModel,
     Upscaler,
 }
 
@@ -325,8 +308,6 @@ impl Role {
             Role::Clip | Role::Clip2 | Role::Clip3 | Role::Clip4 => ("CLIPLoader", "clip_name"),
             Role::Vae => ("VAELoader", "vae_name"),
             Role::Lora => ("LoraLoaderModelOnly", "lora_name"),
-            Role::ClipVision => ("CLIPVisionLoader", "clip_name"),
-            Role::StyleModel => ("StyleModelLoader", "style_model_name"),
             Role::Upscaler => ("UpscaleModelLoader", "model_name"),
         }
     }
@@ -338,8 +319,6 @@ impl Role {
             Role::Clip | Role::Clip2 | Role::Clip3 | Role::Clip4 => "text_encoders",
             Role::Vae => "vae",
             Role::Lora => "loras",
-            Role::ClipVision => "clip_vision",
-            Role::StyleModel => "style_models",
             Role::Upscaler => "upscale_models",
         }
     }
@@ -386,7 +365,7 @@ pub struct PresetDef {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelDef {
-    /// Stable id (0.7's keys for the original models: `qwen`, `flux2-klein-4b`…).
+    /// Stable id (0.7's keys for the original models: `flux2-klein-4b`, `seedvr2`…).
     pub key: String,
     pub label: String,
     pub short: String,
@@ -840,6 +819,9 @@ fn claims_builtin(d: &Detect) -> Option<&str> {
     d.tensors_all.iter().chain(&d.tensors_any).find(|t| BUILTIN_MARKERS.iter().any(|m| t.contains(m))).map(String::as_str)
 }
 
+/// Families Local Image no longer offers; cached or user copies of them are not loaded.
+const RETIRED: &[&str] = &["qwen-image-21", "flux1", "flux1-kontext", "flux1-fill", "illustrious", "z-image"];
+
 /// Where downloaded profile updates are cached.
 pub fn cache_dir() -> PathBuf {
     crate::settings::data_root().join("families")
@@ -859,8 +841,8 @@ fn read_profiles(d: &Path) -> Vec<(String, Value)> {
         }
         let Some(id) = p.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else { continue };
         // Restoration pins and licensing policy are vetted in the binary, never widened by an
-        // editable profile or an online update.
-        if id == "restoration" {
+        // editable profile or an online update; retired families stay gone.
+        if id == "restoration" || RETIRED.contains(&id.as_str()) {
             continue;
         }
         match std::fs::read(&p).map_err(anyhow::Error::from).and_then(|b| Ok(serde_json::from_slice::<Value>(&b)?)) {
@@ -994,7 +976,7 @@ pub fn update_from(fetch: &dyn Fn(&str) -> Result<Vec<u8>>, base_url: &str, dir:
     let user: Vec<String> = read_profiles(&dir.join("user")).into_iter().map(|(id, _)| id).collect();
     let mut batch: Vec<(String, Vec<u8>, Value)> = Vec::new();
     for (id, ver) in entries {
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') || id == "restoration" {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') || id == "restoration" || RETIRED.contains(&id.as_str()) {
             continue;
         }
         if known.get(id).is_some_and(|old| version_of(old) >= index_number(ver)) {
@@ -1078,12 +1060,9 @@ mod tests {
         assert_eq!(pony.sizes.native, sdxl.sizes.native);
         assert!(pony.prompt.prefix.contains("score_9"));
         assert!(pony.lora_fits("pony") && pony.lora_fits("sdxl"));
-        assert!(!sdxl.lora_fits("flux1"));
-        let kontext = reg.family("flux1-kontext").unwrap();
-        assert!(kontext.capabilities.edit);
-        assert_eq!(kontext.pipeline.clip.node, "DualCLIPLoader");
+        assert!(!sdxl.lora_fits("flux2"));
         // The original 0.7 models are all present with their keys.
-        for key in ["qwen", "z-image-turbo", "flux2-klein-4b", "flux2-klein-9b", "ernie-image", "seedvr2", "klein-remove"] {
+        for key in ["flux2-klein-4b", "flux2-klein-9b", "ernie-image", "seedvr2", "klein-remove"] {
             assert!(reg.model(key).is_some(), "{key}");
         }
         assert_eq!(reg.groups().first().map(|(g, _)| g.as_str()), Some("Stable Diffusion"));
@@ -1130,6 +1109,29 @@ mod tests {
         let reg = load(&dir);
         assert_eq!(reg.family("sd15").unwrap().label, "SD 1.5 (updated)");
         assert_eq!(reg.sources["sd15"], "update");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn retired_families_are_neither_fetched_nor_loaded_from_disk() {
+        let dir = std::env::temp_dir().join(format!("li-fam-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("user")).unwrap();
+        let sd15: Value = serde_json::from_str(EMBEDDED.iter().find(|(k, _)| *k == "sd15").unwrap().1).unwrap();
+        for id in RETIRED {
+            let mut retired = sd15.clone();
+            retired["id"] = serde_json::json!(id);
+            for folder in [&dir, &dir.join("user")] {
+                std::fs::write(folder.join(format!("{id}.json")), serde_json::to_vec(&retired).unwrap()).unwrap();
+            }
+        }
+        let index = serde_json::to_vec(&serde_json::json!({ "families": RETIRED.iter().map(|id| (*id, 9)).collect::<BTreeMap<_, _>>() })).unwrap();
+        let body = serde_json::to_vec(&sd15).unwrap();
+        let fetch = |url: &str| -> Result<Vec<u8>> { if url.ends_with("/index.json") { Ok(index.clone()) } else { Ok(body.clone()) } };
+        assert!(update_from(&fetch, "https://example.invalid/f", &dir).unwrap().is_empty());
+        let reg = load(&dir);
+        for id in RETIRED {
+            assert!(reg.family(id).is_none() && !reg.errors.contains_key(*id), "{id}");
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 }

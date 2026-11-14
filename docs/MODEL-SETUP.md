@@ -2,7 +2,7 @@
 
 Local Image runs a model you installed in ComfyUI in one of two ways:
 
-- **Builders.** The curated models (Qwen Image 2.1, FLUX.2 Klein, Z-Image, ERNIE-Image, SDXL and
+- **Builders.** The curated models (FLUX.2 Klein, ERNIE-Image, SDXL and
   the other families in `crates/li-ai/families/`) run through Local Image's own workflow builders,
   tuned and tested for each family.
 - **Official templates.** Any other model that the connected ComfyUI ships an official workflow

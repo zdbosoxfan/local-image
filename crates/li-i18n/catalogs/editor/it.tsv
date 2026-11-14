@@ -2230,7 +2230,6 @@ cameraRaw	Amount	Quantità
 	Remove Background (AI)	Rimuovi sfondo (IA)
 	Remove Backgrounds (AI)…	Rimuovi sfondi (IA)…
 	Set Up AI…	Configura IA…
-	Subject (AI)	Soggetto (IA)
 	The AI engine isn't running.	Il motore IA non è in esecuzione.
 	Contextual task bar	Barra delle attività contestuale
 	Tool presets	Predefiniti strumento
@@ -2334,7 +2333,6 @@ cameraRaw	Amount	Quantità
 	Could not save settings: {error}	Impossibile salvare le impostazioni: {error}
 	Couldn't save: {error}	Impossibile salvare: {error}
 	Couldn't update profiles: {error}	Impossibile aggiornare i profili: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Scontorna il soggetto di ogni immagine con Qwen Image 2.1 e salva file PNG. Gli originali non vengono mai modificati.
 	Delete from Library	Elimina dalla libreria
 	Describe details to add (optional)…	Descrivi i dettagli da aggiungere (facoltativo)…
 	Describe the change, e.g. “make it golden hour”…	Descrivi la modifica, ad es. “rendila all'ora d'oro”…
@@ -2395,7 +2393,6 @@ cameraRaw	Amount	Quantità
 	Installation:	Installazione:
 	Installed	Installato
 	Keep	Mantieni
-	Keep… (optional)	Mantieni… (facoltativo)
 	Licence	Licenza
 	Licence gate	Licenza richiesta
 	Licence: see its page	Licenza: vedi la pagina
@@ -2440,8 +2437,6 @@ cameraRaw	Amount	Quantità
 	Precision	Precisione
 	Preset name	Nome del predefinito
 	Previous image ({key})	Immagine precedente ({key})
-	Qwen Compact	Qwen compatto
-	Qwen Full	Qwen completo
 	RESULTS	RISULTATI
 	Read the licence	Leggi la licenza
 	Ready	Pronto
@@ -2488,7 +2483,6 @@ cameraRaw	Amount	Quantità
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Avvia prima il motore IA: Local Image controlla cosa ha già ComfyUI. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Avvia il motore IA per vedere la memoria della tua GPU; vengono mostrati i modelli che entrano in 8 GB.
 	Starting ComfyUI… (the first start can take a minute)	Avvio di ComfyUI… (il primo avvio può richiedere un minuto)
-	Starting image · {n}/{max}	Immagine iniziale · {n}/{max}
 	Starting {name}…	Avvio di {name}…
 	Steps	Passaggi
 	Stopped	Interrotto
@@ -2506,7 +2500,6 @@ cameraRaw	Amount	Quantità
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Il workflow non ha nodi denominati li:prompt, li:image, li:mask, li:seed o li:output, quindi Local Image non può compilarlo. Rinomina i nodi in ComfyUI ed esporta di nuovo.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	I token consentono al Browser modelli di scaricare modelli ad accesso limitato o che richiedono l'accesso. Vengono inviati solo al rispettivo sito.
 	Transparent PNG	PNG trasparente
-	Transparent background	Sfondo trasparente
 	Trending	Di tendenza
 	Trending this week	Di tendenza questa settimana
 	Unknown family	Famiglia sconosciuta
@@ -2517,7 +2510,6 @@ cameraRaw	Amount	Quantità
 	Upscale {scale}×	Ingrandisci {scale}×
 	Use	Usa
 	Use as Reference	Usa come riferimento
-	Variation strength	Intensità della variazione
 	Waiting	In attesa
 	What should appear in the selection…	Cosa deve apparire nella selezione…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Con la tua chiave API, Genera può usare anche modelli cloud (compaiono in Cloud nel selettore dei modelli). Prompt e immagini passano allora da questo computer a quel fornitore e vengono addebitati sul tuo account; nient'altro viene inviato.
@@ -2551,14 +2543,11 @@ cameraRaw	Amount	Quantità
 	{size} · runs on the CPU · {licence}	{size} · funziona sulla CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: offline, risultati di {when}
 	{source}: the catalogue couldn't be read	{source}: impossibile leggere il catalogo
-	{why} Qwen Image 2.1 runs these.	{why} Queste funzioni usano Qwen Image 2.1.
 	Choose…	Scegli…
 	Stop	Interrompi
 	Seed	Seed
 	Solid Color	Tinta unita
 	Strength	Intensità
-	Qwen AI · Compact	Qwen IA · compatto
-	Qwen AI · Full	Qwen IA · completo
 	Standard (CPU)	Standard (CPU)
 	Templates	Template
 	Community	Community

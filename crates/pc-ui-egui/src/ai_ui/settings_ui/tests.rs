@@ -42,10 +42,10 @@ fn ai_preferences_function_labels_hide_model_details_until_manage() {
     h.get_by_label("Download Subject Selection");
     h.get_by_label("Download Sky Selection");
     h.get_by_label("Download AI Remove");
-    assert!(h.query_by_label("Fast · BRIA RMBG-1.4").is_none());
+    assert!(h.query_by_label("Fast · InSPyReNet SwinB Plus-Ultra").is_none());
     h.get_by_label("Manage Subject Selection").click();
     h.run_steps(4);
-    h.get_by_label("Fast · BRIA RMBG-1.4");
+    h.get_by_label("Fast · InSPyReNet SwinB Plus-Ultra");
     h.get_by_label("Manage AI Remove").scroll_to_me();
     h.run_steps(3);
     h.get_by_label("Manage AI Remove").click();

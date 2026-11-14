@@ -6,6 +6,55 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- Qwen Image 2.1 and its Turbo version are no longer offered or downloaded: their licence does not
+  allow client use of the pictures they make. Saved settings that named it fall back to FLUX.2
+  Klein 4B, and an installed Qwen Image 2.1 file is no longer recognised as a known model. A file
+  you install yourself may still run through a matching ComfyUI workflow template.
+
+- The Qwen engines for AI Remove are gone. AI Remove offers Automatic, on-device LaMa and FLUX.2
+  Klein; a saved Qwen choice now runs as Automatic.
+
+- Remove Background (AI) and Select › Subject (AI) no longer use Qwen Image 2.1. Remove Background
+  uses the on-device Fast and Better Quality models (see Changed) everywhere (Layer › Layer Mask › Remove
+  Background (AI) now runs them too), and Select › Subject (AI) is gone: use Select › Subject. The
+  "Keep…" hint field went with the Qwen engine.
+
+- Transparent generation is gone: the Generate panel no longer offers "Transparent background"
+  and the "Alpha" tag no longer appears, because no remaining model makes real transparency.
+  Regenerating an older transparent result now makes an opaque picture.
+
+- FLUX.1 is no longer supported: dev, schnell, Kontext, Fill, Redux and the Canny/Depth control
+  models. Their licences do not allow client use of the pictures they make. Installed FLUX.1 files
+  and LoRAs are no longer recognised as a known model, and FLUX.1 LoRAs are not offered for other
+  models. A file you install yourself may still run through a matching ComfyUI workflow template.
+
+- Black Forest Labs is gone as a cloud provider, with its FLUX.1 Kontext [pro], FLUX1.1 [pro] and
+  FLUX.1 Fill [pro] models. A saved key is no longer used, and a saved choice of one of those
+  models falls back to FLUX.2 Klein 4B.
+
+- Illustrious and NoobAI are no longer offered: their profile and the "Anime (Illustrious)" style
+  preset are gone, because their licence does not allow client use of the pictures they make. An
+  installed Illustrious or NoobAI file is now treated as plain SDXL.
+
+- Z-Image and Z-Image Turbo are no longer offered or downloaded, and the Turbo-only Variety
+  control, the "Starting image" reference and its Variation strength slider went with them. Saved
+  settings that named Z-Image Turbo fall back to FLUX.2 Klein 4B, and an installed Z-Image file or
+  LoRA is no longer recognised as a known model. A file you install yourself may still run through
+  a matching ComfyUI workflow template.
+
+### Changed
+
+- The on-device background-removal models changed so their masks can be used for client work: Fast
+  is now InSPyReNet (395 MB) and Better Quality is the new BiRefNet lite (224 MB), both MIT
+  licensed. BRIA RMBG-1.4, whose licence is non-commercial, is removed and its file is no longer
+  used, so a new download is needed. Select › Subject and Remove Background use whichever of the
+  two is installed.
+
+- Generative Fill and Generate Background now run on FLUX.2 Klein 4B instead of Qwen Image 2.1.
+  Their old "engine" setting is ignored.
+
 ## [0.8.0-alpha] - 2026-10-29
 
 The first published alpha of the rebuilt Local Image. It was developed as 2.0.0-alpha.1, which was

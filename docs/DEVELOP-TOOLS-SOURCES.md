@@ -95,7 +95,7 @@ Status as of 2026-10-09.
 | Tool | Status | How | Source | Licence | Our file |
 |---|---|---|---|---|---|
 | Clone, Heal, Remove (classical), dust finder, red eye | Existing | Existing | LightCraft | MIT OR Apache-2.0 | `crates/lc-pipeline/src/spots.rs` |
-| AI Remove in Develop | Built | Our own + Concept | Reuses Compositing's AI Remove engines (Qwen via ComfyUI, or Standard CPU). The patch store follows Lightroom's idea of keeping AI results beside the catalog instead of in TIFF copies | ours | `crates/lc-engine/src/enhance/`, `crates/lc-pipeline/src/patches.rs` |
+| AI Remove in Develop | Built | Our own + Concept | Reuses Compositing's AI Remove engines (FLUX.2 Klein via ComfyUI, or on-device LaMa). The patch store follows Lightroom's idea of keeping AI results beside the catalog instead of in TIFF copies | ours | `crates/lc-engine/src/enhance/`, `crates/lc-pipeline/src/patches.rs` |
 
 ### Develop ↔ Compositing
 

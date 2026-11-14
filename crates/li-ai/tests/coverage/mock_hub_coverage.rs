@@ -70,13 +70,13 @@ fn handle_hf_api_models_filters_lora() {
 
 #[test]
 fn handle_hf_api_models_search_is_case_insensitive() {
-    let reply = handle("example.test", "/hf/api/models?search=FLUX").expect("hf search");
+    let reply = handle("example.test", "/hf/api/models?search=GATED").expect("hf search");
     let Reply::Json(v) = reply else {
         panic!("expected Json reply");
     };
     let arr = v.as_array().expect("array");
     assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["id"], "mock-labs/FLUX.1-mock-dev");
+    assert_eq!(arr[0]["id"], "mock-labs/gated-mock-dev");
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn handle_hf_file_serves_exact_synth_bytes() {
 
 #[test]
 fn handle_hf_gated_repo_returns_403() {
-    let reply = handle("example.test", "/hf/mock-labs/FLUX.1-mock-dev/resolve/main/flux1-mock-dev.safetensors");
+    let reply = handle("example.test", "/hf/mock-labs/gated-mock-dev/resolve/main/gated-mock-dev.safetensors");
     assert!(matches!(reply, Some(Reply::Status(403))));
 }
 
@@ -163,20 +163,20 @@ fn handle_unknown_path_returns_none() {
 
 #[test]
 fn cloud_missing_api_key_returns_401() {
-    let reply = handle_cloud("example.test", "POST", "/cloud/openai/v1/images/generations", None, b"{}");
+    let reply = handle_cloud("POST", "/cloud/openai/v1/images/generations", None, b"{}");
     assert!(matches!(reply, Some(Reply::JsonStatus(401, _))));
 }
 
 #[test]
 fn cloud_bad_api_key_returns_401() {
-    let reply = handle_cloud("example.test", "POST", "/cloud/openai/v1/images/generations", Some("bad-key"), b"{}");
+    let reply = handle_cloud("POST", "/cloud/openai/v1/images/generations", Some("bad-key"), b"{}");
     assert!(matches!(reply, Some(Reply::JsonStatus(401, _))));
 }
 
 #[test]
 fn cloud_openai_generations_returns_requested_count_and_png() {
     let body = json!({"prompt":"hello","n":2,"size":"4x4"}).to_string();
-    let reply = handle_cloud("example.test", "POST", "/cloud/openai/v1/images/generations", Some("good-key"), body.as_bytes());
+    let reply = handle_cloud("POST", "/cloud/openai/v1/images/generations", Some("good-key"), body.as_bytes());
     let Some(Reply::Json(v)) = reply else {
         panic!("expected Json reply");
     };
@@ -191,7 +191,7 @@ fn cloud_openai_generations_returns_requested_count_and_png() {
 #[test]
 fn cloud_google_generate_content_returns_image_part() {
     let body = json!({"contents":[{"parts":[{"text":"hello"}]}]}).to_string();
-    let reply = handle_cloud("example.test", "POST", "/cloud/google/v1beta/models/gemini:generateContent", Some("good-key"), body.as_bytes());
+    let reply = handle_cloud("POST", "/cloud/google/v1beta/models/gemini:generateContent", Some("good-key"), body.as_bytes());
     let Some(Reply::Json(v)) = reply else {
         panic!("expected Json reply");
     };
@@ -206,7 +206,7 @@ fn cloud_google_generate_content_returns_image_part() {
 
 #[test]
 fn cloud_stability_returns_png_bytes() {
-    let reply = handle_cloud("example.test", "POST", "/cloud/stability/v2beta/stable-image/generate", Some("good-key"), b"");
+    let reply = handle_cloud("POST", "/cloud/stability/v2beta/stable-image/generate", Some("good-key"), b"");
     let Some(Reply::Bytes(bytes, content_type)) = reply else {
         panic!("expected Bytes reply");
     };
@@ -215,39 +215,13 @@ fn cloud_stability_returns_png_bytes() {
 }
 
 #[test]
-fn cloud_bfl_roundtrip_persists_and_serves_sample() {
-    let body = json!({"prompt":"test"}).to_string();
-    let reply = handle_cloud("example.test", "POST", "/cloud/bfl/v1/flux-pro-1.1", Some("good-key"), body.as_bytes());
-    let Some(Reply::Json(v)) = reply else {
-        panic!("expected Json reply");
-    };
-    let id = v["id"].as_str().expect("job id").to_owned();
-    assert!(!id.is_empty());
-
-    let result_reply = handle_cloud("example.test", "GET", &format!("/cloud/bfl/v1/get_result?id={id}"), Some("good-key"), b"");
-    let Some(Reply::Json(result)) = result_reply else {
-        panic!("expected Json result");
-    };
-    assert_eq!(result["id"], id);
-    assert_eq!(result["status"], "Ready");
-    assert!(result["result"]["sample"].as_str().unwrap().contains(&id));
-
-    let sample_reply = handle_cloud("example.test", "GET", &format!("/cloud/bfl/sample/{id}.png"), None, b"");
-    let Some(Reply::Bytes(bytes, content_type)) = sample_reply else {
-        panic!("expected sample Bytes");
-    };
-    assert_eq!(content_type, "image/png");
-    assert!(bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
-}
-
-#[test]
 fn cloud_unknown_path_with_valid_key_returns_not_found() {
-    let reply = handle_cloud("example.test", "POST", "/cloud/unknown", Some("good-key"), b"{}");
+    let reply = handle_cloud("POST", "/cloud/unknown", Some("good-key"), b"{}");
     assert!(matches!(reply, Some(Reply::NotFound)));
 }
 
 #[test]
 fn cloud_malformed_json_does_not_panic() {
-    let reply = handle_cloud("example.test", "POST", "/cloud/openai/v1/images/generations", Some("good-key"), b"not json");
+    let reply = handle_cloud("POST", "/cloud/openai/v1/images/generations", Some("good-key"), b"not json");
     assert!(reply.is_some());
 }

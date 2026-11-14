@@ -6,20 +6,19 @@ use serde_json::json;
 
 #[test]
 fn model_id_constants_key_and_from_key() {
-    assert_eq!(ModelId::Qwen.key(), "qwen");
-    assert_eq!(ModelId::from_key("qwen"), Some(ModelId::Qwen));
+    assert_eq!(ModelId::Klein4B.key(), "flux2-klein-4b");
     assert_eq!(ModelId::from_key("flux2-klein-4b"), Some(ModelId::Klein4B));
     assert_eq!(ModelId::from_key("nonexistent"), None);
-    assert_eq!(ModelId::ORIGINAL.len(), 7);
+    assert_eq!(ModelId::ORIGINAL.len(), 5);
     let all = ModelId::all();
-    assert!(all.contains(&ModelId::Qwen));
+    assert!(all.contains(&ModelId::Klein4B));
     assert!(all.contains(&ModelId::KleinRemove));
 }
 
 #[test]
 fn model_id_intern_edge_cases() {
-    let a = ModelId::intern("qwen");
-    assert_eq!(a, ModelId::Qwen);
+    let a = ModelId::intern("flux2-klein-4b");
+    assert_eq!(a, ModelId::Klein4B);
     let unknown = ModelId::intern("totally-new-model-key");
     assert_eq!(unknown.key(), "totally-new-model-key");
     assert_eq!(ModelId::intern("totally-new-model-key"), unknown);
@@ -33,9 +32,9 @@ fn model_id_intern_edge_cases() {
 
 #[test]
 fn model_id_serde_roundtrip_and_invalid_type() {
-    let m = ModelId::Qwen;
+    let m = ModelId::Klein4B;
     let s = serde_json::to_string(&m).unwrap();
-    assert_eq!(s, "\"qwen\"");
+    assert_eq!(s, "\"flux2-klein-4b\"");
     let back: ModelId = serde_json::from_str(&s).unwrap();
     assert_eq!(back, m);
     let u: ModelId = serde_json::from_str("\"some-new-key\"").unwrap();
@@ -52,8 +51,8 @@ fn model_id_info_and_try_info_for_unknown() {
     assert!(unknown.try_info().is_none());
     let info = unknown.info();
     assert_eq!(info.id, first.id);
-    let qwen = ModelId::Qwen.info();
-    assert_eq!(qwen.id, ModelId::Qwen);
+    let klein = ModelId::Klein4B.info();
+    assert_eq!(klein.id, ModelId::Klein4B);
 }
 
 #[test]
@@ -64,7 +63,7 @@ fn generators_exclude_tool_models_and_have_correct_flags() {
         assert!(info.text_to_image && !info.tool, "{g:?} should be image generator");
     }
     assert!(!gens.contains(&ModelId::KleinRemove));
-    assert!(gens.contains(&ModelId::Qwen));
+    assert!(gens.contains(&ModelId::Klein4B));
     let all = ModelId::all();
     assert!(all.contains(&ModelId::KleinRemove));
 }
@@ -176,15 +175,14 @@ fn availability_installed_preset_reports_missing_nodes() {
 
 #[test]
 fn model_info_tags_reflect_capabilities() {
-    let qwen = ModelId::Qwen.info();
-    let tags = qwen.tags();
-    assert_eq!(tags.contains(&"Create".to_owned()), qwen.text_to_image);
-    assert_eq!(tags.contains(&"Edit".to_owned()), qwen.edit);
-    assert_eq!(tags.contains(&"Alpha".to_owned()), qwen.transparent);
-    assert_eq!(tags.contains(&"Fill".to_owned()), qwen.inpaint);
-    assert_eq!(tags.contains(&"Upscale".to_owned()), qwen.upscale);
-    if qwen.max_references > 0 && !qwen.init_image {
-        let expected_ref = format!("{} ref{}", qwen.max_references, if qwen.max_references == 1 { "" } else { "s" });
+    let klein = ModelId::Klein4B.info();
+    let tags = klein.tags();
+    assert_eq!(tags.contains(&"Create".to_owned()), klein.text_to_image);
+    assert_eq!(tags.contains(&"Edit".to_owned()), klein.edit);
+    assert_eq!(tags.contains(&"Fill".to_owned()), klein.inpaint);
+    assert_eq!(tags.contains(&"Upscale".to_owned()), klein.upscale);
+    if klein.max_references > 0 {
+        let expected_ref = format!("{} ref{}", klein.max_references, if klein.max_references == 1 { "" } else { "s" });
         assert!(tags.contains(&expected_ref), "expected {expected_ref} in {tags:?}");
     } else {
         assert!(!tags.iter().any(|t| t.ends_with("refs")));
@@ -292,55 +290,30 @@ fn klein_9b_files_get_the_8b_text_encoder() {
     assert_eq!(got[2], (Some("qwen_3_4b.safetensors".into()), 20.0), "base 4B keeps the 4B encoder");
 }
 
-/// An installed Qwen Image 2.1 file resolves its text encoder (any precision), and
-/// is unavailable rather than run with an empty `clip_name` when none is installed.
-#[test]
-fn qwen_21_installed_files_need_their_text_encoder() {
-    let model = || vec![installed("unet:qwen_image_2.1_custom_bf16.safetensors", "qwen-image-21", Role::Unet, "qwen_image_2.1_custom_bf16.safetensors", None)];
-    let with_te = info_with(&[
-        ("UNETLoader", "unet_name", &["qwen_image_2.1_custom_bf16.safetensors"]),
-        ("CLIPLoader", "clip_name", &["qwen3vl_8b_int8_convrot.safetensors"]),
-        ("VAELoader", "vae_name", &["qwen_image_2.1_vae_bf16.safetensors"]),
-    ]);
-    let a =
-        with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_custom_bf16.safetensors").unwrap(), &with_te));
-    assert!(a.available, "{a:?}");
-    assert_eq!(a.files[&Role::Clip], "qwen3vl_8b_int8_convrot.safetensors");
-    let without = info_with(&[
-        ("UNETLoader", "unet_name", &["qwen_image_2.1_custom_bf16.safetensors"]),
-        ("CLIPLoader", "clip_name", &["qwen_3_4b.safetensors"]),
-        ("VAELoader", "vae_name", &["qwen_image_2.1_vae_bf16.safetensors"]),
-    ]);
-    let a =
-        with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_custom_bf16.safetensors").unwrap(), &without));
-    assert!(!a.available && a.reason.contains("qwen3vl_8b"), "{a:?}");
-    // Turbo runs its own template (ManualSigmas, cfg 1), never the 40-step builder.
-    let turbo =
-        vec![installed("unet:qwen_image_2.1_turbo_bf16.safetensors", "qwen-image-21", Role::Unet, "qwen_image_2.1_turbo_bf16.safetensors", Some("turbo"))];
-    let a = with_installed(turbo, || {
-        let p = presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_turbo_bf16.safetensors").unwrap();
-        assert!(p.model.info().template_engine);
-        availability(p, &with_te)
-    });
-    assert!(!a.available && a.reason.contains("Set up"), "{a:?}");
-}
-
 /// `ae.safetensors` is matched by name or stem, never as a substring of another VAE.
 #[test]
 fn ae_vae_is_never_a_substring_match() {
-    let model = || vec![installed("unet:z_image_bf16.safetensors", "z-image", Role::Unet, "z_image_bf16.safetensors", None)];
+    let model = || vec![installed("unet:hidream_i1_dev_fp8.safetensors", "hidream", Role::Unet, "hidream_i1_dev_fp8.safetensors", None)];
+    let encoders: &[&str] =
+        &["clip_l_hidream.safetensors", "clip_g_hidream.safetensors", "t5xxl_fp8_e4m3fn_scaled.safetensors", "llama_3.1_8b_instruct_fp8_scaled.safetensors"];
     let other_vaes = info_with(&[
-        ("UNETLoader", "unet_name", &["z_image_bf16.safetensors"]),
-        ("CLIPLoader", "clip_name", &["qwen_3_4b.safetensors"]),
+        ("UNETLoader", "unet_name", &["hidream_i1_dev_fp8.safetensors"]),
+        ("QuadrupleCLIPLoader", "clip_name1", encoders),
+        ("QuadrupleCLIPLoader", "clip_name2", encoders),
+        ("QuadrupleCLIPLoader", "clip_name3", encoders),
+        ("QuadrupleCLIPLoader", "clip_name4", encoders),
         ("VAELoader", "vae_name", &["flux2-vae.safetensors", "qwen_image_vae.safetensors"]),
     ]);
-    let a = with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:z_image_bf16.safetensors").unwrap(), &other_vaes));
+    let a = with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:hidream_i1_dev_fp8.safetensors").unwrap(), &other_vaes));
     assert!(!a.available && !a.files.contains_key(&Role::Vae) && a.reason.contains("ae.safetensors"), "{a:?}");
     let subfolder = info_with(&[
-        ("UNETLoader", "unet_name", &["z_image_bf16.safetensors"]),
-        ("CLIPLoader", "clip_name", &["qwen_3_4b.safetensors"]),
+        ("UNETLoader", "unet_name", &["hidream_i1_dev_fp8.safetensors"]),
+        ("QuadrupleCLIPLoader", "clip_name1", encoders),
+        ("QuadrupleCLIPLoader", "clip_name2", encoders),
+        ("QuadrupleCLIPLoader", "clip_name3", encoders),
+        ("QuadrupleCLIPLoader", "clip_name4", encoders),
         ("VAELoader", "vae_name", &["sub/AE.safetensors", "flux2-vae.safetensors"]),
     ]);
-    let a = with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:z_image_bf16.safetensors").unwrap(), &subfolder));
+    let a = with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:hidream_i1_dev_fp8.safetensors").unwrap(), &subfolder));
     assert_eq!(a.files.get(&Role::Vae).map(String::as_str), Some("sub/AE.safetensors"), "{a:?}");
 }

@@ -3,7 +3,7 @@
 //! (`moss_image_sft_bf16.safetensors`, a GGUF, an NVFP4 file). [`stem_key`] strips the trailing run
 //! of precision and quantisation tokens, so two files are the same model at another precision
 //! exactly when their keys are equal. There is never a prefix or substring test: `flux2-vae` and
-//! `flux2-vae_small`, `qwen_image_2.1` and `qwen_image_2.1_turbo` stay different.
+//! `flux2-vae_small`, `acme_image_2.1` and `acme_image_2.1_turbo` stay different.
 
 use crate::identify::QuantClass;
 
@@ -172,9 +172,9 @@ mod tests {
             (&["qwen3vl_4b_bf16.safetensors", "qwen3vl_4b_int8_convrot.safetensors", "qwen3vl_4b_fp8_scaled.safetensors"], "qwen3vl4b"),
             (&["qwen3.5_9b_w4a8_gptq.safetensors", "qwen3.5_9b_bf16.safetensors"], "qwen359b"),
             (&["qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors"], "qwen359bflux3promptupsampler"),
-            (&["qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors"], "qwen359bqwenimage21pet2i"),
-            (&["qwen_image_2.1_turbo_int8_convrot.safetensors"], "qwenimage21turbo"),
-            (&["qwen_image_2.1_bf16.safetensors"], "qwenimage21"),
+            (&["qwen3.5_9b_acme_image_2.1_pe_t2i.int8_convrot.safetensors"], "qwen359bacmeimage21pet2i"),
+            (&["acme_image_2.1_turbo_int8_convrot.safetensors"], "acmeimage21turbo"),
+            (&["acme_image_2.1_bf16.safetensors"], "acmeimage21"),
             (&["flux-2-klein-9b-fp8.safetensors"], "flux2klein9b"),
             (&["flux-2-klein-4b.safetensors"], "flux2klein4b"),
             (&["qwen_3_8b_fp8mixed.safetensors"], "qwen38b"),
@@ -193,7 +193,7 @@ mod tests {
                 assert_eq!(stem_key(input).key, *key, "{input}");
             }
         }
-        assert_ne!(stem_key("qwen_image_2.1_turbo_bf16").key, stem_key("qwen_image_2.1_bf16").key);
+        assert_ne!(stem_key("acme_image_2.1_turbo_bf16").key, stem_key("acme_image_2.1_bf16").key);
         assert_ne!(stem_key("ae.safetensors").key, stem_key("flux2-vae.safetensors").key);
         assert_eq!(stem_key("flux3-image-klein-int8-convrot.safetensors").display, "flux3-image-klein");
         assert_eq!(stem_key("flux-3-image-klein-Q4_K_M.gguf").ext, "gguf");

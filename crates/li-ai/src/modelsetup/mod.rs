@@ -1053,7 +1053,7 @@ mod tests {
             ..Default::default()
         };
         let t = verify::Target {
-            model: ModelId::Qwen,
+            model: ModelId::Klein4B,
             variant: "",
             label: "M",
             quant: String::new(),
@@ -1076,7 +1076,7 @@ mod tests {
         for (family, variant, file, expected) in [
             ("flux3-klein", "distilled", "flux3-image-klein-bf16.safetensors", "FLUX.3 Klein Distilled · BF16"),
             ("moss-image", "sft", "moss_image_sft_bf16.safetensors", "MOSS-Image SFT · BF16"),
-            ("qwen-image-21", "bf16", "qwen_image_2.1_bf16.safetensors", "Qwen Image 2.1 · BF16"),
+            ("ernie", "bf16", "ernie-image.safetensors", "ERNIE-Image · BF16"),
             ("", "", "ming_image_0.1_design_bf16.safetensors", "Ming Image 0.1 Design · BF16"),
         ] {
             let id = Identity {

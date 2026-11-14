@@ -15,7 +15,7 @@ use crate::comfy::ObjectInfo;
 use crate::family::{Family, FamilyKind, ModelDef, RefMethod};
 pub use crate::family::{FileSpec, Range, Role};
 
-/// A model's key, interned (`"qwen"`, `"flux2-klein-4b"`, `"ckpt:juggernautXL_v9.safetensors"`).
+/// A model's key, interned (`"flux2-klein-4b"`, `"ckpt:juggernautXL_v9.safetensors"`).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModelId(&'static str);
 
@@ -27,8 +27,6 @@ impl std::fmt::Debug for ModelId {
 
 #[allow(non_upper_case_globals)]
 impl ModelId {
-    pub const Qwen: ModelId = ModelId("qwen");
-    pub const ZImageTurbo: ModelId = ModelId("z-image-turbo");
     pub const Klein4B: ModelId = ModelId("flux2-klein-4b");
     pub const Klein9B: ModelId = ModelId("flux2-klein-9b");
     pub const Ernie: ModelId = ModelId("ernie-image");
@@ -37,8 +35,7 @@ impl ModelId {
     pub const KleinRemove: ModelId = ModelId("klein-remove");
 
     /// The models Local Image 0.7 shipped (tools depend on them by key).
-    pub const ORIGINAL: [ModelId; 7] =
-        [ModelId::Qwen, ModelId::ZImageTurbo, ModelId::Klein4B, ModelId::Klein9B, ModelId::Ernie, ModelId::SeedVr2, ModelId::KleinRemove];
+    pub const ORIGINAL: [ModelId; 5] = [ModelId::Klein4B, ModelId::Klein9B, ModelId::Ernie, ModelId::SeedVr2, ModelId::KleinRemove];
 
     pub fn key(self) -> &'static str {
         self.0
@@ -112,13 +109,10 @@ pub struct ModelInfo {
     pub best_for: String,
     pub description: String,
     pub max_references: usize,
-    /// The one image input is a starting image for variations (Z-Image), not a semantic reference.
-    pub init_image: bool,
     pub text_to_image: bool,
     pub edit: bool,
     pub inpaint: bool,
     pub upscale: bool,
-    pub transparent: bool,
     pub negative_prompt: bool,
     pub steps: Range,
     pub guidance: Range,
@@ -140,7 +134,7 @@ pub struct ModelInfo {
 }
 
 impl ModelInfo {
-    /// Short capability tags for menus and cards ("Create", "Edit", "3 refs", "Fill", "Alpha").
+    /// Short capability tags for menus and cards ("Create", "Edit", "3 refs", "Fill").
     pub fn tags(&self) -> Vec<String> {
         let mut t = Vec::new();
         if self.text_to_image {
@@ -149,16 +143,13 @@ impl ModelInfo {
         if self.edit {
             t.push("Edit".to_owned());
         }
-        if self.max_references > 0 && !self.init_image {
+        if self.max_references > 0 {
             t.push(format!("{} ref{}", self.max_references, if self.max_references == 1 { "" } else { "s" }));
-        } else if matches!(self.resolved.pipeline.reference, RefMethod::IpAdapter | RefMethod::Redux) {
+        } else if self.resolved.pipeline.reference == RefMethod::IpAdapter {
             t.push("Refs via adapter".to_owned());
         }
         if self.inpaint {
             t.push("Fill".to_owned());
-        }
-        if self.transparent {
-            t.push("Alpha".to_owned());
         }
         if self.upscale {
             t.push("Upscale".to_owned());
@@ -234,12 +225,10 @@ pub(crate) fn info_for(f: &Family, m: &ModelDef, origin: Origin) -> ModelInfo {
         best_for: if m.best_for.is_empty() { f.description.split(':').next().unwrap_or("").to_owned() } else { m.best_for.clone() },
         description: if m.description.is_empty() { f.description.clone() } else { m.description.clone() },
         max_references: c.references as usize,
-        init_image: r.pipeline.reference == RefMethod::InitImage,
         text_to_image: c.create && r.kind == FamilyKind::Image,
         edit: c.edit,
         inpaint: c.inpaint,
         upscale: c.upscale,
-        transparent: c.transparent,
         negative_prompt: c.negative_prompt,
         steps: r.sampling.steps,
         guidance: r.sampling.cfg,
@@ -420,7 +409,7 @@ pub fn set_templates(templates: BTreeMap<String, TemplateModel>) -> bool {
 }
 
 /// The starting denoise for refining with `model`: 1.0 for native reference/edit conditioning
-/// (FLUX.2, Kontext, Qwen Edit and Qwen 2.1), a partial 0.35 for ordinary img2img families.
+/// (FLUX.2, Qwen Edit), a partial 0.35 for ordinary img2img families.
 pub fn refine_default_denoise(model: ModelId) -> f32 {
     if let Some(d) = crate::refine::model_defaults(model) {
         return d.denoise;
@@ -648,10 +637,10 @@ fn template_availability(preset: &Preset, m: &ModelInfo, info: &ObjectInfo) -> A
 /// Planning recommendation shown in the hardware guide.
 pub const VRAM_GUIDE: &[(&str, u32)] = &[
     ("SD 1.5", 4),
-    ("SDXL, Pony, Illustrious", 8),
-    ("Z-Image Turbo, FLUX.2 Klein 4B, FLUX.1 (FP8) and AI Remove", 16),
-    ("Qwen Compact INT8, Qwen Image (FP8), Klein 9B, ERNIE-Image, HiDream (FP8)", 24),
-    ("Qwen Full BF16, FLUX.2 dev and SeedVR2 4K enhancement", 32),
+    ("SDXL, Pony", 8),
+    ("FLUX.2 Klein 4B and AI Remove", 16),
+    ("Qwen Image (FP8), Klein 9B, ERNIE-Image, HiDream (FP8)", 24),
+    ("FLUX.2 dev and SeedVR2 4K enhancement", 32),
 ];
 
 #[cfg(test)]
@@ -665,10 +654,7 @@ mod tests {
             assert_eq!(refine_method(m), RefineMethod::Reference);
             assert_eq!(refine_default_denoise(m), 1.0);
         }
-        // Text-encoder edit models refine by reference too, at full denoise (verified with real refines).
-        assert_eq!(refine_method(ModelId::Qwen), RefineMethod::Reference);
-        assert_eq!(refine_default_denoise(ModelId::Qwen), 1.0);
-        for m in [ModelId::ZImageTurbo, ModelId::Ernie, ModelId::intern("missing-refine-model")] {
+        for m in [ModelId::Ernie, ModelId::intern("missing-refine-model")] {
             assert_eq!(refine_method(m), RefineMethod::Img2Img);
             assert_eq!(refine_default_denoise(m), 0.35);
         }
@@ -691,9 +677,7 @@ mod tests {
                 assert!(f.url.ends_with(".safetensors") || (core_upscaler && f.url.ends_with(".pth")) || crate::restoration::pinned_file(&f.name).is_some());
             }
         }
-        assert_eq!(ModelId::Qwen.info().label, "Qwen Image 2.1");
         assert_eq!(ModelId::Klein4B.info().steps.default, 4.0);
-        assert!(ModelId::Qwen.info().transparent);
         assert!(!ModelId::generators().contains(&ModelId::KleinRemove));
     }
 
@@ -742,8 +726,6 @@ mod tests {
         let installed = [
             ("hidream", "hidream_i1_dev_fp8.safetensors", 28.0, 1.0),
             ("hidream", "hidream_i1_fast_fp8.safetensors", 16.0, 1.0),
-            ("z-image", "z_image_bf16.safetensors", 25.0, 4.0),
-            ("flux1", "flux1-schnell.safetensors", 4.0, 1.0),
             ("flux2-klein", "flux-2-klein-base-9b.safetensors", 20.0, 5.0),
         ];
         for (family, file, steps, cfg) in installed {

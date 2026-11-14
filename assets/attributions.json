@@ -95,18 +95,6 @@
           "url": "https://github.com/agriggio/make_arq"
         },
         {
-          "name": "SplitMix64",
-          "used_for": "Stable seed-derived alternate conditioning for Z-Image Turbo Variety.",
-          "upstream": "misc/splitmix64.c",
-          "commit": "84131700dfd32d9d1063f99b5b0a900f5935a613",
-          "ours": "crates/li-ai/src/builders.rs, crates/li-ai/examples/zimage_variety_check.rs",
-          "licence": "CC0-1.0",
-          "licence_files": [
-            "licenses/splitmix64-NOTICE.md"
-          ],
-          "url": "https://github.com/svaarala/duktape/blob/84131700dfd32d9d1063f99b5b0a900f5935a613/misc/splitmix64.c"
-        },
-        {
           "name": "darktable-ai",
           "used_for": "AI Denoise: RawNIND UtNet2 (Bayer and linear Rec.2020) and NIND UNet from darktable-ai, run on the CPU with tract, using the tiler shared with WGSL GPU execution.",
           "upstream": "models/rawdenoise-nind/demo.py",
@@ -7364,18 +7352,18 @@
       "intro": "Downloaded only when you ask for them, never shipped with Local Image. Each model keeps its own licence.",
       "entries": [
         {
-          "name": "Fast · BRIA RMBG-1.4",
-          "author": "BRIA AI; commercial use requires a BRIA agreement",
-          "used_for": "Subject masks: Select Subject and Remove Background.",
-          "licence": "BRIA RMBG-1.4 licence · non-commercial",
-          "url": "https://huggingface.co/briaai/RMBG-1.4"
-        },
-        {
-          "name": "Better Quality · InSPyReNet SwinB Plus-Ultra",
+          "name": "Fast · InSPyReNet SwinB Plus-Ultra",
           "author": "InSPyReNet, plemeri; community ONNX conversion by OS-Software",
           "used_for": "Subject masks: Select Subject and Remove Background.",
           "licence": "MIT",
           "url": "https://huggingface.co/OS-Software/InSPyReNet-SwinB-Plus-Ultra-ONNX"
+        },
+        {
+          "name": "Better Quality · BiRefNet lite",
+          "author": "BiRefNet, ZhengPeng7; ONNX conversion by onnx-community",
+          "used_for": "Subject masks: Select Subject and Remove Background.",
+          "licence": "MIT",
+          "url": "https://huggingface.co/onnx-community/BiRefNet_lite-ONNX"
         },
         {
           "name": "PP-MobileSeg",
@@ -7511,12 +7499,6 @@
           "url": "https://huggingface.co/baidu/ERNIE-Image"
         },
         {
-          "name": "FLUX.1",
-          "used_for": "Black Forest Labs' FLUX.1 dev and schnell (12B): detailed, coherent images; the largest LoRA ecosystem after SDXL.",
-          "licence": "FLUX.1 [dev] Non-Commercial License (schnell: Apache 2.0)",
-          "url": "https://huggingface.co/black-forest-labs/FLUX.1-dev/blob/main/LICENSE.md"
-        },
-        {
           "name": "FLUX.2 Klein",
           "used_for": "Distilled FLUX.2 Klein (4B / 9B): four-step drafts and reference editing with up to four images.",
           "upstream": "FLUX.2 Klein 4B, FLUX.2 Klein 9B, FLUX.2 Klein AI Remove",
@@ -7542,12 +7524,6 @@
           "url": "https://huggingface.co/HiDream-ai/HiDream-I1-Full"
         },
         {
-          "name": "Illustrious / NoobAI",
-          "used_for": "SDXL fine-tunes for illustration and anime (Illustrious XL, NoobAI); tag prompts with quality tags.",
-          "licence": "Fair AI Public License 1.0-SD",
-          "url": "https://huggingface.co/OnomaAIResearch/Illustrious-xl-early-release-v0"
-        },
-        {
           "name": "Krea 2",
           "used_for": "Krea 2 (12B): stylised images in eight steps (Turbo) and style references from your own pictures.",
           "licence": "Krea 2 Community License",
@@ -7564,13 +7540,6 @@
           "used_for": "SDXL fine-tunes in the Pony V6 line: stylised and character art, tag-based prompts with score tags.",
           "licence": "Fair AI Public License 1.0-SD",
           "url": "https://civitai.com/models/257749"
-        },
-        {
-          "name": "Qwen Image 2.1",
-          "used_for": "Qwen Image 2.1 (7B): edits with up to ten reference images, real alpha-channel output for cutouts and transparent assets.",
-          "upstream": "Qwen Image 2.1",
-          "licence": "Qwen Research License",
-          "url": "https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE"
         },
         {
           "name": "Qwen Image",
@@ -7619,13 +7588,6 @@
           "upstream": "SeedVR2 7B",
           "licence": "Apache 2.0",
           "url": "https://huggingface.co/ByteDance-Seed/SeedVR2-7B"
-        },
-        {
-          "name": "Z-Image",
-          "used_for": "Tongyi's Z-Image (6B): fast, strongly photographic generation.",
-          "upstream": "Z-Image Turbo",
-          "licence": "Apache 2.0",
-          "url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"
         },
         {
           "name": "FBCNN · JPEG cleanup",

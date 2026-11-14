@@ -1,6 +1,6 @@
-//! The curated builder graphs (Qwen Image 2.1, FLUX.2 Klein, AI Remove, Z-Image Turbo, SDXL,
-//! SeedVR2) must not change when support for other models changes. Each case is compared with
-//! the graph captured in `tests/fixtures/curated-graphs/`; `LI_AI_BLESS=1` rewrites the fixtures.
+//! The curated builder graphs (FLUX.2 Klein, AI Remove, SDXL, SeedVR2) must not change when
+//! support for other models changes. Each case is compared with the graph captured in
+//! `tests/fixtures/curated-graphs/`; `LI_AI_BLESS=1` rewrites the fixtures.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -24,7 +24,6 @@ fn curated(reg: &Registry, key: &str, variant: &str) -> (Family, Files) {
 fn fill_task(f: &Family) -> Task {
     match f.pipeline.inpaint {
         InpaintMethod::Instruction => Task::Edit,
-        InpaintMethod::ModelConditioning => Task::Inpaint { denoise: 1.0 },
         _ => Task::Inpaint { denoise: 1.0 },
     }
 }
@@ -49,7 +48,7 @@ fn graphs() -> Vec<(String, Value)> {
             out.push((format!("{name}.{task}"), builders::build(f, files, &p).graph));
         }
     };
-    for (key, variant) in [("qwen", "bf16"), ("qwen", "int8"), ("flux2-klein-4b", "bf16"), ("flux2-klein-9b", "fp8"), ("z-image-turbo", "bf16")] {
+    for (key, variant) in [("flux2-klein-4b", "bf16"), ("flux2-klein-9b", "fp8")] {
         let (f, files) = curated(&reg, key, variant);
         tasks(&format!("{key}-{variant}"), &f, &files);
     }

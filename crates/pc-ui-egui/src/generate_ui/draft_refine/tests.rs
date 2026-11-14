@@ -66,102 +66,6 @@ fn open_from_menu(h: &mut Harness<'_, PhotocraftApp>) {
     h.run_steps(4);
 }
 
-#[test]
-fn zimage_turbo_variety_tip_follows_picker_clicks_in_generate_and_draft_gpu() {
-    use egui::accesskit::Role;
-    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let tip = model_variety_tip(ModelId::ZImageTurbo).unwrap();
-    for model in ModelId::all().into_iter().filter(|m| *m != ModelId::ZImageTurbo) {
-        assert!(model_variety_tip(model).is_none(), "{model:?}");
-    }
-    assert!(model_variety_tip(ModelId::intern("installed:z_image_bf16.safetensors")).is_none());
-    assert!(li_ui_kit::icons::exists("info"));
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/zimage-variety/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut h = harness_render(vec2(1280.0, 800.0), true);
-    crate::dock::reveal(h.state_mut(), crate::dock::Group::Generate);
-    h.state_mut().ui.dock_tabs.generate = 0;
-    h.run_steps(3);
-    assert!(h.query_by_label(tip).is_none());
-    let current = model_of(&h.state().ui.ai.generate).info();
-    h.get_by_value(&current.label).click();
-    h.run_steps(2);
-    h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
-    h.run_steps(3);
-    h.get_by_label(tip).scroll_to_me();
-    h.run_steps(20);
-    let note = h.get_by_label(tip).rect();
-    assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0)).contains_rect(note));
-    h.render().unwrap().save(dir.join("generate-tip.png")).unwrap();
-    let info = ModelId::ZImageTurbo.info();
-    h.get_by_value(&info.label).scroll_to_me();
-    h.run_steps(20);
-    h.get_by_value(&info.label).click();
-    h.run_steps(2);
-    let row = h.get_by_role_and_label(Role::Button, &info.label).rect();
-    h.hover_at(row.center());
-    h.run_steps(90);
-    h.get_by_label(&format!("{}\n{}\n{tip}", info.best_for, info.tags().join(" · ")));
-    h.render().unwrap().save(dir.join("picker-tooltip.png")).unwrap();
-    h.get_by_role_and_label(Role::Button, &ModelId::Ernie.info().label).click();
-    h.run_steps(3);
-    assert!(h.query_by_label(tip).is_none());
-    open_from_menu(&mut h);
-    h.get_by_role_and_label(Role::Button, "Draft").click();
-    h.run_steps(3);
-    let current = model_of(&h.state().ui.ai.draft_refine.draft).info();
-    h.get_by_value(&current.label).click();
-    h.run_steps(2);
-    h.get_by_role_and_label(Role::Button, &info.label).click();
-    h.run_steps(3);
-    let note = h.get_by_label(tip).rect();
-    assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0)).contains_rect(note));
-    h.get_by_role_and_label(Role::Slider, "Variety").scroll_to_me();
-    h.run_steps(20);
-    let slider = h.get_by_role_and_label(Role::Slider, "Variety").rect();
-    let from = slider.left_center() + vec2(8.0, 0.0);
-    let delta = vec2(slider.width() * 0.6, 0.0);
-    h.hover_at(from);
-    h.step();
-    h.event(Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
-    h.step();
-    let mut frame_ms = Vec::new();
-    for i in 1..=5 {
-        let start = std::time::Instant::now();
-        h.event(Event::PointerMoved(from + delta * (i as f32 / 5.0)));
-        h.step();
-        h.render().unwrap();
-        frame_ms.push(start.elapsed().as_secs_f64() * 1000.0);
-    }
-    h.event(Event::PointerButton { pos: from + delta, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
-    h.run_steps(2);
-    std::fs::write(
-        dir.join("interaction-times.json"),
-        serde_json::to_vec_pretty(&json!({"scenario":"Draft Variety drag: app update and GPU render/readback", "size":[1280,800], "frame_ms":frame_ms}))
-            .unwrap(),
-    )
-    .unwrap();
-    let variety = h.state().ui.ai.draft_refine.draft.variety;
-    assert!(variety > 0.0 && variety <= 100.0, "slider={slider:?}, value={variety}");
-    let req = stage_request(h.state(), false).unwrap();
-    assert_eq!(req.variety, variety);
-    let saved = serde_json::to_value(&h.state().ui.ai.draft_refine).unwrap();
-    let restored: Settings = serde_json::from_value(saved).unwrap();
-    assert_eq!(restored.draft.variety, variety);
-    h.render().unwrap().save(dir.join("draft-tip.png")).unwrap();
-    h.get_by_role_and_label(Role::Button, "Off").click();
-    h.run_steps(2);
-    assert_eq!(h.state().ui.ai.draft_refine.draft.variety, 0.0);
-    h.get_by_value(&info.label).scroll_to_me();
-    h.run_steps(20);
-    h.get_by_value(&info.label).click();
-    h.run_steps(2);
-    h.get_by_role_and_label(Role::Button, &ModelId::Klein4B.info().label).click();
-    h.run_steps(3);
-    assert!(h.query_by_label(tip).is_none());
-    assert!(h.query_by_role_and_label(Role::Slider, "Variety").is_none());
-}
-
 fn drag(h: &mut Harness<'_, PhotocraftApp>, from: egui::Pos2, delta: egui::Vec2) {
     h.hover_at(from);
     h.step();
@@ -221,16 +125,16 @@ fn draft_refine_sampling_is_editable_and_bounded_only_by_comfyui() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
-    // Qwen has variable steps and guidance; Klein's distilled ranges are fixed.
+    // ERNIE-Image has variable steps and guidance; Klein's distilled ranges are fixed.
     h.get_by_value(&ModelId::Klein9B.info().label).click();
     h.run_steps(2);
-    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
+    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Ernie.info().label).click();
     h.run_steps(3);
     let settings = &h.state().ui.ai.draft_refine.refinement;
-    let info = ModelId::Qwen.info();
+    let info = ModelId::Ernie.info();
     assert_eq!(settings.steps, info.steps.default as u32);
     assert_eq!(settings.guidance, info.guidance.default);
-    assert_eq!(settings.denoise, catalog::refine_default_denoise(ModelId::Qwen));
+    assert_eq!(settings.denoise, catalog::refine_default_denoise(ModelId::Ernie));
     let steps = h.get_all_by_label("Steps").find(|n| n.accesskit_node().role() == egui::accesskit::Role::SpinButton).unwrap().rect();
     let before = h.state().ui.ai.draft_refine.refinement.steps;
     drag(&mut h, steps.center(), vec2(14.0, 0.0));
@@ -565,7 +469,7 @@ fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let info = li_ai::comfy::ObjectInfo(
-        json!({"LoraLoader": {"input": {"required": {"lora_name": [["qwen_image_2.1_style.safetensors", "flux_realism_lora.safetensors"]]}}}}),
+        json!({"LoraLoader": {"input": {"required": {"lora_name": [["flux-2-klein-style.safetensors", "sdxl_realism_lora.safetensors"]]}}}}),
     );
     li_ai::inventory::refresh(&info, None);
     struct Reset;
@@ -580,15 +484,15 @@ fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
     open_from_menu(&mut h);
     h.get_by_value(&ModelId::Klein9B.info().label).click();
     h.run_steps(2);
-    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
+    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Klein9B.info().label).click();
     h.run_steps(3);
     h.get_by_label("+ Add").click();
     h.run_steps(2);
-    assert!(h.query_by_label("flux realism lora").is_none(), "other families aren't offered");
-    h.get_by_label("qwen image 2.1 style").click();
+    assert!(h.query_by_label("sdxl realism lora").is_none(), "other families aren't offered");
+    h.get_by_label("flux 2 klein style").click();
     h.run_steps(3);
     let pick = &h.state().ui.ai.draft_refine.refinement.loras[0];
-    assert_eq!(pick.name, "qwen_image_2.1_style.safetensors");
+    assert_eq!(pick.name, "flux-2-klein-style.safetensors");
     // Scroll the extra LoRA row into view, then scrub its actual strength field.
     h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Strength").scroll_to_me();
     h.run_steps(3);
@@ -601,7 +505,7 @@ fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
     h.get_by_label("Refine image").click();
     h.run_steps(2);
     let request = TEST_REQUEST.with(|m| m.borrow().as_ref().unwrap().last().unwrap().clone());
-    assert_eq!(request.loras, vec![li_ai::workflows::LoraUse { name: "qwen_image_2.1_style.safetensors".into(), strength }]);
+    assert_eq!(request.loras, vec![li_ai::workflows::LoraUse { name: "flux-2-klein-style.safetensors".into(), strength }]);
 }
 
 #[test]
@@ -642,23 +546,16 @@ fn draft_refine_fresh_and_changed_refinement_model_use_per_model_denoise() {
     let reference = h.get_by_label("Edit models — refine by reference").rect();
     let img2img = h.get_by_label("Image models — refine by denoise").rect();
     let klein = h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).rect();
-    let zimage = h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).rect();
-    assert!(reference.max.y < klein.min.y && klein.max.y < img2img.min.y && img2img.max.y < zimage.min.y);
+    let ernie = h.get_by_role_and_label(Role::Button, &ModelId::Ernie.info().label).rect();
+    assert!(reference.max.y < klein.min.y && klein.max.y < img2img.min.y && img2img.max.y < ernie.min.y);
     for excluded in [ModelId::SeedVr2, ModelId::KleinRemove] {
         assert!(h.query_by_role_and_label(Role::Button, &excluded.info().label).is_none());
     }
-    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
-    h.run_steps(3);
-    // Qwen edit refines by reference at full denoise (verified with real refines).
-    assert_eq!(h.state().ui.ai.draft_refine.refinement.denoise, 1.0);
-    assert_eq!(stage_request(h.state(), true).unwrap().denoise, 1.0);
-    h.get_by_value(&ModelId::Qwen.info().label).click();
-    h.run_steps(2);
-    h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
+    h.get_by_role_and_label(Role::Button, &ModelId::Ernie.info().label).click();
     h.run_steps(3);
     assert_eq!(h.state().ui.ai.draft_refine.refinement.denoise, 0.35);
     h.get_by_label("Refines by denoise: lower keeps more of the image");
-    h.get_by_value(&ModelId::ZImageTurbo.info().label).click();
+    h.get_by_value(&ModelId::Ernie.info().label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).click();
     h.run_steps(3);

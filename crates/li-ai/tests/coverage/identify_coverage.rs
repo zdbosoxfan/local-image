@@ -124,19 +124,19 @@ const TABLE: &[(&str, FileKind, FileKind, Option<&str>, Option<&str>, &str)] = &
     ("Comfy-Org_MOSS-Image__diffusion_models~moss_image_base_bf16", D, D, Some("moss-image"), Some("base"), "bf16"),
     ("Comfy-Org_MOSS-Image__diffusion_models~moss_image_sft_int8_convrot", D, D, Some("moss-image"), Some("sft"), "int8_convrot"),
     ("Comfy-Org_Ming-Image__diffusion_models~ming_image_0.1_design_bf16", D, D, None, None, "bf16"),
-    ("Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_bf16", D, D, Some("qwen-image-21"), Some("turbo"), "bf16"),
-    ("Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_int8_convrot", D, D, Some("qwen-image-21"), Some("turbo"), "int8_convrot"),
+    ("Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_bf16", D, D, None, None, "bf16"),
+    ("Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_int8_convrot", D, D, None, None, "int8_convrot"),
     ("Comfy-Org_Qwen-Image-2.1__model_patches~qwen_image_2.1_fun_controlnet_union_bf16", D, D, None, None, "bf16"),
-    ("Comfy-Org_Z-Image__split_files~diffusion_models~z_image_bf16", D, D, Some("z-image"), None, "bf16"),
-    ("Comfy-Org_Z-Image__split_files~diffusion_models~z_image_int8_convrot", D, D, Some("z-image"), None, "int8_convrot"),
+    ("Comfy-Org_Z-Image__split_files~diffusion_models~z_image_bf16", D, D, None, None, "bf16"),
+    ("Comfy-Org_Z-Image__split_files~diffusion_models~z_image_int8_convrot", D, D, None, None, "int8_convrot"),
     ("local__checkpoints~RealVisXL_V5.0_fp16", C, C, Some("sdxl"), None, "fp16"),
     ("local__checkpoints~XL_RealVisXL_V5.0_Lightning", C, C, Some("sdxl"), None, "fp16"),
     ("local__controlnet~diffusion_pytorch_model_promax", D, D, None, None, "fp16"),
     ("local__diffusion_models~flux-2-klein-9b-fp8", D, D, Some("flux2-klein"), Some("9b"), "fp8mixed"),
-    ("local__diffusion_models~qwen_image_2.1_bf16", D, D, Some("qwen-image-21"), None, "bf16"),
-    ("local__diffusion_models~qwen_image_2.1_int8_convrot", D, D, Some("qwen-image-21"), None, "int8_convrot"),
+    ("local__diffusion_models~qwen_image_2.1_bf16", D, D, None, None, "bf16"),
+    ("local__diffusion_models~qwen_image_2.1_int8_convrot", D, D, None, None, "int8_convrot"),
     ("local__diffusion_models~seedvr2_7b_fp16", D, D, Some("seedvr2"), None, "fp16"),
-    ("local__diffusion_models~z_image_turbo_bf16", D, D, Some("z-image"), None, "bf16"),
+    ("local__diffusion_models~z_image_turbo_bf16", D, D, None, None, "bf16"),
     ("owner__diffusion_models~flux3-image-klein-bf16", D, D, Some("flux3-klein"), Some("distilled"), "bf16"),
     ("owner__diffusion_models~flux3-image-klein-base-bf16", D, D, Some("flux3-klein"), Some("base"), "bf16"),
     ("owner__diffusion_models~moss_image_sft_bf16", D, D, Some("moss-image"), Some("sft"), "bf16"),
@@ -146,8 +146,8 @@ const TABLE: &[(&str, FileKind, FileKind, Option<&str>, Option<&str>, &str)] = &
     ("realrebelai_FLUX-3-Image-Klein_GGUFs__DISTILLED~flux3_image_klein_sd_w4a8_convrot", D, D, Some("flux3-klein"), Some("distilled"), "w4a8"),
     ("unsloth_FLUX.2-klein-9B-GGUF__flux-2-klein-9b-Q4_K_M.gguf", D, D, Some("flux2-klein"), Some("9b"), "gguf:Q4_K_M"),
     ("unsloth_flux-3-image-klein-GGUF__flux-3-image-klein-Q4_K_M.gguf", D, D, Some("flux3-klein"), Some("distilled"), "gguf:Q4_K_M"),
-    ("unsloth_Qwen-Image-2.1-GGUF__qwen-image-2.1-Q4_K_M.gguf", D, D, Some("qwen-image-21"), None, "gguf:Q4_K"),
-    ("unsloth_Z-Image-Turbo-GGUF__z-image-turbo-Q4_K_M.gguf", D, D, Some("z-image"), None, "gguf:Q4_K_M"),
+    ("unsloth_Qwen-Image-2.1-GGUF__qwen-image-2.1-Q4_K_M.gguf", D, D, None, None, "gguf:Q4_K"),
+    ("unsloth_Z-Image-Turbo-GGUF__z-image-turbo-Q4_K_M.gguf", D, D, None, None, "gguf:Q4_K_M"),
     ("Comfy-Org_Fibo-2.0__text_encoders~qwen3vl_4b_int8_convrot", T, T, None, None, "int8_convrot"),
     ("Comfy-Org_Flux-2-Dev__split_files~text_encoders~mistral_3_small_flux2_fp4_mixed", T, T, None, None, "fp4mixed"),
     ("Comfy-Org_Flux-2-Klein-4B__split_files~text_encoders~qwen_3_4b_fp4_flux2", T, T, None, None, "fp4mixed"),
@@ -166,25 +166,25 @@ const TABLE: &[(&str, FileKind, FileKind, Option<&str>, Option<&str>, &str)] = &
     ("Comfy-Org_Krea-2__vae~qwen_image_vae", V, V, None, None, "bf16"),
     ("Comfy-Org_MOSS-Image__vae~flux2-vae_small", V, V, None, None, "fp32"),
     ("Comfy-Org_Ming-Image__vae~ming_image_vae_bf16", V, V, None, None, "bf16"),
-    ("local__vae~ae", V, V, Some("flux1"), None, "fp32"),
+    ("local__vae~ae", V, V, None, None, "fp32"),
     ("local__vae~flux2-vae", V, V, None, None, "fp32"),
-    ("local__vae~qwen_image_2.1_vae_bf16", V, V, Some("qwen-image-21"), None, "bf16"),
+    ("local__vae~qwen_image_2.1_vae_bf16", V, V, None, None, "bf16"),
     ("local__vae~seedvr2_ema_vae_fp16", V, V, Some("seedvr2"), None, "fp16"),
     ("adirik_pixel-art-lora-flux.2-klein-4B__pixelart_lora", L, L, Some("flux2-klein"), None, "bf16"),
-    ("akhaliq_Qwen-Image-2.1-Next-Scene-LoRA__checkpoints~qwen21_next_scene_v1", L, L, Some("qwen-image-21"), None, "fp16"),
-    ("alibaba-pai_Qwen-Image-2.1-Fun-Acc-LoRAs__models~Qwen-Image-2.1-Fun-Acc-4Step", L, L, Some("qwen-image-21"), None, "bf16"),
-    ("chriswritescode_Turbo8-LoRA-Qwen-Image-2.1__turbo8_lora_step2500", L, L, Some("qwen-image-21"), None, "fp32"),
+    ("akhaliq_Qwen-Image-2.1-Next-Scene-LoRA__checkpoints~qwen21_next_scene_v1", L, L, Some("other:qwen-image-21"), None, "fp16"),
+    ("alibaba-pai_Qwen-Image-2.1-Fun-Acc-LoRAs__models~Qwen-Image-2.1-Fun-Acc-4Step", L, L, Some("other:qwen-image-21"), None, "bf16"),
+    ("chriswritescode_Turbo8-LoRA-Qwen-Image-2.1__turbo8_lora_step2500", L, L, Some("other:qwen-image-21"), None, "fp32"),
     ("Comfy-Org_Fibo-2.0__loras~fibo_2.0_turbo_lora_avg_rank_270_bf16", L, L, None, None, "bf16"),
     ("Comfy-Org_Flux-2-Dev__split_files~loras~Flux2TurboComfyv2", L, L, Some("flux2"), None, "bf16"),
-    ("Comfy-Org_Qwen-Image-2.1__loras~qwen_image_2.1_turbo_lora_avg_rank_178_bf16", L, L, Some("qwen-image-21"), None, "bf16"),
-    ("lightx2v_Qwen-Image-2.1-Lightning__pytorch_lora_weights", L, L, Some("qwen-image-21"), None, "fp32"),
+    ("Comfy-Org_Qwen-Image-2.1__loras~qwen_image_2.1_turbo_lora_avg_rank_178_bf16", L, L, Some("other:qwen-image-21"), None, "bf16"),
+    ("lightx2v_Qwen-Image-2.1-Lightning__pytorch_lora_weights", L, L, Some("other:qwen-image-21"), None, "fp32"),
     ("linoyts_Flux2-Klein-Delight-LoRA__pytorch_lora_weights", L, L, Some("flux2-klein"), None, "fp32"),
     ("linoyts_Flux2-Klein-Delight-LoRA__pytorch_lora_weights_v2", L, L, Some("flux2-klein"), None, "fp32"),
     ("local__loras~flux-2-klein-object-remove", L, L, Some("flux2-klein"), None, "fp32"),
     ("local__loras~nar_lora_joint_v9_comfyui", L, L, Some("other:yue2"), None, "bf16"),
-    ("prithivMLmods_Qwen-Image-2.1-Natural-Exposure-LoRA__Qwen-Image-2.1-Natural-Exposure-LoRA-4000", L, L, Some("qwen-image-21"), None, "bf16"),
+    ("prithivMLmods_Qwen-Image-2.1-Natural-Exposure-LoRA__Qwen-Image-2.1-Natural-Exposure-LoRA-4000", L, L, Some("other:qwen-image-21"), None, "bf16"),
     ("thedeoxen_refcontrol-FLUX.2-klein-9B-reference-depth-lora__flux2_klein_9b_refcontrol_depth", L, L, Some("flux2-klein"), None, "bf16"),
-    ("WarmBloodAban_Qwen-Image-2.1-LoRAs__Qwen2.1_Anime_consistency", L, L, Some("qwen-image-21"), None, "bf16"),
+    ("WarmBloodAban_Qwen-Image-2.1-LoRAs__Qwen2.1_Anime_consistency", L, L, Some("other:qwen-image-21"), None, "bf16"),
     ("Comfy-Org_Krea-2__loras~krea2_darkbrush", L, L, Some("krea2"), None, "fp32"),
     ("Comfy-Org_Krea-2__loras~krea2_style_reference", L, L, Some("krea2"), None, "bf16"),
     ("Comfy-Org_Krea-2__loras~krea2_turbo_lora_rank_64_bf16", L, L, Some("krea2"), None, "bf16"),
@@ -262,21 +262,21 @@ fn newer_generations_never_fall_back_to_older_families() {
     assert_eq!(arch::guess_from_name("flux3-image-klein-bf16.safetensors", D), None);
     assert_eq!(arch::guess_from_name("flux-3-image-klein-Q4_K_M.gguf", D), None);
     assert_eq!(arch::guess_from_name("hidream_o1_full_bf16.safetensors", D), None);
+    assert_eq!(arch::guess_from_name("qwen_image_2.1_turbo_bf16.safetensors", D), None);
+    assert_eq!(arch::guess_from_name("flux1-dev.safetensors", D), None);
+    assert_eq!(arch::guess_from_name("flux1-kontext-dev.safetensors", D), None);
     assert_eq!(arch::family_from_modelspec("flux-3-image-klein"), None);
     assert_eq!(arch::family_from_modelspec("flux-2-klein-4b"), Some("flux2-klein"));
     for (name, fam) in [
-        ("flux1-dev.safetensors", "flux1"),
-        ("flux1-kontext-dev.safetensors", "flux1-kontext"),
         ("flux2_dev_fp8mixed.safetensors", "flux2"),
         ("flux-2-klein-4b.safetensors", "flux2-klein"),
         ("hidream_i1_full_fp8.safetensors", "hidream"),
         ("qwen_image_edit_2511_bf16.safetensors", "qwen-edit"),
         ("qwen_image_2512_bf16.safetensors", "qwen-image"),
-        ("qwen_image_2.1_turbo_bf16.safetensors", "qwen-image-21"),
     ] {
         assert_eq!(arch::guess_from_name(name, D).as_deref(), Some(fam), "{name}");
     }
-    assert_eq!(arch::guess_from_name("flux_3d_style_lora.safetensors", L).as_deref(), Some("flux1"));
+    assert_eq!(arch::guess_from_name("flux_3d_style_lora.safetensors", L), None);
     // A local header that matches no layout stays unknown whatever the name says.
     let unknown = arch::parse_safetensors_json(br#"{"new_architecture.weight": {"dtype": "BF16", "shape": [8, 8], "data_offsets": [0, 0]}}"#).unwrap();
     let reg = without_new_profiles();
@@ -363,11 +363,11 @@ fn detection_rules_arrive_as_profile_data() {
 fn local_files_are_identified_from_their_headers_on_disk() {
     let d = std::env::temp_dir().join(format!("li-id-{}", uuid::Uuid::new_v4().simple()));
     std::fs::create_dir_all(d.join("diffusion_models")).unwrap();
-    let fixture = "unsloth_Qwen-Image-2.1-GGUF__qwen-image-2.1-Q4_K_M.gguf";
+    let fixture = "unsloth_FLUX.2-klein-9B-GGUF__flux-2-klein-9b-Q4_K_M.gguf";
     let p = d.join("diffusion_models").join("renamed.gguf");
     std::fs::write(&p, gguf_bytes(&fixture_json(fixture))).unwrap();
     let id = li_ai::inventory::identify_file(Path::new(&p), D, &embedded_registry()).unwrap();
-    assert_eq!(id.arch.as_deref(), Some("qwen-image-21"));
-    assert_eq!(id.quant.class.map(|q| q.id()).as_deref(), Some("gguf:Q4_K"));
+    assert_eq!(id.arch.as_deref(), Some("flux2-klein"));
+    assert_eq!(id.quant.class.map(|q| q.id()).as_deref(), Some("gguf:Q4_K_M"));
     let _ = std::fs::remove_dir_all(d);
 }

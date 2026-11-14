@@ -24,7 +24,7 @@ use serde::Serialize;
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoveEngine {
-    /// Stable key (`klein`, `qwen-int8`, `qwen-bf16`).
+    /// Stable key (`auto`, `lama`, `klein`).
     pub key: String,
     pub label: String,
     /// Why it can't run now (the AI engine isn't running, a model is missing…); `None`: ready.

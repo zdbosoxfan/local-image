@@ -1,5 +1,5 @@
 //! Develop's AI services, provided by the app: Compositing's AI Remove engines (on-device LaMa,
-//! FLUX.2 Klein and Qwen through ComfyUI, `li-ai`), handed to the Library's engine as its
+//! FLUX.2 Klein through ComfyUI, `li-ai`), handed to the Library's engine as its
 //! [`AiHost`] — so the `lc-*` crates depend on neither ComfyUI nor the editor. Removals stay in
 //! float; only a ComfyUI engine's PNG is 8-bit.
 
@@ -12,7 +12,7 @@ use lightcraft_sysmem::JobCtl;
 use photocraft_ui_egui::ai_ui;
 
 /// The AI Remove engines, as Compositing's AI Remove tool offers them.
-const ENGINES: [(&str, &str); 3] = [("klein", "FLUX.2 Klein"), ("qwen-int8", "Qwen Compact"), ("qwen-bf16", "Qwen Full")];
+const ENGINES: [(&str, &str); 1] = [("klein", "FLUX.2 Klein")];
 
 pub struct DevelopAi;
 
@@ -25,8 +25,6 @@ impl DevelopAi {
 fn engine(key: &str) -> li_ai::RemoveEngine {
     match ai_ui::effective_remove_key(key) {
         "lama" => li_ai::RemoveEngine::Lama { models_dir: photocraft_engine::seg::models_dir() },
-        "qwen-bf16" => li_ai::RemoveEngine::Qwen { variant: "bf16".into() },
-        "qwen-int8" => li_ai::RemoveEngine::Qwen { variant: "int8".into() },
         _ => li_ai::RemoveEngine::Klein,
     }
 }
@@ -156,7 +154,7 @@ mod tests {
         let engines = DevelopAi.remove_engines();
         assert_eq!(engines[0].key, "auto");
         assert!(engines.iter().any(|e| e.key == "lama"));
-        assert!(engines.iter().any(|e| e.key == "qwen-int8"));
+        assert!(engines.iter().any(|e| e.key == "klein"));
     }
     #[test]
     fn ds2_upscale_rejects_overflow_and_zero_dimensions() {

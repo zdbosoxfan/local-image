@@ -41,7 +41,6 @@ fn model_keys_match_provider_prefixes() {
         let prefix = match m.provider {
             Provider::OpenAi => "openai:",
             Provider::Google => "google:",
-            Provider::Bfl => "bfl:",
             Provider::Stability => "stability:",
         };
         assert!(m.key.starts_with(prefix), "{} should start with {}", m.key, prefix);
@@ -52,9 +51,7 @@ fn model_keys_match_provider_prefixes() {
 fn host_allowed_allows_expected_https() {
     assert!(host_allowed("https://api.openai.com/v1/images/generations"));
     assert!(host_allowed("https://generativelanguage.googleapis.com/v1beta/models/x:generateContent"));
-    assert!(host_allowed("https://api.bfl.ai/v1/flux-pro-1.1"));
     assert!(host_allowed("https://api.stability.ai/v2beta/stable-image/generate/sd3"));
-    assert!(host_allowed("https://delivery-eu1.bfl.ai/results/abc.png"));
 }
 
 #[test]
@@ -71,7 +68,7 @@ fn host_allowed_rejects_non_https_non_http() {
 
 #[test]
 fn cloud_request_validate_rejects_unsupported_edit() {
-    let m = model("bfl:flux-pro-1.1").unwrap();
+    let m = model("stability:ultra").unwrap();
     let req = base_req(m, CloudMode::Edit);
     let err = req.validate().unwrap_err().to_string();
     assert!(err.contains("doesn't edit"), "{err}");
@@ -95,7 +92,7 @@ fn cloud_request_validate_requires_source_for_edit() {
 
 #[test]
 fn cloud_request_validate_requires_mask_for_fill() {
-    let m = model("bfl:flux-pro-1.0-fill").unwrap();
+    let m = model("stability:inpaint").unwrap();
     let src = RgbaImage::from_pixel(1, 1, Rgba([0, 0, 0, 255]));
     let mut req = base_req(m, CloudMode::Fill);
     req.source = Some(src);
@@ -105,7 +102,7 @@ fn cloud_request_validate_requires_mask_for_fill() {
 
 #[test]
 fn cloud_request_validate_rejects_too_many_refs() {
-    let m = model("bfl:flux-pro-1.1").unwrap(); // max_refs = 0
+    let m = model("stability:ultra").unwrap(); // max_refs = 0
     let mut req = base_req(m, CloudMode::Create);
     req.refs.push(RgbaImage::from_pixel(1, 1, Rgba([0, 0, 0, 255])));
     let err = req.validate().unwrap_err().to_string();
@@ -129,7 +126,7 @@ fn cloud_request_validate_requires_prompt_for_create_and_edit() {
 
 #[test]
 fn cloud_request_validate_allows_empty_prompt_for_fill() {
-    let m = model("bfl:flux-pro-1.0-fill").unwrap();
+    let m = model("stability:inpaint").unwrap();
     let src = RgbaImage::from_pixel(1, 1, Rgba([0, 0, 0, 255]));
     let mask = GrayImage::from_pixel(1, 1, Luma([255]));
     let mut req = base_req(m, CloudMode::Fill);
@@ -219,13 +216,6 @@ fn describe_size_google_ratio() {
 }
 
 #[test]
-fn describe_size_bfl_ratio() {
-    let m = model("bfl:flux-pro-1.1").unwrap();
-    assert_eq!(describe_size(m, 1920, 1080), "16:9");
-    assert_eq!(describe_size(m, 1000, 1000), "1:1");
-}
-
-#[test]
 fn describe_size_stability_ratio() {
     let m = model("stability:ultra").unwrap();
     assert_eq!(describe_size(m, 1920, 1080), "16:9");
@@ -234,7 +224,7 @@ fn describe_size_stability_ratio() {
 
 #[test]
 fn generate_rejects_invalid_request_before_checking_key() {
-    let m = model("bfl:flux-pro-1.0-fill").unwrap();
+    let m = model("stability:inpaint").unwrap();
     let req = base_req(m, CloudMode::Create);
     let settings = AiSettings::default();
     let ctl = JobControl::new();

@@ -105,24 +105,6 @@ pub(super) fn sampling_ui(ui: &mut egui::Ui, s: &mut GenerateState, limits: Opti
     if guidance_changed {
         s.refine_defaults[1] = false;
     }
-    if info.id == ModelId::ZImageTurbo && s.mode == Mode::Create {
-        if !s.variety.is_finite() {
-            s.variety = 0.0;
-        }
-        s.variety = s.variety.clamp(0.0, 100.0);
-        ui.horizontal(|ui| {
-            label(ui, tl!("Variety"));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                widgets::value_field(ui, &mut s.variety, 0.0..=100.0, "%", 74.0);
-                if widgets::secondary_button(ui, tl!("Off"), 0.0).clicked() {
-                    s.variety = 0.0;
-                }
-            });
-        });
-        let r = widgets::slider(ui, &mut s.variety, 0.0..=100.0, None);
-        r.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), s.variety as f64, tl!("Variety")));
-        r.on_hover_text(tl!("Higher Variety can change compositions and loosen prompt details. Set to 0 to turn it off."));
-    }
     if denoise {
         let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| l.denoise);
         if denoise_row(ui, tl!("Denoise"), &mut s.denoise, lo, hi) {
@@ -234,7 +216,6 @@ pub(super) fn set_model(s: &mut GenerateState, m: ModelId) {
     s.variant = catalog::default_variant(m).into();
     s.steps = info.steps.default as u32;
     s.refine_defaults = [true; 3];
-    s.variety = 0.0;
     s.guidance = info.guidance.default;
     if s.mode == Mode::Refine
         && let Some(d) = li_ai::refine::model_defaults(m)
@@ -245,9 +226,6 @@ pub(super) fn set_model(s: &mut GenerateState, m: ModelId) {
     s.denoise = if s.mode == Mode::Create { info.resolved.sampling.denoise } else { s.mode.default_strength(m) };
     s.sampler.clear();
     s.scheduler.clear();
-    if !info.transparent {
-        s.transparent = false;
-    }
     // LoRAs that don't fit the new family are dropped.
     let fam = info.resolved.clone();
     let fits: Vec<String> = li_ai::inventory::loras_for(&fam).into_iter().map(|(l, _)| l.name).collect();
@@ -375,23 +353,6 @@ pub(super) fn chips_with(ui: &mut egui::Ui, items: &[&str], selected: usize, tip
         }
     });
     hit
-}
-
-pub(super) fn model_variety_tip(model: ModelId) -> Option<&'static str> {
-    (model == ModelId::ZImageTurbo)
-        .then(|| tl!("Low variety by design: different seeds give similar layouts. Change the prompt (or raise Variety) for different compositions."))
-}
-
-/// Shared by Generate and Draft, scoped to the Turbo model rather than the Z-Image family.
-pub(super) fn model_variety_note(ui: &mut egui::Ui, model: ModelId) {
-    if let Some(tip) = model_variety_tip(model) {
-        let t = Tokens::get(ui.ctx());
-        ui.horizontal_wrapped(|ui| {
-            let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
-            crate::icons::paint(ui, r, "info", 12.0, t.text_faint);
-            ui.add(egui::Label::new(RichText::new(tip).color(t.text_faint).size(11.0)).wrap());
-        });
-    }
 }
 
 /// Readiness of a model on the running engine: `Ok` ready, `Err(reason)` otherwise.
@@ -603,17 +564,13 @@ pub(super) fn model_picker(
                     }
                     _ => {}
                 }
-                let mut tip = if ok {
+                let tip = if ok {
                     format!("{}\n{}", m.best_for, m.tags().join(" · "))
                 } else if m.origin == catalog::Origin::Profile {
                     format!("{}\n{}", m.best_for, li_i18n::fmt(tl!("Not installed: {reason}"), &[("reason", &reason)]))
                 } else {
                     format!("{}\n{}", m.best_for, reason)
                 };
-                if let Some(variety) = model_variety_tip(m.id) {
-                    tip.push('\n');
-                    tip.push_str(variety);
-                }
                 if row.inner.on_hover_text(tip).clicked() {
                     picked = Some(m.id.key().to_owned());
                 }

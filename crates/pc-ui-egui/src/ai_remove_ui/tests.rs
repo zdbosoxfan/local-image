@@ -719,7 +719,7 @@ fn reasons_ux_selection_context_remove_adjusts_then_confirms_captured_mask() {
 }
 
 #[test]
-fn lama_offline_brush_adjust_confirm_and_explicit_qwen_choice() {
+fn lama_offline_brush_adjust_confirm_and_explicit_klein_choice() {
     let mut h = harness();
     crate::ai_ui::TEST_STATUS.with(|s| s.borrow_mut().as_mut().unwrap().connected = false);
     crate::ai_ui::TEST_LAMA_READY.with(|r| *r.borrow_mut() = Some(true));
@@ -745,9 +745,9 @@ fn lama_offline_brush_adjust_confirm_and_explicit_qwen_choice() {
     // Choosing a generative engine remains explicit and is not silently substituted.
     h.get_by_value("Automatic").click();
     h.run_steps(2);
-    h.get_by_label("Qwen Compact").click();
+    h.get_by_label("FLUX.2 Klein").click();
     h.run_steps(3);
-    assert_eq!(h.state().ui.ai.remove_engine, "qwen-int8");
+    assert_eq!(h.state().ui.ai.remove_engine, "klein");
     assert!(!ready(h.state()));
     crate::ai_ui::TEST_LAMA_READY.with(|r| *r.borrow_mut() = None);
     TEST_REMOVE.with(|m| *m.borrow_mut() = None);
@@ -775,9 +775,14 @@ fn lama_old_ai_options_load_and_explicit_engine_persists() {
     let empty: crate::ai_ui::AiOptions = serde_json::from_value(json!({})).unwrap();
     assert_eq!(empty.remove_engine, "auto");
     assert!(!empty.remove_immediately);
-    for key in ["klein", "qwen-int8", "qwen-bf16", "lama"] {
+    for key in ["klein", "lama"] {
         let options: crate::ai_ui::AiOptions = serde_json::from_value(json!({"remove_engine":key})).unwrap();
         assert_eq!(options.remove_engine, key);
+        assert_eq!(crate::ai_ui::effective_remove_key(&options.remove_engine), key);
+    }
+    for retired in ["qwen-int8", "qwen-bf16"] {
+        let options: crate::ai_ui::AiOptions = serde_json::from_value(json!({"remove_engine":retired})).unwrap();
+        assert_eq!(crate::ai_ui::effective_remove_key(&options.remove_engine), crate::ai_ui::effective_remove_key("auto"), "{retired} runs as Automatic");
     }
 }
 

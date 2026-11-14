@@ -2140,7 +2140,6 @@ cameraRaw	Color	カラー
 	Remove Background (AI)	背景を削除 (AI)
 	Remove Backgrounds (AI)…	背景を一括削除 (AI)…
 	Set Up AI…	AI をセットアップ…
-	Subject (AI)	被写体 (AI)
 	The AI engine isn't running.	AI エンジンが起動していません。
 	Contextual task bar	コンテキストタスクバー
 	Tool presets	ツールプリセット
@@ -2250,7 +2249,6 @@ cameraRaw	Color	カラー
 	Could not save settings: {error}	設定を保存できませんでした：{error}
 	Couldn't save: {error}	保存できませんでした：{error}
 	Couldn't update profiles: {error}	プロファイルを更新できませんでした：{error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Qwen Image 2.1 で各画像の被写体を切り抜き、PNG で保存します。元の画像は変更されません。
 	Delete from Library	ライブラリから削除
 	Describe details to add (optional)…	追加する細部を説明（任意）…
 	Describe the change, e.g. “make it golden hour”…	変更内容を説明（例：「ゴールデンアワーにする」）…
@@ -2311,7 +2309,6 @@ cameraRaw	Color	カラー
 	Installation:	インストール先：
 	Installed	インストール済み
 	Keep	保持
-	Keep… (optional)	残すもの…（任意）
 	Licence	ライセンス
 	Licence gate	ライセンス同意が必要
 	Licence: see its page	ライセンス：ページを参照
@@ -2356,8 +2353,6 @@ cameraRaw	Color	カラー
 	Precision	精度
 	Preset name	プリセット名
 	Previous image ({key})	前の画像（{key}）
-	Qwen Compact	Qwen コンパクト
-	Qwen Full	Qwen フル
 	RESULTS	結果
 	Read the licence	ライセンスを読む
 	Ready	準備完了
@@ -2404,7 +2399,6 @@ cameraRaw	Color	カラー
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	先に AI エンジンを起動してください：Local Image は ComfyUI にすでにあるものを確認します。（{error}）
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	AI エンジンを起動すると GPU のメモリが表示されます。現在は 8 GB に収まるものを表示しています。
 	Starting ComfyUI… (the first start can take a minute)	ComfyUI を起動中…（初回の起動には 1 分ほどかかることがあります）
-	Starting image · {n}/{max}	開始画像 · {n}/{max}
 	Starting {name}…	{name} を起動中…
 	Steps	ステップ数
 	Stopped	停止しました
@@ -2422,7 +2416,6 @@ cameraRaw	Color	カラー
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	ワークフローに li:prompt、li:image、li:mask、li:seed、li:output という名前のノードがないため、Local Image は値を入力できません。ComfyUI でノード名を変更して再度書き出してください。
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	トークンを使うと、モデルブラウザーでアクセス制限付きやサインインが必要なモデルをダウンロードできます。トークンはそれぞれのサイトにのみ送信されます。
 	Transparent PNG	透明 PNG
-	Transparent background	透明な背景
 	Trending	人気
 	Trending this week	今週の人気
 	Unknown family	不明なファミリー
@@ -2433,7 +2426,6 @@ cameraRaw	Color	カラー
 	Upscale {scale}×	{scale}× にアップスケール
 	Use	使用
 	Use as Reference	参照画像として使用
-	Variation strength	バリエーションの強さ
 	Waiting	待機中
 	What should appear in the selection…	選択範囲に表示する内容…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	自分の API キーがあれば、生成でクラウドモデルも使えます（モデル選択の「クラウド」に表示されます）。その場合、プロンプトと画像はこのコンピューターからそのプロバイダーに送信され、あなたのアカウントに課金されます。それ以外は一切送信されません。
@@ -2467,14 +2459,11 @@ cameraRaw	Color	カラー
 	{size} · runs on the CPU · {licence}	{size} · CPU で動作 · {licence}
 	{source}: offline, showing results from {when}	{source}：オフライン、{when} の結果を表示
 	{source}: the catalogue couldn't be read	{source}：カタログを読み込めませんでした
-	{why} Qwen Image 2.1 runs these.	{why} これらは Qwen Image 2.1 で実行されます。
 	Choose…	選択…
 	Stop	停止
 	Seed	シード
 	Solid Color	べた塗り
 	Strength	強さ
-	Qwen AI · Compact	Qwen AI · コンパクト
-	Qwen AI · Full	Qwen AI · フル
 	Standard (CPU)	標準（CPU）
 	Templates	テンプレート
 	Community	コミュニティ

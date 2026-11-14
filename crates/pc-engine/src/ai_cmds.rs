@@ -6,8 +6,6 @@
 //! | Command | Result |
 //! |---|---|
 //! | `ai.remove` | the stroke (`points`) or the selection repaired, as a new layer above the active one |
-//! | `ai.removeBackground` | the Qwen matte as a mask (default), transparency, a background plate or a new cutout layer |
-//! | `ai.selectSubject` | the subject as the selection |
 //! | `ai.generativeFill` | the selection regenerated from a prompt, as a new layer |
 //! | `ai.generateBackground` | an empty background plate as a new layer below the active one |
 //! | `ai.enhance` | the flattened image enhanced and enlarged (Faithful / Rescue / Generative) as a new document |
@@ -20,7 +18,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use image::{GrayImage, Luma, RgbImage, RgbaImage};
+use image::{GrayImage, Luma, RgbaImage};
 use li_ai::{JobControl, RemoveEngine, Stage};
 use li_raster::{RgbFrame, RgbaFrame};
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
@@ -42,32 +40,17 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
 
-fn has_pixel_layer(s: &Session) -> std::result::Result<(), String> {
-    let l = crate::active_layer_of(s)?;
-    if matches!(l.content, LayerContent::Raster(_)) { Ok(()) } else { Err(format!("the layer is a {} layer, not a pixel layer", l.content.kind_name())) }
-}
-
 fn has_selection(s: &Session) -> std::result::Result<(), String> {
     let d = s.active().ok_or("no document open")?;
     if d.doc.selection.as_ref().is_some_and(|sel| !sel.content_bounds().is_empty()) { Ok(()) } else { Err("make a selection first".into()) }
 }
 
-/// `engine` param: `klein` (default), `qwen-int8`, `qwen-bf16`.
+/// `engine` param: `auto` (default), `lama`, `klein`.
 fn remove_engine(p: &Value) -> RemoveEngine {
     match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
         "auto" => RemoveEngine::Auto { models_dir: crate::seg::models_dir() },
         "lama" => RemoveEngine::Lama { models_dir: crate::seg::models_dir() },
-        "qwen-bf16" => RemoveEngine::Qwen { variant: "bf16".into() },
-        "qwen-int8" | "qwen" => RemoveEngine::Qwen { variant: "int8".into() },
         _ => RemoveEngine::Klein,
-    }
-}
-
-/// The Qwen precision for cutouts and fills: `int8` (default) or `bf16`.
-fn qwen_variant(p: &Value) -> String {
-    match p.get("engine").or_else(|| p.get("variant")).and_then(Value::as_str).unwrap_or("int8") {
-        "bf16" | "qwen-bf16" => "bf16".into(),
-        _ => "int8".into(),
     }
 }
 
@@ -125,13 +108,8 @@ pub fn bridged<T>(ctx: &JobCtl, f: impl FnOnce(&JobControl) -> anyhow::Result<T>
     r.map_err(|e| if e.is::<lightcraft_sysmem::jobs::Cancelled>() { EngineError::Cancelled } else { EngineError::Other(format!("{e:#}")) })
 }
 
-/// The visible composite of `rect` as 8-bit RGB (transparency over white) — what the user sees.
-fn composite_rgb(doc: &Document, rect: Rect) -> Result<RgbImage> {
-    Ok(composite_frame(doc, rect)?.to_rgb8())
-}
-
-/// [`composite_rgb`] at full precision (encoded sRGB over white, normalized): what AI engines
-/// receive, so 16-bit and float documents are quantized only at a ComfyUI wire.
+/// The visible composite of `rect` at full precision (encoded sRGB over white, normalized): what
+/// AI engines receive, so 16-bit and float documents are quantized only at a ComfyUI wire.
 fn composite_frame(doc: &Document, rect: Rect) -> Result<RgbFrame> {
     let buf = crate::color_cmds::composite_to_srgb(doc, photocraft_compose::render(doc, rect))?;
     let (w, h) = (rect.width() as usize, rect.height() as usize);
@@ -208,15 +186,6 @@ pub fn layer_from_frame(doc: &Document, name: &str, img: &RgbaFrame, x: i32, y: 
     Ok(l)
 }
 
-/// One layer rendered alone over `rect` as RGBA8 (with its own transparency).
-fn layer_rgba(doc: &Document, layer: &Layer, rect: Rect) -> Result<RgbaImage> {
-    let mut l = layer.clone();
-    l.mask = None;
-    l.visible = true;
-    l.opacity = 1.0;
-    selected_layer_rgba(doc, &l, rect)
-}
-
 /// Render one layer while retaining its document's profiles, patterns and lighting.
 /// Visibility, opacity and masks are respected; matte callers normalize them explicitly.
 pub fn selected_layer_rgba(doc: &Document, layer: &Layer, rect: Rect) -> Result<RgbaImage> {
@@ -252,14 +221,6 @@ fn surface_from(doc: &Document, rect: Rect, rgb: &RgbFrame, alpha: impl Fn(u32, 
     s.write_region(rect, &data);
     s.prune();
     Ok(s)
-}
-
-fn gray_surface(rect: Rect, mask: &GrayImage) -> Surface {
-    let data: Vec<f32> = mask.pixels().map(|p| p[0] as f32 / 255.0).collect();
-    let mut s = Surface::with_default(PixelFormat::GRAY8, &[0.0]);
-    s.write_region(rect, &data);
-    s.prune();
-    s
 }
 
 /// Inserts `layer` above the active layer and makes it active.
@@ -376,7 +337,6 @@ fn ai_remove(s: &mut Session, p: &Value) -> Result<Value> {
     let label = match engine {
         RemoveEngine::Auto { .. } | RemoveEngine::Klein => "AI Remove",
         RemoveEngine::Lama { .. } => "AI Remove (On-device)",
-        RemoveEngine::Qwen { .. } => "AI Remove (Qwen)",
     };
     crate::jobs::run(
         s,
@@ -400,115 +360,6 @@ fn ai_remove(s: &mut Session, p: &Value) -> Result<Value> {
                 Ok(add_layer_above(doc, active, l))
             })?;
             Ok(json!({ "layer": id.0, "bounds": [bbox.x0, bbox.y0, bbox.width(), bbox.height()] }))
-        },
-    )
-}
-
-/// Hair-grade edges: the model's matte becomes a trimap (confident inside/outside, an unknown
-/// band along the edge and wherever the model was unsure) and the band is re-solved against the
-/// actual image with closed-form matting (photocraft_algo::cf_matting).
-fn refine_matte(img: &RgbaImage, alpha: &GrayImage) -> GrayImage {
-    use li_matte::cf_matting::{MattingParams, trimap_from_mask};
-    use photocraft_algo::cf_matting::closed_form_matting_tiled;
-    let (w, h) = (img.width() as usize, img.height() as usize);
-    let m: Vec<f32> = alpha.pixels().map(|p| p[0] as f32 / 255.0).collect();
-    let band = ((w.min(h) as f32 / 160.0).round() as usize).clamp(3, 24);
-    let mut tri = trimap_from_mask(&m, w, h, band);
-    for (t, v) in tri.iter_mut().zip(&m) {
-        if (0.1..0.9).contains(v) {
-            *t = 0.5;
-        }
-    }
-    let rgb = photocraft_algo::segment::RgbImage::from_fn(w, h, |x, y| {
-        let p = img.get_pixel(x as u32, y as u32);
-        [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]
-    });
-    let a = closed_form_matting_tiled(&rgb, &tri, &MattingParams::default(), 384, 24);
-    GrayImage::from_fn(w as u32, h as u32, |x, y| Luma([(a[y as usize * w + x as usize] * 255.0).round() as u8]))
-}
-
-/// The matte of the target layer from Qwen (document bounds).
-fn matte_job(s: &Session, p: &Value) -> Result<(LayerId, Rect, RgbaImage, String, String, u64)> {
-    let d = s.active().ok_or(EngineError::NoDocument)?;
-    let id = crate::commands::layer_param(s, p)?;
-    let layer = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
-    let bounds = d.doc.bounds();
-    let hint = p.get("hint").and_then(Value::as_str).unwrap_or("").chars().take(500).collect::<String>();
-    // Sample all layers (default) or the layer alone.
-    let img = if p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(false) {
-        let rgb = composite_rgb(&d.doc, bounds)?;
-        image::DynamicImage::ImageRgb8(rgb).to_rgba8()
-    } else {
-        layer_rgba(&d.doc, layer, bounds)?
-    };
-    Ok((id, bounds, img, qwen_variant(p), hint, seed(p)))
-}
-
-fn refine_edges(p: &Value) -> bool {
-    p.get("refineEdges").and_then(Value::as_bool).unwrap_or(true)
-}
-
-fn remove_background(s: &mut Session, p: &Value) -> Result<Value> {
-    {
-        let d = s.active().ok_or(EngineError::NoDocument)?;
-        let id = crate::commands::layer_param(s, p)?;
-        let l = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
-        if !matches!(l.content, LayerContent::Raster(_)) {
-            return Err(EngineError::Other(format!("Remove Background needs a pixel layer; “{}” is a {} layer.", l.name, l.content.kind_name())));
-        }
-        let locks = d.doc.effective_locks(l.id);
-        if locks.pixels || locks.all {
-            return Err(EngineError::Other(format!("Unlock “{}” first.", l.name)));
-        }
-    }
-    let output = crate::cutout_cmds::BackgroundOutput::from_params(p, "ai.removeBackground")?;
-    let (id, bounds, img, variant, hint, seed) = matte_job(s, p)?;
-    let refine = refine_edges(p);
-    crate::jobs::edit_job(
-        s,
-        "Remove Background (AI)",
-        move |doc, active, ctx| {
-            let mut alpha = bridged(ctx, |ctl| li_ai::service().cutout(&img, &variant, &hint, seed, ctl))?;
-            if refine {
-                ctx.report(0.97, "Refining edges");
-                alpha = refine_matte(&img, &alpha);
-            }
-            // Keep the layer's own transparency out of the matte's job: the mask only hides.
-            let result = crate::cutout_cmds::apply_output(doc, id, gray_surface(bounds, &alpha), &output, ctx)?;
-            *active = Some(result);
-            Ok(result)
-        },
-        |result| json!({ "layer": result.0 }),
-    )
-}
-
-fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
-    let (_, bounds, img, variant, hint, seed) = matte_job(s, &{
-        let mut q = p.clone();
-        if q.get("sampleAllLayers").is_none() {
-            q["sampleAllLayers"] = json!(true);
-        }
-        q
-    })?;
-    let refine = refine_edges(p);
-    crate::jobs::run(
-        s,
-        "Select Subject (AI)",
-        true,
-        move |ctx| {
-            let mut alpha = bridged(ctx, |ctl| li_ai::service().cutout(&img, &variant, &hint, seed, ctl))?;
-            if refine {
-                ctx.report(0.97, "Refining edges");
-                alpha = refine_matte(&img, &alpha);
-            }
-            Ok(gray_surface(bounds, &alpha))
-        },
-        move |s, surface| {
-            s.edit("Select Subject (AI)", move |doc, _| {
-                doc.selection = Some(surface);
-                Ok(())
-            })?;
-            Ok(json!({}))
         },
     )
 }
@@ -546,11 +397,11 @@ fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
         Arc::make_mut(&mut doc).layer_mut(id).ok_or(EngineError::NoLayer(id))?.visible = false;
     }
     let region = context_rect(bbox, doc.bounds());
-    let (variant, seed) = (qwen_variant(p), seed(p));
+    let seed = seed(p);
     let name: String = if typed.is_empty() { "Generative Fill".to_owned() } else { format!("Fill: {}", typed.chars().take(32).collect::<String>()) };
     // Kept on the layer, so the Contextual Task Bar can regenerate it.
     let generation = json!({
-        "command": CMD, "prompt": typed, "seed": seed, "engine": variant,
+        "command": CMD, "prompt": typed, "seed": seed,
         "bounds": [bbox.x0, bbox.y0, bbox.width(), bbox.height()],
     });
     crate::jobs::run(
@@ -562,7 +413,7 @@ fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
             let local = GrayImage::from_fn(region.width(), region.height(), |x, y| {
                 Luma([mask[(region.y0 as usize + y as usize) * size.width as usize + region.x0 as usize + x as usize]])
             });
-            let out = bridged(ctx, |ctl| li_ai::service().fill_frame(&rgb, &local, &prompt, &variant, seed, ctl))?;
+            let out = bridged(ctx, |ctl| li_ai::service().fill_frame(&rgb, &local, &prompt, seed, ctl))?;
             surface_from(&doc, region, &out, |x, y| local.get_pixel(x, y)[0] as f32 / 255.0)
         },
         move |s, surf| {
@@ -592,15 +443,15 @@ fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
     let replace = replacement_layer(s, p, "ai.generateBackground")?;
     let prompt = p.get("prompt").and_then(Value::as_str).unwrap_or("").trim().chars().take(2000).collect::<String>();
     let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
-    let (variant, seed, bounds) = (qwen_variant(p), seed(p), doc.bounds());
+    let (seed, bounds) = (seed(p), doc.bounds());
     let (gw, gh) = generation_size(doc.size);
-    let generation = json!({"command": "ai.generateBackground", "prompt": prompt, "seed": seed, "engine": variant});
+    let generation = json!({"command": "ai.generateBackground", "prompt": prompt, "seed": seed});
     crate::jobs::run(
         s,
         "Generate Background",
         true,
         move |ctx| {
-            let img = bridged(ctx, |ctl| li_ai::service().generate_background(&prompt, gw, gh, &variant, seed, ctl))?;
+            let img = bridged(ctx, |ctl| li_ai::service().generate_background(&prompt, gw, gh, seed, ctl))?;
             let filled = li_ai::imaging::fit_cover(&img, bounds.width(), bounds.height());
             surface_from(&doc, bounds, &RgbaFrame::from_rgba8(&filled).rgb(), |_, _| 1.0)
         },
@@ -749,29 +600,9 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "AI Remove",
             menu: &[],
             shortcut: None,
-            params: r#"{"points"?: [[x,y,pressure]], "size"?: px, "hardness"?: 0-100, "engine"?: "auto"|"lama"|"klein"|"qwen-int8"|"qwen-bf16", "seed"?: int} — without points, removes the selection"#,
+            params: r#"{"points"?: [[x,y,pressure]], "size"?: px, "hardness"?: 0-100, "engine"?: "auto"|"lama"|"klein", "seed"?: int} — without points, removes the selection"#,
             enabled: has_doc,
             run: ai_remove,
-            journal: true,
-        },
-        CommandSpec {
-            id: "ai.removeBackground",
-            label: "Remove Background (AI)",
-            menu: &[],
-            shortcut: None,
-            params: r##"{"layer"?: id, "engine"?: "int8"|"bf16"|"qwen-int8"|"qwen-bf16", "hint"?: "what to keep", "sampleAllLayers"?: bool, "seed"?: int, "refineEdges"?: bool=true, "output"?: "mask"|"transparent"|"white"|"color"|"blur"|"newLayer"="mask", "color"?: "#rrggbb[aa]"|[r,g,b,a?], "amount"?: 0..1000=12}"##,
-            enabled: has_pixel_layer,
-            run: remove_background,
-            journal: true,
-        },
-        CommandSpec {
-            id: "ai.selectSubject",
-            label: "Select Subject (AI)",
-            menu: &[],
-            shortcut: None,
-            params: r#"{"engine"?: "int8"|"bf16", "hint"?: str, "seed"?: int}"#,
-            enabled: has_doc,
-            run: select_subject,
             journal: true,
         },
         CommandSpec {
@@ -779,7 +610,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Generative Fill",
             menu: &[],
             shortcut: None,
-            params: r#"{"prompt"?: str (empty: fill from the surroundings), "engine"?: "int8"|"bf16", "seed"?: int, "replaceLayer"?: id}"#,
+            params: r#"{"prompt"?: str (empty: fill from the surroundings), "seed"?: int, "replaceLayer"?: id}"#,
             enabled: has_selection,
             run: generative_fill,
             journal: true,
@@ -789,7 +620,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Generate Background",
             menu: &[],
             shortcut: None,
-            params: r#"{"prompt"?: "the empty scene", "engine"?: "int8"|"bf16", "seed"?: int, "replaceLayer"?: id}"#,
+            params: r#"{"prompt"?: "the empty scene", "seed"?: int, "replaceLayer"?: id}"#,
             enabled: has_doc,
             run: generate_background,
             journal: true,
@@ -827,8 +658,8 @@ mod tests {
         // Independent IEC sRGB transfer-function values, not a round-trip oracle.
         let encoded = flatten_rgba(&doc).unwrap();
         assert_eq!(encoded.get_pixel(0, 0).0, [188, 137, 0, 128]);
-        assert_eq!(layer_rgba(&doc, &doc.layers[0], doc.bounds()).unwrap(), encoded);
-        let white = composite_rgb(&doc, doc.bounds()).unwrap();
+        assert_eq!(selected_layer_rgba(&doc, &doc.layers[0], doc.bounds()).unwrap(), encoded);
+        let white = composite_frame(&doc, doc.bounds()).unwrap().to_rgb8();
         assert_eq!(white.get_pixel(0, 0).0, [221, 196, 128]);
         let preview = crate::color_cmds::composite_to_srgb(&doc, photocraft_compose::thumbnail_buffer(&doc, 1)).unwrap().to_rgba8();
         assert_eq!(preview.pixels, encoded.into_raw());
@@ -844,7 +675,7 @@ mod tests {
         assert!((p[1] - 0.051_269_46).abs() < 0.0001, "{}", p[1]);
         assert!(p[2].abs() < 1e-7, "matrix arithmetic preserves black within float precision: {}", p[2]);
         assert_eq!(p[3], 87.0 / 255.0);
-        assert_eq!(layer_rgba(&doc, &layer, Rect::from_xywh(3, 4, 1, 1)).unwrap(), img);
+        assert_eq!(selected_layer_rgba(&doc, &layer, Rect::from_xywh(3, 4, 1, 1)).unwrap(), img);
     }
 
     #[test]
@@ -954,25 +785,6 @@ mod tests {
     }
 
     #[test]
-    fn background_output_qwen_request_samples_the_target_and_keeps_hint_and_variant() {
-        let mut s = Session::new();
-        s.execute("file.new", json!({"width": 5, "height": 3})).unwrap();
-        s.execute("edit.fill", json!({"color": "#336699"})).unwrap();
-        let id = LayerId(s.execute("layer.new.layer", json!({"name":"Subject"})).unwrap()["layer"].as_u64().unwrap());
-        s.execute("edit.fill", json!({"color":"#cc4400"})).unwrap();
-        for (engine, expected) in [("qwen-int8", "int8"), ("qwen-bf16", "bf16")] {
-            let (target, bounds, img, variant, hint, seed) =
-                matte_job(&s, &json!({"layer":id.0, "engine":engine, "hint":"the red car", "seed":42, "output":"white"})).unwrap();
-            assert_eq!(target, id);
-            assert_eq!(bounds, Rect::new(0, 0, 5, 3));
-            assert_eq!(img.get_pixel(0, 0).0, [204, 68, 0, 255]);
-            assert_eq!(variant, expected);
-            assert_eq!(hint, "the red car");
-            assert_eq!(seed, 42);
-        }
-    }
-
-    #[test]
     fn explicit_removal_mask_matches_document_and_preserves_subtracted_holes() {
         let mut s = Session::new();
         s.execute("file.new", json!({"width": 40, "height": 30})).unwrap();
@@ -997,7 +809,7 @@ mod tests {
     #[test]
     fn ai_commands_fail_cleanly_without_a_document_or_engine() {
         let mut s = Session::new();
-        for id in ["ai.remove", "ai.removeBackground", "ai.selectSubject", "ai.generativeFill", "ai.generateBackground", "ai.enhance"] {
+        for id in ["ai.remove", "ai.generativeFill", "ai.generateBackground", "ai.enhance"] {
             assert!(s.execute(id, json!({})).is_err(), "{id}");
         }
     }
@@ -1020,8 +832,8 @@ mod tests {
         assert_eq!(generation["model"], g["model"]);
     }
 
-    /// The real flows against the mock ComfyUI: a stroke becomes an "AI Remove" layer, Remove
-    /// Background puts a mask on the layer, Generative Fill adds a layer, Enhance opens a document.
+    /// The real flows against the mock ComfyUI: a stroke becomes an "AI Remove" layer, Generative
+    /// Fill adds a layer, Enhance opens a document.
     /// Like the UI's mock-server tests, skip when the sandbox denies local sockets.
     #[test]
     fn ai_commands_against_the_mock_server() {
@@ -1049,12 +861,6 @@ mod tests {
         s.execute("edit.undo", json!({})).expect("undo");
         let after: Vec<String> = s.active().expect("doc").doc.walk().into_iter().map(|(_, _, l)| l.name.clone()).collect();
         assert!(!after.iter().any(|n| n.starts_with("AI Remove")), "{after:?}");
-        // A subject on the plain background (the mock keeps what differs from the border).
-        s.execute("paint.stroke", json!({"points": [[150.0, 120.0], [170.0, 120.0]], "size": 80, "hardness": 100})).expect("subject");
-        s.execute("ai.removeBackground", json!({})).expect("cutout");
-        let d = s.active().expect("doc");
-        let active = d.active_layer.expect("active");
-        assert!(d.doc.layer(active).expect("layer").mask.is_some());
         s.execute("select.all", json!({})).expect("select all");
         let r = s.execute("ai.generativeFill", json!({"prompt": "a red balloon", "seed": 7})).expect("fill");
         // The layer keeps how it was made, for Regenerate.
@@ -1169,7 +975,7 @@ mod deep_document_tests {
             let rect = doc.bounds();
             let source = doc.layers[0].surface().unwrap().read_region(rect);
             // An identity "model": what comes back is what the engine was given.
-            let before = surface_from(&doc, rect, &RgbFrame::from_rgb8(&composite_rgb(&doc, rect).unwrap()), |_, _| 1.0).unwrap().read_region(rect);
+            let before = surface_from(&doc, rect, &RgbFrame::from_rgb8(&composite_frame(&doc, rect).unwrap().to_rgb8()), |_, _| 1.0).unwrap().read_region(rect);
             let after = surface_from(&doc, rect, &composite_frame(&doc, rect).unwrap(), |_, _| 1.0).unwrap().read_region(rect);
             let err = |v: &[f32]| v.iter().zip(&source).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max) * 65535.0;
             let levels = |v: &[f32]| v.as_chunks::<4>().0.iter().map(|p| (p[0] * 65535.0).round() as u32).collect::<std::collections::BTreeSet<_>>().len();
@@ -1183,7 +989,6 @@ mod deep_document_tests {
             );
             assert!(err(&after) <= 1.0, "{sample:?}: no 8-bit step remains ({})", err(&after));
             assert!(err(&before) > 50.0);
-            assert_eq!(composite_frame(&doc, rect).unwrap().to_rgb8(), composite_rgb(&doc, rect).unwrap(), "8-bit wire bytes unchanged");
         }
     }
 }
