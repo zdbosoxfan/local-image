@@ -196,7 +196,13 @@ impl PresetBackend for DirBackend {
         let path = self.path(name)?;
         let dir = path.parent().ok_or_else(|| format!("{name}: no parent directory"))?;
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        li_fs::atomic_write(&path, bytes).map_err(|e| format!("{name}: {e}"))
+        // The document writer follows a symlink on purpose; a preset entry is managed by this
+        // store, and a link put there would carry the write outside the store's directory.
+        if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(format!("{name}: a symbolic link is not a preset file"));
+        }
+        // A link swapped in after that check is replaced, never written through.
+        li_fs::atomic_write_no_follow(&path, bytes).map_err(|e| format!("{name}: {e}"))
     }
     fn remove(&self, name: &str) -> Result<(), String> {
         match std::fs::remove_file(self.path(name)?) {

@@ -492,6 +492,45 @@ impl AtomicFs for PrivateFs {
         if cfg!(unix) { Ok(()) } else { RealFs.preserve_permissions(from, to, policy) }
     }
 }
+/// As [`atomic_write`], never following a symlink at `path`: the rename replaces a link there, so
+/// one planted after a caller's own check cannot carry the write outside the folder.
+pub fn atomic_write_no_follow(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    atomic_write_with(&NoFollowFs, RenameRetry::platform(), path, bytes)
+}
+/// [`RealFs`] that stages beside `path` itself instead of beside a symlink's target.
+struct NoFollowFs;
+impl AtomicFs for NoFollowFs {
+    fn write_new(&self, tmp: &Path, bytes: &[u8]) -> io::Result<()> {
+        RealFs.write_new(tmp, bytes)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        RealFs.rename(from, to)
+    }
+    fn remove(&self, path: &Path) -> io::Result<()> {
+        RealFs.remove(path)
+    }
+    fn sync_dir(&self, dir: &Path) -> io::Result<()> {
+        RealFs.sync_dir(dir)
+    }
+    fn copy_permissions(&self, from: &Path, to: &Path) -> io::Result<()> {
+        RealFs.copy_permissions(from, to)
+    }
+    fn sync_temp(&self, tmp: &Path) -> io::Result<()> {
+        RealFs.sync_temp(tmp)
+    }
+    fn prepare_target(&self, path: &Path) -> io::Result<PathBuf> {
+        validate_target(path)?;
+        fs::create_dir_all(parent_of(path))?;
+        Ok(path.to_path_buf())
+    }
+    fn preserve_permissions(&self, from: &Path, to: &Path, policy: Policy) -> io::Result<()> {
+        // A replaced link has nothing to carry over: its target's access is not this file's.
+        if fs::symlink_metadata(from)?.file_type().is_symlink() {
+            return Ok(());
+        }
+        RealFs.preserve_permissions(from, to, policy)
+    }
+}
 pub fn atomic_write_with(fs: &dyn AtomicFs, retry: RenameRetry, path: &Path, bytes: &[u8]) -> io::Result<()> {
     let (target, tmp) = prepare(fs, path, bytes, &Interrupt::NONE)?;
     let mut cleanup = Temp { fs, path: Some(tmp.clone()) };
