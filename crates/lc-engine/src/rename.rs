@@ -375,7 +375,7 @@ impl MoveFs for RealFs {
     }
 
     fn copy_no_replace(&self, a: &Path, b: &Path) -> std::io::Result<()> {
-        crate::import_move::copy_verified(a, b, None)
+        crate::import_move::copy_verified_plain(a, b)
     }
 
     fn remove_file(&self, p: &Path) -> std::io::Result<()> {
@@ -752,6 +752,19 @@ impl Session {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    /// A sidecar found beside the photo by its name is copied only when it is a plain file.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_not_copied_as_its_target() {
+        let dir = std::env::temp_dir().join(format!("lc-rename-copy-link-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("share")).unwrap();
+        std::fs::write(dir.join("private.txt"), b"secret").unwrap();
+        std::os::unix::fs::symlink(dir.join("private.txt"), dir.join("photo.xmp")).unwrap();
+        assert!(RealFs.copy_no_replace(&dir.join("photo.xmp"), &dir.join("share/photo.xmp")).is_err());
+        assert!(!dir.join("share/photo.xmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// A model volume: files by path with contents; case-insensitive (default APFS/NTFS) or
     /// case-sensitive (Linux, case-sensitive APFS). `fail` makes renames from a matching source fail.
