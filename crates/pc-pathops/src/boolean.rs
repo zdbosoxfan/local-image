@@ -304,7 +304,7 @@ fn flatten_fallback(paths: &[(BezPath, FillRule)], extent: f64) -> Result<Vec<(B
         .iter()
         .map(|(p, r)| {
             let mut flat = BezPath::new();
-            kurbo::flatten(p.iter(), (DEFAULT_PRECISION * 0.1).max(extent * 1e-6), |el| {
+            crate::geom::bez::flatten(p.iter(), (DEFAULT_PRECISION * 0.1).max(extent * 1e-6), |el| {
                 if matches!(el, kurbo::PathEl::LineTo(_)) {
                     segments += 1;
                 }

@@ -179,7 +179,7 @@ fn deep_point(bp: &BezPath) -> Option<kurbo::Point> {
                 xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
             }
         };
-        kurbo::flatten(bp.iter(), 0.01 * r.width().min(r.height()).max(1e-6), |el| match el {
+        crate::geom::bez::flatten(bp.iter(), 0.01 * r.width().min(r.height()).max(1e-6), |el| match el {
             PathEl::MoveTo(p) => {
                 start = p;
                 prev = Some(p);

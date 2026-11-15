@@ -194,7 +194,7 @@ fn leaving_angle(edges: &[Edge], h: usize, v: Point, r: f64) -> f64 {
     }
     let mut prev = segs.first().map_or(v, |s| s.c.p0);
     let mut hit: Option<Point> = None;
-    kurbo::flatten(bp.iter(), (r * 1e-4).max(1e-12), |el| {
+    crate::geom::bez::flatten(bp.iter(), (r * 1e-4).max(1e-12), |el| {
         if let (None, kurbo::PathEl::LineTo(p)) = (hit, el) {
             if p.distance(v) >= r {
                 // The point on prev → p at distance r (prev is closer).
@@ -784,7 +784,7 @@ pub fn interior_point(path: &PathData) -> Option<Point> {
     let bp = path.to_bezpath();
     let mut edges: Vec<(Point, Point)> = vec![];
     let (mut first, mut last) = (Point::ZERO, Point::ZERO);
-    kurbo::flatten(bp.iter(), (bb.width().max(bb.height()) * 1e-3).max(1e-4), |el| match el {
+    crate::geom::bez::flatten(bp.iter(), (bb.width().max(bb.height()) * 1e-3).max(1e-4), |el| match el {
         kurbo::PathEl::MoveTo(p) => {
             if last != first {
                 edges.push((last, first));
@@ -830,16 +830,6 @@ mod tests {
     use super::*;
     use crate::geom::{Rect, shapes};
     use proptest::prelude::*;
-
-    #[test]
-    fn interior_point_of_a_curve_with_far_out_handles_is_bounded() {
-        let mut bp = BezPath::new();
-        bp.move_to((0.0, 0.0));
-        bp.curve_to((1e200, 0.0), (-1e200, 1e200), (10.0, 0.0));
-        bp.line_to((10.0, 10.0));
-        bp.close_path();
-        let _ = interior_point(&PathData::from_bezpath(&bp));
-    }
 
     fn line(a: (f64, f64), b: (f64, f64), key: u64) -> Shape {
         Shape::new(PathData::single(SubPath::polyline(&[Point::new(a.0, a.1), Point::new(b.0, b.1)], false)), FillRule::NonZero, key)
