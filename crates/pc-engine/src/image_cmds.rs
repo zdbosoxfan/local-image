@@ -167,6 +167,7 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
         if (sx - 1.0).abs() < 1e-12 && (sy - 1.0).abs() < 1e-12 {
             return Ok(());
         }
+        check_hidden_resample_budget("image.imageSize", doc, sx, sy)?;
         // Content that reaches the canvas edge keeps it: a Background stays opaque to the border.
         let canvas = Rect::new(0, 0, ow as i32, oh as i32);
         for_each_surface(&mut doc.layers, true, &mut |surf, is_mask| {
@@ -215,6 +216,47 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(())
     })?;
     Ok(json!({ "width": nw, "height": nh }))
+}
+
+/// The new canvas is budgeted before Image Size starts, but every surface's pixels outside the
+/// canvas (a crop that didn't delete them, a layer moved off the canvas) are scaled too: refuse
+/// when the largest surface would grow past the budget, at its own bytes per pixel.
+fn check_hidden_resample_budget(cmd: &str, doc: &mut Document, sx: f64, sy: f64) -> Result<()> {
+    let canvas = doc.bounds();
+    let bytes = |(w, h, bpp): (u32, u32, u64)| u64::from(w).saturating_mul(u64::from(h)).saturating_mul(bpp);
+    let mut largest = (0u32, 0u32, 1u64);
+    let mut visit = |surf: &Surface| {
+        let r = surf.content_bounds();
+        // What lies within the canvas scales to within the new canvas, already budgeted.
+        if r.is_empty() || canvas.union(&r) == canvas {
+            return;
+        }
+        // The output's extent, as `resize_surface_in_canvas` lays it out.
+        let side = |a: i32, b: i32, k: f64| ((f64::from(b) * k).ceil() - (f64::from(a) * k).floor()).clamp(0.0, f64::from(u32::MAX)) as u32;
+        let next = (side(r.x0, r.x1, sx), side(r.y0, r.y1, sy), surf.format().bytes_per_pixel().max(1) as u64);
+        if bytes(next) > bytes(largest) {
+            largest = next;
+        }
+    };
+    for_each_surface(&mut doc.layers, true, &mut |surf, _| visit(surf));
+    for ch in doc.channels.iter().chain(doc.quick_mask.as_ref()) {
+        visit(&ch.surface);
+    }
+    if let Some(sel) = &doc.selection {
+        visit(sel);
+    }
+    if bytes(largest) <= MAX_RESAMPLE_BYTES {
+        return Ok(());
+    }
+    let (w, h, bpp) = largest;
+    Err(bad(
+        cmd,
+        format!(
+            "{w} x {h} px is {} megapixels; resampling at this bit depth is limited to {} megapixels. The pixels outside the canvas are resampled too: choose a smaller size, or delete them first (Crop with Delete Cropped Pixels)",
+            u64::from(w) * u64::from(h) / 1_000_000,
+            MAX_RESAMPLE_BYTES / bpp / 1_000_000
+        ),
+    ))
 }
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
@@ -1057,6 +1099,19 @@ mod tests {
         s.execute("image.crop", json!({"x": 15, "y": 0, "width": 25, "height": 20})).unwrap();
         assert!(matches!(doc(&s).layers[1].content, LayerContent::Smart(_)) && matches!(doc(&s).layers[2].content, LayerContent::Text(_)));
         assert_eq!(bounds(&s), before.iter().map(|b| b.translate(-15, 0)).collect::<Vec<_>>());
+    }
+
+    /// Image Size resamples the pixels outside the canvas as well. After a non-deleting crop to
+    /// 10 px, 20000 px (400 MP, within the budget) scales the hidden 100 px Background x2000.
+    #[test]
+    fn image_size_budgets_the_hidden_pixels_it_resamples() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+        s.execute("image.crop", json!({"x": 0, "y": 0, "width": 10, "height": 10, "deleteCroppedPixels": false})).unwrap();
+        let past = s.active().unwrap().history.past_len();
+        let err = s.execute("image.imageSize", json!({"width": 20000, "height": 20000})).unwrap_err().to_string();
+        assert!(err.contains("200000 x 200000 px is 40000 megapixels"), "{err}");
+        assert_eq!((doc(&s).size, s.active().unwrap().history.past_len()), (Size::new(10, 10), past));
     }
 
     #[test]
