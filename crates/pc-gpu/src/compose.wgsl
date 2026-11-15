@@ -456,14 +456,14 @@ fn fs_blend_if(in: VOut) -> @location(0) vec4<f32> {
     let p = local(in.pos);
     let before = textureLoad(tex_a, p, 0);
     let after = textureLoad(tex_b, p, 0);
-    var own = textureLoad(tex_c, p, 0);
-    if (op.kind == 1) { own = after; }
+    // "This Layer": the layer's content, or an adjustment's result before Opacity.
+    let own = textureLoad(tex_c, p, 0);
     var k = 1.0;
     for (var side = 0; side < 2; side++) {
         var px = own;
         if (side == 1) { px = before; }
-        // Adjustment results are tested even when transparent; absent content/backdrop is not.
-        if (px.a <= 0.0 && !(side == 0 && op.kind == 1)) { continue; }
+        // Absent content or backdrop is not tested.
+        if (px.a <= 0.0) { continue; }
         let v = bi_values(px.rgb);
         if (op.p0.x > 2.0) {
             k *= blend_range(side * 16, v.x);

@@ -1325,9 +1325,17 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
 /// Mixing premultiplied colour by `k` equals compositing the layer at `k` × its alpha, since
 /// every blend mode's source-over result is linear in the source alpha.
 fn apply_blend_if(layer: &Layer, before: &Buffer, out: &mut Buffer, cx: &Ctx, mut coverage: Option<&mut [f32]>, own_override: Option<&Buffer>) {
-    // "This Layer" is the layer's own colour; adjustment layers (no content of their own) are
-    // judged by their result.
-    let isolated = if own_override.is_none() && !matches!(layer.content, LayerContent::Adjustment(_)) { render_content(layer, out.rect, cx) } else { None };
+    // "This Layer" is the layer's own colour. An adjustment layer (no content of its own) is
+    // judged by its result at full strength, before Opacity and its mask mix it in.
+    let isolated = match &layer.content {
+        _ if own_override.is_some() => None,
+        LayerContent::Adjustment(adj) => {
+            let mut result = before.clone();
+            adjust::apply_depth_mode(adj, &mut result, cx.transfer, Some(cx.depth), cx.mode);
+            Some(result)
+        }
+        _ => render_content(layer, out.rect, cx),
+    };
     let own = own_override.or(isolated.as_ref());
     for (i, (p, b)) in out.px.iter_mut().zip(&before.px).enumerate() {
         let this = match own {
@@ -1471,6 +1479,8 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
     // is the base of a clipping group and holds an adjustment layer (psd-tools
     // passthrough_clipping_mask_adjustment: an Exposure inside leaves the layers beneath alone),
     // while such a group's blend modes still reach the backdrop (passthrough_clipping_mask_blendmode).
+    // A group with Blend If renders isolated too: an adjustment inside it no longer changes the
+    // layers beneath.
     let clip_base_adjusts = clipped.iter().any(|c| c.visible)
         && matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|c| c.visible && matches!(c.content, LayerContent::Adjustment(_))));
     if let LayerContent::Group(g) = &layer.content
@@ -1479,6 +1489,7 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
         && layer.fill_opacity >= 1.0
         && !effects::has_effects(layer)
         && !clip_base_adjusts
+        && !blend_if_active(layer, cx.mode)
     {
         let needs_mix = opacity < 1.0 || layer.mask.is_some() || layer.vector_mask.is_some();
         let has_clipped = clipped.iter().any(|c| c.visible);
