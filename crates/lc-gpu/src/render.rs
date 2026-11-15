@@ -1694,7 +1694,18 @@ fn masks_impl(
                     Some(5)
                 }
                 MaskShape::Brush { strokes } => {
-                    let dabs: Vec<_> = strokes.iter().map(|st| lightcraft_pipeline::masks::brush_dabs(st, frame, w, h)).collect();
+                    // The kernel takes at most MAX_DABS across the whole mask, so no more than that
+                    // (plus one, to tell "at it" from "past it") is ever built: each stroke could
+                    // otherwise construct two million dabs before the sum below rejects them all.
+                    let mut room = MAX_DABS + 1;
+                    let dabs: Vec<_> = strokes
+                        .iter()
+                        .map(|st| {
+                            let d = lightcraft_pipeline::masks::brush_dabs_within(st, frame, w, h, room);
+                            room -= d.dabs.len().min(room);
+                            d
+                        })
+                        .collect();
                     if dabs.iter().map(|d| d.dabs.len()).sum::<usize>() > MAX_DABS {
                         None
                     } else if dabs.iter().any(|d| d.auto) {

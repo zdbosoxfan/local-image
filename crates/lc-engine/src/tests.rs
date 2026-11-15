@@ -1187,3 +1187,27 @@ fn work_gate_counts_past_usize_max_instead_of_overflowing() {
     drop(huge);
     assert_eq!(t.join().unwrap(), 1);
 }
+
+/// Past the shared dab budget a brush mask fails the render, rather than rendering a mask missing
+/// its later (erase) strokes.
+#[test]
+fn an_over_budget_brush_mask_fails_the_render() {
+    use lightcraft_develop::{BrushStroke, Mask, MaskComponent, MaskOp, MaskShape};
+    use lightcraft_geom::Point;
+    let mut s = demo();
+    let id = s.active().unwrap();
+    let far = BrushStroke { points: vec![Point::new(-4000.0, 0.5), Point::new(4000.0, 0.5)], size: 0.05, ..Default::default() };
+    let brush = |strokes| Mask {
+        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes } }],
+        ..Default::default()
+    };
+    let mut d = active_dev(&s);
+    d.masks = vec![brush(vec![far; 10])];
+    s.set_develop(id, d.clone(), "Brush").unwrap();
+    let e = s.render_now(id, 64, 64).err().expect("an over-budget brush mask is an error");
+    assert!(e.contains("dabs"), "{e}");
+    let near = BrushStroke { points: vec![Point::new(0.1, 0.1), Point::new(0.9, 0.9)], size: 0.05, ..Default::default() };
+    d.masks = vec![brush(vec![near])];
+    s.set_develop(id, d, "Brush").unwrap();
+    assert!(s.render_now(id, 64, 64).is_ok());
+}

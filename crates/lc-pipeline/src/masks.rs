@@ -433,6 +433,15 @@ pub const MAX_STROKE_DABS: usize = 2_000_000;
 
 /// The dabs of stroke `s` in a `w × h` output.
 pub fn brush_dabs(s: &BrushStroke, frame: &Frame, w: usize, h: usize) -> BrushDabs {
+    brush_dabs_within(s, frame, w, h, MAX_STROKE_DABS)
+}
+
+/// [`brush_dabs`] stopping at `max` dabs instead of [`MAX_STROKE_DABS`], for a caller that
+/// discards a stroke past a threshold of its own: a length check after the vector exists bounds
+/// nothing. Ask for one more than the threshold to tell "at it" from "past it": a result shorter
+/// than `max` is the whole stroke.
+pub fn brush_dabs_within(s: &BrushStroke, frame: &Frame, w: usize, h: usize, max: usize) -> BrushDabs {
+    let max = max.min(MAX_STROKE_DABS);
     let to_out = frame.norm_to_out(w, h);
     let ppl = frame.px_per_long(w);
     let r = (s.size * ppl).max(0.5);
@@ -441,7 +450,7 @@ pub fn brush_dabs(s: &BrushStroke, frame: &Frame, w: usize, h: usize) -> BrushDa
     let mut dabs: Vec<Point> = Vec::new();
     for (i, p) in s.points.iter().enumerate() {
         let q = to_out.apply(*p);
-        let room = MAX_STROKE_DABS.saturating_sub(dabs.len());
+        let room = max.saturating_sub(dabs.len());
         if room == 0 || !(q.x.is_finite() && q.y.is_finite()) {
             continue;
         }
@@ -511,6 +520,29 @@ pub fn guided_cross(guide: &GrayFrame, p: &GrayFrame, sigma: f32, eps: f32) -> G
     }
 }
 
+/// Whether the strokes of one brush mask hold more dabs than the mask's shared budget
+/// ([`MAX_STROKE_DABS`]), so that rasterizing it would leave later strokes (an erase among them)
+/// unapplied. Callers that can fail check this and report an error rather than render a wrong mask.
+pub fn brush_over_budget(strokes: &[BrushStroke], frame: &Frame, w: usize, h: usize) -> bool {
+    let mut room = MAX_STROKE_DABS;
+    for s in strokes {
+        if s.points.is_empty() {
+            continue;
+        }
+        if room == 0 {
+            return true;
+        }
+        let n = brush_dabs_within(s, frame, w, h, room).dabs.len();
+        // the budget is exactly filled, or the stroke was cut off at it: one more dab says which (a
+        // stroke at its own cap is cut off, whatever it would have held)
+        if n >= room && (room >= MAX_STROKE_DABS || brush_dabs_within(s, frame, w, h, room + 1).dabs.len() > room) {
+            return true;
+        }
+        room -= n;
+    }
+    false
+}
+
 /// Stamp brush strokes into `out` (max-combine; erase strokes subtract). Auto Mask strokes weight
 /// each dab by [`auto_similarity`] to the pixel under its centre and are refined with
 /// [`guided_cross`] on log luminance.
@@ -518,8 +550,15 @@ fn rasterize_brush(strokes: &[BrushStroke], frame: &Frame, w: usize, h: usize, i
     if w == 0 || h == 0 {
         return;
     }
+    // one dab budget for the whole mask, as the GPU path keeps: a stroke's own cap alone let a
+    // thousand far-flung two-point strokes build and stamp a billion dabs
+    let mut room = MAX_STROKE_DABS;
     for s in strokes {
-        let BrushDabs { dabs, r, hard, flow, density: dens, erase, auto } = brush_dabs(s, frame, w, h);
+        if room == 0 {
+            break;
+        }
+        let BrushDabs { dabs, r, hard, flow, density: dens, erase, auto } = brush_dabs_within(s, frame, w, h, room);
+        room = room.saturating_sub(dabs.len());
         let mut stroke_alpha = GrayFrame::new(w, h);
         for d in &dabs {
             let refc = auto.then(|| {
@@ -577,6 +616,45 @@ mod tests {
         let oversized = shape_alpha(&MaskShape::ColorRange { samples, refine: 50.0 }, &frame(2, 2), 2, 2, &img, &log_l, 0.0);
         assert_eq!(bounded.data, vec![0.0; 4]);
         assert_eq!(oversized.data, bounded.data);
+    }
+
+    /// A caller that will not look past its own threshold builds to that threshold, not to the
+    /// stroke budget, and a result short of the budget is the whole stroke.
+    #[test]
+    fn a_stroke_is_built_only_as_far_as_the_caller_will_look() {
+        let f = frame(4000, 4000);
+        let points: Vec<Point> =
+            (0..20).map(|i| if i % 2 == 0 { Point::new(0.02, 0.02 + i as f64 * 0.04) } else { Point::new(0.98, 0.02 + i as f64 * 0.04) }).collect();
+        let s = BrushStroke { points, size: 0.002, feather: 50.0, flow: 100.0, density: 100.0, ..Default::default() };
+        let whole = brush_dabs(&s, &f, 4000, 4000);
+        assert!(whole.dabs.len() > 20_000, "the stroke really is large: {}", whole.dabs.len());
+        for max in [1usize, 2, 500, 4097] {
+            assert!(brush_dabs_within(&s, &f, 4000, 4000, max).dabs.len() <= max, "{max}");
+        }
+        assert_eq!(brush_dabs_within(&s, &f, 4000, 4000, whole.dabs.len() + 1000).dabs, whole.dabs);
+    }
+
+    /// Past the shared dab budget a brush mask is reported; strokes that fill it exactly are not
+    /// over it, one more stroke is.
+    #[test]
+    fn an_over_budget_brush_mask_is_reported() {
+        let (w, h) = (64, 64);
+        let far = BrushStroke { points: vec![Point::new(-4000.0, 0.5), Point::new(4000.0, 0.5)], size: 0.05, ..Default::default() };
+        let near = BrushStroke { points: vec![Point::new(0.1, 0.1), Point::new(0.9, 0.9)], size: 0.05, ..Default::default() };
+        assert!(!brush_over_budget(std::slice::from_ref(&near), &frame(w, h), w, h));
+        assert!(brush_over_budget(&vec![far; 10], &frame(w, h), w, h));
+        let stroke = |x: f64| BrushStroke { points: vec![Point::new(0.0, 0.5), Point::new(x, 0.5)], size: 0.05, ..Default::default() };
+        let (s, m) = (0..14_000)
+            .map(|i| stroke(6.0 + f64::from(i) * 0.001))
+            .map(|s| {
+                let m = brush_dabs(&s, &frame(w, h), w, h).dabs.len();
+                (s, m)
+            })
+            .find(|(_, m)| *m >= 500 && MAX_STROKE_DABS.is_multiple_of(*m))
+            .expect("a stroke whose dabs divide the budget");
+        let k = MAX_STROKE_DABS / m;
+        assert!(!brush_over_budget(&vec![s.clone(); k], &frame(w, h), w, h), "{k} strokes of {m} dabs fill the budget exactly");
+        assert!(brush_over_budget(&vec![s; k + 1], &frame(w, h), w, h), "one more stroke is over it");
     }
 
     #[test]

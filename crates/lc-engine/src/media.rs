@@ -718,6 +718,19 @@ impl RenderJob {
                 // Thumbnails (many small jobs side by side) stay on the CPU; views and exports use
                 // the GPU when there is one.
                 let gpu = self.cache.is_none();
+                if let Err(e) = lightcraft_pipeline::check_brush_budget(&src, &info, &settings, &self.request) {
+                    return RenderResult {
+                        request_id: self.request_id,
+                        source_key: self.source_key,
+                        photo: self.photo,
+                        level: self.level,
+                        key: self.key,
+                        rendered: Err(e),
+                        loaded: None,
+                        quick: None,
+                        proof_monitor: None,
+                    };
+                }
                 let rendered = develop(&src, &info, &settings, &self.request, self.stages.as_deref(), gpu);
                 if let Some((cache, key)) = &self.cache {
                     cache.put_at(self.cache_generation, *key, Arc::new(rendered.image.clone()));

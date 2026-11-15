@@ -228,7 +228,7 @@ fn running_extreme(src: &[f32], out: &mut [f32], r: usize, max: bool, g: &mut Ve
 }
 
 /// Running max (or min) over a square window of radius `r` (edge-clipped), separable.
-fn max_square(src: &[f32], w: usize, h: usize, r: usize, max: bool) -> Vec<f32> {
+pub fn max_square(src: &[f32], w: usize, h: usize, r: usize, max: bool) -> Vec<f32> {
     let (mut g, mut hb) = (Vec::new(), Vec::new());
     let mut tmp = vec![0.0f32; w * h];
     for y in 0..h {
