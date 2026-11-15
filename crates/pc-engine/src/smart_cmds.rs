@@ -114,20 +114,27 @@ struct CacheEntry {
     key: CacheKey,
     image: SourceImage,
     decodes: u32,
+    /// The surface's real tile bytes, counted once when it is cached.
+    bytes: usize,
 }
 
 /// Decoded source composites by content hash, most recent last. Re-filtering or re-transforming
 /// a smart object never decodes its contents again.
 static SOURCE_CACHE: Mutex<Vec<CacheEntry>> = Mutex::new(Vec::new());
 const CACHE_ENTRIES: usize = 32;
+/// Accounted tile bytes; a source larger than this on its own isn't kept.
 const CACHE_BYTES: usize = 1 << 30;
+
+fn cache() -> std::sync::MutexGuard<'static, Vec<CacheEntry>> {
+    SOURCE_CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 fn cache_key(bytes: &[u8], fmt: PixelFormat, profile: &Profile) -> CacheKey {
     (*blake3::hash(bytes).as_bytes(), fmt, profile.content_hash())
 }
 
 fn cache_get(key: &CacheKey) -> Option<SourceImage> {
-    let mut c = SOURCE_CACHE.lock().ok()?;
+    let mut c = cache();
     let i = c.iter().position(|e| e.key == *key)?;
     let e = c.remove(i);
     let img = e.image.clone();
@@ -136,22 +143,50 @@ fn cache_get(key: &CacheKey) -> Option<SourceImage> {
 }
 
 fn cache_put(key: CacheKey, image: SourceImage) {
-    let Ok(mut c) = SOURCE_CACHE.lock() else { return };
+    cache_put_within(key, image, CACHE_BYTES);
+}
+
+/// [`cache_put`] with `limit` as the byte budget.
+fn cache_put_within(key: CacheKey, image: SourceImage, limit: usize) {
+    let bytes = surface_bytes(&image.surface);
+    let mut c = cache();
     let decodes = match c.iter().position(|e| e.key == key) {
         Some(i) => c.remove(i).decodes + 1,
         None => 1,
     };
-    c.push(CacheEntry { key, image, decodes });
-    let size = |e: &CacheEntry| e.image.bounds.width() as usize * e.image.bounds.height() as usize * e.key.1.channels() * 4;
-    while c.len() > CACHE_ENTRIES || (c.len() > 1 && c.iter().map(size).sum::<usize>() > CACHE_BYTES) {
+    if bytes > limit {
+        return;
+    }
+    c.push(CacheEntry { key, image, decodes, bytes });
+    while c.len() > CACHE_ENTRIES || c.iter().map(|e| e.bytes).sum::<usize>() > limit {
         c.remove(0);
     }
+}
+
+/// Bytes a surface holds: its default pixel and every tile. Tiles shared with a document are
+/// charged anyway, since the cache is what keeps them alive once the document moves on.
+fn surface_bytes(s: &Surface) -> usize {
+    s.tiles().fold(s.default_bytes().len(), |n, (_, t)| n.saturating_add(t.bytes().len()))
 }
 
 /// How many times these contents were decoded at this pixel format (0 = never / evicted).
 pub fn source_decode_count(bytes: &[u8], fmt: PixelFormat) -> u32 {
     let key = cache_key(bytes, fmt, &crate::color_cmds::working_profile(fmt.mode));
-    SOURCE_CACHE.lock().ok().and_then(|c| c.iter().find(|e| e.key == key).map(|e| e.decodes)).unwrap_or(0)
+    cache().iter().find(|e| e.key == key).map_or(0, |e| e.decodes)
+}
+
+/// Bytes held by cached source composites.
+pub fn source_cache_bytes() -> usize {
+    cache().iter().map(|e| e.bytes).sum()
+}
+
+/// Drops every cached source composite (Edit › Purge › All, closing a document with smart
+/// objects). Returns the bytes released.
+pub fn purge_source_cache() -> usize {
+    let mut c = cache();
+    let freed = c.iter().map(|e| e.bytes).sum();
+    c.clear();
+    freed
 }
 
 /// How composited straight RGBA reaches `fmt` in `target`: copied as is between the same RGB
@@ -895,6 +930,11 @@ pub(crate) fn on_close(s: &mut Session, index: usize, discard: bool) {
         let _ = commit_child(s, index);
     }
     s.smart_links.retain(|l| l.child != id && l.parent != id);
+    // Decoded sources are shared by content hash across documents, so the closing document's
+    // can't be told apart: drop them all. Other documents decode again on their next re-render.
+    if s.docs.get(index).is_some_and(|st| st.doc.walk().iter().any(|(_, _, l)| matches!(l.content, LayerContent::Smart(_)))) {
+        purge_source_cache();
+    }
 }
 
 fn is_smart_child(s: &Session) -> std::result::Result<(), String> {

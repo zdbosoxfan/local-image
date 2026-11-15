@@ -1108,3 +1108,19 @@ fn source_composites_in_bounded_blocks_and_refuses_oversize_contents() {
     let huge = Document::new("huge", Size::new(60_000, 60_000), ColorMode::Rgb, photocraft_color::SampleType::U8);
     assert!(flattened_surface(&huge, huge.pixel_format(), &target).is_err());
 }
+
+#[test]
+fn source_cache_counts_real_bytes_and_keeps_no_oversize_source() {
+    let mut surface = Surface::new(PixelFormat::RGBA8);
+    surface.fill_rect(Rect::new(0, 0, 256, 256), &[0.2, 0.4, 0.6, 1.0]);
+    let img = SourceImage { surface: Arc::new(surface), bounds: Rect::new(0, 0, 256, 256) };
+    // 8-bit RGBA is 4 bytes a pixel (plus the default pixel), not the 16 of an f32 estimate.
+    let bytes = surface_bytes(&img.surface);
+    assert!((256 * 256 * 4..256 * 256 * 5).contains(&bytes), "{bytes}");
+    let key = cache_key(b"source cache budget test", PixelFormat::RGBA8, &crate::color_cmds::working_profile(ColorMode::Rgb));
+    // A lone source over the budget is returned to its caller but never kept.
+    cache_put_within(key, img.clone(), bytes - 1);
+    assert!(cache_get(&key).is_none(), "{bytes} bytes against a limit of {}", bytes - 1);
+    cache_put_within(key, img, bytes);
+    assert!(cache_get(&key).is_some());
+}
