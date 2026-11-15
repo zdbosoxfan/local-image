@@ -1209,3 +1209,4 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`7348e060b4be`](https://github.com/storytold/photocraft/commit/7348e060b4be7204fb69b59079c3b9d808e9aad3) | fix(paint): scale blur sigma with brush size (#5892) | `crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`b4487ee59998`](https://github.com/storytold/photocraft/commit/b4487ee599980917b0407a165c484fd003bba9db) | fix(paint): a bucket fill clicked on transparency fills the transparency in full (#11311) | `crates/pc-algo/src/paint.rs` | MIT OR Apache-2.0 |
