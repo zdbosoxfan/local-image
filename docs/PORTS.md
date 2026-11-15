@@ -1227,3 +1227,19 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [`6725f24a80c6`](https://github.com/storytold/vectorcraft/commit/6725f24a80c697c803b40685510bdc6d4a38d7b0) | Path booleans: check the windings against the operands' areas and resolve the operands when they don't add up (#5478) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
 | [`f4a30c1a94d9`](https://github.com/storytold/vectorcraft/commit/f4a30c1a94d9124236f0c7afd2b5b1e2d29ce0ef) | Audit: geometry length measurement refuses coordinates the integrator cannot handle | `crates/pc-pathops/src/geom/path.rs` | MIT OR Apache-2.0 |
 | [`e2a870e60202`](https://github.com/storytold/vectorcraft/commit/e2a870e60202abd5216375de76b5f07e9df41d6c) | Security: bounded flattening, plug-in budgets and caches, loaded textures, Revolve paint copies, color book names and ICC names | `crates/pc-pathops/src/geom/bez.rs` | MIT OR Apache-2.0 |
+
+Partial ports: `89f20c45` brings only the estimate that holds for every `<use>` copy; its per-test
+weighting by attributes scanned and value bytes compared (our `class_work` covers class lists only),
+its counting of `:not()` alternatives and of kept declarations toward the 64 MB, its linked-file
+sharing and its embedded-SVG budget are not ported. `1ce6431a` turns embedded PNG, JPEG and WebP
+only, within one decode allowance shared by every use; its linked files, TIFF data URLs and CMYK
+handling have no counterpart. `e6add186` brings the closing drag; its closing click that retracts
+the incoming handle and makes a corner is not ported (a click still keeps the first anchor's
+handles), and its script `path.close` parameters have no counterpart. `0e64aca5` brings only the
+flatten length cap and `9cd997b9` the far-point checks; the 4 pathops call sites that use the
+wrapper have no upstream hunk, and upstream's brush `track.rs` and `warp.rs`, metafile `wmf.rs`,
+print-layout and script-check hunks are not ported.
+
+Local deviation: `e9510956` and `0a2935cf` refuse a sweep whose tolerance passes one unit; here
+only the coordinate rounding term is capped, so a drawing more than about 1e8 units across still
+sweeps with a tolerance wider than one unit.
