@@ -4130,6 +4130,7 @@ dependencies = [
  "lightcraft-geom",
  "lightcraft-meta",
  "lightcraft-tiff",
+ "log",
  "miniz_oxide 0.8.9",
  "proptest",
  "quick-xml",
@@ -4182,6 +4183,7 @@ dependencies = [
 name = "lightcraft-tiff"
 version = "0.8.0-alpha"
 dependencies = [
+ "log",
  "proptest",
  "serde",
  "thiserror 2.0.21",

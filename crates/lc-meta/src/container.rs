@@ -40,28 +40,39 @@ pub fn embedded(bytes: &[u8]) -> Embedded {
 /// [`embedded`] without copying a TIFF-based file into [`Embedded::exif`]: there the whole file is
 /// the Exif block, so `exif` stays `None` and the file's parse is returned instead.
 pub(crate) fn blocks(bytes: &[u8]) -> (Embedded, Option<Tiff>) {
+    read_blocks(bytes).unwrap_or_default()
+}
+
+/// Whether the file is in a container this module has a reader for. Anything else yields no blocks
+/// whatever it holds, so "no metadata found" says nothing about it. This is the allow-list behind
+/// promises about what a file does not contain: a format is refused until `read_blocks` reads it.
+pub fn reads_container(bytes: &[u8]) -> bool {
+    read_blocks(bytes).is_some()
+}
+
+fn read_blocks(bytes: &[u8]) -> Option<(Embedded, Option<Tiff>)> {
     if bytes.starts_with(b"8BPS") {
-        return (crate::psd::embedded(bytes), None);
+        return Some((crate::psd::embedded(bytes), None));
     }
     if bytes.starts_with(b"FUJIFILMCCD-RAW") {
         // Fujifilm RAF: metadata lives in the embedded JPEG whose (offset, length) are big-endian u32s at byte 84
         let be = |i: usize| bytes.get(i..i + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);
-        let e = match (be(84), be(88)) {
-            (Some(o), Some(l)) if o > 0 => bytes.get(o..o.saturating_add(l).min(bytes.len())).map(jpeg_segments).unwrap_or_default(),
-            _ => Embedded::default(),
+        let jpeg = match (be(84), be(88)) {
+            (Some(o), Some(l)) if o > 0 => bytes.get(o..o.saturating_add(l).min(bytes.len())),
+            _ => None,
         };
-        return (e, None);
+        return jpeg.filter(|j| j.starts_with(&[0xff, 0xd8])).map(|j| (jpeg_segments(j), None));
     }
     if let Some(c) = crate::cr3::parse_cr3(bytes) {
         let e = Embedded { exif: crate::cr3::merged_exif(&c), xmp: c.xmp.map(|b| String::from_utf8_lossy(b).into_owned()), ..Default::default() };
-        return (e, None);
+        return Some((e, None));
     }
     if bytes.starts_with(&[0xff, 0xd8]) {
-        (jpeg_segments(bytes), None)
+        Some((jpeg_segments(bytes), None))
     } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        (png_chunks(bytes), None)
+        Some((png_chunks(bytes), None))
     } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        (webp_chunks(bytes), None)
+        Some((webp_chunks(bytes), None))
     } else if let Ok(t) = Tiff::parse(bytes) {
         let ifd0 = &t.ifds[0];
         let e = Embedded {
@@ -74,9 +85,9 @@ pub(crate) fn blocks(bytes: &[u8]) -> (Embedded, Option<Tiff>) {
                 other => lightcraft_tiff::writer::encode(t.order, other),
             }),
         };
-        (e, Some(t))
+        Some((e, Some(t)))
     } else {
-        (Embedded::default(), None)
+        None
     }
 }
 
@@ -336,6 +347,32 @@ mod tests {
         assert_eq!(crate::extract(&raf).iso, Some(400));
         for n in 0..raf.len() {
             let _ = crate::extract(&raf[..n]);
+        }
+    }
+
+    #[test]
+    fn only_containers_with_a_reader_count_as_read() {
+        let mut raf = b"FUJIFILMCCD-RAW 0201FF000000TEST".to_vec();
+        raf.resize(92, 0);
+        assert!(!reads_container(&raf), "RAF without its embedded JPEG");
+        raf[84..88].copy_from_slice(&92u32.to_be_bytes());
+        raf[88..92].copy_from_slice(&2u32.to_be_bytes());
+        raf.extend_from_slice(&[0xff, 0xd8]);
+        let tiff = sample_exif(ByteOrder::Little);
+        let read: [&[u8]; 7] = [&sample_jpeg(), b"\x89PNG\r\n\x1a\n", b"RIFF\0\0\0\0WEBP", &tiff, &raf, b"\0\0\0\x18ftypcrx \0\0\0\0", b"8BPS\0\x01"];
+        for bytes in read {
+            assert!(reads_container(bytes), "{:?}", &bytes[..bytes.len().min(12)]);
+        }
+        let not_read: [&[u8]; 6] = [
+            b"\0\0\0\x18ftypheic\0\0\0\0",
+            b"\0\0\0\x0cJXL \r\n\x87\n",
+            b"\xff\x0a",
+            b"GIF89a",
+            &tiff[..4], // TIFF magic, nothing a reader can parse
+            b"not an image",
+        ];
+        for bytes in not_read {
+            assert!(!reads_container(bytes), "{bytes:?}");
         }
     }
 

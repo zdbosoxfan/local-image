@@ -8,6 +8,13 @@ use lightcraft_tiff::writer::{rational, srational};
 use lightcraft_tiff::{ByteOrder, IfdBuilder, ImageData, TiffWriter, Value};
 use rayon::prelude::*;
 
+/// Bound the square padding buffer for a caller-selected Deflate tile edge.
+const MAX_DEFLATE_TILE: u32 = 2048;
+
+fn deflate_tile(tile: u32) -> usize {
+    ((tile.max(16) & !15).min(MAX_DEFLATE_TILE)) as usize
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DngCompression {
     Uncompressed,
@@ -129,7 +136,7 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     let edited = opts
         .xmp
         .as_deref()
-        .and_then(|x| lightcraft_meta::parse_xmp(x).ok()?.metadata.capture_time)
+        .and_then(|x| lightcraft_meta::parse_whole_xmp(x).ok()?.metadata.capture_time)
         .filter(|time| raw.metadata.capture_time != Some(*time))
         .map(|time| lightcraft_meta::Metadata { capture_time: Some(time), ..raw.metadata.clone() });
     ifd.set_child(t::EXIF_IFD, lightcraft_meta::exif_ifd(edited.as_ref().unwrap_or(&raw.metadata)));
@@ -283,7 +290,7 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     };
     match (&raw.data, compression) {
         (RawData::F32(v), DngCompression::Deflate { tile, half }) => {
-            let tile = (tile.max(16) & !15) as usize;
+            let tile = deflate_tile(tile);
             let bp = if half { 2 } else { 4 };
             ifd.set(t::BITS_PER_SAMPLE, Value::Short(vec![(bp * 8) as u16; cpp]));
             ifd.set(t::SAMPLE_FORMAT, Value::Short(vec![3; cpp]));
@@ -351,7 +358,7 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
                     ifd.set_image(ImageData::Strips { rows_per_strip: rows as u32, strips });
                 }
                 DngCompression::Deflate { tile, .. } => {
-                    let tile = (tile.max(16) & !15) as usize;
+                    let tile = deflate_tile(tile);
                     ifd.set(t::BITS_PER_SAMPLE, Value::Short(vec![16; cpp]));
                     ifd.set(t::COMPRESSION, Value::Short(vec![compression::ADOBE_DEFLATE]));
                     ifd.set(t::PREDICTOR, Value::Short(vec![2]));
@@ -521,6 +528,22 @@ mod exif_tests {
         assert_eq!(exif.string(t::DATE_TIME_ORIGINAL).as_deref().map(str::trim), Some("2026:10:15 09:30:05"));
         assert_eq!(exif.string(t::OFFSET_TIME_ORIGINAL).as_deref().map(str::trim), Some("-04:00"));
         assert_eq!(lightcraft_meta::extract(&bytes).capture_time, edited);
+    }
+
+    /// Foreign keys ahead of the capture time spend the read budget, and they shrink so that nothing longer is left room.
+    #[test]
+    fn dng_exif_capture_time_survives_the_xmp_retention_budget() {
+        let camera = lightcraft_meta::DateTime::parse_iso("2026-10-14T12:00:00.250-04:00");
+        let raw =
+            RawImage { metadata: lightcraft_meta::Metadata { capture_time: camera, ..Default::default() }, ..float_compression_tests::float_raw() };
+        let foreign: String = (0..130_000).rev().map(|i| format!("<crs:a{i}>v</crs:a{i}>")).collect();
+        let packet = format!(
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:crs='http://ns.adobe.com/camera-raw-settings/1.0/' xmlns:exif='http://ns.adobe.com/exif/1.0/'>{foreign}<exif:DateTimeOriginal>2026-10-15T09:30:05-04:00</exif:DateTimeOriginal></r:Description></r:RDF>"
+        );
+        assert!(lightcraft_meta::parse_xmp(&packet).unwrap().property_keys_truncated);
+        let bytes = write_dng(&raw, &DngWriteOptions { xmp: Some(packet), ..Default::default() }).unwrap();
+        let tiff = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        assert_eq!(tiff.exif().unwrap().string(t::DATE_TIME_ORIGINAL).as_deref().map(str::trim), Some("2026:10:15 09:30:05"));
     }
 }
 

@@ -9,8 +9,10 @@ Photo metadata: EXIF, XMP (read + write), IPTC-IIM, and the containers that carr
 | `read_exif(&[u8]) -> Metadata` | TIFF-structured Exif block (whole TIFF/DNG/raw file, or JPEG APP1 payload with/without `Exif\0\0`). `try_read_exif` reports header errors. |
 | `from_tiff(&Tiff) -> Metadata` | Same, from an already parsed stream (used by `lightcraft-raw`). |
 | `embedded(&[u8]) -> Embedded` | Sniffs JPEG / PNG / WebP / TIFF / PSD / PSB and returns the Exif, XMP (+ extended XMP), ICC and IPTC blocks. `jpeg_segments`, `png_chunks`, `webp_chunks` are the per-container walkers. |
-| `try_extract(&[u8]) -> Result<Metadata, ExtractError>` | Reports malformed PSD/PSB resources or embedded EXIF/XMP; other containers remain best-effort. |
-| `parse_xmp(&str) -> Result<XmpData>` | Metadata + the opaque `lc:settings` JSON + every property (`prefix:name`, structs flattened as `a:b/c:d`). |
+| `reads_container(&[u8]) -> bool` | Whether `embedded` has a reader for this file. Without one, finding no metadata proves nothing about it, so a check that promises a file holds no metadata must refuse it. |
+| `try_extract(&[u8]) -> Result<Metadata, ExtractError>` | Reports malformed PSD/PSB resources or embedded EXIF/XMP; other containers remain best-effort, except that an XMP packet past the parser's hard limits is reported. |
+| `parse_xmp(&str) -> Result<XmpData>` | Metadata + the opaque `lc:settings` JSON + flattened properties (`prefix:name`, structs as `a:b/c:d`). When the 1 MiB flattened-key retention budget is reached, `property_keys_truncated` reports omitted keys; the 64 MiB complexity ceiling remains an error. Only for develop presets, listings and validation. |
+| `parse_whole_xmp(&str) -> Result<XmpData>` | `parse_xmp` without the retention budget, for everything that can reach a catalog, sidecar, save or export (`read_exif`, `from_tiff` and `extract` included); only the 64 MiB ceiling applies. |
 | `write_xmp(&Metadata, Option<&str>) -> String` | Complete `<?xpacket?>` packet; the second argument is LightCraft's full develop settings JSON. |
 | `parse_iptc(&[u8]) -> Metadata` | IIM record 2: title (2:5), keywords (2:25), by-line (2:80), copyright (2:116), caption (2:120), date/time created (2:55/2:60). |
 | `extract(&[u8]) -> Metadata` | Everything for a whole file. Precedence: EXIF → IPTC fills gaps → XMP overrides user fields (rating, label, title, caption, artist, copyright, keywords, GPS) and fills the rest. |

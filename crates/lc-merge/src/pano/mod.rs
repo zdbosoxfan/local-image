@@ -49,6 +49,9 @@ impl Default for PanoOptions {
     }
 }
 
+/// Limit pairwise registration work before features are computed for a panorama.
+pub const MAX_FRAMES: usize = 256;
+
 /// The stitched panorama.
 #[derive(Clone, Debug)]
 pub struct PanoResult {
@@ -270,12 +273,21 @@ pub fn register(frames: &[Frame], progress: &Progress) -> Result<(Vec<Option<Cam
     Ok((cams, adj.rms_before, adj.rms))
 }
 
-/// Stitch `frames` (oriented, linear) into a panorama.
-pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Result<PanoResult> {
-    let n = frames.len();
+/// Whether [`stitch`] accepts `n` frames; callers that know the count ask before loading them.
+pub fn check_frame_count(n: usize) -> Result<()> {
     if n < 2 {
         return Err(MergeError::TooFew(n, 2));
     }
+    if n > MAX_FRAMES {
+        return Err(MergeError::TooMany(n, MAX_FRAMES));
+    }
+    Ok(())
+}
+
+/// Stitch `frames` (oriented, linear) into a panorama.
+pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Result<PanoResult> {
+    let n = frames.len();
+    check_frame_count(n)?;
     check(progress, 0.01, "Finding features")?;
     let (cams, rms_before, rms) = register(&frames, progress)?;
     let used: Vec<usize> = (0..n).filter(|&i| cams[i].is_some()).collect();

@@ -505,6 +505,7 @@ impl MergeJob {
                 (r.radiance, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, clip, None, info, ghost)
             }
             MergeKind::Panorama { pano } => {
+                lightcraft_merge::pano::check_frame_count(self.sources.len()).map_err(err)?;
                 let frames = self.load(true, true, progress, (0.0, 0.25))?;
                 let p = sub(0.25, 0.9);
                 let r = lightcraft_merge::stitch(frames, pano, &p).map_err(err)?;
@@ -535,6 +536,7 @@ impl MergeJob {
                     return Err(format!("{} photos don't form brackets of {b} for at least two positions", self.sources.len()));
                 }
                 let groups = self.sources.len() / b;
+                lightcraft_merge::pano::check_frame_count(groups).map_err(err)?;
                 let mut merged = Vec::new();
                 let mut raw_domains = Vec::with_capacity(groups);
                 for g in 0..groups {
@@ -1187,6 +1189,33 @@ mod tests {
         }
         assert!(frame.image.get(68, 46).iter().all(|v| *v == frame.clip), "the window stays clipped: {:?}", frame.image.get(68, 46));
         assert!(frame.metadata.lens_corrections_baked);
+    }
+
+    /// The frame count is known before any photo is read, so a stitch the cap refuses costs no decoding.
+    #[test]
+    fn panoramas_over_the_frame_cap_are_refused_before_reading_any_photo() {
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let job = |kind: MergeKind, photos: u64| {
+            let reads = Arc::clone(&reads);
+            MergeJob {
+                kind,
+                finish: MergeFinish::default(),
+                sources: (0..photos).map(|i| (PhotoId(i), format!("{i}.dng"))).collect(),
+                preview: None,
+                read: Arc::new(move |_| {
+                    reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    Err("no such photo".into())
+                }),
+            }
+        };
+        let frames = lightcraft_merge::pano::MAX_FRAMES as u64 + 1;
+        let panorama = job(MergeKind::Panorama { pano: PanoOptions::default() }, frames);
+        let brackets = job(MergeKind::HdrPanorama { hdr: HdrOptions::default(), pano: PanoOptions::default(), bracket: 2 }, frames * 2);
+        for merge in [panorama, brackets] {
+            let error = merge.run(&|_, _| true).err().unwrap_or_default();
+            assert!(error.contains("refused"), "{error}");
+        }
+        assert_eq!(reads.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 
     #[test]

@@ -23,7 +23,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use quick_xml::events::Event;
 
-use crate::xmp::{MAX_NODES, MAX_OPAQUE_NAME_BYTES, XmpError, canonical_name, parse_xmp};
+use crate::xmp::{MAX_NODES, MAX_OPAQUE_NAME_BYTES, XmpError, canonical_name, parse_whole_xmp, parse_xmp};
 
 /// Which properties [`merge_xmp`] takes from the fresh packet. Names are canonical
 /// `prefix:name` (prefixes as [`crate::parse_xmp`] reports them); `prefix:*` is a whole namespace.
@@ -253,8 +253,8 @@ pub fn merge_xmp(existing: &str, fresh: &str, rules: MergeRules) -> Result<Strin
         Some(rest) => ("\u{feff}", rest),
         None => ("", existing),
     };
-    let previous = parse_xmp(old)?;
-    let want = parse_xmp(fresh)?;
+    let previous = parse_whole_xmp(old)?;
+    let want = parse_whole_xmp(fresh)?;
     // Preserve the original creator sequence and its XML framing when its actual
     // list is unchanged. Equal joined display strings alone are deliberately insufficient.
     let keep_creators = previous.values.contains_key("dc:creator")
@@ -332,7 +332,7 @@ pub fn merge_xmp(existing: &str, fresh: &str, rules: MergeRules) -> Result<Strin
     out.push_str(old.get(at..).ok_or_else(|| XmpError::Xml("bad span".into()))?);
 
     // read back: everything written must come out as written
-    let merged = parse_xmp(&out)?;
+    let merged = parse_whole_xmp(&out)?;
     for (k, v) in &want.properties {
         let top = k.split('/').next().unwrap_or(k);
         if write(top) && merged.properties.get(k) != Some(v) {
@@ -646,6 +646,24 @@ mod tests {
             ..Default::default()
         };
         crate::write_xmp_lc(&m, &[("settings", "{\"a\":1}"), ("flag", "pick")])
+    }
+
+    /// The app's description goes last, so foreign keys can spend the read budget first: a save must still read back
+    /// what it wrote, and an export must still find it. Keys shrink towards the end so that even a short owned key
+    /// no longer fits what is left of the budget.
+    #[test]
+    fn packets_over_the_flattened_key_budget_merge_and_export_whole() {
+        let foreign: String = (0..130_000).rev().map(|i| format!("<crs:a{i}>v</crs:a{i}>")).collect();
+        let existing = format!(
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:crs='http://ns.adobe.com/camera-raw-settings/1.0/'>{foreign}</r:Description></r:RDF>"
+        );
+        assert!(parse_xmp(&existing).unwrap().property_keys_truncated);
+        let metadata = crate::Metadata { copyright: Some("Studio".into()), ..Default::default() };
+        let rules = MergeRules { owned: &["dc:rights"], ..Default::default() };
+        let saved = merge_xmp(&existing, &crate::write_xmp(&metadata, None), rules).unwrap();
+        assert!(saved.contains(&foreign));
+        let exported = crate::file_info::copyright_xmp(&saved, false).unwrap().unwrap();
+        assert_eq!(parse_xmp(&exported).unwrap().metadata.copyright.as_deref(), Some("Studio"));
     }
 
     #[test]

@@ -88,6 +88,14 @@ pub fn check_image(data: &[u8], info: &ImageInfo) -> Result<usize> {
     if available.saturating_mul(2048) < total as u64 {
         return Err(RawError::Corrupt(format!("{available} bytes of image data cannot hold {total} samples")));
     }
+    // The tile grid decides how much is decoded, whatever the file's bytes: the nominal sizes of all the chunks
+    // stay within a few times the image (edge tiles pad it).
+    let chunk_cpp = cpp / planes;
+    let nominal =
+        chunks.iter().fold(0usize, |sum, c| sum.saturating_add((c.width as usize).saturating_mul(c.height as usize).saturating_mul(chunk_cpp)));
+    if nominal > total.saturating_mul(4).saturating_add(1 << 24) {
+        return Err(RawError::Corrupt("the tile grid is much larger than the image".into()));
+    }
     Ok(total)
 }
 
@@ -143,6 +151,20 @@ pub(crate) fn read_image_in(mode: crate::Mode, data: &[u8], info: &ImageInfo, or
 const MAX_OUTPUT_BYTES: usize = 2 << 30;
 const MAX_CHUNK_WORKING_BYTES: usize = 1 << 30;
 
+/// Bytes a row of samples occupies with the unpacker's storage alignment.
+fn packed_row_bytes(samples: u64, bits: u32, packing: Packing, float: bool) -> u64 {
+    if float {
+        return samples.saturating_mul(u64::from(bits.div_ceil(8)));
+    }
+    let bit_len = samples.saturating_mul(u64::from(bits));
+    match (bits, packing) {
+        (8, _) => samples,
+        (16, _) | (_, Packing::Word16) => samples.saturating_mul(2),
+        (_, Packing::Msb | Packing::Lsb) => bit_len.div_ceil(8),
+        (_, Packing::Words32Msb) => bit_len.div_ceil(32).saturating_mul(4),
+    }
+}
+
 fn output_bytes(total: usize, float: bool) -> Result<usize> {
     total.checked_mul(if float { 4 } else { 2 }).filter(|&n| n <= MAX_OUTPUT_BYTES).ok_or(RawError::Limit("RAW output memory budget"))
 }
@@ -155,16 +177,7 @@ fn chunk_working_bytes(c: &Chunk, info: &ImageInfo, packing: Packing, cpp: usize
         let samples = row.checked_mul(c.height as usize).filter(|&n| n <= MAX_SAMPLES)?;
         let float = info.sample_format == 3;
         let decoded = samples.checked_mul(if float { 4 } else { 2 })?;
-        let row_bytes = if float {
-            row.checked_mul((info.bits() as usize).div_ceil(8))?
-        } else {
-            match (info.bits(), packing) {
-                (8, _) => row,
-                (16, _) | (_, Packing::Word16) => row.checked_mul(2)?,
-                (_, Packing::Words32Msb) => row.checked_mul(info.bits() as usize)?.div_ceil(32).checked_mul(4)?,
-                _ => row.checked_mul(info.bits() as usize)?.div_ceil(8),
-            }
-        };
+        let row_bytes = usize::try_from(packed_row_bytes(row as u64, u32::from(info.bits()), packing, float)).ok()?;
         let rows = if float {
             row_bytes.checked_mul(if matches!(info.predictor, 3 | 34894 | 34895) { 2 } else { 1 })?
         } else if packing == Packing::Words32Msb && info.bits() != 8 && info.bits() != 16 {
@@ -383,9 +396,28 @@ fn decode_chunk(data: &[u8], info: &ImageInfo, c: &Chunk, order: ByteOrder, pack
             Ok(ChunkPx::U16(v))
         }
         comp::ADOBE_DEFLATE | comp::DEFLATE => {
-            let bytes_per = if float { bits.div_ceil(8) as usize } else { 0 };
-            let row_bytes = if float { cw * cpp * bytes_per } else { (cw * cpp * bits as usize).div_ceil(8) };
-            let raw = inflate(src, row_bytes * ch)?;
+            let row_bytes = packed_row_bytes(cw as u64 * cpp as u64, bits, packing, float);
+            let inflate_len = row_bytes.checked_mul(ch as u64).ok_or(RawError::Limit("chunk too large"))?;
+            let vw = cw.min(info.width.saturating_sub(c.x) as usize);
+            let vh = ch.min(info.height.saturating_sub(c.y) as usize);
+            let last = packed_row_bytes(vw as u64 * cpp as u64, bits, packing, float);
+            let visible = row_bytes
+                .checked_mul(vh.saturating_sub(1) as u64)
+                .and_then(|bytes| bytes.checked_add(last))
+                .ok_or(RawError::Limit("chunk too large"))?;
+            // Edge tiles need visible pixels, not the padding outside the image.
+            if (src.len() as u64).saturating_mul(2048) < visible {
+                return Err(RawError::Corrupt(format!("a deflated chunk needs {visible} visible bytes, but has only {} packed bytes", src.len())));
+            }
+            let inflate_len = usize::try_from(inflate_len).map_err(|_| RawError::Limit("chunk too large"))?;
+            let raw = inflate(src, inflate_len)?;
+            // Edge tiles may omit padding, but every in-image row must be present.
+            if (raw.len() as u64) < visible {
+                return Err(RawError::Corrupt(format!(
+                    "a deflated chunk holds {} bytes, fewer than the {visible} bytes its in-image samples span",
+                    raw.len()
+                )));
+            }
             unpack_chunk(&raw, order, packing, cw, ch, cpp, bits, float, info.predictor)
         }
         comp::JPEG_XL => {
@@ -673,12 +705,102 @@ mod lossy_tests {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod hostile_tile_tests {
     use super::*;
+    use lightcraft_tiff::image::Layout;
+
+    fn deflate_info(width: u32, height: u32, tile: u32, bits: u16) -> ImageInfo {
+        ImageInfo {
+            width,
+            height,
+            bits_per_sample: vec![bits],
+            samples_per_pixel: 1,
+            compression: comp::ADOBE_DEFLATE,
+            photometric: 1,
+            planar: 1,
+            predictor: 1,
+            sample_format: 1,
+            new_subfile_type: 0,
+            layout: Layout::Tiles { tile_width: tile, tile_height: tile },
+            offsets: vec![0],
+            byte_counts: vec![0],
+        }
+    }
+
     #[test]
     fn jpeg_dimensions_cannot_exceed_dng_tile() {
         let mut bytes = Vec::new();
         jpeg_encoder::Encoder::new(&mut bytes, 90).encode(&[128; 16 * 16 * 3], 16, 16, jpeg_encoder::ColorType::Rgb).unwrap();
         assert!(lossy_jpeg(&bytes, 3, 1, 1).is_err());
         assert!(lossy_jpeg(&bytes, 3, 16, 16).is_ok());
+    }
+
+    /// Every tile shares one tiny stream, so the file's size says nothing about the work: the predictor would walk
+    /// all 4096 x 4096 samples of each tile for the single row inside the image. `check_image` alone is asserted on
+    /// the largest grid, which stays cheap there even if the check goes missing.
+    #[test]
+    fn a_tile_grid_much_larger_than_the_image_is_refused_before_decoding() {
+        let stream = miniz_oxide::deflate::compress_to_vec_zlib(&[0u8; 8192], 6);
+        let grid = |width: u32| {
+            let tiles = width.div_ceil(4096) as usize;
+            let mut info = deflate_info(width, 1, 4096, 16);
+            info.predictor = 2;
+            info.offsets = vec![0; tiles];
+            info.byte_counts = vec![stream.len() as u64; tiles];
+            info
+        };
+        let refused = |error: Option<RawError>| matches!(error, Some(RawError::Corrupt(message)) if message.contains("tile grid"));
+        let (small, largest) = (grid(1 << 16), grid(1 << 28));
+        assert!(refused(read_image(&stream, &small, ByteOrder::Little, Packing::Msb).err()));
+        assert!(refused(read_image_in(crate::Mode::Header, &stream, &small, ByteOrder::Little, Packing::Msb).err()));
+        assert!(refused(check_image(&stream, &largest).err()));
+    }
+
+    /// Enough packed bytes for `check_image` (128 for these 262,144 samples) but too few for Deflate, even at its best
+    /// ratio, to have produced the 524,288 visible bytes.
+    #[test]
+    fn deflate_chunks_too_small_for_their_visible_bytes_are_refused_before_inflating() {
+        let bytes: Vec<u8> = (0..200u32).map(|i| (i * 37) as u8).collect();
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&bytes, 6);
+        assert!((128..256).contains(&packed.len()), "{} packed bytes", packed.len());
+        let mut info = deflate_info(512, 512, 512, 16);
+        info.byte_counts = vec![packed.len() as u64];
+        let error = read_image(&packed, &info, ByteOrder::Little, Packing::Msb).err();
+        assert!(matches!(&error, Some(RawError::Corrupt(message)) if message.contains("packed bytes")), "{error:?}");
+    }
+
+    #[test]
+    fn deflate_chunks_shorter_than_the_visible_rows_are_refused() {
+        let mut info = deflate_info(16, 16, 16, 16);
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&[0u8; 32], 6);
+        info.byte_counts = vec![packed.len() as u64];
+        assert!(matches!(read_image(&packed, &info, ByteOrder::Little, Packing::Msb), Err(RawError::Corrupt(_))));
+    }
+
+    #[test]
+    fn deflate_edge_tiles_may_omit_padding_outside_the_image() {
+        let visible_bytes = 15 * 512 * 2 + 16 * 2;
+        let visible = vec![0u8; visible_bytes];
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&visible, 6);
+        let mut info = deflate_info(16, 16, 512, 16);
+        info.byte_counts = vec![packed.len() as u64];
+        assert_eq!(read_image(&packed, &info, ByteOrder::Little, Packing::Msb), Ok(RawData::U16(vec![0; 16 * 16])));
+    }
+
+    #[test]
+    fn deflate_chunks_must_cover_every_visible_row() {
+        let mut info = deflate_info(16, 512, 512, 16);
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&vec![0u8; 500_000], 6);
+        info.byte_counts = vec![packed.len() as u64];
+        assert!(matches!(read_image(&packed, &info, ByteOrder::Little, Packing::Msb), Err(RawError::Corrupt(_))));
+    }
+
+    #[test]
+    fn deflate_row_size_respects_word16_packing() {
+        let pixels = [0x123u16, 0x456, 0x789, 0xabc, 0xdef, 0x321, 0x135, 0x246, 0x357];
+        let bytes: Vec<u8> = pixels.iter().flat_map(|value| value.to_le_bytes()).collect();
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&bytes, 6);
+        let mut info = deflate_info(3, 3, 3, 12);
+        info.byte_counts = vec![packed.len() as u64];
+        assert_eq!(read_image(&packed, &info, ByteOrder::Little, Packing::Word16), Ok(RawData::U16(pixels.to_vec())));
     }
 }
 
@@ -786,6 +908,9 @@ mod batch_tests {
         assert!(read_image(&small, &info(16, small.len() as u64), ByteOrder::Little, Packing::Msb).is_ok());
         let data = vec![1u8; 4096];
         assert!(matches!(read_image(&data, &info(16384, data.len() as u64), ByteOrder::Little, Packing::Msb), Err(RawError::Corrupt(_))));
+        // this tile is within the grid bound, so the refusal is the data check's
+        let refused = read_image(&data, &info(4096, data.len() as u64), ByteOrder::Little, Packing::Msb).err();
+        assert!(matches!(&refused, Some(RawError::Corrupt(message)) if message.contains("uncompressed chunk")), "{refused:?}");
     }
 
     #[test]

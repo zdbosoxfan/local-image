@@ -75,6 +75,8 @@ pub struct XmpData {
     /// Every top-level property with its full structure (arrays of structs such as local
     /// corrections, which [`XmpData::properties`] flattens).
     pub values: BTreeMap<String, XmpValue>,
+    /// True when properties were omitted to stay within the flattened-key memory budget.
+    pub property_keys_truncated: bool,
 }
 
 /// A structured XMP value.
@@ -153,7 +155,10 @@ const MAX_DEPTH: usize = 64;
 pub(crate) const MAX_NODES: usize = 200_000;
 // Bound amplification from namespace expansion and flattened struct paths separately.
 pub(crate) const MAX_OPAQUE_NAME_BYTES: usize = 8 * 1024 * 1024;
+// Hard stop for packets whose total flattened paths exceed this budget.
 const MAX_PROPERTY_KEY_BYTES: usize = 64 * 1024 * 1024;
+// Flattened property keys repeat every ancestor name for each leaf.
+const MAX_FLATTENED_PROPERTY_KEY_BYTES: usize = 1 << 20;
 
 /// Canonical names preserve foreign bindings without allowing unbounded URI expansion.
 pub(crate) fn canonical_name(qname: &str, scopes: &[Vec<(String, String)>], opaque_budget: &mut usize) -> Result<String, XmpError> {
@@ -312,26 +317,56 @@ fn is_rdf_meta_attr(k: &str) -> bool {
     matches!(k, "rdf:about" | "rdf:ID" | "rdf:nodeID" | "xml:lang" | "rdf:parseType" | "rdf:resource" | "rdf:datatype") || k.starts_with("xmlns")
 }
 
-fn property_key(prefix: &str, name: &str, budget: &mut usize) -> Result<String, XmpError> {
+fn property_key(prefix: &str, name: &str, budget: &mut usize, flattened_budget: &usize, limited: &mut bool) -> Result<Option<String>, XmpError> {
     let size = prefix.len().checked_add(name.len()).ok_or(XmpError::TooComplex)?;
     *budget = budget.checked_sub(size).ok_or(XmpError::TooComplex)?;
-    Ok(format!("{prefix}{name}"))
+    if size > *flattened_budget {
+        *limited = true;
+        return Ok(None);
+    }
+    Ok(Some(format!("{prefix}{name}")))
 }
 
-fn collect_description(d: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>, key_budget: &mut usize) -> Result<(), XmpError> {
+fn take_key_bytes(key: &str, budget: &mut usize, limited: &mut bool) -> bool {
+    if key.len() > *budget {
+        *limited = true;
+        return false;
+    }
+    *budget -= key.len();
+    true
+}
+
+fn collect_description(
+    d: &Node,
+    prefix: &str,
+    props: &mut BTreeMap<String, Vec<String>>,
+    key_budget: &mut usize,
+    flattened_budget: &mut usize,
+    limited: &mut bool,
+) -> Result<(), XmpError> {
     for (k, v) in &d.attrs {
-        if !is_rdf_meta_attr(k) {
-            props.entry(property_key(prefix, k, key_budget)?).or_default().push(v.clone());
+        if !is_rdf_meta_attr(k)
+            && let Some(key) = property_key(prefix, k, key_budget, flattened_budget, limited)?
+            && take_key_bytes(&key, flattened_budget, limited)
+        {
+            props.entry(key).or_default().push(v.clone());
         }
     }
     for c in &d.children {
-        collect_property(c, prefix, props, key_budget)?;
+        collect_property(c, prefix, props, key_budget, flattened_budget, limited)?;
     }
     Ok(())
 }
 
-fn collect_property(p: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>, key_budget: &mut usize) -> Result<(), XmpError> {
-    let key = property_key(prefix, &p.name, key_budget)?;
+fn collect_property(
+    p: &Node,
+    prefix: &str,
+    props: &mut BTreeMap<String, Vec<String>>,
+    key_budget: &mut usize,
+    flattened_budget: &mut usize,
+    limited: &mut bool,
+) -> Result<(), XmpError> {
+    let Some(key) = property_key(prefix, &p.name, key_budget, flattened_budget, limited)? else { return Ok(()) };
     if let Some(arr) = p.children.iter().find(|c| matches!(c.name.as_str(), "rdf:Seq" | "rdf:Bag" | "rdf:Alt")) {
         let mut items: Vec<(bool, String)> = arr
             .children
@@ -344,29 +379,37 @@ fn collect_property(p: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<Str
         if arr.name == "rdf:Alt" {
             items.sort_by_key(|(default, _)| !*default);
         }
-        props.entry(key).or_default().extend(items.into_iter().map(|(_, v)| v));
+        if take_key_bytes(&key, flattened_budget, limited) {
+            props.entry(key).or_default().extend(items.into_iter().map(|(_, v)| v));
+        }
         return Ok(());
     }
     let struct_prefix = format!("{key}/");
     if p.attr("rdf:parseType") == Some("Resource") {
         for c in &p.children {
-            collect_property(c, &struct_prefix, props, key_budget)?;
+            collect_property(c, &struct_prefix, props, key_budget, flattened_budget, limited)?;
         }
         return Ok(());
     }
     if let Some(d) = p.children.iter().find(|c| c.name == "rdf:Description") {
-        collect_description(d, &struct_prefix, props, key_budget)?;
+        collect_description(d, &struct_prefix, props, key_budget, flattened_budget, limited)?;
         return Ok(());
     }
     let field_attrs: Vec<&(String, String)> = p.attrs.iter().filter(|(k, _)| !is_rdf_meta_attr(k)).collect();
     if !field_attrs.is_empty() && p.children.is_empty() && p.text.trim().is_empty() {
         for (k, v) in field_attrs {
-            props.entry(property_key(&struct_prefix, k, key_budget)?).or_default().push(v.clone());
+            if let Some(full) = property_key(&struct_prefix, k, key_budget, flattened_budget, limited)?
+                && take_key_bytes(&full, flattened_budget, limited)
+            {
+                props.entry(full).or_default().push(v.clone());
+            }
         }
         return Ok(());
     }
     let v = p.attr("rdf:resource").map(str::to_string).unwrap_or_else(|| p.text.trim().to_string());
-    props.entry(key).or_default().push(v);
+    if take_key_bytes(&key, flattened_budget, limited) {
+        props.entry(key).or_default().push(v);
+    }
     Ok(())
 }
 
@@ -473,17 +516,31 @@ fn fmt_gps_coord(v: f64, pos: char, neg: char) -> String {
     format!("{},{:.6}{}", d as i64, m, if v < 0.0 { neg } else { pos })
 }
 
-/// Parse an XMP packet (with or without the `<?xpacket?>` wrapper / `x:xmpmeta` element).
+/// Parse an XMP packet (with or without the `<?xpacket?>` wrapper / `x:xmpmeta` element). Properties past the
+/// flattened-key budget are omitted ([`XmpData::property_keys_truncated`]), so this is only for develop presets,
+/// listings and validation; anything that reaches a catalog, sidecar, image file or export uses [`parse_whole_xmp`].
 pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
+    parse_xmp_within(s, MAX_FLATTENED_PROPERTY_KEY_BYTES)
+}
+
+/// [`parse_xmp`] up to the hard stop alone, for reads that can reach a catalog, sidecar, save or export: the budget
+/// would turn into lost properties, or a location a privacy check never sees.
+pub fn parse_whole_xmp(s: &str) -> Result<XmpData, XmpError> {
+    parse_xmp_within(s, MAX_PROPERTY_KEY_BYTES)
+}
+
+fn parse_xmp_within(s: &str, flattened_key_bytes: usize) -> Result<XmpData, XmpError> {
     let s = s.trim_start_matches('\u{feff}');
     let tree = parse_tree(s)?;
     let mut descs = Vec::new();
     find_descriptions(&tree, &mut descs);
     let mut props = BTreeMap::new();
     let mut key_budget = MAX_PROPERTY_KEY_BYTES;
+    let mut flattened_budget = flattened_key_bytes;
+    let mut property_keys_truncated = false;
     let mut values = BTreeMap::new();
     for d in descs {
-        collect_description(d, "", &mut props, &mut key_budget)?;
+        collect_description(d, "", &mut props, &mut key_budget, &mut flattened_budget, &mut property_keys_truncated)?;
         if let XmpValue::Struct(m) = node_struct(d) {
             values.extend(m);
         }
@@ -572,7 +629,7 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
     m.dji = crate::DjiMetadata::from_properties(&props);
     m.regions = values.get("mwg-rs:Regions").map(parse_regions).unwrap_or_default();
     let lc_settings = props.get("lc:settings").and_then(|v| v.first()).cloned();
-    Ok(XmpData { metadata: m, lc_settings, properties: props, values })
+    Ok(XmpData { metadata: m, lc_settings, properties: props, values, property_keys_truncated })
 }
 
 fn frac(v: f64) -> String {
@@ -1225,6 +1282,31 @@ mod sony_dji_tests {
         let mut target = Metadata::default();
         target.fill_missing(&m);
         assert_eq!(target.dji, m.dji);
+    }
+
+    #[test]
+    fn flattened_properties_stay_within_the_document_budget() {
+        let level = "n".repeat(200);
+        let mut doc = String::from(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:lc=\"https://lightcraft.example/lc/\" xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\"><rdf:RDF><rdf:Description tiff:Make=\"Camera\"><lc:root rdf:parseType=\"Resource\">",
+        );
+        for _ in 0..4 {
+            doc.push_str(&format!("<lc:{level} rdf:parseType=\"Resource\">"));
+        }
+        for i in 0..3000 {
+            doc.push_str(&format!("<lc:leaf{i} lc:att=\"v\"/>"));
+        }
+        doc.push_str("</lc:root>");
+        for _ in 0..4 {
+            doc.push_str(&format!("</lc:{level}>"));
+        }
+        doc.push_str("</rdf:Description></rdf:RDF></x:xmpmeta>");
+        let parsed = parse_xmp(&doc).unwrap();
+        let key_bytes: usize = parsed.properties.keys().map(String::len).sum();
+        assert!(key_bytes <= 1 << 20, "flattened keys use {key_bytes} bytes");
+        assert!(parsed.properties.len() < 3000);
+        assert_eq!(parsed.metadata.make.as_deref(), Some("Camera"));
+        assert!(parsed.property_keys_truncated, "the parse result reports omitted flattened properties");
     }
 }
 
