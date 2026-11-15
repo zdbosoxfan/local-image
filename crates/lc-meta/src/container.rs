@@ -11,6 +11,8 @@
 //!   IPTC (33723) from IFD0.
 //! - Canon CR3 (ISO base media file, see [`crate::cr3`]): `CMT1`/`CMT2`/`CMT4` merged into one Exif block; the
 //!   XMP `uuid` box.
+//! - HEIF/HEIC/AVIF (ISO base media file, see [`crate::heif`]): the `Exif` item's TIFF stream and the XMP
+//!   `mime` item, best-effort.
 
 use lightcraft_tiff::{Tiff, tags};
 use std::borrow::Cow;
@@ -44,13 +46,14 @@ pub fn embedded(bytes: &[u8]) -> Embedded {
 /// [`embedded`] without copying a TIFF-based file into [`Embedded::exif`]: there the whole file is
 /// the Exif block, so `exif` stays `None` and the file's parse is returned instead.
 pub(crate) fn blocks(bytes: &[u8]) -> (Embedded, Option<Tiff>) {
-    read_blocks(bytes).unwrap_or_default()
+    read_blocks(bytes).unwrap_or_else(|| (crate::heif::metadata(bytes), None))
 }
 
 /// Whether the file is in a container this module has a reader for. Anything else yields no blocks
 /// whatever it holds, so "no metadata found" says nothing about it. This is only the first step of
 /// a promise about what a file does not contain: a format is refused until `read_blocks` reads it,
-/// and [`crate::try_extract`] states how far the promise goes within a format.
+/// and [`crate::try_extract`] states how far the promise goes within a format. HEIF is refused:
+/// its items are read best-effort, outside `read_blocks`.
 pub fn reads_container(bytes: &[u8]) -> bool {
     read_blocks(bytes).is_some()
 }
