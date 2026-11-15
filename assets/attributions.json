@@ -10578,6 +10578,20 @@
           "url": "https://github.com/storytold/photocraft/commit/dcf5c61a64716bec507ee79735ef18ce0837fbce"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "Add per-format Image Processor output settings",
+          "commit": "7b7dde38c1d5375fd8ba1d2f72efc811b3432b11",
+          "ours": "crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/file_cmds/image_processor_formats.rs, crates/pc-engine/src/file_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/7b7dde38c1d5375fd8ba1d2f72efc811b3432b11"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",

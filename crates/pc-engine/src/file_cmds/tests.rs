@@ -842,3 +842,43 @@ fn batch_does_not_inherit_caller_actions_or_write_their_recorded_save_paths() {
     assert!(r["errors"][0]["error"].as_str().unwrap().contains("no action named"), "{r}");
     assert!(!std::path::Path::new(&elsewhere).exists());
 }
+
+/// Upstream 7b7dde38: without `format`, each jpeg/psd/tiff section writes its own copy.
+#[test]
+fn image_processor_writes_each_format_with_its_own_settings() {
+    let cmd = "file.scripts.imageProcessor";
+    let dir = tmp("processor-formats");
+    let a = png(&join(&dir, "in"), "a.png", 40, 20, "#b05980");
+    let out = join(&dir, "out");
+    let mut s = Session::new();
+    let sections = json!({
+        "input": [a], "output": out,
+        "jpeg": {"quality": 7, "resize": true, "width": 20, "height": 18},
+        "psd": {"resize": true, "width": 10, "height": 10},
+        "tiff": {"lzw": true}
+    });
+    let r = s.execute(cmd, sections).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    assert_eq!(r["files"], json!([join(&out, "a.jpg"), join(&out, "a.psd"), join(&out, "a.tif")]));
+    let size = |name: &str| {
+        let d = photocraft_io::import(name, &std::fs::read(join(&out, name)).unwrap()).unwrap().document;
+        (d.size.width, d.size.height)
+    };
+    assert_eq!((size("a.jpg"), size("a.psd"), size("a.tif")), ((20, 10), (10, 5), (40, 20)));
+    let tiff = photocraft_codecs::tiff_info(&std::fs::read(join(&out, "a.tif")).unwrap()).unwrap();
+    assert_eq!(tiff.pages[0].compression, 5, "the TIFF is LZW compressed");
+
+    // An input in the output folder is reported under its format, not replaced by its own copy.
+    let psd = join(&out, "a.psd");
+    let before = std::fs::read(&psd).unwrap();
+    let r = s.execute(cmd, json!({"input": [psd], "output": out, "jpeg": {}, "psd": {}})).unwrap();
+    assert_eq!(r["files"], json!([join(&out, "a.jpg")]), "{r}");
+    assert_eq!(r["errors"][0]["format"], "psd", "{r}");
+    assert_eq!(std::fs::read(&psd).unwrap(), before);
+
+    // No enabled section, or a bad one, fails before any file is written.
+    let none = join(&dir, "none");
+    assert!(s.execute(cmd, json!({"input": [a], "output": none, "jpeg": false, "psd": {"enabled": false}})).is_err());
+    assert!(s.execute(cmd, json!({"input": [a], "output": none, "jpeg": {}, "tiff": {"lzw": "true"}})).is_err());
+    assert!(!std::path::Path::new(&none).exists());
+}

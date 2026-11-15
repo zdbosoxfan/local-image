@@ -180,19 +180,21 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
     photocraft_io::import(name, bytes).map(|r| r.document).map_err(|e| EngineError::Other(format!("{name}: {e}")))
 }
 
-/// What a headless save writes beyond the format: JPEG quality and TIFF layers.
+/// What a headless save writes beyond the format: JPEG quality, TIFF layers and compression.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SaveOpts {
     /// Photoshop's 0–12 JPEG scale.
     pub quality: Option<f64>,
     /// TIFF: keep the layers. Off unless a command's params ask (`"tiffLayers": true`).
     pub tiff_layers: bool,
+    /// TIFF: the compression; unset keeps the encoder's default.
+    pub tiff_compression: Option<photocraft_codecs::TiffCompression>,
 }
 
 impl SaveOpts {
     /// `quality` and `tiffLayers` from a command's params.
     pub(crate) fn from_params(p: &Value) -> Self {
-        SaveOpts { quality: f64_param(p, "quality"), tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false) }
+        SaveOpts { quality: f64_param(p, "quality"), tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false), ..Default::default() }
     }
 
     pub(crate) fn or_quality(mut self, q: f64) -> Self {
@@ -218,6 +220,9 @@ pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> R
         // A quality on a WebP save asks for the lossy encoder; the default WebP stays lossless.
         opts.encode.webp_quality = q;
         opts.encode.webp_lossless = false;
+    }
+    if let Some(compression) = save.tiff_compression {
+        opts.encode.tiff_compression = compression;
     }
     crate::vector_integration::export_document(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| EngineError::Other(format!("{path}: {e}")))
 }
@@ -717,14 +722,29 @@ impl OutputClaims {
 }
 
 mod batch_actions;
+mod image_processor_formats;
 
 use batch_actions::batch;
 pub(crate) use batch_actions::batch_save_point;
+
+/// Image Processor's edits to one scratch document before it is saved.
+fn process_image(scratch: &mut Session, to_srgb: bool, fit: Option<&Value>) -> Result<()> {
+    if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
+        scratch.execute("image.mode.rgb", json!({}))?;
+    }
+    if let Some(fit) = fit {
+        fit_image(scratch, fit)?;
+    }
+    Ok(())
+}
 
 fn image_processor(_s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.scripts.imageProcessor";
     let inputs = batch_inputs(p, cmd)?;
     let output = str_param(p, "output", cmd)?.to_string();
+    if p.get("format").is_none() && ["jpeg", "psd", "tiff"].iter().any(|key| p.get(key).is_some()) {
+        return image_processor_formats::run(p, &inputs, &output);
+    }
     let format = p.get("format").and_then(Value::as_str).unwrap_or("jpg").to_string();
     let fit = match (size_param(p, "width"), size_param(p, "height")) {
         (None, None) => None,
@@ -732,12 +752,7 @@ fn image_processor(_s: &mut Session, p: &Value) -> Result<Value> {
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
     let r = process_files(&inputs, &output, &format, SaveOpts::from_params(p).or_quality(8.0), "", &|scratch, _| {
-        if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
-            scratch.execute("image.mode.rgb", json!({}))?;
-        }
-        if let Some(fp) = &fit {
-            fit_image(scratch, fp)?;
-        }
+        process_image(scratch, to_srgb, fit.as_ref())?;
         Ok(false)
     });
     Ok(r)
@@ -1172,7 +1187,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Image Processor…",
             &["File", "Scripts"],
             None,
-            r##"{"input":folder|[paths],"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"input":folder|[paths],"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false,"jpeg":{enabled?:bool=true,quality?:1..12=5,convertToSrgb?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"psd":{enabled?:bool=true,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"tiff":{enabled?:bool=true,lzw?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?} → {files, errors} (an input whose output name was already written in the run goes to errors; without format, supplying jpeg/psd/tiff writes each enabled one from every input with its own settings, the TIFF with layers; at least one must be enabled, and each error then names its format)"##,
             native,
             image_processor
         ),
