@@ -607,7 +607,8 @@ fn dodge_burn_cmd(s: &mut Session, p: &Value, burn: bool) -> Result<Value> {
     let dmg = run_stroke(s, label, id, p, |_, surf, sel, lock| {
         let fmt = surf.format();
         let sp = stroke.brush.spacing;
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| color_dab(&fmt, work, fp, exposure, sp, |c, k| dodge_burn(c, k, range, burn, protect))))
+        apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| color_dab(&fmt, work, fp, exposure, sp, |c, k| dodge_burn(c, k, range, burn, protect)))
+            .map_err(|e| bad(cmd, e.to_string()))
     })?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
@@ -625,7 +626,8 @@ fn sponge_cmd(s: &mut Session, p: &Value) -> Result<Value> {
         let fmt = surf.format();
         let sp = stroke.brush.spacing;
         // Flow is already in each dab's coverage; a full-flow pass moves colours half-way.
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| color_dab(&fmt, work, fp, 0.5, sp, |c, k| sponge(c, k, saturate, vibrance))))
+        apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| color_dab(&fmt, work, fp, 0.5, sp, |c, k| sponge(c, k, saturate, vibrance)))
+            .map_err(|e| bad(CMD, e.to_string()))
     })?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
@@ -707,10 +709,11 @@ fn focus_cmd(s: &mut Session, p: &Value, sharpen: bool) -> Result<Value> {
                 }
             }
         };
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, halo, |work, fp| match &mut sampler {
+        apply_dab_stroke(surf, &stroke, sel, lock, halo, |work, fp| match &mut sampler {
             Some(all) => all.dab(work, fp, focus),
             None => focus(work, fp),
-        }))
+        })
+        .map_err(|e| bad(cmd, e.to_string()))
     })?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
@@ -737,10 +740,11 @@ fn smudge_cmd(s: &mut Session, p: &Value) -> Result<Value> {
         // Premultiplied mixing: transparent pixels carry no colour, so no dark fringes.
         let mut sm = Smudge::new(strength, finger_px, max_size).with_alpha(alpha_index(&fmt)).fine_steps(step);
         let mut sampler = all.then(|| AllLayers::new(pre, fmt));
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| match &mut sampler {
+        apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| match &mut sampler {
             Some(all) => all.dab(work, fp, |w, f| sm.dab(w, f)),
             None => sm.dab(work, fp),
-        }))
+        })
+        .map_err(|e| bad(CMD, e.to_string()))
     })?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
