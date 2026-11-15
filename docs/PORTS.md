@@ -1212,6 +1212,7 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [storytold/photocraft@`5d8cb2a39ad70e31260f1f3fc2010ca132daff65`](https://github.com/storytold/photocraft/commit/5d8cb2a39ad70e31260f1f3fc2010ca132daff65) | fix(actions): resolve recorded visibility targets by layer name | `crates/pc-engine/src/actions_cmds.rs`<br>`crates/pc-engine/src/jobs.rs`<br>`crates/pc-engine/src/file_cmds/batch_actions.rs` | MIT OR Apache-2.0 |
 | [storytold/photocraft@`a8845f37cac9a4ad1209a971641251912c38a934`](https://github.com/storytold/photocraft/commit/a8845f37cac9a4ad1209a971641251912c38a934) | Actions: a recorded Save As or Save for Web with the suggested name saves each document under its own (#5305) | `crates/pc-engine/src/web_cmds.rs`<br>`crates/pc-engine/src/web_cmds/tests.rs`<br>`crates/pc-ui-egui/src/file_ui.rs` | MIT OR Apache-2.0 |
 | [storytold/photocraft@`6f1164e034fc4f04214ce7f9014a4fe46a4b50ba`](https://github.com/storytold/photocraft/commit/6f1164e034fc4f04214ce7f9014a4fe46a4b50ba) | fix(io, engine): Embed Color Profile writes sRGB for an untagged document (#9325) | `crates/pc-engine/src/web_cmds.rs`<br>`crates/pc-engine/src/web_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`856c6e9398810f8c2b5ef2b3841c9e88bd56f588`](https://github.com/storytold/photocraft/commit/856c6e9398810f8c2b5ef2b3841c9e88bd56f588) | Actions: typed text records as one step; Batch says which files failed (#10113, #10682) | `crates/pc-engine/src/type_cmds.rs`<br>`crates/pc-engine/src/jobs.rs` | MIT OR Apache-2.0 |
 
 Adapted `9a05e8ad`: upstream numbers the output (`a-2`); our batch already reports output-name collisions instead of renaming (#422), so `process_files` reports an input whose output would replace another input in the output folder, and that input saves over itself.
 
@@ -1220,3 +1221,5 @@ Adapted `5d8cb2a3`: our Actions panel plays through `actions.play`, so there is 
 Partial `a8845f37`: the Save for Web half only. Our Actions do not record Save As (no `save_as_step`/`replay_save` in `crates/pc-ui-egui/src/lib.rs`; Batch has its own save point in `file_cmds/batch_actions.rs`), and the .atn hunks have no counterpart.
 
 Partial `6f1164e0`: the Save for Web half only. The `crates/pc-io/src/flat.rs` half (and its follow-up `c46a7462`) would change the bytes of the untagged TIFF golden in `parity_tests::psd_tiff_export_byte_goldens` (`crates/pc-io/src/flat.rs`), so it waits for a decision on that golden.
+
+Partial `856c6e93`: the typing half only. Its Batch failed-files notice (`crates/ui-egui/src/dialogs.rs`) is new visible UI and waits for the design process.

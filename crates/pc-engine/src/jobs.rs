@@ -842,7 +842,7 @@ impl Session {
         crate::edit_menu_cmds::after_command(self, id);
         crate::automate_cmds::after_command(self, id);
         self.sync_preset_store();
-        if journal && !crate::brush_cmds::coalesce_journal(self, id, &params) {
+        if journal && !crate::brush_cmds::coalesce_journal(self, id, &params) && !crate::type_cmds::coalesce_journal(self, id, &params) {
             let params = crate::actions_cmds::recorded_params(self, id, params);
             self.journal.push((id.to_string(), params));
         }
