@@ -7,11 +7,18 @@ use lightcraft_tiff::{Ifd, Tiff, makernote};
 
 /// Whether `b` looks like a displayable (DCT) JPEG: SOI, and the first SOF marker is not lossless.
 fn is_dct_jpeg(b: &[u8]) -> bool {
+    is_dct_jpeg_within(b, &mut { usize::MAX })
+}
+
+/// [`is_dct_jpeg`] charging `work` one per step (a segment, or a fill byte); `false` too when it runs out.
+fn is_dct_jpeg_within(b: &[u8], work: &mut usize) -> bool {
     if b.len() < 4 || b[0] != 0xff || b[1] != 0xd8 {
         return false;
     }
     let mut i = 2;
     while i + 4 <= b.len() {
+        let Some(left) = work.checked_sub(1) else { return false };
+        *work = left;
         if b[i] != 0xff {
             return false;
         }
@@ -91,7 +98,17 @@ pub fn embedded_preview(bytes: &[u8]) -> Option<Vec<u8>> {
     if let Some(p) = crate::vendor::orf::preview(bytes) {
         found.push(p);
     }
-    found.into_iter().filter(|s| is_dct_jpeg(s)).max_by_key(|s| s.len()).map(|s| trim_eoi(s).to_vec())
+    bound_candidates(&mut found, bytes.len());
+    found.into_iter().max_by_key(|s| s.len()).map(|s| trim_eoi(s).to_vec())
+}
+
+/// Keeps the candidate ranges that are a displayable JPEG, each once. Their header walks share one budget of eight
+/// times the file (at least 1 MiB), so many ranges running through fill bytes cannot each cost a walk of their
+/// length.
+fn bound_candidates(found: &mut Vec<&[u8]>, file_len: usize) {
+    let mut seen = std::collections::HashSet::new();
+    let mut work = file_len.saturating_mul(8).max(1 << 20);
+    found.retain(|s| seen.insert((s.as_ptr() as usize, s.len())) && is_dct_jpeg_within(s, &mut work));
 }
 
 /// Canon CR3: the full-size JPEG track (see [`lightcraft_meta::cr3`]), else the `PRVW` / `THMB` boxes.
@@ -286,5 +303,22 @@ mod tests {
         let file = TiffWriter::default().write(&[ifd]).unwrap();
         assert_eq!(Tiff::parse(&file).unwrap().ifds[0].image().unwrap().offsets.len(), STRIPS);
         assert_eq!(embedded_preview(&file), None);
+    }
+
+    /// Each range starts a JPEG header and runs through fill bytes with no frame, so each walk would run to its
+    /// end: 50 of them are 5 M steps against the shared 1 MiB budget, which a later valid header is past.
+    #[test]
+    fn header_walks_of_many_candidates_share_a_budget() {
+        let valid = [0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 8, 0, 8, 1, 1, 0x11, 0];
+        let mut data = vec![0xffu8; 100_100];
+        data[..2].copy_from_slice(&[0xff, 0xd8]);
+        let mut found: Vec<&[u8]> = (0..50).map(|i| &data[..100_000 + i]).collect();
+        found.push(&valid);
+        bound_candidates(&mut found, data.len());
+        assert!(found.is_empty());
+        // the same header with no hostile ranges before it is kept, once however often it is listed
+        let mut found: Vec<&[u8]> = vec![&valid, &valid, &valid];
+        bound_candidates(&mut found, data.len());
+        assert_eq!(found.len(), 1);
     }
 }

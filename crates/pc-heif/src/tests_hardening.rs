@@ -544,3 +544,73 @@ fn probe_refuses_grid_tile_data_larger_than_the_container_in_total() {
     let result = probe(&bytes);
     assert!(matches!(&result, Err(Error::Limit(message)) if message.contains("item data")), "{result:?}");
 }
+
+/// A PPS NAL unit as encoders write it, with `tiles` (columns, rows) when tiles are enabled.
+fn pps_nal(id: u32, tiles: Option<(u32, u32)>) -> Vec<u8> {
+    let mut bits = Vec::new();
+    let ue = |bits: &mut Vec<bool>, v: u32| {
+        let n = 32 - (v + 1).leading_zeros();
+        bits.extend(std::iter::repeat_n(false, n as usize - 1));
+        bits.extend((0..n).rev().map(|i| (v + 1) >> i & 1 == 1));
+    };
+    ue(&mut bits, id);
+    ue(&mut bits, 0); // sps id
+    bits.extend([false; 7]);
+    ue(&mut bits, 0);
+    ue(&mut bits, 0);
+    ue(&mut bits, 0); // init_qp_minus26
+    bits.extend([false; 3]); // constrained intra, transform skip, no cu_qp_delta
+    ue(&mut bits, 0); // cb offset
+    ue(&mut bits, 0); // cr offset
+    bits.extend([false; 4]);
+    bits.extend([tiles.is_some(), false]);
+    if let Some((columns, rows)) = tiles {
+        ue(&mut bits, columns - 1);
+        ue(&mut bits, rows - 1);
+        bits.extend([true, true]);
+    }
+    bits.extend([false, false, false, true]); // rbsp stop bit
+    let mut nal = vec![34 << 1, 1];
+    nal.extend(bits.chunks(8).map(|byte| byte.iter().enumerate().fold(0u8, |b, (i, &bit)| b | (u8::from(bit) << (7 - i)))));
+    nal
+}
+
+/// A primary image whose `hvcC` carries `nals` in one PPS array.
+fn primary_with_parameter_sets(nals: &[Vec<u8>]) -> Vec<u8> {
+    let mut config = vec![0; 22];
+    config[0] = 1;
+    config[16] = 1;
+    config[21] = 3;
+    config.extend_from_slice(&[1, 0x80 | 34]);
+    config.extend_from_slice(&(nals.len() as u16).to_be_bytes());
+    for nal in nals {
+        config.extend_from_slice(&(nal.len() as u16).to_be_bytes());
+        config.extend_from_slice(nal);
+    }
+    heif(&[
+        hdlr(),
+        pitm(1),
+        iinf(&[infe(1, b"hvc1", None)]),
+        iloc(&[Location { id: 1, method: 1, extents: vec![Extent { index: 0, offset: 0, length: 1 }] }], 4, 4, 0),
+        iprp(&[property(b"hvcC", &config), ispe(64, 64)], &[(1, vec![1, 2])]),
+        idat(b"x"),
+    ])
+}
+
+/// heic-rs 0.1.4 collects parameter sets with a rescan per set and accepts PPS ids past 63 and up to
+/// 1024 x 1024 tiles; anything past what H.265 allows is refused before it parses them.
+#[test]
+fn parameter_sets_past_what_h265_allows_are_refused_before_heic_rs() {
+    assert!(check_parameter_sets(&[&pps_nal(63, Some((20, 22))), &pps_nal(5, None)]).is_ok());
+    let refused = |sets: &[&[u8]]| check_parameter_sets(sets).is_err();
+    assert!(refused(&[&pps_nal(64, None)]));
+    let one = pps_nal(1, None);
+    assert!(refused(&vec![one.as_slice(); 5000]));
+    for (columns, rows) in [(21, 1), (1, 23), (1024, 1024)] {
+        assert!(refused(&[&pps_nal(0, Some((columns, rows)))]), "{columns} x {rows}");
+    }
+    let bytes = primary_with_parameter_sets(&[pps_nal(64, None)]);
+    for r in [probe(&bytes).map(|_| ()), decode(&bytes, &Options::default()).map(|_| ())] {
+        assert!(matches!(&r, Err(Error::Malformed(m)) if m.contains("parameter set id")), "{r:?}");
+    }
+}

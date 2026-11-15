@@ -10,6 +10,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 - HEIF decoding bounds metadata parsing, extent-record allocations, item reconstruction,
   transforms and output samples. Alpha-grid tiles share the primary reconstruction budget.
+- RAW, HEIF and metadata readers bound more hostile-input work: DNG opcode lists, embedded-preview
+  header scans, HEIC parameter sets and decode peak memory, oversized Sony lossless tiles, and
+  XML references, IPTC keywords and Luminar look settings read in linear time.
 
 ### Fixed
 
@@ -19,6 +22,9 @@ All notable changes to Local Image are recorded here. The format follows
   and icon colour profiles. JPEG Extended XMP fragments no longer make opening a file slow.
 - TIFF opens YCbCr images as RGB, blank Group 4 fax pages wider than 4096 pixels, and an alpha
   channel that follows another extra channel.
+- A raw with damaged sensor data opens in the editor as its camera JPEG, with a warning, instead of failing.
+- A raw's embedded preview is read in Adobe RGB when the raw's EXIF says the camera was set to it.
+- Incomplete ISO and EXIF timestamps no longer become capture times, so the next valid date is used. A JPEG ICC profile whose chunks are missing, repeated or cut off is dropped from metadata.
 - RAW/TIFF imports bound hostile tile, opcode, and maker-note work before it can multiply memory or CPU use. Truncated Deflate tiles are rejected, and non-finite DNG WhiteLevel uses the bit-depth default.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.

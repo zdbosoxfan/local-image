@@ -1266,3 +1266,42 @@ bytes without counting them; after a scan our walker stops (`DataEnd::Unread`) b
 ## Partial PhotoCraft paint ports (2026-11-15)
 
 For the paint rows of the table above: `d98b9ea1` brings only the dab-area budget; its clip (skip dabs outside the canvas plus the layer's pixels) is not ported, because it makes `out_of_range_scatter_is_rejected_and_the_maximum_still_paints` fail (a 1000 % scattered dab lands off the 32 px canvas and reports empty damage) and upstream relaxed that test, which needs a human decision. Until then the budget bounds time but not, in practice, memory: coverage tiles are dense `f32`, so dabs that land off the canvas can still allocate up to about 8 GiB of coverage (2^31 px), and as much again under the Dual Brush's separate budget, before the budget refuses; the clip exists to stop those never-read tiles. Under continuous coverage (a local adaptation) the budget is charged per segment and an undrawn segment owes no end cap. `f5e92a6b`/`0ff76d6f` also bring the per-segment step cap of `cfd894aa` (its procedural-primitive caps are not ported); `af025e18`'s pixel-grid test does not apply (we have no pixel-grid walk). `c2cc5eee` ports the proxy half only: our Liquify dialog has no source-resolution crop or smart-filter editing. `6bd3773e` ports the foreground-precision half; the test it re-pins belongs to upstream's distance-faded protection (`a11204c6`), which we do not have. `acd35e12` is adapted to our Smudge pick-up loop, saturating the square positions. `abeb16c9` also builds `apply_dab_stroke`'s halo rectangle (`crates/pc-paint/src/retouch.rs`) with saturating arithmetic, a local hardening upstream does not have.
+
+## RAW, HEIF and metadata hardening (2026-11-15)
+
+Not ported from `b0c4aa8c`: the distinct-byte allocation bound in `check_image`, because the batch test
+`hundred_megapixel_rgb_hdr_has_bounded_tile_batches` (`crates/lc-raw/src/tiffraw.rs`) plans its image from tiles
+all pointing at one 4096-byte payload, which that bound refuses (whether to keep the test or take the bound is left to Zach); and the sparse planner (no
+sparse reader here). Already covered: `a4a797e2`'s tile-sized lossy JPEG budget by `lossy_jpeg`'s tile-bounded
+header and its Deflate padding bound by `check_image`'s tile-grid bound; `a42ee704`'s alpha-grid tiles by the
+shared extent-read budget; `f786b875`'s XMP path building by `property_key`'s key budget. Not applicable:
+`1c906ea3`'s PEF and SRW halves (PEF never sums strip counts here, no SRW decoder) and `cb86952c`'s CR3 half
+(CR3 goes through rawler) and `f786b875`'s lensdb XML half (lens profiles come from the `lensfun` crate's
+bundled database; we have no lens XML reader). `5d4b68f0`'s craft-heif git dependency is not taken, nor its HEIC colour changes (VUI range and matrix, Apple
+chroma upsampling, VUI-based CICP tagging) or its HDR conversion peak: decoding goes through the heic-rs 0.1.4
+wrapper, and there is no HDR conversion path here. `a4a797e2`'s second budget in `bound_candidates`, on the total
+length of validated ranges, is not ported: candidates stay borrowed slices and only the largest is copied. Not ported
+here: `0352b420`'s decode side (the lone or incoherent ICC chunk refusal in `crates/pc-codecs/src/codecs/jpeg.rs`
+and the IccUnsupported origin for an invalid profile), left to the package that owns pc-codecs. `0133e139` opens the preview only when
+the raw decoder itself reports `RawError::Corrupt`, narrower than upstream's `Malformed`: a raw cut short inside its
+TIFF structure (`RawError::Tiff`) still fails, and an editor load that fails while the raw decodes stays an error.
+Local extension of
+`17248a20`: the Library's embedded-preview paths (`lc-engine` `load_embedded_preview`, `embedded_preview_srgb`) take
+the same EXIF colour-space tag, and a preview with EXIF of its own is read by that EXIF, not the raw's.
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b0c4aa8cc8ac`](https://github.com/storytold/lightcraft/commit/b0c4aa8cc8acac043af6d767b3bfec30d0ab0c0a) | security(raw): linear sparse planning, distinct-byte allocation bound, opcode list budget, ORF strip length (#3679) | `crates/lc-raw/src/opcodes.rs`<br>`crates/lc-raw/src/vendor/orf.rs` | MIT OR Apache-2.0 |
+| [`a42ee7042fee`](https://github.com/storytold/lightcraft/commit/a42ee7042fee0f18e929b0f54e3c9d7a6369cf43) | security(heif): count alpha-grid tiles and bound hvcC parameter sets before heic-rs (#3645) | `crates/pc-heif/src/lib.rs`<br>`crates/pc-heif/src/pps.rs` | MIT OR Apache-2.0 |
+| [`f786b87533e5`](https://github.com/storytold/lightcraft/commit/f786b87533e58c6d31c7f9f2897814904448f39a) | security(meta): linear entity decoding, indexed keyword de-duplication, bounded XMP path building (#3672) | `crates/lc-meta/src/xmp.rs`<br>`crates/lc-meta/src/iptc.rs`<br>`crates/lc-engine/src/preset_luminar.rs` | MIT OR Apache-2.0 |
+| [`a4a797e2f2e3`](https://github.com/storytold/lightcraft/commit/a4a797e2f2e381fcb425d78394c0c4dd4f1ab6a8) | security(raw): shared header-scan budget for tagged previews, tile-sized lossy JPEG budget, bound deflate tile padding (#3695) | `crates/lc-raw/src/preview.rs` | MIT OR Apache-2.0 |
+| [`8b3ce31b665c`](https://github.com/storytold/lightcraft/commit/8b3ce31b665c16983129649ebcab298e8b893ba7) | Never crash: a UTC offset of i16::MIN formats and validates without overflow (#2579) | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`07d1f0ad5d1e`](https://github.com/storytold/lightcraft/commit/07d1f0ad5d1e2ce71ff5d22749e92893f958c994) | LR-META-XMP: reject incomplete ISO timestamps | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`a1e1b4cc0e37`](https://github.com/storytold/lightcraft/commit/a1e1b4cc0e37a8016b933eba099460ed99b00b4c) | LR-META-EXIF-FULL: reject malformed EXIF clocks | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`84951ff57967`](https://github.com/storytold/lightcraft/commit/84951ff57967f3778a6095663892ac59fb010bee) | Never crash: rational tag lists show 16 values like every other list (#2579) | `crates/lc-meta/src/tags.rs` | MIT OR Apache-2.0 |
+| [`1c906ea3db25`](https://github.com/storytold/lightcraft/commit/1c906ea3db250369860ba1357ed1dc50935bbf27) | Never crash: strip byte counts near u64::MAX don't overflow their sum in ORF, SRW, ARW and PEF | `crates/lc-raw/src/vendor/arw.rs`<br>`crates/lc-raw/src/vendor/orf.rs`<br>`crates/lc-raw/src/vendor/mod.rs` | MIT OR Apache-2.0 |
+| [`cb86952cbf24`](https://github.com/storytold/lightcraft/commit/cb86952cbf246b5994f5f1116e94e65db63f05c8) | security(raw): CR3 timed maker notes are parsed once per distinct range under a shared budget; Sony quad tiles' frames may not exceed the tile (#3700) | `crates/lc-raw/src/vendor/arw.rs` | MIT OR Apache-2.0 |
+| [`0352b420a7df`](https://github.com/storytold/lightcraft/commit/0352b420a7dfbaeea5ea67aaaae7808527b25075) | fix(codecs): validate JPEG ICC APP2 chunk sequences | `crates/lc-meta/src/container.rs` | MIT OR Apache-2.0 |
+| [`0133e139bb68`](https://github.com/storytold/photocraft/commit/0133e139bb6857af2d4a2749ffe0ba99a7697e8d) | A raw with damaged sensor data opens its camera JPEG instead of failing | `crates/pc-io/src/raw.rs` | MIT OR Apache-2.0 |
+| [`17248a205dd7`](https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df) | A preview fallback keeps the colour space the raw's EXIF states | `crates/lc-codecs/src/jpeg.rs`<br>`crates/lc-codecs/src/lib.rs`<br>`crates/lc-engine/src/files.rs` | MIT OR Apache-2.0 |
+| [`5d4b68f04cfe`](https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303) | Use craft-heif from craft-libs for HEIC/HEIF (#13076) | `crates/pc-codecs/src/codecs/heif.rs` | MIT OR Apache-2.0 |
