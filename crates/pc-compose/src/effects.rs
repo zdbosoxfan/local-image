@@ -159,6 +159,11 @@ fn edt(inside: &[bool], w: usize, h: usize) -> Vec<f32> {
 /// [`edt`] plus the index of the nearest `inside` pixel.
 fn edt_nearest(inside: &[bool], w: usize, h: usize) -> (Vec<f32>, Vec<usize>) {
     const INF: f32 = 1e20;
+    // No pixels: the scratch below is sized from the larger dimension, which a zero-by-huge
+    // plane would still allocate.
+    if w == 0 || h == 0 {
+        return (vec![INF; inside.len()], vec![0; inside.len()]);
+    }
     let mut g: Vec<f32> = inside.iter().map(|&b| if b { 0.0 } else { INF }).collect();
     let mut near_row = vec![0usize; w * h];
     let mut nearest = vec![0usize; w * h];
@@ -529,7 +534,11 @@ struct PreparedGradient {
 
 impl PreparedGradient {
     fn new(g: &Gradient) -> Self {
-        Self { color: g.stops.iter().map(|(p, c)| (*p, rgb(c))).collect(), opacity: g.opacity_stops.iter().map(|(p, a)| (*p, [*a; 3])).collect() }
+        let mut color: Vec<_> = g.stops.iter().map(|(p, c)| (*p, rgb(c))).collect();
+        color.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut opacity: Vec<_> = g.opacity_stops.iter().map(|(p, a)| (*p, [*a; 3])).collect();
+        opacity.sort_by(|a, b| a.0.total_cmp(&b.0));
+        Self { color, opacity }
     }
 
     fn sample(&self, t: f32) -> [f32; 4] {
@@ -547,13 +556,15 @@ fn sample_stops(stops: &[(f32, [f32; 3])], t: f32) -> [f32; 3] {
             if t <= stops[0].0 {
                 return stops[0].1;
             }
-            for w in stops.windows(2) {
-                if t <= w[1].0 {
-                    let k = if w[1].0 > w[0].0 { (t - w[0].0) / (w[1].0 - w[0].0) } else { 0.0 };
-                    return std::array::from_fn(|i| w[0].1[i] + (w[1].1[i] - w[0].1[i]) * k);
-                }
+            // Sorted in `new`: bisect rather than scan the stops for every covered pixel.
+            let j = stops.partition_point(|s| s.0 < t);
+            // j == 0 for a NaN position: the last stop, as a scan gave.
+            if j >= stops.len() || j == 0 {
+                return stops[stops.len() - 1].1;
             }
-            stops[stops.len() - 1].1
+            let (a, b) = (&stops[j - 1], &stops[j]);
+            let k = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
+            std::array::from_fn(|i| a.1[i] + (b.1[i] - a.1[i]) * k)
         }
     }
 }
@@ -1676,6 +1687,15 @@ mod tests {
         assert!((d[2 * w + 6] - 3.0).abs() < 1e-6);
         assert!((d[0] - (9.0f32 + 4.0).sqrt()).abs() < 1e-5);
         assert!((d[4 * w + 5] - (4.0f32 + 4.0).sqrt()).abs() < 1e-5);
+    }
+
+    /// Stops stored out of order are sampled by position, not by their order in the file.
+    #[test]
+    fn unsorted_gradient_stops_are_sampled_by_position() {
+        let g = Gradient { stops: vec![(1.0, photocraft_color::Color::WHITE), (0.0, photocraft_color::Color::BLACK)], ..Gradient::default() };
+        let c = sample_gradient(&g, 0.5);
+        assert!(c[..3].iter().all(|v| (v - 0.5).abs() < 1e-4), "{c:?}");
+        assert_eq!(sample_gradient(&g, f32::NAN)[..3], [1.0; 3]);
     }
 
     #[test]
