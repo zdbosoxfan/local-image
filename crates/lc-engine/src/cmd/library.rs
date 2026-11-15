@@ -1176,15 +1176,17 @@ fn has_library(s: &Session) -> std::result::Result<(), String> {
 /// "51°30'26\"N 0°7'39\"W" (degrees, minutes, seconds; N/S/E/W or signs).
 pub(crate) fn parse_gps(t: &str) -> Option<(f64, f64)> {
     let t = t.trim();
-    // split into the two coordinates: at a comma, else after the first N/S hemisphere letter
-    let (a, b) = match t.split_once(',') {
-        Some((a, b)) => (a.trim().to_string(), b.trim().to_string()),
-        None => {
-            let i = t.find(['N', 'S', 'n', 's']).map(|i| i + 1).or_else(|| t.find(char::is_whitespace))?;
-            (t[..i].trim().to_string(), t[i..].trim().to_string())
-        }
-    };
-    let one = |s: &str, pos: char, neg: char| -> Option<f64> {
+    // split into the two coordinates: at a comma, else after the first N/S hemisphere letter, else
+    // (or when that split does not read, as for the leading letter of "N51 0E") at the first whitespace
+    if let Some((a, b)) = t.split_once(',') {
+        return parse_gps_pair(a, b);
+    }
+    let split_at = |i: usize| parse_gps_pair(&t[..i], &t[i..]);
+    t.find(['N', 'S', 'n', 's']).and_then(|i| split_at(i + 1)).or_else(|| t.find(char::is_whitespace).and_then(split_at))
+}
+
+fn parse_gps_pair(a: &str, b: &str) -> Option<(f64, f64)> {
+    let one = |s: &str, neg: char| -> Option<f64> {
         let up = s.to_ascii_uppercase();
         let sign = if up.contains(neg) || up.trim_start().starts_with('-') { -1.0 } else { 1.0 };
         let nums: Vec<f64> =
@@ -1195,10 +1197,9 @@ pub(crate) fn parse_gps(t: &str) -> Option<(f64, f64)> {
             [d, m, s] => d + m / 60.0 + s / 3600.0,
             _ => return None,
         };
-        let _ = pos;
         Some(sign * v)
     };
-    let (la, lo) = (one(&a, 'N', 'S')?, one(&b, 'E', 'W')?);
+    let (la, lo) = (one(a, 'S')?, one(b, 'W')?);
     (la.abs() <= 90.0 && lo.abs() <= 180.0).then_some((la, lo))
 }
 
@@ -1214,6 +1215,11 @@ mod gps_tests {
         assert!((la + 33.8688).abs() < 1e-9 && (lo - 151.2093).abs() < 1e-9);
         assert_eq!(p("95, 10"), None);
         assert_eq!(p("hello"), None);
+    }
+
+    #[test]
+    fn gps_tries_whitespace_split_when_prefix_marker_split_fails() {
+        assert_eq!(super::parse_gps("N51 0E"), Some((51.0, 0.0)));
     }
 }
 
