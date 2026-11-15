@@ -182,6 +182,17 @@ fn placing_refuses_a_scale_that_would_exceed_the_pixel_limit() {
     assert!(s.execute("file.placeEmbedded", json!({"path": small, "scale": 50})).is_ok());
 }
 
+/// The layer export's `format` is an extension, never a path: separators and `..` are refused.
+#[test]
+fn layer_export_format_cannot_carry_path_components() {
+    let dir = tmp("fmt-path");
+    let mut s = session(8, 8, 8);
+    for bad in ["png/../../x", "..\\x", "a/b", ""] {
+        let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "format": bad}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{bad}: {r:?}");
+    }
+}
+
 #[test]
 fn place_embedded_centres_fits_and_embeds() {
     let dir = tmp("place");

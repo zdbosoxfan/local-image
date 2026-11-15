@@ -234,6 +234,9 @@ fn clone_mapping(s: &mut Session, p: &Value, stroke: &Stroke, cmd: &str) -> Resu
     crate::presets::clone_source::mapping(s, p, (f.x, f.y), cmd)
 }
 
+/// Most source pixels one clone sample may read (an 8192 x 8192 window); real strokes stay far below.
+const MAX_CLONE_SOURCE_PIXELS: u64 = 1 << 26;
+
 /// Source pixels for destination `rect`: a translated read, or a bilinear resample when the
 /// clone source is scaled, rotated or flipped.
 fn clone_sample(
@@ -257,7 +260,13 @@ fn clone_sample(
         r.rect = rect;
         return Ok(r);
     }
-    let src = sample(pre, id, surf, which, map.source_rect(rect));
+    // A small W/H scale makes the source window enormous for a bounded destination: refuse it
+    // before the dense read allocates it.
+    let sr = map.source_rect(rect);
+    if u64::from(sr.width()) * u64::from(sr.height()) > MAX_CLONE_SOURCE_PIXELS {
+        return Err(bad(cmd, "the scaled clone source covers too large an area; raise the clone source's W/H or use a smaller brush"));
+    }
+    let src = sample(pre, id, surf, which, sr);
     Ok(crate::presets::clone_source::resample(&src, rect, map, alpha_index(&surf.format())))
 }
 

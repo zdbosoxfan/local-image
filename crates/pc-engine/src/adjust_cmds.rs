@@ -131,7 +131,8 @@ fn base_name(path: &str) -> String {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn read_file(path: &str) -> Option<Vec<u8>> {
-    std::fs::read(path).ok()
+    // The bounded reader: a device or an oversized file is refused instead of filling memory.
+    crate::file_cmds::read_file(path).ok()
 }
 #[cfg(target_arch = "wasm32")]
 fn read_file(_: &str) -> Option<Vec<u8>> {

@@ -890,6 +890,10 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.layersToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
     let format = p.get("format").and_then(Value::as_str).unwrap_or("png").trim_start_matches('.').to_ascii_lowercase();
+    // The format becomes the file extension inside one file name: never a path.
+    if format.is_empty() || !format.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(EngineError::BadParams { cmd: cmd.into(), msg: "`format` must be a file extension such as png".into() });
+    }
     let visible_only = p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(true);
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
