@@ -809,6 +809,19 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
 
+/// Assign Profile is greyed for Lab, Bitmap and Multichannel documents, as in Photoshop, and a
+/// scripted run fails there. Convert to Profile keeps [`has_doc`]: it stays enabled for Lab.
+fn assign_profile_enabled(s: &Session) -> std::result::Result<(), String> {
+    let doc = &s.active().ok_or("no document open")?.doc;
+    let mode = match doc.mode {
+        ColorMode::Lab => "Lab",
+        ColorMode::Bitmap => "Bitmap",
+        ColorMode::Multichannel => "Multichannel",
+        _ => return Ok(()),
+    };
+    Err(format!("not available in {mode} mode"))
+}
+
 fn always(_: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
@@ -1066,7 +1079,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Assign Profile…",
             ["Edit"],
             r##"{"profile":"working|srgb|display-p3|adobe-rgb-compat|prophoto-compat|linear-srgb|rec2020|gray-gamma-2.2|sgray|dot-gain-20-compat|lab-d50|coated-cmyk|none" (or a path to an .icc file)}"##,
-            has_doc,
+            assign_profile_enabled,
             assign_profile,
             true
         ),
@@ -1221,6 +1234,22 @@ mod tests {
         assert_eq!(info["profile"]["colorSpace"], "Cmyk");
         assert!(info["builtins"].as_array().unwrap().len() >= 10);
         assert!(s.execute("edit.convertToProfile", json!({"profile": "nope"})).is_err());
+    }
+
+    #[test]
+    fn assign_profile_is_greyed_for_lab_documents() {
+        let mut s = session("rgb", 8);
+        assert!(s.is_enabled("edit.assignProfile"));
+        s.execute("image.mode.lab", json!({})).unwrap();
+        assert_eq!(doc(&s).mode, ColorMode::Lab);
+        assert!(!s.is_enabled("edit.assignProfile"));
+        let before = doc(&s).icc_profile.clone();
+        let e = s.execute("edit.assignProfile", json!({"profile": "lab-d50"})).unwrap_err();
+        assert!(matches!(e, EngineError::Disabled(..)) && e.to_string().contains("Lab mode"), "{e}");
+        assert_eq!(doc(&s).icc_profile, before, "a refused run leaves the profile alone");
+        assert!(s.is_enabled("edit.convertToProfile"), "Convert to Profile stays enabled for Lab");
+        assert!(s.undo());
+        assert!(s.is_enabled("edit.assignProfile"), "back in RGB");
     }
 
     #[test]
