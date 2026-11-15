@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
-use crate::file_cmds::{file_name, import, join, list_images, read_file, stem, write_file};
+use crate::file_cmds::{file_name, image_name, import, join, list_images, read_file, stem, write_file};
 use crate::{EngineError, Result, Session};
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
@@ -417,7 +417,14 @@ fn run_droplet(s: &mut Session, p: &Value) -> Result<Value> {
         _ => return Err(bad(cmd, "missing \"input\" (files or folders)")),
     };
     for i in raw {
-        if std::path::Path::new(&i).is_dir() { inputs.extend(list_images(&i)?) } else { inputs.push(i) }
+        // A dropped file that is not an image is skipped, as a folder's non-images are; one with
+        // an image name that does not decode still reports its error in the batch.
+        let path = std::path::Path::new(&i);
+        if path.is_dir() {
+            inputs.extend(list_images(&i)?)
+        } else if image_name(path) {
+            inputs.push(i)
+        }
     }
     if inputs.is_empty() {
         return Err(bad(cmd, "no input images"));

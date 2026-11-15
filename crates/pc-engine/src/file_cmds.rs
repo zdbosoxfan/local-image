@@ -98,19 +98,18 @@ pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
     Err(EngineError::Other(format!("cannot write {path}: no file system on the web")))
 }
 
+/// Whether `path` is named like an image we can open: a native `.pcraft` document or a format
+/// this build reads.
+pub(crate) fn image_name(path: &std::path::Path) -> bool {
+    path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
+}
+
 /// Files of a folder that look like images we can open, sorted by name.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     let rd = std::fs::read_dir(dir).map_err(|e| EngineError::Other(format!("{dir}: {e}")))?;
-    let mut out: Vec<String> = rd
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.is_file()
-                && p.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
-        })
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
+    let mut out: Vec<String> =
+        rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_file() && image_name(p)).map(|p| p.to_string_lossy().into_owned()).collect();
     out.sort();
     Ok(out)
 }
