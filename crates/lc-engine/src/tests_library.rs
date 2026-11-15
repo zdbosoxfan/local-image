@@ -297,6 +297,41 @@ fn quick_collection_and_target_album() {
     assert_eq!(s.catalog.album_count(quick), 0);
 }
 
+/// Album commands drop ids the catalog doesn't have, and a call that adds nothing records no undo
+/// step.
+#[test]
+fn album_commands_skip_missing_photos_and_record_nothing_for_nothing() {
+    use lightcraft_catalog::{AlbumId, PhotoId};
+    let gone = PhotoId(987_654);
+    let mut s = crate::Session::with_demo();
+    assert!(s.catalog.photo(gone).is_none());
+    let photo = s.catalog.photos().next().unwrap().id;
+    let a = AlbumId(s.execute("album.create", &json!({"name": "Trip"})).unwrap()["id"].as_u64().unwrap());
+    s.execute("library.select", &json!({"ids": [photo.0]})).unwrap();
+    let steps = s.undo.len();
+
+    let r = s.execute("album.addPhotos", &json!({"id": a.0, "ids": [gone.0]})).unwrap();
+    assert_eq!(r["added"], 0, "{r}");
+    assert!(s.catalog.album(a).unwrap().photos.is_empty());
+    assert_eq!(s.undo.len(), steps, "nothing added: no undo step");
+
+    s.execute("album.addPhotos", &json!({"id": a.0, "ids": [gone.0, photo.0]})).unwrap();
+    assert_eq!(s.catalog.album(a).unwrap().photos, vec![photo]);
+    assert_eq!(s.undo.len(), steps + 1);
+    s.execute("album.addPhotos", &json!({"id": a.0, "ids": [photo.0]})).unwrap();
+    assert_eq!(s.undo.len(), steps + 1, "already in: no undo step");
+
+    let r = s.execute("album.toggleTarget", &json!({"ids": [gone.0]})).unwrap();
+    assert!(r["added"].is_null(), "{r}");
+    assert!(s.catalog.quick_collection().is_none(), "no Quick Collection for nothing");
+    assert_eq!(s.undo.len(), steps + 1);
+
+    s.selection = crate::Selection::single(gone);
+    let r = s.execute("album.create", &json!({"name": "New", "addSelected": true})).unwrap();
+    let new = s.catalog.album(AlbumId(r["id"].as_u64().unwrap())).unwrap();
+    assert!(new.photos.is_empty() && new.cover.is_none(), "{r}");
+}
+
 /// Scaling check (ignored: `cargo test --release -p lightcraft-engine -- --ignored scale --nocapture`):
 /// the per-frame / per-click library queries on a 100k-photo catalog.
 #[test]
