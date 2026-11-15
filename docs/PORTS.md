@@ -1209,3 +1209,4 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`3fd5304dfe5b`](https://github.com/storytold/photocraft/commit/3fd5304dfe5bc84c317fc50021d9cf30d34f1ae9) | text: find paragraphs and trailing blanks without rescanning (#11045) | `crates/pc-text/src/layout.rs`<br>`crates/pc-text/src/tests.rs` | MIT OR Apache-2.0 |
+| [`37a01ca8746c`](https://github.com/storytold/photocraft/commit/37a01ca8746c121170644a07968d11263ef64407) | format: bound blob inflation by the load's remaining budget; browser budgets (#10984) | `crates/pc-format/src/store.rs` | MIT OR Apache-2.0 |

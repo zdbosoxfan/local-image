@@ -264,11 +264,15 @@ impl Fetch for LoadFetch<'_> {
             return Err(FormatError::corrupt(format!("invalid blob hash `{hash}`")));
         }
         let path = blob_path(hash);
-        let compressed_max = self.opts.max_blob_bytes.saturating_add(self.opts.max_blob_bytes / 8).saturating_add(4096);
+        // A new blob is kept beside every earlier one, so it may inflate to no more than what the
+        // load's total budget has left; checking the total only afterwards let each of several
+        // blobs allocate a full `max_blob_bytes` first.
+        let left = usize::try_from(self.opts.max_total_bytes.saturating_sub(self.total)).unwrap_or(usize::MAX);
+        let limit = self.opts.max_blob_bytes.min(left);
+        let compressed_max = limit.saturating_add(limit / 8).saturating_add(4096);
         let z = self.src.get(&path, compressed_max)?;
-        // Blob length is not in the manifest; the frame header bounds it and
-        // we cap at max_blob_bytes.
-        let data = decompress_bounded(&z, self.opts.max_blob_bytes, None, &path)?;
+        // Blob length is not in the manifest; the frame header bounds it and we cap at `limit`.
+        let data = decompress_bounded(&z, limit, None, &path)?;
         self.account(data.len())?;
         if hash_bytes(&data) != hash {
             return Err(FormatError::corrupt(format!("{path}: content does not match its hash")));
@@ -1095,5 +1099,33 @@ mod save_admission_tests {
             PcraftWriter::new().save_path(&loaded, &dir, &SaveOptions::default()).unwrap();
             assert_eq!(crate::load_path(&dir).unwrap(), replacement);
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod blob_budget_tests {
+    use super::*;
+
+    struct MemSource(HashMap<String, Vec<u8>>);
+
+    impl Source for MemSource {
+        fn get(&self, path: &str, _max: usize) -> Result<Vec<u8>> {
+            self.0.get(path).cloned().ok_or_else(|| FormatError::corrupt(format!("{path}: missing")))
+        }
+    }
+
+    /// Upstream 37a01ca8: what the load's total budget has left bounds a blob's decompression.
+    #[test]
+    fn a_blob_inflates_only_to_the_remaining_total_budget() {
+        let data = vec![0u8; 4096];
+        let hash = hash_bytes(&data);
+        let src = MemSource(HashMap::from([(blob_path(&hash), compress(&data))]));
+        let opts = LoadOptions { max_total_bytes: 10 * data.len() as u64, ..Default::default() };
+        let spent = |total: u64| LoadFetch { src: &src, opts, total, blobs: HashMap::new() };
+        assert_eq!(spent(9 * data.len() as u64).blob(&hash).unwrap().as_slice(), data.as_slice());
+        let e = spent(9 * data.len() as u64 + 1).blob(&hash).unwrap_err();
+        let want = format!("exceeds {} bytes", data.len() - 1);
+        assert!(matches!(e, FormatError::LimitExceeded(ref m) if m.contains(&want)), "{e}");
     }
 }
