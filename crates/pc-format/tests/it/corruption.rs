@@ -78,6 +78,30 @@ fn bad_manifest_json() {
     assert!(matches!(load_from_bytes(&b), Err(FormatError::Json(_))));
 }
 
+/// A layer id repeated anywhere in the tree is refused in both id modes: remapping could not
+/// tell which layer a comp or slice meant.
+#[test]
+fn duplicate_layer_ids_are_rejected() {
+    use photocraft_doc::{Document, Layer, Size};
+    let mut doc = Document::new("ids", Size::new(1, 1), ColorMode::Rgb, SampleType::U8);
+    let format = doc.pixel_format();
+    doc.layers = vec![Layer::raster("a", format), Layer::group("group", vec![Layer::raster("b", format)])];
+    let first = doc.layers[0].id.0;
+    let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+    let damaged = rebuild(&bytes, |name, data| {
+        if name != "manifest.json" {
+            return Some(data);
+        }
+        let mut manifest: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        manifest["document"]["layers"][1]["content"]["children"][0]["id"] = first.into();
+        Some(serde_json::to_vec(&manifest).unwrap())
+    });
+    for preserve_ids in [true, false] {
+        let error = load_from_bytes_with(&damaged, &LoadOptions { preserve_ids, ..Default::default() }).unwrap_err();
+        assert!(matches!(&error, FormatError::Corrupt(message) if message == &format!("duplicate layer id {first}")), "{error}");
+    }
+}
+
 /// Hostile nesting fails with an error instead of overflowing the stack; nesting as deep as the
 /// deepest groups a bundle may hold (three JSON levels each) parses, and is then rejected for
 /// lacking a format version.
