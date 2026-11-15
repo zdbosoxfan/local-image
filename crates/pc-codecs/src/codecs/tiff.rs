@@ -344,10 +344,11 @@ fn is_eof(e: &tiff::TiffError) -> bool {
 /// again the few header segments of chunks that share one stream.
 const JPEG_HEADER_STEPS_PER_CHUNK: u64 = 64;
 
-/// Read SOF without allocating, including abbreviated JPEG with external tables. Each fill byte
+/// Read SOF (width, height, components) without allocating, including abbreviated JPEG with
+/// external tables. Each fill byte
 /// and marker takes one of `steps` (a segment's body is jumped over), so the walks of chunks that
 /// do not overlap fit in the file's length; running out refuses the image.
-fn jpeg_dimensions(data: &[u8], steps: &mut u64) -> Result<(u16, u16), CodecError> {
+fn jpeg_dimensions(data: &[u8], steps: &mut u64) -> Result<(u16, u16, u8), CodecError> {
     if !data.starts_with(&[0xff, 0xd8]) {
         return Err(err("JPEG chunk header"));
     }
@@ -382,7 +383,7 @@ fn jpeg_dimensions(data: &[u8], steps: &mut u64) -> Result<(u16, u16), CodecErro
             if w == 0 || h == 0 {
                 return Err(err("JPEG chunk dimensions"));
             }
-            return Ok((w, h));
+            return Ok((w, h, sof[5]));
         }
         at = end;
     }
@@ -395,6 +396,14 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     // neither allocated nor read.
     if let Some(e) = dir.entries.iter().find(|e| ifd::STRUCTURAL_TAGS.contains(&e.tag) && f.data(e).is_none()) {
         return Err(err(format!("tag {} points past the end of the file", e.tag)));
+    }
+    // This parser reads the first entry of a tag and the `tiff` crate the last, so a repeated
+    // structural tag (a small SamplesPerPixel first, a large one last) would be checked here with
+    // one value and sized by the crate with another.
+    let mut structural: Vec<u16> = dir.entries.iter().map(|e| e.tag).filter(|t| ifd::STRUCTURAL_TAGS.contains(t)).collect();
+    structural.sort_unstable();
+    if let Some(w) = structural.windows(2).find(|w| w[0] == w[1]) {
+        return Err(err(format!("tag {} appears more than once", w[0])));
     }
     let need = |tag: u16, name: &str| f.tag_uint(dir, tag).ok_or_else(|| err(format!("missing or unreadable {name}")));
     let w = u32::try_from(need(ifd::TAG_WIDTH, "ImageWidth")?).map_err(|_| err("ImageWidth out of range"))?;
@@ -441,6 +450,9 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     if counts != (Some(expected), Some(expected)) {
         return Err(err(format!("{expected} strips or tiles expected, the tables list {counts:?}")));
     }
+    // The largest frame a JPEG chunk declares, in decoded bytes: the `tiff` crate decodes each
+    // chunk into a whole JPEG image of that size, with no limits, before taking its bytes.
+    let mut jpeg_frame_bytes = 0u64;
     if f.tag_uint(dir, 259) == Some(7) {
         let mut steps = (f.b.len() as u64).saturating_add(expected.saturating_mul(JPEG_HEADER_STEPS_PER_CHUNK));
         for i in 0..expected {
@@ -448,10 +460,11 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
             let count = dir.get(counts_tag).and_then(|e| f.uint(e, i)).ok_or_else(|| err("JPEG chunk length"))?;
             let data =
                 offset.checked_add(count).and_then(|end| f.b.get(offset as usize..usize::try_from(end).ok()?)).ok_or_else(|| err("JPEG chunk outside file"))?;
-            let (jw, jh) = jpeg_dimensions(data, &mut steps)?;
+            let (jw, jh, components) = jpeg_dimensions(data, &mut steps)?;
             if u64::from(jw) > cw || u64::from(jh) > ch {
                 return Err(err("JPEG dimensions exceed TIFF chunk"));
             }
+            jpeg_frame_bytes = jpeg_frame_bytes.max(u64::from(jw) * u64::from(jh) * u64::from(components.max(1)));
         }
     }
     let src = match (format, bits) {
@@ -602,6 +615,18 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         .and_then(|s| s.checked_mul(src.bytes()))
         .ok_or_else(|| CodecError::LimitExceeded("tile size".into()))?;
     let scratch_cap = chunk_bytes.saturating_mul(2).max(64 << 20).min(limits.alloc_usize());
+    // The floating-point predictor makes the `tiff` crate read each row of a tile at its full
+    // stored width (TileWidth, not clipped to the image) into a buffer of its own, outside the
+    // scratch buffer: that row must fit the same cap.
+    if f.tag_uint(dir, 317) == Some(3) {
+        let stored_row = cw.checked_mul(chunk_spp).and_then(|n| n.checked_mul(src.bytes()));
+        if stored_row.is_none_or(|n| n > scratch_cap) {
+            return Err(CodecError::LimitExceeded(format!("a {cw} sample wide predicted tile row")));
+        }
+    }
+    if jpeg_frame_bytes > scratch_cap as u64 {
+        return Err(CodecError::LimitExceeded(format!("a {jpeg_frame_bytes} byte JPEG strip or tile")));
+    }
     let mut lay = Layout {
         w: wu,
         src,
