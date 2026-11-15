@@ -5,6 +5,7 @@
 //! transparency. The selection (or the whole canvas) is filled, as one history step ("Fill").
 //! Every parameter is validated: a bad one is an error, never a panic.
 
+use photocraft_algo::content_aware::{FillOptions, color_level, rotation_level};
 use photocraft_color::BlendMode;
 use photocraft_geom::{Rect, TILE_SIZE};
 use photocraft_raster::{Surface, from_rgba_into, to_rgba};
@@ -134,10 +135,17 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
                 return Err(EngineError::Other("Content-Aware fill works on layer pixels only".into()));
             }
             let adapt = flag(p, "colorAdaptation", true)?;
+            let rotate = flag(p, "rotationAdaptation", false)?;
+            let opts = FillOptions {
+                color_adaptation: color_level(if adapt { "default" } else { "none" }),
+                rotations: rotation_level(if rotate { "full" } else { "none" }),
+                scale: flag(p, "scaleAdaptation", false)?,
+                mirror: flag(p, "mirror", false)?,
+                seed: p.get("seed").and_then(Value::as_u64).unwrap_or(1),
+            };
             let lid = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
             let surf = st.doc.layer(lid).and_then(|l| l.surface()).ok_or_else(|| EngineError::Other("Content-Aware fill needs a pixel layer".into()))?;
-            let seed = p.get("seed").and_then(Value::as_u64).unwrap_or(1);
-            content_aware(surf, sel, doc_bounds, adapt, seed)?
+            content_aware(surf, sel, doc_bounds, &opts)?
         }
         _ => return Err(bad(format!("unknown contents `{contents}`"))),
     };
@@ -183,8 +191,7 @@ pub(crate) fn window_size(window: Rect) -> Result<(usize, usize)> {
 }
 
 /// RGBA over the sampling window. Only the selected pixels are used.
-fn content_aware(surf: &Surface, sel: &Surface, canvas: Rect, color_adaptation: bool, seed: u64) -> Result<Source> {
-    use photocraft_algo::content_aware::{FillOptions, color_level, fill, rotation_level};
+fn content_aware(surf: &Surface, sel: &Surface, canvas: Rect, opts: &FillOptions) -> Result<Source> {
     let hole_bounds = sel.content_bounds().intersect(&canvas);
     if hole_bounds.is_empty() {
         return Err(EngineError::Other("the selection is outside the canvas".into()));
@@ -202,17 +209,10 @@ fn content_aware(surf: &Surface, sel: &Surface, canvas: Rect, color_adaptation: 
         return Err(EngineError::Other("Content-Aware fill needs pixels outside the selection to sample from".into()));
     }
     let source = vec![true; w * h];
-    let opts = FillOptions {
-        color_adaptation: color_level(if color_adaptation { "default" } else { "none" }),
-        rotations: rotation_level("none"),
-        scale: false,
-        mirror: false,
-        seed,
-    };
     if img.len() != w * h * n {
         return Err(EngineError::Other("could not read the layer pixels".into()));
     }
-    let filled = fill(w, h, n, &img, &hole, &source, &opts);
+    let filled = photocraft_algo::content_aware::fill(w, h, n, &img, &hole, &source, opts);
     let px = filled.chunks_exact(n.max(1)).map(|c| to_rgba(&fmt, c)).collect();
     Ok(Source::Pixels(window, px))
 }
@@ -523,6 +523,61 @@ mod tests {
         let t = std::time::Instant::now();
         crate::pixels::fill_surface(&mut surf, Rect::new(0, 0, 6000, 4000), [0.2, 0.4, 0.6, 1.0], None, false).unwrap();
         println!("{:<48} {:>8.1} ms", "old fill_surface, no selection", t.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    /// Scale, mirror and rotation adaptation reach the sampler (upstream 4875f94e, d3392e61):
+    /// each result matches `content_aware::fill` with that option, not the default fill.
+    #[test]
+    fn content_aware_geometric_options_reach_the_sampler() {
+        let hole_rect = Rect::new(16, 11, 24, 19);
+        for key in ["scaleAdaptation", "mirror", "rotationAdaptation"] {
+            let mut s = session();
+            let id = s.active().unwrap().active_layer.unwrap();
+            let bounds = s.active().unwrap().doc.bounds();
+            let (w, h) = (bounds.width() as usize, bounds.height() as usize);
+            s.edit("texture", |doc, _| {
+                let mut pixels = Vec::with_capacity(w * h * 4);
+                for y in 0..h {
+                    for x in 0..w {
+                        pixels.extend([
+                            ((37 * x + 11 * y + x * y % 17) % 251) as f32 / 250.0,
+                            ((x * x + 13 * y + 3 * (x / 7)) % 241) as f32 / 240.0,
+                            ((5 * x + 3 * y * y + 19 * (x / 9)) % 239) as f32 / 238.0,
+                            1.0,
+                        ]);
+                    }
+                }
+                doc.layer_mut(id).unwrap().surface_mut().unwrap().write_region(bounds, &pixels);
+                Ok(())
+            })
+            .unwrap();
+            s.execute("select.rect", json!({"x": 16, "y": 11, "width": 8, "height": 8})).unwrap();
+            // The sampling margin (32 px) covers this whole canvas, so the window is the canvas.
+            let oracle = |s: &Session, opts: &FillOptions| {
+                let surf = s.active().unwrap().doc.layer(id).unwrap().surface().unwrap();
+                let hole: Vec<bool> = (0..w * h).map(|i| hole_rect.contains((i % w) as i32, (i / w) as i32)).collect();
+                let filled = photocraft_algo::content_aware::fill(w, h, surf.channels(), &surf.read_region(bounds), &hole, &vec![true; w * h], opts);
+                let mut encoded = surf.clone();
+                encoded.write_region(bounds, &filled);
+                encoded.read_region(bounds)
+            };
+            let plain = FillOptions { color_adaptation: color_level("none"), seed: 7, ..Default::default() };
+            let opts = match key {
+                "scaleAdaptation" => FillOptions { scale: true, ..plain.clone() },
+                "mirror" => FillOptions { mirror: true, ..plain.clone() },
+                _ => FillOptions { rotations: rotation_level("full"), ..plain.clone() },
+            };
+            let expected = oracle(&s, &opts);
+            assert!(expected != oracle(&s, &plain), "the fixture must tell {key} apart from the default");
+            let mut p = json!({"contents": "contentAware", "colorAdaptation": false, "seed": 7});
+            p[key] = json!(true);
+            s.execute(CMD, p).unwrap();
+            let surf = s.active().unwrap().doc.layer(id).unwrap().surface().unwrap();
+            assert!(surf.read_region(bounds) == expected, "{key} did not reach the sampler");
+            let mut bad = json!({"contents": "contentAware"});
+            bad[key] = json!(1);
+            assert!(s.execute(CMD, bad).is_err(), "{key}: 1");
+        }
     }
 
     #[test]
