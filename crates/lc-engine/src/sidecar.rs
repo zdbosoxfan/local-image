@@ -25,7 +25,7 @@
 //! fields ([`crate::crs`]). For raw/DNG files without a sidecar the file's embedded XMP is used.
 
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -272,20 +272,145 @@ impl SidecarData {
 
     /// Take the orientation of the photo file at `original` (the photo is shown turned by it, and the packet may
     /// not repeat it) when the regions need it: they were drawn on a stated size ([`SidecarData::regions_drawn_on`]).
-    /// Only then is the start of the file read.
+    /// Only then is the file read ([`file_orientation`]).
     pub fn with_file_orientation(self, original: &str) -> Self {
         if self.regions_drawn_on.is_none() {
             return self;
         }
-        let mut head = Vec::new();
-        let read =
-            li_fs::read::open_regular(Path::new(original), li_fs::read::MAX_FILE_BYTES).and_then(|f| f.take(ORIENTATION_SPAN).read_to_end(&mut head));
-        let orientation = read.ok().and_then(|_| lightcraft_meta::extract(&head).orientation);
-        SidecarData { orientation: orientation.or(self.orientation), ..self }
+        SidecarData { orientation: file_orientation(original).or(self.orientation), ..self }
     }
 }
 
-/// How much of a photo file [`SidecarData::with_file_orientation`] reads: Exif sits near the start of most files.
+/// The orientation the photo file at `path` states. Most files state it in their first [`ORIENTATION_SPAN`]; when
+/// that part doesn't, the Exif may come later ([`late_orientation`]).
+fn file_orientation(path: &str) -> Option<lightcraft_meta::Orientation> {
+    let mut file = li_fs::read::open_regular(Path::new(path), li_fs::read::MAX_FILE_BYTES).ok()?;
+    let mut head = Vec::new();
+    (&mut file).take(ORIENTATION_SPAN).read_to_end(&mut head).ok()?;
+    if let Some(o) = lightcraft_meta::extract(&head).orientation {
+        return Some(o);
+    }
+    if (head.len() as u64) < ORIENTATION_SPAN {
+        return None;
+    }
+    late_orientation(&mut file, &head)
+}
+
+/// The orientation of a file whose `head` doesn't state it, found by the file's structure without reading its image
+/// data: a JPEG's Exif can follow other long segments, WebP keeps its EXIF chunk after the image data, and many TIFF
+/// writers put the first IFD after the strips.
+fn late_orientation(file: &mut (impl Read + Seek), head: &[u8]) -> Option<lightcraft_meta::Orientation> {
+    file.rewind().ok()?;
+    match head.get(..4)? {
+        [0xff, 0xd8, ..] => jpeg_orientation(file),
+        b"RIFF" if head.get(8..12) == Some(&b"WEBP"[..]) => webp_orientation(file),
+        b"II*\0" => tiff_orientation(file, head, true),
+        b"MM\0*" => tiff_orientation(file, head, false),
+        _ => None,
+    }
+}
+
+/// A JPEG's orientation from the first APP1 segment that states one (its Exif, or its XMP), found by walking the
+/// segment headers from the start of `file` up to the image data: at most [`JPEG_HEADER_SPAN`] bytes, skipped
+/// payloads included, and [`JPEG_MARKER_STEPS`] markers. Only APP1 payloads are read (under 64 KiB each).
+fn jpeg_orientation(file: &mut (impl Read + Seek)) -> Option<lightcraft_meta::Orientation> {
+    let mut header = file.take(JPEG_HEADER_SPAN);
+    let mut soi = [0; 2];
+    header.read_exact(&mut soi).ok()?;
+    if soi != [0xff, 0xd8] {
+        return None;
+    }
+    let mut filled = false;
+    for _ in 0..JPEG_MARKER_STEPS {
+        if !filled {
+            let mut prefix = [0];
+            header.read_exact(&mut prefix).ok()?;
+            if prefix != [0xff] {
+                return None;
+            }
+        }
+        let mut code = [0];
+        header.read_exact(&mut code).ok()?;
+        let [marker] = code;
+        filled = marker == 0xff;
+        match marker {
+            0xff | 0xd8 | 0xd0..=0xd7 | 0x01 => continue,
+            0xd9 | 0xda => return None,
+            _ => {}
+        }
+        let mut length = [0; 2];
+        header.read_exact(&mut length).ok()?;
+        let payload_len = u16::from_be_bytes(length).checked_sub(2)?;
+        if marker != 0xe1 {
+            // seeking spends the same span budget as reading, before the seek is attempted
+            let remaining = header.limit().checked_sub(u64::from(payload_len))?;
+            header.set_limit(remaining);
+            header.get_mut().seek(SeekFrom::Current(i64::from(payload_len))).ok()?;
+            continue;
+        }
+        // the segment in a JPEG of its own, as the metadata reader takes it
+        let [hi, lo] = length;
+        let mut segment = vec![0xff, 0xd8, 0xff, 0xe1, hi, lo];
+        segment.resize(6 + usize::from(payload_len), 0);
+        header.read_exact(segment.get_mut(6..)?).ok()?;
+        if let Some(o) = lightcraft_meta::extract(&segment).orientation {
+            return Some(o);
+        }
+    }
+    None
+}
+
+const JPEG_HEADER_SPAN: u64 = 16 * 1024 * 1024;
+const JPEG_MARKER_STEPS: usize = 4096;
+
+/// A WebP's orientation from its `EXIF` chunk, or else its `XMP ` chunk (which follows it), found by walking the chunk
+/// headers from the start of `file` (at most [`WEBP_CHUNK_STEPS`]). Only those chunks are read, each if it is at most
+/// [`ORIENTATION_SPAN`].
+fn webp_orientation(file: &mut (impl Read + Seek)) -> Option<lightcraft_meta::Orientation> {
+    file.seek(SeekFrom::Start(12)).ok()?;
+    for _ in 0..WEBP_CHUNK_STEPS {
+        let mut header = [0; 8];
+        file.read_exact(&mut header).ok()?;
+        let [a, b, c, d, s0, s1, s2, s3] = header;
+        let size = u32::from_le_bytes([s0, s1, s2, s3]);
+        // chunks are padded to an even size
+        let mut skip = i64::from(size) + i64::from(size & 1);
+        if matches!(&[a, b, c, d], b"EXIF" | b"XMP ") && u64::from(size) <= ORIENTATION_SPAN {
+            let mut chunk = b"RIFF\0\0\0\0WEBP".to_vec();
+            chunk.extend_from_slice(&header);
+            (&mut *file).take(u64::from(size)).read_to_end(&mut chunk).ok()?;
+            if let Some(o) = lightcraft_meta::extract(&chunk).orientation {
+                return Some(o);
+            }
+            skip = i64::from(size & 1);
+        }
+        file.seek(SeekFrom::Current(skip)).ok()?;
+    }
+    None
+}
+
+/// How many chunks [`webp_orientation`] passes over (an animated WebP has one per frame).
+const WEBP_CHUNK_STEPS: usize = 4096;
+
+/// A TIFF's orientation from the first IFD that `head` points to, of which only the 12-byte entries are read (at most
+/// 65535 of them, under 1 MiB). `le`: little-endian (`II`).
+fn tiff_orientation(file: &mut (impl Read + Seek), head: &[u8], le: bool) -> Option<lightcraft_meta::Orientation> {
+    let u16_of = |b: [u8; 2]| if le { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) };
+    let u32_of = |b: [u8; 4]| if le { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) };
+    let ifd = u32_of(<[u8; 4]>::try_from(head.get(4..8)?).ok()?);
+    file.seek(SeekFrom::Start(u64::from(ifd))).ok()?;
+    let mut count = [0; 2];
+    file.read_exact(&mut count).ok()?;
+    let mut entries = vec![0; usize::from(u16_of(count)) * 12];
+    file.read_exact(&mut entries).ok()?;
+    let orientation = entries.as_chunks::<12>().0.iter().find_map(|&[t0, t1, y0, y1, c0, c1, c2, c3, v0, v1, _, _]| {
+        // tag 274, exactly one SHORT (with more, the field also holds a second value, or an offset to them all)
+        (u16_of([t0, t1]) == 274 && u16_of([y0, y1]) == 3 && u32_of([c0, c1, c2, c3]) == 1).then(|| u16_of([v0, v1]))
+    })?;
+    (1..=8).contains(&orientation).then(|| lightcraft_meta::Orientation::from_exif(orientation))
+}
+
+/// How much of a photo file [`file_orientation`] reads first.
 const ORIENTATION_SPAN: u64 = 1 << 20;
 
 /// The sidecar packet for a photo; the colour label is written by its name in `cat` (custom
@@ -678,6 +803,79 @@ mod tests {
         let rules = lightcraft_meta::MergeRules { owned: OWNED, owned_if_present: OWNED_IF_STATED };
         let cleared = lightcraft_meta::merge_xmp(&written, &sidecar_packet(&p, &cat), rules).unwrap();
         assert!(!cleared.contains("<dc:subject>") && !cleared.contains("<lr:hierarchicalSubject>"), "{cleared}");
+    }
+
+    /// A WebP keeps its EXIF and XMP chunks after the image data, and a TIFF's first IFD can follow its strips, so
+    /// the orientation can be past the first [`ORIENTATION_SPAN`] of the file; EXIF wins over XMP, a chunk over that
+    /// span isn't read, a TIFF orientation is exactly one SHORT, and a file that states none has none.
+    #[test]
+    fn the_file_orientation_is_found_after_the_image_data() {
+        use lightcraft_meta::Orientation;
+        let dir = std::env::temp_dir().join(format!("lc-file-orientation-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let exif = lightcraft_meta::write_exif(&lightcraft_meta::Metadata { orientation: Some(Orientation::Rotate90), ..Default::default() });
+        let span = ORIENTATION_SPAN as usize;
+        // a WebP: `image` bytes of image data, then the `meta` chunks
+        let webp = |image: usize, meta: &[(&[u8], Vec<u8>)]| {
+            let mut w = b"RIFF\0\0\0\0WEBP".to_vec();
+            for (id, data) in [(&b"VP8X"[..], vec![0; 10]), (b"VP8L", vec![0; image])].iter().chain(meta) {
+                w.extend_from_slice(id);
+                w.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                w.extend_from_slice(data);
+                if data.len() % 2 == 1 {
+                    w.push(0);
+                }
+            }
+            w
+        };
+        let exif_chunk = (&b"EXIF"[..], [&b"Exif\0\0"[..], &exif].concat());
+        // an EXIF chunk over the span that is read (orientation 6 too), and an XMP packet stating orientation 8
+        let huge_exif = (&b"EXIF"[..], [&b"Exif\0\0"[..], &exif, &vec![0; span]].concat());
+        let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { orientation: Some(Orientation::Rotate270), ..Default::default() }, None);
+        let xmp_chunk = (&b"XMP "[..], packet.into_bytes());
+        // a TIFF whose first IFD (orientation 8, then a tag pointing elsewhere) follows `strips` bytes of image data
+        // (`values` of the orientation tag: more than two are at an offset, here 8)
+        let tiff = |le: bool, strips: usize, values: u32| {
+            let (u16_of, u32_of): (fn(u16) -> [u8; 2], fn(u32) -> [u8; 4]) =
+                if le { (u16::to_le_bytes, u32::to_le_bytes) } else { (u16::to_be_bytes, u32::to_be_bytes) };
+            let mut t = if le { b"II*\0".to_vec() } else { b"MM\0*".to_vec() };
+            t.extend_from_slice(&u32_of(8 + strips as u32));
+            t.resize(8 + strips, 0);
+            t.extend_from_slice(&u16_of(2));
+            for (tag, kind, count, value) in [(274u16, 3u16, values, [u16_of(8), [0, 0]].concat()), (305, 2, 64, u32_of(4).to_vec())] {
+                t.extend_from_slice(&u16_of(tag));
+                t.extend_from_slice(&u16_of(kind));
+                t.extend_from_slice(&u32_of(count));
+                t.extend_from_slice(&value);
+            }
+            t.extend_from_slice(&[0; 4]);
+            t
+        };
+        // a JPEG whose first MiB is other segments, then the start of its image data: no Exif
+        let mut jpeg = vec![0xff, 0xd8];
+        for _ in 0..17 {
+            jpeg.extend_from_slice(&[0xff, 0xef, 0xff, 0xff]);
+            jpeg.resize(jpeg.len() + 0xfffd, 0);
+        }
+        jpeg.extend_from_slice(&[0xff, 0xda, 0, 2, 0xff, 0xd9]);
+        for (name, bytes, want) in [
+            ("small.webp", webp(64, std::slice::from_ref(&exif_chunk)), Some(Orientation::Rotate90)),
+            ("large.webp", webp(span + 64, &[exif_chunk.clone(), xmp_chunk.clone()]), Some(Orientation::Rotate90)),
+            ("none.webp", webp(span + 64, &[exif_chunk])[..span + 100].to_vec(), None),
+            ("xmp.webp", webp(span + 64, std::slice::from_ref(&xmp_chunk)), Some(Orientation::Rotate270)),
+            ("huge.webp", webp(span + 64, &[huge_exif, xmp_chunk]), Some(Orientation::Rotate270)),
+            ("le.tif", tiff(true, span + 64, 1), Some(Orientation::Rotate270)),
+            ("be.tif", tiff(false, span + 64, 1), Some(Orientation::Rotate270)),
+            ("offset.tif", tiff(true, span + 64, 3), None),
+            ("none.jpg", jpeg, None),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            assert_eq!(file_orientation(&path.to_string_lossy()), want, "{name}");
+        }
+        assert_eq!(file_orientation(&dir.join("missing.webp").to_string_lossy()), None);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

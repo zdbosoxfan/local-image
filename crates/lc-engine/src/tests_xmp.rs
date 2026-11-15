@@ -280,33 +280,61 @@ fn assert_on_the_upright_face(s: &Session, id: PhotoId, when: &str) {
     assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-9), "{when}: the box is where the photo as stored had the face: {got:?}");
 }
 
+/// Put more than the first MiB of APP15 segments between the JPEG at `path`'s start and its Exif.
+fn pad_before_exif(path: &Path) {
+    let bytes = std::fs::read(path).unwrap();
+    let mut padded = bytes[..2].to_vec();
+    for _ in 0..17 {
+        padded.extend_from_slice(&[0xFF, 0xEF, 0xFF, 0xFF]);
+        padded.extend(std::iter::repeat_n(0, 0xFFFD));
+    }
+    padded.extend_from_slice(&bytes[2..]);
+    std::fs::write(path, padded).unwrap();
+}
+
 /// Face boxes an app drew on a photo as stored (its sideways size as `AppliedToDimensions`, no `mwg-rs:Rotation`)
 /// land on the faces of the upright photo: when imported, from embedded XMP or a sidecar, and when the sidecar is read
-/// again (the packet itself doesn't say how the photo turns; the file's Exif does).
+/// again (the packet itself doesn't say how the photo turns; the file's Exif does). The image's own size decides, not
+/// one the XMP states upright, and the Exif is found past the first MiB of the file.
 #[test]
 fn regions_drawn_on_the_photo_as_stored_land_on_the_upright_photo() {
     let src = temp_dir("regions-stored-frame");
-    let embedded = src.join("embedded");
-    std::fs::create_dir_all(&embedded).unwrap();
+    let folder = |name: &str| {
+        let dir = src.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    };
+    let embedded = folder("embedded");
     write_turned_jpeg(&embedded.join("face.jpg"), Some(STORED_FRAME_REGIONS));
-    let beside = src.join("sidecar");
-    std::fs::create_dir_all(&beside).unwrap();
+    // an Exif without a pixel size, and an XMP size of the upright photo
+    let stated = folder("stated");
+    let upright_size = r#"rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:ImageWidth="24" tiff:ImageLength="32""#;
+    write_turned_jpeg(&stated.join("face.jpg"), Some(&STORED_FRAME_REGIONS.replace(r#"rdf:about="""#, upright_size)));
+    let beside = folder("sidecar");
     write_turned_jpeg(&beside.join("face.jpg"), None);
     std::fs::write(beside.join("face.xmp"), STORED_FRAME_REGIONS).unwrap();
-    for (folder, what) in [(&embedded, "embedded XMP"), (&beside, "sidecar")] {
+    let late = folder("late");
+    write_turned_jpeg(&late.join("face.jpg"), None);
+    pad_before_exif(&late.join("face.jpg"));
+    std::fs::write(late.join("face.xmp"), STORED_FRAME_REGIONS).unwrap();
+    for (dir, what, sidecar) in [
+        (&embedded, "embedded XMP", false),
+        (&stated, "upright size in the XMP", false),
+        (&beside, "sidecar", true),
+        (&late, "Exif after the first MiB", true),
+    ] {
         let mut s = Session::new().with_fs();
-        s.execute("library.import", &json!({"paths": [folder.to_string_lossy()]})).unwrap();
+        s.execute("library.import", &json!({"paths": [dir.to_string_lossy()]})).unwrap();
         let id = only(&s);
         assert_on_the_upright_face(&s, id, &format!("{what}, imported"));
+        if sidecar {
+            // Read Metadata from File takes the sidecar again, and the orientation from the photo file
+            s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
+            let read = s.execute("photo.readMetadataFromFile", &json!({})).unwrap();
+            assert_eq!(read["read"].as_array().map(Vec::len), Some(1), "{what}: {read}");
+            assert_on_the_upright_face(&s, id, &format!("{what}, read again"));
+        }
     }
-    // Read Metadata from File takes the sidecar again, and the orientation from the photo file
-    let mut s = Session::new().with_fs();
-    s.execute("library.import", &json!({"paths": [beside.to_string_lossy()]})).unwrap();
-    let id = only(&s);
-    s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
-    let read = s.execute("photo.readMetadataFromFile", &json!({})).unwrap();
-    assert_eq!(read["read"].as_array().map(Vec::len), Some(1), "{read}");
-    assert_on_the_upright_face(&s, id, "sidecar, read again");
     let _ = std::fs::remove_dir_all(&src);
 }
 

@@ -260,14 +260,16 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
     if o.swaps_axes() {
         std::mem::swap(&mut w, &mut h);
     }
-    // regions another app drew on the photo as stored: `extract` turned them upright where the metadata says how
-    // big the photo is; otherwise the header does
+    // regions another app drew on the photo as stored: `extract` could only tell by the size the metadata states, which
+    // can be missing or wrong; the header's is the size as stored, so the boxes as written are turned by it
     let mut meta = meta;
-    if (m.width.is_none() || m.height.is_none())
-        && o.swaps_axes()
+    if o.swaps_axes()
         && !meta.regions.is_empty()
-        && let Some(drawn_on) = xmp.as_deref().and_then(|x| lightcraft_meta::parse_whole_xmp(x).ok()).and_then(|x| x.regions_drawn_on())
+        && let Some(xmp) = xmp.as_deref().and_then(|x| lightcraft_meta::parse_whole_xmp(x).ok())
+        && let Some(drawn_on) = xmp.regions_drawn_on()
+        && !xmp.metadata.regions.is_empty()
     {
+        meta.regions = xmp.metadata.regions;
         lightcraft_meta::upright_regions(&mut meta.regions, drawn_on, o, (d.source_width, d.source_height));
     }
     let format = match ext_upper(name).as_str() {
