@@ -449,7 +449,9 @@ fn artboards_to_pdf(s: &mut Session, p: &Value) -> Result<Value> {
     let doc = d.doc.clone();
     let quality = f64_param(p, "quality").or(Some(10.0));
     let mut pages = Vec::new();
-    for id in chosen_artboards(&doc, p) {
+    // Pages go bottom artboard of the Layers panel first, as in the reference application;
+    // `chosen_artboards` lists them top first, the order Artboards to Files keeps.
+    for id in chosen_artboards(&doc, p).into_iter().rev() {
         let Some(one) = artboard_document(&doc, id) else { continue };
         let buf = photocraft_compose::flatten(&one).over_background([1.0, 1.0, 1.0]);
         let fmt = PixelFormat::new(ColorMode::Rgb, SampleType::U8, true);
@@ -527,7 +529,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "file.export.artboardsToPdf",
             "Artboards to PDF…",
             &["File", "Export"],
-            r##"{"path":str (.pdf),"artboards":[id]?,"quality":0..12=10} → {path, pages} (one raster page per board)"##,
+            r##"{"path":str (.pdf),"artboards":[id]?,"quality":0..12=10} → {path, pages} (one raster page per board, bottom artboard of the Layers panel first)"##,
             export_artboards,
             artboards_to_pdf
         ),

@@ -304,3 +304,28 @@ fn batch_reserves_its_input_work_before_reading_files() {
     assert_eq!(s.actions.script_steps, MAX_SCRIPT_STEPS - 1);
     assert_eq!(s.actions.script_depth, 1);
 }
+
+/// Upstream d38ffb3e (#13717): a dropped file that is not an image is skipped, while one with an
+/// image name that does not decode still reports its error.
+#[test]
+fn a_droplet_skips_a_dropped_non_image() {
+    let dir = tmp("droplet_skip");
+    let png = images(&dir, 1, 4, 3).remove(0);
+    let (txt, broken) = (format!("{dir}/notes.txt"), format!("{dir}/broken.png"));
+    std::fs::write(&txt, "just some notes").unwrap();
+    std::fs::write(&broken, "not a png").unwrap();
+    let mut s = Session::new();
+    let r = s
+        .execute(
+            "file.automate.createDroplet",
+            json!({"path": format!("{dir}/Rotate"), "steps": [["image.imageRotation.90cw", {}]], "format": "png", "output": format!("{dir}/out")}),
+        )
+        .unwrap();
+    let dp = r["path"].as_str().unwrap().to_string();
+    let r = s.execute("file.automate.runDroplet", json!({"droplet": dp, "input": [txt, png]})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    assert_eq!(r["files"].as_array().unwrap().len(), 1, "{r}");
+    let r = s.execute("file.automate.runDroplet", json!({"droplet": dp, "input": [broken]})).unwrap();
+    assert_eq!(r["errors"].as_array().unwrap().len(), 1, "{r}");
+    assert!(r["errors"][0]["file"].as_str().unwrap().ends_with("broken.png"), "{r}");
+}

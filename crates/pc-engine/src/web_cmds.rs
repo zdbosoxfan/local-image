@@ -376,6 +376,9 @@ pub fn optimize(px: &[[f32; 4]], bw: usize, rect: Rect, st: &WebSettings, icc: O
             }
             let layout = if alpha { photocraft_codecs::ChannelLayout::Rgba } else { photocraft_codecs::ChannelLayout::Rgb };
             let meta = photocraft_codecs::Metadata { dpi: Some((dpi, dpi)), xmp: xmp.map(str::to_string), ..Default::default() };
+            // The profile only with Embed Color Profile on, as the JPEG branch does: Quick Export
+            // never sets it, so its PNGs carry no iCCP chunk.
+            let icc = icc.filter(|_| st.embed_icc);
             let img = photocraft_codecs::Image::from_u8(ww, hh, layout, data).map_err(e)?.with_icc(icc.map(<[u8]>::to_vec)).with_meta(meta);
             let opts = photocraft_codecs::EncodeOptions {
                 png_interlaced: st.interlaced,
