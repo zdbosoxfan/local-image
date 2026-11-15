@@ -921,3 +921,46 @@ fn svg_deep_nesting_and_backtracking_selectors_finish_quickly() {
     let _ = photocraft_svg::import(svg.as_bytes(), &ImportOptions::default());
     assert!(start.elapsed().as_secs() < 20, "{:?}", start.elapsed());
 }
+
+#[test]
+fn an_embedded_jpeg_follows_its_exif_orientation() {
+    use base64::Engine as _;
+    // A 4 x 2 JPEG whose EXIF orientation 6 turns it a quarter clockwise: shown 2 x 4.
+    let mut jpeg = Vec::new();
+    image::RgbImage::from_pixel(4, 2, image::Rgb([200, 30, 30])).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+    let tiff = [
+        b"MM\0*".as_slice(),
+        &8u32.to_be_bytes(),
+        &1u16.to_be_bytes(),
+        &0x0112u16.to_be_bytes(),
+        &3u16.to_be_bytes(),
+        &1u32.to_be_bytes(),
+        &6u16.to_be_bytes(),
+        &[0, 0],
+        &0u32.to_be_bytes(),
+    ]
+    .concat();
+    let app1 = [b"Exif\0\0".as_slice(), &tiff].concat();
+    let segment = [[0xFF, 0xE1].as_slice(), &u16::try_from(app1.len() + 2).unwrap().to_be_bytes(), &app1].concat();
+    jpeg.splice(2..2, segment);
+    let data = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+    let source = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="40"><image width="40" height="40" xlink:href="data:image/jpeg;base64,{data}"/></svg>"#
+    );
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+    let surface = flat(&scene.layers)
+        .into_iter()
+        .find_map(|l| match &l.content {
+            LayerContent::Raster(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let alpha = |x, y| {
+        let mut px = [0.0; 4];
+        surface.read_pixel(x, y, &mut px);
+        px[3]
+    };
+    // Fitted upright in the 40 x 40 box: 20 wide and 40 tall, centred.
+    assert!(alpha(20, 3) > 0.5 && alpha(20, 36) > 0.5, "the turned image fills the box's height");
+    assert!(alpha(3, 20) < 0.5 && alpha(36, 20) < 0.5, "and leaves its sides empty");
+}
