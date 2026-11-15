@@ -575,7 +575,8 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
                 let order = seam_order(&warped, ref_pos);
                 let geo = vignette.then_some((pls.as_slice(), sizes.as_slice(), offset));
                 let b = seam_blend(&warped, canvas, &order, true, true, geo);
-                for (k, (px, mask)) in b.layers.into_iter().enumerate() {
+                // `layers[0]` is the bottom layer, and the first source goes on top.
+                for (k, (px, mask)) in b.layers.into_iter().enumerate().rev() {
                     let mut l = Layer::new(srcs[placed[k]].name.clone(), LayerContent::Raster(px));
                     let mut m = LayerMask::hide_all();
                     m.surface = mask;
@@ -590,7 +591,7 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
                     doc.layers.push(Layer::new("Content-Aware Fill", LayerContent::Raster(filled)));
                 }
             } else {
-                for (k, px) in warped.into_iter().enumerate() {
+                for (k, px) in warped.into_iter().enumerate().rev() {
                     doc.layers.push(Layer::new(srcs[placed[k]].name.clone(), LayerContent::Raster(px)));
                 }
             }
@@ -1133,6 +1134,22 @@ mod tests {
             }
             let r = s.execute("file.automate.photomerge", json!({"useOpenDocuments": true, "layout": "reposition", "paths": paths})).unwrap();
             assert_eq!(r["placed"].as_array().map(Vec::len), Some(2), "{r}");
+        }
+    }
+
+    /// As in Photoshop the first source is the top layer, blended or not.
+    #[test]
+    fn photomerge_puts_the_first_source_on_top() {
+        let (sw, sh) = (520, 220);
+        let sc = scene(sw, sh, 5);
+        for blend in [true, false] {
+            let mut s = Session::new();
+            for (k, x0) in [0usize, 130, 260].into_iter().enumerate() {
+                s.add_document(doc_from(&format!("img{k}"), &crop(&sc, sw, x0, 10, 220, 200, 1.0), 220, 200, SampleType::U8), None);
+            }
+            s.execute("file.automate.photomerge", json!({"useOpenDocuments": true, "layout": "reposition", "blend": blend})).unwrap();
+            let names: Vec<&str> = s.active().unwrap().doc.layers.iter().map(|l| l.name.as_str()).collect();
+            assert_eq!(names, ["img2", "img1", "img0"], "blend {blend}");
         }
     }
 
