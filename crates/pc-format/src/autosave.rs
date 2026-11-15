@@ -523,7 +523,7 @@ fn is_uncommitted(bundle: &Path) -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 fn sweep_temp_file(path: &Path, min_age: std::time::Duration) {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return };
-    // `lightcraft-{pid}-{n}.{hint}.pcsave.tmp` (dot-prefixed before upstream #11624), or the
+    // `lightcraft-{pid}-{n}.{hint}.pcsave.tmp` (or its dot-prefixed leftover form), or the
     // `.{stem}.{pid}-{n}.pcsave.tmp` of older writers.
     let legacy = || -> Option<u32> {
         let rest = name.strip_prefix('.')?.strip_suffix(".pcsave.tmp")?;
@@ -791,7 +791,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Upstream 8ef148ac (#11230): a symlinked sidecar is replaced, not written through, and the
+    /// A symlinked sidecar is replaced, not written through, and the
     /// sweep does not follow a bundle's linked `tiles/` folder.
     #[cfg(unix)]
     #[test]

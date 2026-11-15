@@ -297,7 +297,7 @@ fn retry_and_permanent_rename_failure_parity() {
     }
 }
 
-/// Upstream #11624: an SMB share that hides dot files marked a dot-named staging file hidden, and
+/// An SMB share that hides dot files marked a dot-named staging file hidden, and
 /// the mark stayed on the saved file. Staging names have no leading dot; leftovers of both forms
 /// are still recognized, and nothing else is.
 #[test]

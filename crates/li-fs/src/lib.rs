@@ -644,7 +644,7 @@ fn resolve_symlink(path: &Path) -> io::Result<PathBuf> {
 ///
 /// It does not start with a dot: an SMB server that hides dot files (TrueNAS, macOS shares) marks
 /// such a file hidden when it is created, the mark survives the rename, and the saved file would
-/// be hidden too (upstream #11624). Older versions wrote `.lightcraft-…`; [`temp_owner`] reads both.
+/// be hidden too. Leftovers may still carry the dot form; [`temp_owner`] reads both.
 pub fn temp_name(file: &str) -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     // A bounded ASCII target hint lets cache cleanup distinguish its files from unrelated
