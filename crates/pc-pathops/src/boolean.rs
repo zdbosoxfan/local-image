@@ -18,6 +18,7 @@ use linesweeper::topology::{ContourIdx, Contours, Topology, WindingNumber};
 
 use crate::PathOpsError;
 use crate::kernel::fit::{end_tangent, fit_single, is_straight, sample, start_tangent};
+use crate::kernel::planar::{MAX_SWEEP_VALUE_BYTES, check_sweep_size};
 
 /// Default curve-refit tolerance (document points) used to merge split curve pieces back together.
 /// Similar in spirit to Illustrator's Pathfinder "Precision" option (0.028 pt).
@@ -309,18 +310,35 @@ fn flatten_fallback(paths: &[(BezPath, FillRule)], extent: f64) -> Result<Vec<(B
     Ok(flattened)
 }
 
+/// Most edges an arrangement's sweep may add to its paths' own segments.
+const MAX_ARRANGEMENT_CUTS: usize = 1 << 20;
+/// Two cubics meet at most nine times, and each meeting adds two edges.
+const MOST_CUTS_PER_PAIR: usize = 18;
+
 impl Arrangement {
     pub(crate) fn new(mut paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
         snap_horizontals(&mut paths.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
+        // Each edge keeps a dense `Multi` on either side, whatever its place in the sweep line.
+        let edge_bytes = 2 * size_of::<i32>() * paths.len();
         let sweep = |paths: &[(BezPath, FillRule)]| {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps)))
-                .map_err(|_| PathOpsError::Degenerate)?
-                .map_err(|_| PathOpsError::OpenPath)
+            crate::budget::charge_sweep(paths.iter().map(|(path, _)| path))?;
+            // Art that cannot reach the limits is not swept twice. The sweep moves points by a few
+            // `eps` and cuts what they land on, so overlapping bounds alone would undercount.
+            let close_pairs = crate::budget::pairs_within(paths.iter().map(|(path, _)| path), 16.0 * eps, MAX_ARRANGEMENT_CUTS / MOST_CUTS_PER_PAIR);
+            let may_refuse = close_pairs.is_none_or(|pairs| (pairs * MOST_CUTS_PER_PAIR).saturating_mul(edge_bytes) > MAX_SWEEP_VALUE_BYTES);
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if may_refuse {
+                    check_sweep_size(paths.iter().map(|(path, _)| path), eps, MAX_ARRANGEMENT_CUTS, |_| edge_bytes)?;
+                }
+                Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps).map_err(|_| PathOpsError::OpenPath)
+            }))
+            .map_err(|_| PathOpsError::Degenerate)?
         };
         let mut flattened_fallback = false;
         let top = match sweep(&paths) {
             Ok(top) => top,
+            Err(PathOpsError::TooComplex) => return Err(PathOpsError::TooComplex),
             Err(_) => {
                 // Quality-plan retry ladder: snap-round, then sweep flattened polygons.
                 // Never retry invalid coordinates. Keep the original input untouched.
@@ -363,6 +381,7 @@ impl Arrangement {
                         paths = snapped;
                         top
                     }
+                    Err(PathOpsError::TooComplex) => return Err(PathOpsError::TooComplex),
                     Err(_) => {
                         // Bound the fallback arrangement: pathological self-crossing curves can
                         // otherwise create millions of polygon intersections and exhaust RAM.
@@ -797,5 +816,48 @@ mod dsfix_tests {
         assert!(recovered[0].0.segments().count() > 1024);
         assert!((recovered[0].0.area().abs() - std::f64::consts::PI * 10000.).abs() < 1.);
         assert!(flatten_fallback(&[(ring(8194), FillRule::NonZero)], 200.).is_err());
+    }
+
+    /// A closed path out to the unit circle and back to the origin, `count` times.
+    fn spokes(count: usize) -> PathData {
+        let mut anchors = Vec::with_capacity(2 * count + 1);
+        anchors.push(Anchor::corner(Point::ZERO));
+        for i in 0..count {
+            let angle = std::f64::consts::TAU * i as f64 / count as f64;
+            anchors.push(Anchor::corner(Point::new(angle.cos(), angle.sin())));
+            anchors.push(Anchor::corner(Point::ZERO));
+        }
+        PathData::single(SubPath::new(anchors, true))
+    }
+
+    #[test]
+    fn compact_self_crossing_path_is_refused_when_segment_bounds_exceed_budget() {
+        let path = spokes(2048);
+
+        let result = try_normalize(&path, FillRule::NonZero);
+        assert_eq!(
+            result.err().map(|error| error.to_string()),
+            Some("the shapes cross themselves and each other too often to combine".to_owned()),
+            "all segment bounds meet at the center, so this compact path must stop at the operation budget",
+        );
+    }
+
+    #[test]
+    fn over_budget_geometry_is_refused_instead_of_retried() {
+        // More segments than the flatten fallback's chord cap.
+        let past_the_chord_cap = spokes(5000);
+        // The quadrant bounds of concentric circles all meet at the centre, but these are small
+        // enough to flatten into few chords, whose bounds fit the budget and the chord cap.
+        let flattenable_curves = PathData::new(
+            (0..800)
+                .flat_map(|i| {
+                    let radius = 0.001 + f64::from(i) * 1.4e-5;
+                    crate::geom::shapes::ellipse(kurbo::Rect::new(-radius, -radius, radius, radius)).subpaths
+                })
+                .collect(),
+        );
+
+        let results = [past_the_chord_cap, flattenable_curves].map(|path| try_normalize(&path, FillRule::NonZero).err());
+        assert_eq!(results, [Some(PathOpsError::TooComplex); 2]);
     }
 }

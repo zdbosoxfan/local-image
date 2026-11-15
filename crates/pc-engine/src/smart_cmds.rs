@@ -193,7 +193,7 @@ pub fn source_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, 
         return Ok(image);
     }
     let doc = decode_source(file_name, bytes)?;
-    let projected = crate::vector_integration::project_document(&doc)?;
+    let projected = crate::vector_integration::project_for_output(&doc)?;
     let surface = plain_image_surface(&projected, fmt, target)?;
     let surface = match surface {
         Some(surface) => surface,
@@ -279,7 +279,7 @@ pub fn stack_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, m
         return Ok(img);
     }
     let doc = decode_source(file_name, bytes)?;
-    let doc = crate::vector_integration::project_document(&doc)?;
+    let doc = crate::vector_integration::project_for_output(&doc)?;
     let mut frame_doc = doc.clone();
     frame_doc.layers.clear();
     let layers: &[Layer] = match doc.layers.as_slice() {
@@ -633,7 +633,7 @@ pub fn layer_to_smart(doc: &Document, l: &Layer) -> Result<Layer> {
 
     let has_fx = any_layer(l, &|x| x.effects.enabled && !x.effects.items.is_empty());
     let region = if keep_canvas { canvas } else { subtree_bounds(l, canvas).union(&canvas).inflate(if has_fx { 256 } else { 0 }) };
-    let projected = crate::vector_integration::project_document(&sub)?;
+    let projected = crate::vector_integration::project_for_output(&sub)?;
     let buf = photocraft_compose::render(&projected, region);
     let w = region.width() as usize;
     let mut b = Rect::EMPTY;

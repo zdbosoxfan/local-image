@@ -1154,3 +1154,34 @@ list cut short or using unknown field widths still pays for every record `heic-r
 `Context::open` therefore builds at most 65,536 item records and 65,536 extent records; a file
 holding more is refused first. Re-check the census against `heic-rs`'s `iloc` parser when the pin
 moves.
+
+## Path operation budgets (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`cd80d1d859cd`](https://github.com/storytold/vectorcraft/commit/cd80d1d859cdefb4f095c362c52c9cae63f41f62) | Security: planar map budgets for booleans, Live Paint, Offset Path and 3D effects | `crates/pc-pathops/src/budget.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/lib.rs` (error variant)<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+| [`0eebd533c58c`](https://github.com/storytold/vectorcraft/commit/0eebd533c58c357a1b5b09769b6890066b05d80e) | security(pathops): signed zeros, reported budget rejections, and a fill-only fallback | `crates/pc-pathops/src/budget.rs` (signed-zero bounds)<br>`crates/pc-engine/src/pathops_cmds.rs` (command-boundary regression) | MIT OR Apache-2.0 |
+| [`caf10cc5816d`](https://github.com/storytold/vectorcraft/commit/caf10cc5816d5f26bee02837650ce6952b69b878) | security(pathops): count the sweep budget on the snapped geometry | `crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `cd80d1d8` counts overlapping segment bounds before every arrangement sweep and
+the Live Paint map sweep, and stores Live Paint crossing counts sparsely. In Local Image the
+arrangement already snaps horizontals before sweeping, so the shared preflight runs after that
+snap and also covers snap-round and flatten retries (`caf10cc5`). `0eebd533` canonicalizes signed
+zero in bounds; existing fallible APIs and `pathops_cmds` error propagation surface the refusal
+before editing, verified by the command regression. Its `try_boolean_n` and `try_area` additions
+are unnecessary here: no workspace caller uses the infallible N-ary helper, and the document
+adapter already returns errors for boolean and area operations. The fill-only Shape Builder
+fallback is not used because Local Image's checked builder contract reports incomplete geometry
+instead of silently dropping cutting lines.
+The gap grouping (`gap_from`) and 3D-effect hunks of `cd80d1d8` are not ported: neither piece of
+code exists in this tree.
+Local addition: `WorkBudget` caps the pairs of all sweeps in one path operation at four sweep
+limits (16,777,216). Upstream limits each sweep only, which leaves a many-component path to run
+every sweep up to the limit. `check_sweep_size` in `planar.rs` is also local: a trial sweep that
+stops a planar map or any arrangement once it would add too many edges or winding values, so it
+covers booleans, normalize, offset, `finish_compound` and Pathfinder Unite as well. Art with too
+few segments close together to reach those limits skips it. `RefusalWatch` is local too: it lets
+the canvas skip a refused effect and lets output fail naming the layer, without sharing a budget.
+The trial sweep counts only edges a sweep adds, so art that nothing cuts passes it. The pair limit
+and the operation budget count overlapping bounds instead, so they do refuse art that never
+crosses: 730 concentric circles in one component, or 2,400 circles held as separate components.

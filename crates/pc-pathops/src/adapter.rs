@@ -72,6 +72,7 @@ pub fn from_geometry(path: &geom::PathData) -> Path {
 
 /// Bake PSD's ordered component operations. Inversion is bounded by `clip` when supplied.
 pub fn finish_compound(path: &Path, clip: Option<kurbo::Rect>) -> Result<Path> {
+    let _budget = crate::WorkBudget::begin();
     validate(path)?;
     let mut raw = to_geometry(path);
     // pc-vector fills an open contour by a straight edge between its endpoints.
@@ -109,6 +110,7 @@ pub fn finish_compound(path: &Path, clip: Option<kurbo::Rect>) -> Result<Path> {
 }
 
 pub fn boolean(a: &Path, b: &Path, op: BoolOp) -> Result<Path> {
+    let _budget = crate::WorkBudget::begin();
     let a = to_geometry(&finish_compound(a, None)?);
     let b = to_geometry(&finish_compound(b, None)?);
     Ok(from_geometry(&kernel::try_boolean(&a, NZ, &b, NZ, op, crate::DEFAULT_PRECISION)?))
@@ -162,9 +164,11 @@ fn shapes(input: &[Shape], filled: bool) -> Result<Vec<kernel::Shape>> {
         .collect()
 }
 pub fn pathfinder(op: PathfinderOp, input: &[Shape]) -> Result<Vec<Shape>> {
+    let _budget = crate::WorkBudget::begin();
     Ok(kernel::try_pathfinder(op, &shapes(input, true)?)?.into_iter().map(|s| Shape::new(from_geometry(&s.path), s.key)).collect())
 }
 pub fn regions(input: &[Shape]) -> Result<Vec<Region>> {
+    let _budget = crate::WorkBudget::begin();
     Ok(kernel::try_regions(&shapes(input, true)?)?.into_iter().map(|r| Region { path: from_geometry(&r.path), sources: r.sources }).collect())
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -174,6 +178,7 @@ pub struct BuilderArrangement {
     pub edges: Vec<Shape>,
 }
 pub fn shape_builder(input: &[Shape], edges: bool) -> Result<BuilderArrangement> {
+    let _budget = crate::WorkBudget::begin();
     let shapes = shapes(input, false)?;
     if shapes.iter().flat_map(|s| &s.path.subpaths).map(|s| s.segment_count()).sum::<usize>() > kernel::SHAPE_BUILDER_MAX_SEGMENTS
         && shapes.iter().flat_map(|s| &s.path.subpaths).any(|s| !s.closed)
@@ -188,6 +193,7 @@ pub fn shape_builder(input: &[Shape], edges: bool) -> Result<BuilderArrangement>
     })
 }
 pub fn merge_regions(input: &[Shape], faces: &[&Region]) -> Result<Path> {
+    let _budget = crate::WorkBudget::begin();
     let shapes = shapes(input, false)?;
     for region in faces {
         validate(&region.path)?;
@@ -197,6 +203,7 @@ pub fn merge_regions(input: &[Shape], faces: &[&Region]) -> Result<Path> {
 }
 
 pub fn offset_path(path: &Path, delta: f64, join: crate::Join, miter: f64) -> Result<Path> {
+    let _budget = crate::WorkBudget::begin();
     validate(path)?;
     if !delta.is_finite() || !miter.is_finite() || miter < 1.0 {
         return Err(PathOpsError::InvalidOption);
@@ -210,6 +217,7 @@ pub fn offset_path(path: &Path, delta: f64, join: crate::Join, miter: f64) -> Re
 /// Curve-preserving stroke outlines, including native PSD dash units and alignment.
 /// Exact cap/join curves remain editable instead of accumulating polygon nodes.
 pub fn outline_stroke(path: &Path, stroke: &ShapeStroke, tolerance: f64) -> Result<Path> {
+    let _budget = crate::WorkBudget::begin();
     validate(path)?;
     if !stroke.width.is_finite()
         || stroke.width <= 0.0
@@ -284,6 +292,7 @@ pub fn reverse(path: &Path) -> Result<Path> {
     })
 }
 pub fn join(paths: &[Path], tolerance: f64) -> Result<Path> {
+    let _budget = crate::WorkBudget::begin();
     if !tolerance.is_finite() || tolerance < 0.0 {
         return Err(PathOpsError::InvalidOption);
     }

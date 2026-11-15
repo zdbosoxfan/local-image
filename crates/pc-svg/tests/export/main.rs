@@ -4,7 +4,9 @@
 use base64::Engine as _;
 use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem, StrokeItem};
 use photocraft_doc::vector_design::exchange::ExportScope;
-use photocraft_doc::{Color, ColorMode, Document, Fill, GradientStyle, Layer, LayerContent, Path, SampleType, ShapeLayer, ShapeStroke, Size, Subpath};
+use photocraft_doc::{
+    Color, ColorMode, Document, Fill, GradientStyle, Layer, LayerContent, Path, PathOp, SampleType, ShapeLayer, ShapeStroke, Size, StrokeAlign, Subpath,
+};
 use photocraft_svg::export::{self, ExportError, ExportOptions};
 fn scene(path: Path, fill: Fill) -> Document {
     let mut doc = Document::new("Synthetic", Size::new(256, 256), ColorMode::Rgb, SampleType::U8);
@@ -54,6 +56,45 @@ fn assert_oracle_svg(doc: &Document, s: &str, label: &str) {
     eprintln!("{label}: IoU={iou:.8} mean DeltaE_ok={mean:.6}");
     assert!(iou > 0.995, "{label}: IoU {iou}");
     assert!(mean < 0.5, "{label}: DeltaE {mean}");
+}
+/// A path that must be combined, with too many overlapping segments for one sweep.
+fn over_budget() -> Path {
+    let triangle = |op| Subpath::polygon(&[(10.0, 10.0), (150.0, 10.0), (80.0, 120.0)]).with_op(op);
+    let mut subpaths = vec![triangle(PathOp::Join); 1100];
+    subpaths.push(triangle(PathOp::Combine));
+    Path::new(subpaths)
+}
+#[test]
+fn svg_export_names_the_base_of_a_clipping_chain_with_an_over_budget_stroke() {
+    let mut path = over_budget();
+    path.subpaths.truncate(1100);
+    let mut doc = scene(path, Fill::Solid(Color::WHITE));
+    let LayerContent::Shape(shape) = &mut doc.layers[0].content else { panic!("the scene is a shape") };
+    shape.stroke = Some(ShapeStroke { width: 2.0, align: StrokeAlign::Inside, ..Default::default() });
+    let mut child = Layer::new("Clipped", LayerContent::Fill(Fill::Solid(Color::BLACK)));
+    child.clipped = true;
+    doc.layers.push(child);
+    let Err(ExportError::Invalid(message)) = export::export(&doc, &ExportScope::Document, &ExportOptions::default()) else {
+        panic!("the export must fail, not write the file without the path")
+    };
+    assert!(message.contains("clipping chain of layer \"A<&\"'\u{1}\""), "{message}");
+}
+#[test]
+fn svg_export_of_an_over_budget_path_fails_naming_its_layer() {
+    let fill = Fill::Solid(Color::WHITE);
+    let filled = scene(over_budget(), fill.clone());
+    let mut clipped = scene(Path::new(vec![Subpath::polygon(&[(0.0, 0.0), (9.0, 0.0), (9.0, 9.0)])]), fill.clone());
+    clipped.layers[0].vector.clip = Some(over_budget());
+    let mut stroked = scene(over_budget(), fill);
+    let LayerContent::Shape(shape) = &mut stroked.layers[0].content else { panic!("the scene is a shape") };
+    shape.fill = None;
+    shape.stroke = Some(ShapeStroke { width: 2.0, align: StrokeAlign::Inside, ..Default::default() });
+    for doc in [filled, clipped, stroked] {
+        let Err(ExportError::Invalid(message)) = export::export(&doc, &ExportScope::Document, &ExportOptions::default()) else {
+            panic!("the export must fail, not write the file without the path")
+        };
+        assert!(message.contains("layer \"A<&\"'\u{1}\""), "{message}");
+    }
 }
 #[test]
 fn svg_export_resvg_independent_geometry_and_gradient_oracles() {

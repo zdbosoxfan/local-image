@@ -192,13 +192,46 @@ fn bugfix_save_o031_locked_swatch_links_survive_unlock_and_prune_deleted_targets
     assert!(doc.swatches.links.is_empty());
 }
 
-/// One detached projection traversal for canvas, exports and expanded objects.
-/// Sources remain native and editable; evaluated metadata is cleared only on this copy.
-pub fn project_document(source: &Document) -> Result<Document> {
-    project_document_cancellable(source, &|| false, true)
+/// What a projection does with a live effect the path work budget refuses.
+#[derive(Clone, Copy)]
+enum OverBudget {
+    /// Show the layer without the effect, so one layer cannot lose every other layer's effects.
+    Skip,
+    /// Fail naming the layer: the output must not silently lack the effect.
+    Fail,
 }
 
-fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool, refresh_type: bool) -> Result<Document> {
+/// Evaluate one layer's live content. `None` means the work budget refused it and it is skipped.
+fn evaluate_live<T>(layer: &str, over_budget: OverBudget, evaluate: impl FnOnce() -> Result<T>) -> Result<Option<T>> {
+    let refusal = photocraft_pathops::RefusalWatch::begin();
+    match (evaluate(), over_budget) {
+        (Err(e), OverBudget::Skip) if refusal.refused() => {
+            log::warn!("skipped the live effect of layer {layer:?}: {e}");
+            Ok(None)
+        }
+        (Err(e), OverBudget::Fail) if refusal.refused() => {
+            Err(error(format!("the live effect of layer \"{layer}\" could not be rendered: {e}. Simplify the layer or remove the effect.")))
+        }
+        (evaluated, _) => evaluated.map(Some),
+    }
+}
+
+/// One detached projection traversal for the canvas and other views.
+/// Sources remain native and editable; evaluated metadata is cleared only on this copy.
+/// A live effect the path work budget refuses is left out with a logged warning, and so is a
+/// refused stroke, with the rest of its layer still showing.
+pub fn project_document(source: &Document) -> Result<Document> {
+    project_document_cancellable(source, &|| false, true, OverBudget::Skip)
+}
+
+/// [`project_document`] for pixels that outlive the view: files, prints and baked layers.
+/// A live effect the path work budget refuses fails it, naming the layer.
+pub fn project_for_output(source: &Document) -> Result<Document> {
+    project_document_cancellable(source, &|| false, true, OverBudget::Fail)
+}
+
+fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool, refresh_type: bool, over_budget: OverBudget) -> Result<Document> {
+    use photocraft_doc::vector_design::appearance::AppearanceItem;
     use photocraft_doc::vector_design::live::LiveGroup;
     fn ids(layer: &photocraft_doc::Layer, out: &mut std::collections::HashSet<photocraft_doc::LayerId>) {
         out.insert(layer.id);
@@ -220,41 +253,62 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
         }
         Ok(())
     }
-    fn project(source: &Document, layer: &mut photocraft_doc::Layer, next: &mut u64, cancelled: &dyn Fn() -> bool, refresh_type: bool) -> Result<()> {
+    fn project(
+        source: &Document,
+        layer: &mut photocraft_doc::Layer,
+        next: &mut u64,
+        cancelled: &dyn Fn() -> bool,
+        refresh_type: bool,
+        over_budget: OverBudget,
+    ) -> Result<()> {
         if cancelled() {
             return Err(EngineError::Cancelled);
         }
         if let Some(children) = layer.children_mut() {
             for child in children {
-                project(source, child, next, cancelled, refresh_type)?;
+                project(source, child, next, cancelled, refresh_type, over_budget)?;
             }
         }
         if matches!(layer.content, LayerContent::Symbol(_)) {
-            let ex = packages::symbols::expansion::expand(source, std::slice::from_ref(layer)).map_err(|e| error(e.to_string()))?;
-            let expanded =
-                if refresh_type { packages::symbols::prepare_expansion(source, ex)? } else { packages::symbols::prepare_expansion_for_export(source, ex)? };
-            *layer = expanded.into_iter().next().ok_or_else(|| error("empty symbol projection"))?;
+            let expanded = evaluate_live(&layer.name, over_budget, || {
+                let ex = packages::symbols::expansion::expand(source, std::slice::from_ref(layer)).map_err(|e| error(e.to_string()))?;
+                if refresh_type { packages::symbols::prepare_expansion(source, ex) } else { packages::symbols::prepare_expansion_for_export(source, ex) }
+            })?;
+            if let Some(expanded) = expanded {
+                *layer = expanded.into_iter().next().ok_or_else(|| error("empty symbol projection"))?;
+            }
         }
         if layer.vector.live.is_some() {
             let mut original = std::collections::HashSet::new();
             ids(layer, &mut original);
             let mut isolated = source.clone();
             isolated.layers = vec![layer.clone()];
-            let projected = match layer.vector.live {
-                Some(LiveGroup::Blend(_)) => photocraft_vecfx::blend::project_document(&isolated).map_err(|e| error(e.to_string()))?,
-                Some(LiveGroup::Repeat(_)) => packages::repeat::project_document(&isolated)?,
-                Some(LiveGroup::Envelope(_)) => packages::envelope::project_document(&isolated)?,
-                Some(LiveGroup::LivePaint(_)) => photocraft_vecfx::live_paint::project_document(&isolated).map_err(|e| error(e.to_string()))?,
-                None => isolated,
-            };
-            *layer = projected.layers.into_iter().next().ok_or_else(|| error("empty live group projection"))?;
-            // Isolated evaluators reserve only their subtree's IDs. Reserve against the
-            // entire source and preceding projections before the GPU indexes by layer ID.
-            remap_generated(layer, &original, next)?;
+            let projected = evaluate_live(&layer.name, over_budget, || match layer.vector.live {
+                Some(LiveGroup::Blend(_)) => photocraft_vecfx::blend::project_document(&isolated).map_err(|e| error(e.to_string())),
+                Some(LiveGroup::Repeat(_)) => packages::repeat::project_document(&isolated),
+                Some(LiveGroup::Envelope(_)) => packages::envelope::project_document(&isolated),
+                Some(LiveGroup::LivePaint(_)) => photocraft_vecfx::live_paint::project_document(&isolated).map_err(|e| error(e.to_string())),
+                None => Ok(isolated),
+            })?;
+            if let Some(projected) = projected {
+                *layer = projected.layers.into_iter().next().ok_or_else(|| error("empty live group projection"))?;
+                // Isolated evaluators reserve only their subtree's IDs. Reserve against the
+                // entire source and preceding projections before the GPU indexes by layer ID.
+                remap_generated(layer, &original, next)?;
+            } else {
+                layer.vector.live = None;
+            }
         }
         if !layer.vector.effects.is_empty() {
-            let scene = packages::path_effects::project(layer, &layer.vector.effects, source.resolution_dpi)?;
-            *layer = packages::path_effects::projected_layer(layer, &scene, source)?;
+            let projected = evaluate_live(&layer.name, over_budget, || {
+                let scene = packages::path_effects::project(layer, &layer.vector.effects, source.resolution_dpi)?;
+                packages::path_effects::projected_layer(layer, &scene, source)
+            })?;
+            if let Some(projected) = projected {
+                *layer = projected;
+            } else {
+                layer.vector.effects.clear();
+            }
         }
         if let LayerContent::Shape(shape) = &mut layer.content {
             if let Some(live) = &layer.vector.live_shape {
@@ -264,7 +318,18 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
                 *shape = packages::corners::project_shape(shape, &layer.vector.corners)?;
             }
             if !layer.vector.is_empty() || shape.cache.is_none() {
-                shape.cache = Some(render_shape(source, shape, &VectorData { appearance: layer.vector.appearance.clone(), ..Default::default() })?);
+                let mut vector = VectorData { appearance: layer.vector.appearance.clone(), ..Default::default() };
+                let mut cache = evaluate_live(&layer.name, over_budget, || render_shape(source, shape, &vector))?;
+                if cache.is_none()
+                    && let Some(appearance) = &mut vector.appearance
+                {
+                    // Only strokes outlined through the path kernel can be refused; the rest still shows.
+                    appearance.items.retain(|item| !matches!(item, AppearanceItem::Stroke(s) if s.profile.is_some() || s.brush.is_some()));
+                    cache = evaluate_live(&layer.name, over_budget, || render_shape(source, shape, &vector))?;
+                }
+                if cache.is_some() {
+                    shape.cache = cache;
+                }
             }
             layer.vector.live_shape = None;
             layer.vector.corners.clear();
@@ -287,7 +352,7 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
     let mut out = source.clone();
     let mut next = photocraft_vecfx::blend::max_document_id(source);
     for layer in &mut out.layers {
-        project(source, layer, &mut next, cancelled, refresh_type)?;
+        project(source, layer, &mut next, cancelled, refresh_type, over_budget)?;
     }
     let out = packages::layout::project_clips(&out)?;
     if cancelled() {
@@ -301,7 +366,7 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
 struct LayeredSaveProjection;
 impl photocraft_io::vector_map::fallback::Projection for LayeredSaveProjection {
     fn layer(&self, document: &Document, layer: &photocraft_doc::Layer) -> std::result::Result<Option<photocraft_doc::Layer>, String> {
-        save_layer_projection(document, layer, project_document)
+        save_layer_projection(document, layer, project_for_output)
     }
 }
 
@@ -344,7 +409,7 @@ pub fn export_document(
     if matches!(ext.as_str(), "pcraft" | "psd" | "psb") || ext == "tif" && options.tiff_layers || ext == "tiff" && options.tiff_layers {
         return photocraft_io::export_with_projection(source, name, options, Some(&LayeredSaveProjection));
     }
-    let projected = project_document(source).map_err(|e| photocraft_io::IoError::Unsupported(e.to_string()))?;
+    let projected = project_for_output(source).map_err(|e| photocraft_io::IoError::Unsupported(e.to_string()))?;
     photocraft_io::export(&projected, name, options)
 }
 
@@ -501,7 +566,7 @@ pub fn project_for_export_with(
         }
         Ok(())
     }
-    let mut doc = project_document_cancellable(source, cancelled, false)?;
+    let mut doc = project_document_cancellable(source, cancelled, false, OverBudget::Fail)?;
     let snapshot = doc.clone();
     let mut warnings = Vec::new();
     for layer in &mut doc.layers {
@@ -575,6 +640,10 @@ pub fn project_view(
             let mut isolated = doc.clone();
             isolated.layers = vec![bare];
             let projected = project_document(&isolated).map_err(|e| error(e.to_string()))?;
+            // A refused expansion stays a Symbol, and flattening that would lead straight back here.
+            if projected.layers.iter().any(|l| matches!(l.content, photocraft_doc::LayerContent::Symbol(_))) {
+                return Err(error(format!("the symbol of layer \"{}\" is over the path budget", layer.name)));
+            }
             let visible = photocraft_geom::Rect::new(
                 (f64::from(clip.x0) / scale).floor() as i32,
                 (f64::from(clip.y0) / scale).floor() as i32,
@@ -808,6 +877,183 @@ mod integration_tests {
         for layer in &doc.layers {
             assert_eq!(projected.layer(layer.id).unwrap().name, layer.name);
         }
+    }
+    /// A closed shape whose segment bounds all meet at one point, past the path sweep limit.
+    fn crowded(name: &str, spokes: u32) -> Layer {
+        let mut points = vec![(16., 16.)];
+        for i in 0..spokes {
+            let angle = std::f64::consts::TAU * f64::from(i) / f64::from(spokes);
+            points.extend([(16. + 10. * angle.cos(), 16. + 10. * angle.sin()), (16., 16.)]);
+        }
+        let mut layer = object(name);
+        if let LayerContent::Shape(shape) = &mut layer.content {
+            shape.path = photocraft_doc::Path::new(vec![Subpath::polygon(&points)]);
+        }
+        layer
+    }
+    fn with_offset(mut layer: Layer) -> Layer {
+        use photocraft_doc::vector_design::effects::{EffectKind, EffectTarget, OffsetJoin, PathEffect};
+        let effect = EffectKind::OffsetPath { distance: 1., join: OffsetJoin::Miter, miter: 4. };
+        layer.vector.effects = vec![PathEffect { target: EffectTarget::Layer, enabled: true, effect }];
+        layer
+    }
+    #[test]
+    fn a_live_effect_over_the_path_budget_is_skipped_on_screen_and_fails_output() {
+        let document = |layers: Vec<Layer>| {
+            let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+            doc.layers = layers;
+            doc
+        };
+        let effect = with_offset(crowded("Crowded effect", 2047));
+        let mut paint = Layer::group("Crowded paint", vec![crowded("Source", 2047)]);
+        packages::live_paint::evaluator::write_spec(&mut paint, &packages::live_paint::LivePaintSpec::default()).unwrap();
+        let ordinary = with_offset(object("Ordinary"));
+
+        let shown = project_document(&document(vec![effect.clone(), paint.clone(), ordinary.clone()])).unwrap();
+
+        let unaffected = shown.layer(effect.id).unwrap();
+        assert!(matches!(unaffected.content, LayerContent::Shape(_)) && unaffected.vector.effects.is_empty());
+        assert_eq!(shown.layer(paint.id).unwrap().children().unwrap().len(), 1);
+        assert!(shown.layer(paint.id).unwrap().vector.live.is_none());
+        assert!(shown.layer(ordinary.id).unwrap().is_group(), "the other layer's effect still projects");
+
+        for (layer, name) in [(effect, "Crowded effect"), (paint, "Crowded paint")] {
+            let refused = export_document(&document(vec![layer]), "budget.png", &Default::default()).unwrap_err().to_string();
+            assert!(refused.contains(name), "{refused}");
+        }
+    }
+    /// An appearance stroke that needs a boolean of its outline, so it reaches the path sweep.
+    fn with_profile_stroke(mut layer: Layer) -> Layer {
+        use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, StrokeItem, WidthPoint, WidthProfile};
+        let points = [0., 1.].map(|t| WidthPoint { t, left: 0.5, right: 0.5 }).to_vec();
+        let base = photocraft_doc::ShapeStroke { width: 1., paint: Fill::Solid(Color::BLACK), ..Default::default() };
+        let stroke = StrokeItem { base, profile: Some(WidthProfile { points }), ..Default::default() };
+        layer.vector.appearance = Some(Appearance { items: vec![AppearanceItem::Stroke(stroke)] });
+        layer
+    }
+    /// An instance of symbol 7, whose master has a stroke over the path budget.
+    fn crowded_symbol() -> Layer {
+        use photocraft_doc::vector_design::structure::{SymbolId, SymbolInstance};
+        let instance = SymbolInstance { symbol: SymbolId(7), transform: photocraft_doc::Affine::IDENTITY, cache: None };
+        Layer::new("Crowded symbol", LayerContent::Symbol(instance))
+    }
+    fn with_crowded_master(layers: Vec<Layer>) -> Document {
+        use photocraft_doc::vector_design::structure::{SymbolDef, SymbolId};
+        let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        doc.symbols.push(SymbolDef { id: SymbolId(7), name: "Master".into(), layers: vec![with_profile_stroke(crowded("Master stroke", 1000))] });
+        doc.layers = layers;
+        doc
+    }
+    #[test]
+    fn a_stroke_or_symbol_over_the_path_budget_is_skipped_on_screen_and_fails_output() {
+        let stroked = with_profile_stroke(crowded("Crowded stroke", 1000));
+        let symbol = crowded_symbol();
+
+        let shown = project_document(&with_crowded_master(vec![stroked.clone(), symbol.clone()])).unwrap();
+
+        assert!(matches!(shown.layer(stroked.id).unwrap().content, LayerContent::Shape(_)));
+        assert!(matches!(shown.layer(symbol.id).unwrap().content, LayerContent::Symbol(_)));
+        for (layer, name) in [(stroked, "Crowded stroke"), (symbol, "Crowded symbol")] {
+            let refused = export_document(&with_crowded_master(vec![layer]), "budget.png", &Default::default()).unwrap_err().to_string();
+            assert!(refused.contains(name), "{refused}");
+        }
+    }
+    #[test]
+    fn a_stroke_over_the_path_budget_leaves_the_fill_on_screen() {
+        use photocraft_doc::vector_design::appearance::{AppearanceItem, FillItem};
+        let mut layer = with_profile_stroke(crowded("Crowded stroke", 1000));
+        if let LayerContent::Shape(shape) = &mut layer.content {
+            shape.path.subpaths.push(Subpath::polygon(&[(2., 2.), (12., 2.), (12., 12.), (2., 12.)]));
+        }
+        layer.vector.appearance.as_mut().unwrap().items.insert(0, AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::BLACK))));
+        let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        doc.layers = vec![layer];
+
+        let shown = photocraft_compose::flatten(&project_document(&doc).unwrap());
+
+        assert_eq!(shown.px[4 * 32 + 4][3], 1., "inside the fill");
+        assert_eq!(shown.px[30 * 32 + 30][3], 0., "outside the shape");
+    }
+    #[test]
+    fn a_symbol_over_the_path_budget_fails_the_zoomed_view_instead_of_recursing() {
+        let doc = with_crowded_master(vec![crowded_symbol()]);
+
+        let refused = photocraft_compose::scaled_view::flatten_scaled_with(&doc, doc.bounds(), 2., project_view).err().unwrap();
+
+        assert!(refused.0.contains("Crowded symbol"), "{}", refused.0);
+    }
+    #[test]
+    fn every_output_route_fails_naming_the_layer_over_the_path_budget() {
+        use serde_json::json;
+        let effect = with_offset(crowded("Crowded effect", 2047));
+        let mut doc = Document::new("Budget", Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        doc.layers = vec![effect.clone(), object("Other")];
+        let session = || {
+            let mut s = crate::Session::new();
+            s.add_document(doc.clone(), None);
+            s.active_mut().unwrap().active_layer = Some(effect.id);
+            s
+        };
+        let format = doc.pixel_format();
+        let bytes = crate::smart_cmds::encode_source(&doc).unwrap();
+        let profile = crate::color_cmds::working_profile(format.mode);
+        let mut paint = Layer::group("Crowded effect", vec![crowded("Source", 2047)]);
+        packages::live_paint::evaluator::write_spec(&mut paint, &packages::live_paint::LivePaintSpec::default()).unwrap();
+        let paint_id = paint.id;
+        let mut expanding = crate::Session::new();
+        let mut live = doc.clone();
+        live.layers = vec![paint];
+        expanding.add_document(live, None);
+        let expand = packages::expand::Request {
+            capture: packages::path_commands::Capture::begin(&expanding, &[paint_id]).unwrap(),
+            options: Default::default(),
+            appearance: false,
+        };
+
+        let routes: [(&str, Result<()>); 10] = [
+            ("Flatten Image", session().execute("layer.flattenImage", json!({})).map(drop)),
+            ("Merge Visible", session().execute("layer.mergeVisible", json!({})).map(drop)),
+            ("flattened", crate::file_cmds::flattened(&doc, format).map(drop)),
+            ("Print", session().execute("file.print", json!({"dryRun": true})).map(drop)),
+            ("Save for Web", crate::web_cmds::web_document(&doc, &json!({}), &Default::default()).map(drop)),
+            ("Rasterize Shape", session().execute("shape.rasterize", json!({"layer": effect.id.0})).map(drop)),
+            ("Convert to Smart Object", crate::smart_cmds::layer_to_smart(&doc, &effect).map(drop)),
+            ("Smart object source", crate::smart_cmds::source_image_in_profile("source.pcraft", &bytes, format, &profile).map(drop)),
+            (
+                "Smart object stack",
+                crate::smart_cmds::stack_image_in_profile("source.pcraft", &bytes, format, photocraft_doc::StackMode::Mean, &profile).map(drop),
+            ),
+            ("Expand", packages::expand::prepare(&expanding, &expand).map(drop)),
+        ];
+
+        let unnamed: Vec<_> = routes
+            .iter()
+            .filter(|(_, result)| !result.as_ref().is_err_and(|e| e.to_string().contains("Crowded effect")))
+            .map(|(route, result)| format!("{route}: {:?}", result.as_ref().err()))
+            .collect();
+        assert!(unnamed.is_empty(), "{unnamed:#?}");
+    }
+    #[test]
+    fn operations_inside_one_live_evaluation_keep_their_own_budgets() {
+        // Parallel strips: their bounds overlap in pairs, but each path sweeps quickly.
+        let strips = photocraft_doc::Path::new(
+            (0..700)
+                .map(|i| {
+                    let x = f64::from(i);
+                    let op = if i == 0 { photocraft_doc::PathOp::Combine } else { photocraft_doc::PathOp::Join };
+                    Subpath::polygon(&[(x, 0.), (x + 0.5, 0.), (x + 1000.5, 1000.), (x + 1000., 1000.)]).with_op(op)
+                })
+                .collect(),
+        );
+
+        let evaluated = evaluate_live("Repeat", OverBudget::Fail, || {
+            for _ in 0..6 {
+                photocraft_pathops::finish_compound(&strips, None).map_err(|e| error(e.to_string()))?;
+            }
+            Ok(())
+        });
+
+        assert_eq!(evaluated.unwrap(), Some(()), "six operations together pass one operation's limit, but each has its own");
     }
     #[test]
     fn integration_shared_insertion_draw_modes_preview_publication_and_undo() {

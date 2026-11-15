@@ -234,7 +234,7 @@ fn expand_layer(doc: &Document, source: &Layer, options: Options, appearance: bo
             Some(LiveGroup::Blend(_) | LiveGroup::Envelope(_) | LiveGroup::Repeat(_) | LiveGroup::LivePaint(_)) => {
                 let mut selected = doc.clone();
                 selected.layers = vec![source.clone()];
-                let projected = crate::vector_integration::project_document(&selected)?;
+                let projected = crate::vector_integration::project_for_output(&selected)?;
                 l = projected.layers.into_iter().next().ok_or_else(|| bad("repeat returned no layers"))?;
                 if let Some(children) = l.children_mut() {
                     for child in children {

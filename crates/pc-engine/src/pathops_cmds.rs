@@ -149,6 +149,8 @@ fn run(s: &mut Session, p: &Value, operation: Operation, cmd: &str, label: &str)
     };
     let mut results: Vec<(usize, Path)> = Vec::new();
     let combine = matches!(operation, Operation::Boolean | Operation::Pathfinder | Operation::Join);
+    // One gesture over many layers folds them through a growing result, so it spends one budget.
+    let _budget = matches!(operation, Operation::Boolean | Operation::Pathfinder).then(ops::WorkBudget::begin);
     match operation {
         Operation::Boolean => {
             if paths.len() < 2 {
@@ -475,6 +477,47 @@ mod validation_tests {
         for value in [json!(null), json!(true), json!(17), json!([]), json!({}), json!("bogus")] {
             assert!(bool_op(&json!({"op":value}), "path.boolean").is_err());
         }
+    }
+
+    #[test]
+    fn boolean_budget_error_reaches_command_before_document_mutation() {
+        let origin = photocraft_geom::Point::new(48.0, 48.0);
+        let mut knots = Vec::with_capacity(4097);
+        knots.push(photocraft_doc::Knot::corner(origin.x, origin.y));
+        for i in 0..2048 {
+            let angle = std::f64::consts::TAU * i as f64 / 2048.0;
+            knots.push(photocraft_doc::Knot::corner(origin.x + angle.cos(), origin.y + angle.sin()));
+            knots.push(photocraft_doc::Knot::corner(origin.x, origin.y));
+        }
+        let crossing = photocraft_doc::Path::new(vec![photocraft_doc::Subpath { closed: true, knots, ..Default::default() }]);
+        let mut doc =
+            photocraft_doc::Document::new("budget", photocraft_doc::Size::new(96, 96), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        let first = Layer::new(
+            "crossing",
+            LayerContent::Shape(photocraft_doc::ShapeLayer {
+                path: crossing,
+                fill: Some(photocraft_doc::Fill::Solid(photocraft_color::Color::BLACK)),
+                ..Default::default()
+            }),
+        );
+        let second = Layer::new(
+            "rectangle",
+            LayerContent::Shape(photocraft_doc::ShapeLayer {
+                path: photocraft_vector::shapes::rect(20.0, 20.0, 30.0, 30.0),
+                fill: Some(photocraft_doc::Fill::Solid(photocraft_color::Color::BLACK)),
+                ..Default::default()
+            }),
+        );
+        let ids = [first.id.0, second.id.0];
+        doc.layers.extend([first, second]);
+        let mut session = Session::new();
+        session.add_document(doc, None);
+        let before = session.active().map(|state| state.doc.clone());
+
+        let error =
+            session.execute("path.boolean", json!({"layers":ids,"op":"add"})).err().map_or_else(|| "command succeeded".to_owned(), |error| error.to_string());
+        assert_eq!(error, "invalid parameters for `path.boolean`: the shapes cross themselves and each other too often to combine");
+        assert_eq!(session.active().map(|state| state.doc.clone()), before);
     }
 
     #[test]

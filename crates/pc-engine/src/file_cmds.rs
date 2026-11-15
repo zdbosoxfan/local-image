@@ -260,7 +260,7 @@ pub(crate) fn buffer_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat)
 
 /// The flattened image of `doc` as a surface in `fmt`, placed at the origin.
 pub(crate) fn flattened(doc: &Document, fmt: PixelFormat) -> Result<Surface> {
-    Ok(photocraft_compose::flatten_to_surface(&crate::vector_integration::project_document(doc)?, fmt, None))
+    Ok(photocraft_compose::flatten_to_surface(&crate::vector_integration::project_for_output(doc)?, fmt, None))
 }
 
 /// Refuse file-declared canvases larger than the compositor can render before flattening.

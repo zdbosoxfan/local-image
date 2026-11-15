@@ -27,6 +27,32 @@ fn flat(layers: &[Layer]) -> Vec<&Layer> {
 }
 
 #[test]
+fn a_clip_over_the_path_budget_is_dropped_with_a_warning_and_the_import_continues() {
+    // Every segment of the first clip path meets the centre, so their bounds all overlap.
+    let spokes: String = (0..2048)
+        .map(|i| {
+            let angle = std::f64::consts::TAU * f64::from(i) / 2048.0;
+            format!("L{:.4} {:.4}L50 50", 50.0 + 40.0 * angle.cos(), 50.0 + 40.0 * angle.sin())
+        })
+        .collect();
+    let source = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <clipPath id="crowded"><path d="M50 50{spokes}Z"/><rect x="1" y="1" width="9" height="9"/></clipPath>
+            <rect id="clipped" width="60" height="60" clip-path="url(#crowded)"/>
+            <rect id="plain" x="70" y="70" width="20" height="20"/>
+        </svg>"#
+    );
+
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+
+    let names: Vec<_> = flat(&scene.layers).iter().map(|layer| layer.name.as_str()).collect();
+    assert!(names.contains(&"clipped") && names.contains(&"plain"), "{names:?}");
+    assert!(flat(&scene.layers).iter().all(|layer| layer.vector.clip.is_none()));
+    let warning = scene.warnings.iter().find(|warning| warning.feature == "clip-too-complex").unwrap();
+    assert_eq!(warning.object.as_deref(), Some("crowded"));
+}
+
+#[test]
 fn editable_font_family_roundtrips_css_string_escapes() {
     use photocraft_doc::vector_design::exchange::ExportScope;
     use photocraft_svg::export::{ExportOptions, export};

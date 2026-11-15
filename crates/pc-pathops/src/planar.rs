@@ -27,6 +27,8 @@ use std::collections::HashMap;
 use crate::PathOpsError;
 use crate::geom::{FillRule, PathData, SubPath};
 use kurbo::{Affine, BezPath, CubicBez, ParamCurve, PathSeg, Point, Shape as _};
+use linesweeper::Segments;
+use linesweeper::sweep::{SweepLineBuffers, SweepLineRangeBuffers, Sweeper};
 use linesweeper::topology::{Topology, WindingNumber};
 
 use crate::kernel::boolean::{DEFAULT_PRECISION, Seg, Tidy, eps_for, is_sliver, segs_to_subpath, snap_horizontals, tidy_segments, to_seg};
@@ -36,24 +38,24 @@ use crate::kernel::pathfinder::{Region, Shape};
 const SHEAR: Affine = Affine::new([1.0, 1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 const UNSHEAR: Affine = Affine::new([1.0, -1.0 / 32.0, 0.0, 1.0, 0.0, 0.0]);
 
+/// Most edges a map's sweep may add to its paths' own segments, counting an open path's two
+/// passes twice. A map this size takes 10 to 20 seconds and about 1 GB to build.
+const MAX_MAP_CUTS: usize = 1 << 19;
+/// Most memory a sweep may keep in winding values on the edges it adds.
+pub(crate) const MAX_SWEEP_VALUE_BYTES: usize = 1 << 31;
+
 /// Boundary crossings per input, counted from the far west: slot `2i` counts input `i`'s
 /// segments running one way, slot `2i + 1` the other. An open path traced there and back adds one
-/// to each, so its edges never cancel out of the map.
-#[derive(Clone, Debug, Default)]
-struct Crossings(Vec<u32>);
+/// to each, so its edges never cancel out of the map. Only nonzero slots are stored because the
+/// sweep keeps one crossing value for every edge.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Crossings(Vec<(usize, u32)>);
 
 impl Crossings {
     fn get(&self, slot: usize) -> u32 {
-        self.0.get(slot).copied().unwrap_or(0)
+        self.0.binary_search_by_key(&slot, |(index, _)| *index).map_or(0, |i| self.0.get(i).map_or(0, |(_, count)| *count))
     }
 }
-
-impl PartialEq for Crossings {
-    fn eq(&self, other: &Self) -> bool {
-        (0..self.0.len().max(other.0.len())).all(|i| self.get(i) == other.get(i))
-    }
-}
-impl Eq for Crossings {}
 
 impl std::ops::Add for Crossings {
     type Output = Crossings;
@@ -65,33 +67,35 @@ impl std::ops::Add for Crossings {
 
 impl std::ops::AddAssign for Crossings {
     fn add_assign(&mut self, rhs: Self) {
-        if self.0.len() < rhs.0.len() {
-            self.0.resize(rhs.0.len(), 0);
+        if rhs.0.is_empty() {
+            return;
         }
-        for (a, b) in self.0.iter_mut().zip(rhs.0) {
-            *a = a.saturating_add(b);
+        let mut out = Vec::with_capacity(self.0.len() + rhs.0.len());
+        let (mut a, mut b) = (std::mem::take(&mut self.0).into_iter().peekable(), rhs.0.into_iter().peekable());
+        loop {
+            let next = match (a.peek(), b.peek()) {
+                (Some(x), Some(y)) if x.0 == y.0 => {
+                    let (x, y) = (a.next(), b.next());
+                    x.zip(y).map(|(x, y)| (x.0, x.1.saturating_add(y.1)))
+                }
+                (Some(x), Some(y)) if x.0 < y.0 => a.next(),
+                (Some(_), Some(_)) | (None, Some(_)) => b.next(),
+                (Some(_), None) => a.next(),
+                (None, None) => break,
+            };
+            out.extend(next.filter(|(_, count)| *count != 0));
         }
+        self.0 = out;
     }
 }
 
 impl WindingNumber for Crossings {
     type Tag = usize;
     fn single(tag: usize, positive: bool) -> Self {
-        let slot = 2 * tag + usize::from(!positive);
-        let mut v = vec![0; slot + 1];
-        if let Some(c) = v.get_mut(slot) {
-            *c = 1;
-        }
-        Crossings(v)
+        Crossings(vec![(2 * tag + usize::from(!positive), 1)])
     }
     fn of_tag(&self, tag: usize) -> Self {
-        let mut v = vec![0; 2 * tag + 2];
-        for slot in [2 * tag, 2 * tag + 1] {
-            if let Some(c) = v.get_mut(slot) {
-                *c = self.get(slot);
-            }
-        }
-        Crossings(v)
+        Crossings([2 * tag, 2 * tag + 1].into_iter().map(|slot| (slot, self.get(slot))).filter(|(_, count)| *count != 0).collect())
     }
 }
 
@@ -293,7 +297,7 @@ fn find(parent: &mut [usize], mut v: usize) -> usize {
 /// Faces are the bounded areas the paths enclose, holes included, each with the inputs whose fill
 /// covers it (ascending; empty for an area only enclosed by paths). Edges are the paths split
 /// wherever they meet another path, keyed by the input they came from (the front-most where
-/// inputs share one). Empty when the paths can't be swept (non-finite or too degenerate).
+/// inputs share one). Empty when the paths can't be swept (non-finite, too degenerate or too big).
 pub fn live_paint(shapes: &[Shape]) -> (Vec<Region>, Vec<Shape>) {
     build(shapes).unwrap_or_default()
 }
@@ -476,6 +480,45 @@ fn span(sp: &SubPath, u0: f64, u1: f64) -> Option<SubPath> {
     segs_to_subpath(&segs, false)
 }
 
+/// Refuse a sweep of `paths` that would add more than `max_cuts` edges to their segments, or keep
+/// more than [`MAX_SWEEP_VALUE_BYTES`] on those edges, `value_bytes` giving what one edge keeps
+/// from its place in the sweep line. Art that nothing cuts is never refused.
+///
+/// This is a trial sweep that keeps nothing: [`Topology`] has no way to stop partway, and near the
+/// pair limit it takes half a minute and 8 GB on its own.
+pub(crate) fn check_sweep_size<'a>(
+    paths: impl Iterator<Item = &'a BezPath>,
+    eps: f64,
+    max_cuts: usize,
+    value_bytes: impl Fn(usize) -> usize,
+) -> Result<(), PathOpsError> {
+    let mut all = BezPath::new();
+    for path in paths {
+        all.extend(path.iter());
+    }
+    let mut segments = Segments::default();
+    segments.add_bez_path(&all).map_err(|_| PathOpsError::OpenPath)?;
+    let mut sweeper = Sweeper::new(&segments, eps);
+    let (mut line_buffers, mut range_buffers) = (SweepLineBuffers::default(), SweepLineRangeBuffers::default());
+    let (mut edges, mut bytes) = (0, 0);
+    while let Some(mut line) = sweeper.next_line(&mut line_buffers) {
+        while let Some(mut range) = line.next_range(&mut range_buffers, &segments) {
+            while let Some(events) = range.events() {
+                for event in events.iter().filter(|event| event.connected_below) {
+                    edges += 1;
+                    if edges > segments.len() {
+                        bytes += value_bytes(event.sweep_idx.unwrap_or(0));
+                    }
+                }
+                if edges.saturating_sub(segments.len()) > max_cuts || bytes > MAX_SWEEP_VALUE_BYTES {
+                    return Err(crate::budget::refused());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     let mut inputs: Vec<(BezPath, usize)> = Vec::new();
     for (i, s) in shapes.iter().enumerate() {
@@ -499,9 +542,15 @@ fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     }
     let eps = eps_for(inputs.iter().map(|p| &p.0))?;
     snap_horizontals(&mut inputs.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
+    crate::budget::charge_sweep(inputs.iter().map(|(path, _)| path))?;
     // The sweep can panic on rare near-degenerate input; that must never take the app down.
-    let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Topology::<Crossings>::from_paths(inputs.iter().map(|(p, i)| (p, *i)), eps)));
-    let top = sweep.map_err(|_| PathOpsError::Degenerate)?.map_err(|_| PathOpsError::OpenPath)?;
+    let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // Each edge keeps a `Crossings` on either side, with up to one entry per slot to its west.
+        let edge_bytes = |west: usize| 2 * size_of::<(usize, u32)>() * west.min(2 * inputs.len());
+        check_sweep_size(inputs.iter().map(|(path, _)| path), eps, MAX_MAP_CUTS, edge_bytes)?;
+        Topology::<Crossings>::from_paths(inputs.iter().map(|(p, i)| (p, *i)), eps).map_err(|_| PathOpsError::OpenPath)
+    }));
+    let top = sweep.map_err(|_| PathOpsError::Degenerate)??;
     let tidy = Tidy::keeping(DEFAULT_PRECISION, inputs.iter().map(|p| &p.0));
 
     // The planar graph: vertices are the sweep's points, edges its segments. Points closer than
@@ -790,8 +839,118 @@ mod tests {
         Shape::new(shapes::rectangle(Rect::new(x0, y0, x1, y1)), FillRule::NonZero, key)
     }
 
+    #[test]
+    fn planar_sweep_refuses_too_many_overlapping_segment_bounds() {
+        let lines = vec![line((0.0, 0.0), (10.0, 10.0), 0); 2050];
+        assert_eq!(try_shape_builder(&lines, false), Err(PathOpsError::TooComplex));
+    }
+
+    /// A closed zigzag of `segments` long teeth, one tooth wide, upright or laid across.
+    fn comb(segments: usize, across: bool, key: u64) -> Shape {
+        let length = 2.0 * segments as f64;
+        let point = |x: f64, y: f64| if across { Point::new(y - 1.0, x + 1.0) } else { Point::new(x + 1.0, y - 1.0) };
+        let teeth: Vec<Point> = (0..segments).map(|i| point(i as f64, if i % 2 == 0 { 0.0 } else { length })).collect();
+        Shape::new(PathData::single(SubPath::polyline(&teeth, true)), FillRule::NonZero, key)
+    }
+
+    #[test]
+    fn a_map_with_too_many_edges_is_refused_for_the_watch_to_see() {
+        let combs = [comb(512, false, 0), comb(512, true, 1)];
+        let watch = crate::RefusalWatch::begin();
+        assert_eq!(try_shape_builder(&combs, true), Err(PathOpsError::TooComplex));
+        assert!(watch.refused());
+        assert_eq!(live_paint(&combs), (Vec::new(), Vec::new()));
+    }
+
+    #[test]
+    fn a_map_of_many_crossing_paths_is_refused_for_what_they_keep_per_edge() {
+        // Every line spans every sweep line, so each edge has them all to its west or east.
+        let lines: Vec<Shape> = (0..220)
+            .flat_map(|i| {
+                let at = f64::from(i) * 3.0;
+                [line((at, 0.0), (at + 5000.0, 5000.0), 0), line((at + 5000.0, 0.0), (at, 5000.0), 0)]
+            })
+            .collect();
+        assert_eq!(try_shape_builder(&lines, true), Err(PathOpsError::TooComplex));
+    }
+
+    #[test]
+    fn a_closed_arrangement_with_too_many_edges_is_refused_for_the_watch_to_see() {
+        let combs = [comb(1950, false, 0), comb(1950, true, 1)];
+        let watch = crate::RefusalWatch::begin();
+        assert_eq!(try_shape_builder(&combs, false), Err(PathOpsError::TooComplex));
+        assert_eq!(crate::kernel::try_pathfinder(crate::PathfinderOp::Divide, &combs), Err(PathOpsError::TooComplex));
+        assert!(watch.refused());
+    }
+
+    /// A closed star of `chords` that all cross each other.
+    fn star(chords: usize) -> PathData {
+        let step = (chords - 1) / 2;
+        let corners: Vec<Point> = (0..chords)
+            .map(|i| {
+                let angle = std::f64::consts::TAU * ((i * step) % chords) as f64 / chords as f64;
+                Point::new(1000.0 * angle.cos(), 1000.0 * angle.sin())
+            })
+            .collect();
+        PathData::single(SubPath::polyline(&corners, true))
+    }
+
+    #[test]
+    fn every_path_operation_stops_a_path_past_the_edge_limit() {
+        // Just past the limit: 1,101 chords add about 1,210,000 edges, 750 teeth across 750 teeth
+        // about 1,125,000.
+        let star = crate::from_geometry(&star(1101));
+        let combs = [comb(750, false, 0), comb(750, true, 1)].map(|shape| crate::from_geometry(&shape.path));
+        let input = [crate::Shape::new(star.clone(), 0)];
+
+        let results = [
+            crate::finish_compound(&star, None).err(),
+            crate::contains(&star, photocraft_geom::Point::new(0.0, 0.0)).err(),
+            crate::pathfinder(crate::PathfinderOp::Unite, &input).err(),
+            crate::shape_builder(&input, true).err(),
+            crate::offset_path(&star, 1.0, crate::Join::Miter, 4.0).err(),
+            crate::boolean(&combs[0], &combs[1], crate::BoolOp::Intersect).err(),
+        ];
+
+        assert_eq!(results, [Some(PathOpsError::TooComplex); 6]);
+    }
+
+    #[test]
+    fn an_arrangement_of_many_crossing_shapes_is_refused_for_what_they_keep_per_edge() {
+        let strip = |start: f64, end: f64, key: u64| {
+            let corners = [Point::new(start, 0.0), Point::new(start + 1.0, 0.0), Point::new(end + 1.0, 5000.0), Point::new(end, 5000.0)];
+            Shape::new(PathData::single(SubPath::polyline(&corners, true)), FillRule::NonZero, key)
+        };
+        let strips: Vec<Shape> = (0..270)
+            .flat_map(|i| {
+                let at = f64::from(i) * 3.0;
+                [strip(at, at + 5000.0, 0), strip(at + 5000.0, at, 1)]
+            })
+            .collect();
+        assert_eq!(crate::kernel::try_regions(&strips).map(|regions| regions.len()), Err(PathOpsError::TooComplex));
+    }
+
+    #[test]
+    fn overlapping_bounds_alone_do_not_refuse_a_map() {
+        // Parallel diagonals: more than MAX_MAP_CUTS pairs of bounds overlap, and nothing meets.
+        let lines: Vec<Shape> = (0..1100).map(|i| line((f64::from(i), 0.0), (f64::from(i) + 2000.0, 2000.0), 0)).collect();
+        assert_eq!(try_shape_builder(&lines, true).map(|map| map.lines.len()), Ok(1100));
+    }
+
     fn area(r: &Region) -> f64 {
         r.path.to_bezpath().area()
+    }
+
+    #[test]
+    fn crossings_store_only_nonzero_counts() {
+        let mut crossings = Crossings::single(7, true);
+        crossings += Crossings::single(2, false);
+        crossings += Crossings::single(7, true);
+        assert_eq!((crossings.get(14), crossings.get(5), crossings.get(15), crossings.get(0)), (2, 1, 0, 0));
+        assert_eq!(crossings.0.len(), 2);
+        assert_eq!(crossings.of_tag(7), Crossings(vec![(14, 2)]));
+        assert_eq!(Crossings::single(2, false) + Crossings::single(7, true) + Crossings::single(7, true), crossings);
+        assert_eq!(Crossings::default() + Crossings::default(), Crossings::default());
     }
 
     fn at(faces: &[Region], x: f64, y: f64) -> Vec<&Region> {

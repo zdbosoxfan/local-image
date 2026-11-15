@@ -394,6 +394,8 @@ fn rendered(doc: &Document, layer: &mut Layer) -> Result<()> {
     Ok(())
 }
 pub fn prepare(s: &Session, request: &Request) -> Result<Prepared> {
+    // The gesture folds its targets through a growing result, so it spends one budget.
+    let _budget = ops::WorkBudget::begin();
     request.capture.validate(s)?;
     if request.rectangle && request.capture.mode != Mode::Eraser {
         return Err(error("rectangle erase is only valid for Vector Eraser"));

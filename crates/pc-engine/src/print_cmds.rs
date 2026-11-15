@@ -206,7 +206,7 @@ pub fn print_pdf(page: &PrintPage) -> Vec<u8> {
 
 /// The flattened, colour-handled document as 8-bit samples in its print colour space.
 fn print_image(doc: &Document, p: &Value, cmd: &str) -> Result<(PrintImage, Value)> {
-    let projected = crate::vector_integration::project_document(doc)?;
+    let projected = crate::vector_integration::project_for_output(doc)?;
     let doc = &projected;
     let mut t = Session::new();
     t.add_document(doc.clone(), None);
