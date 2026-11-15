@@ -1212,3 +1212,10 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [storytold/photocraft@`d3392e6124780864a4a28cfd9505327c9141103b`](https://github.com/storytold/photocraft/commit/d3392e6124780864a4a28cfd9505327c9141103b) | Honor fill rotation and style paste group eligibility | `crates/pc-engine/src/fill_cmds.rs`<br>`crates/pc-engine/src/commands.rs` | MIT OR Apache-2.0 |
 
 Adapted ports: `edit.fill` takes `scaleAdaptation`, `mirror` and `rotationAdaptation` (quarter turns, `rotation_level("full")`) for `contentAware`; the Fill dialog (`crates/pc-ui-egui/src/fill_ui.rs`) is unchanged. Not applicable: `d3392e61`'s Paste Layer Style `allowGroups`, which filters the multi-layer targets of upstream's `style_targets` and its action (ATN) mapping; our command pastes onto one layer and has no ATN mapper. Both commits' ATN hunks have no counterpart.
+
+## Upstream commit ports
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`3e81a3bcc406`](https://github.com/storytold/photocraft/commit/3e81a3bcc4060ff60fe385210f10127215c76995) | fix(engine): a free Perspective Crop takes the quad's perspective size (#11798) | `crates/pc-algo/src/transform.rs`<br>`crates/pc-engine/src/perspective_crop_cmds.rs`<br>`crates/pc-ui-egui/src/perspective_crop_ui.rs` | MIT OR Apache-2.0 |
+| [`0a8eb9d6c826`](https://github.com/storytold/photocraft/commit/0a8eb9d6c82685418c1b02abca8a1c37e658d790) | fix(algo): keep the edges when a pixel of click error swings a free Perspective Crop (#11798) | `crates/pc-algo/src/transform.rs` | MIT OR Apache-2.0 |

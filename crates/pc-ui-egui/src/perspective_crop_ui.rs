@@ -170,12 +170,12 @@ pub fn draw(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
 /// Options bar: what to do, the size it will produce, and the commit and cancel buttons.
 pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::get(ui.ctx());
-    match quad(app) {
+    match quad(app).zip(app.session.active().map(|st| st.doc.size)) {
         None => {
             ui.label(egui::RichText::new(tl!("Drag a frame, then drag its corners onto the edges of the object to straighten")).color(t.text_dim));
         }
-        Some(q) => {
-            let (w, h) = photocraft_engine::perspective_crop_cmds::output_size(&q);
+        Some((q, doc)) => {
+            let (w, h) = photocraft_engine::perspective_crop_cmds::output_size(&q, doc);
             ui.label(egui::RichText::new(format!("{w} × {h} px")).color(t.text_dim));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::icons::button(
@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(quad(&app).unwrap()[1], [150.0, 50.0]);
         commit(&mut app);
         let d = &app.session.active().unwrap().doc;
-        let (w, h) = photocraft_engine::perspective_crop_cmds::output_size(&[[40.0, 30.0], [150.0, 50.0], [160.0, 130.0], [40.0, 130.0]]);
+        let (w, h) = photocraft_engine::perspective_crop_cmds::output_size(&[[40.0, 30.0], [150.0, 50.0], [160.0, 130.0], [40.0, 130.0]], Size::new(200, 160));
         assert_eq!((d.size.width, d.size.height), (w, h));
         assert!(quad(&app).is_none());
     }
