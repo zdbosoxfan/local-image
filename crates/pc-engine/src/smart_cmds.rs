@@ -154,32 +154,96 @@ pub fn source_decode_count(bytes: &[u8], fmt: PixelFormat) -> u32 {
     SOURCE_CACHE.lock().ok().and_then(|c| c.iter().find(|e| e.key == key).map(|e| e.decodes)).unwrap_or(0)
 }
 
-fn buffer_to_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat, source: &Profile, target: &Profile) -> Result<Surface> {
+/// How composited straight RGBA reaches `fmt` in `target`: copied as is between the same RGB
+/// colours (`None`), else through a colour transform.
+fn source_transform(fmt: PixelFormat, source: &Profile, target: &Profile) -> Result<Option<Transform>> {
     if target.color_space != crate::color_cmds::mode_space(fmt.mode) {
         return Err(other("smart-object destination profile does not match its pixel format"));
     }
-    let n = fmt.channels();
-    let mut data = vec![0.0f32; buf.px.len() * n];
     if fmt.mode == ColorMode::Rgb && source.same_colors(target) {
+        return Ok(None);
+    }
+    let transform =
+        Transform::new(source, target, Intent::RelativeColorimetric, true).map_err(|error| other(format!("smart-object colour conversion failed: {error}")))?;
+    if transform.inputs() != 3 || transform.outputs() != fmt.mode.color_channels() {
+        return Err(other("smart-object colour conversion has an unsupported channel layout"));
+    }
+    Ok(Some(transform))
+}
+
+/// Writes `buf` into `surface` through `transform`; `data` is scratch reused between calls.
+fn write_converted(surface: &mut Surface, buf: &photocraft_compose::Buffer, transform: Option<&Transform>, data: &mut Vec<f32>) {
+    let fmt = surface.format();
+    let n = fmt.channels();
+    data.clear();
+    data.resize(buf.px.len() * n, 0.0);
+    match transform {
         // Keep exact same-space HDR/negative values, and quantize only when storing
         // into the destination surface. Alpha is coverage, not a colour channel.
-        for (pixel, out) in buf.px.iter().zip(data.chunks_exact_mut(n)) {
-            out[..3].copy_from_slice(&pixel[..3]);
-            if fmt.alpha {
-                out[3] = pixel[3];
+        None => {
+            for (pixel, out) in buf.px.iter().zip(data.chunks_exact_mut(n)) {
+                out[..3].copy_from_slice(&pixel[..3]);
+                if fmt.alpha {
+                    out[3] = pixel[3];
+                }
             }
         }
-    } else {
-        let transform = Transform::new(source, target, Intent::RelativeColorimetric, true)
-            .map_err(|error| other(format!("smart-object colour conversion failed: {error}")))?;
-        if transform.inputs() != 3 || transform.outputs() != fmt.mode.color_channels() {
-            return Err(other("smart-object colour conversion has an unsupported channel layout"));
-        }
-        transform.convert_f32(buf.px.as_flattened(), 4, &mut data, n, fmt.alpha);
+        Some(transform) => transform.convert_f32(buf.px.as_flattened(), 4, data.as_mut_slice(), n, fmt.alpha),
     }
-    let mut surface = Surface::new(fmt);
     if !buf.rect.is_empty() {
-        surface.write_region(buf.rect, &data);
+        surface.write_region(buf.rect, data.as_slice());
+    }
+}
+
+fn buffer_to_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat, source: &Profile, target: &Profile) -> Result<Surface> {
+    let transform = source_transform(fmt, source, target)?;
+    let mut surface = Surface::new(fmt);
+    write_converted(&mut surface, buf, transform.as_ref(), &mut Vec::new());
+    surface.prune();
+    Ok(surface)
+}
+
+/// Most pixels one block of [`flattened_surface`] composites at a time.
+const SOURCE_BLOCK_PIXELS: u64 = 1 << 20;
+
+/// Width and height of a block of [`flattened_surface`] for a `width`-pixel source: whole tiles,
+/// the full width (up to [`SOURCE_BLOCK_PIXELS`] over one row of tiles) and as many rows of tiles
+/// as fit, so a very wide source never composites more than the budget at once.
+fn source_block_size(width: u32) -> (i32, i32) {
+    let tile = photocraft_geom::TILE_SIZE.unsigned_abs() as u64;
+    let across = u64::from(width.max(1)).div_ceil(tile) * tile;
+    let bw = across.min((SOURCE_BLOCK_PIXELS / tile / tile).max(1) * tile);
+    let bh = (SOURCE_BLOCK_PIXELS / bw / tile).max(1) * tile;
+    (i32::try_from(bw).unwrap_or(photocraft_geom::TILE_SIZE), i32::try_from(bh).unwrap_or(photocraft_geom::TILE_SIZE))
+}
+
+/// `doc`'s composite in `fmt` and `target`, rendered and converted a block at a time, so neither
+/// a full-size float composite (16 bytes a pixel) nor its converted copy is ever held.
+fn flattened_surface(doc: &Document, fmt: PixelFormat, target: &Profile) -> Result<Surface> {
+    let b = doc.bounds();
+    // `render` gives an empty buffer past this, which would cache an empty source.
+    if u64::from(b.width()) * u64::from(b.height()) > photocraft_compose::MAX_RENDER_PIXELS {
+        return Err(other(format!("the smart object's {}×{} contents are too large to render", b.width(), b.height())));
+    }
+    let transform = source_transform(fmt, &crate::color_cmds::composite_profile(doc), target)?;
+    let tile = photocraft_geom::TILE_SIZE;
+    let (bw, bh) = source_block_size(b.width());
+    let mut surface = Surface::new(fmt);
+    let mut data = Vec::new();
+    // On the tile grid even if the bounds aren't, so no tile is split between two blocks.
+    let mut y = b.y0 - b.y0.rem_euclid(tile);
+    while y < b.y1 {
+        let y1 = y.saturating_add(bh);
+        let mut x = b.x0 - b.x0.rem_euclid(tile);
+        while x < b.x1 {
+            let x1 = x.saturating_add(bw);
+            let block = Rect::new(x, y, x1, y1).intersect(&b);
+            if !block.is_empty() {
+                write_converted(&mut surface, &photocraft_compose::render(doc, block), transform.as_ref(), &mut data);
+            }
+            x = x1;
+        }
+        y = y1;
     }
     surface.prune();
     Ok(surface)
@@ -197,7 +261,7 @@ pub fn source_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, 
     let surface = plain_image_surface(&projected, fmt, target)?;
     let surface = match surface {
         Some(surface) => surface,
-        None => buffer_to_surface(&photocraft_compose::flatten(&projected), fmt, &crate::color_cmds::composite_profile(&projected), target)?,
+        None => flattened_surface(&projected, fmt, target)?,
     };
     let image = SourceImage { surface: Arc::new(surface), bounds: doc.bounds() };
     cache_put(key, image.clone());
@@ -217,7 +281,7 @@ pub fn developed_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelForma
     let surface = plain_image_surface(&doc, fmt, target)?;
     let surface = match surface {
         Some(surface) => surface,
-        None => buffer_to_surface(&photocraft_compose::flatten(&doc), fmt, &crate::color_cmds::composite_profile(&doc), target)?,
+        None => flattened_surface(&doc, fmt, target)?,
     };
     let image = SourceImage { surface: Arc::new(surface), bounds: doc.bounds() };
     cache_put(key, image.clone());
