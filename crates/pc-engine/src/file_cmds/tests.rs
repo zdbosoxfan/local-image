@@ -468,6 +468,23 @@ fn layers_to_files_writes_each_visible_layer() {
     assert_eq!(r["files"].as_array().unwrap().len(), 3);
 }
 
+/// Upstream 7d21778f: an explicitly empty Layers to Files prefix stays empty instead of becoming
+/// sanitize's "layer" fallback; an omitted prefix still defaults to the document name.
+#[test]
+fn layers_to_files_keeps_an_empty_prefix() {
+    let dir = tmp("layers-empty-prefix");
+    let mut s = session(4, 3, 8);
+    s.execute("layer.new.layer", json!({"name": "Type"})).unwrap();
+    let background = sanitize(&doc(&s).layers[0].name);
+    let names = |r: Value| -> Vec<String> {
+        r["files"].as_array().unwrap().iter().map(|f| std::path::Path::new(f.as_str().unwrap()).file_name().unwrap().to_string_lossy().into_owned()).collect()
+    };
+    let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "prefix": ""})).unwrap();
+    assert_eq!(names(r), ["_0000_Type.png".to_string(), format!("_0001_{background}.png")]);
+    let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "prefix": "..."})).unwrap();
+    assert_eq!(names(r)[0], "layer_0000_Type.png", "a prefix that sanitizes to nothing keeps the fallback");
+}
+
 #[test]
 fn load_files_into_stack_and_image_processor_and_batch() {
     let dir = tmp("batch");

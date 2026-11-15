@@ -895,7 +895,9 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
         only.visible = true;
         only.clipped = false;
         one.layers = vec![only];
-        let path = join(&dir, &format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&l.name)));
+        // An explicitly empty prefix stays empty; only the layer name needs sanitize's fallback.
+        let prefix = if prefix.is_empty() { String::new() } else { sanitize(&prefix) };
+        let path = join(&dir, &format!("{prefix}_{i:04}_{}.{format}", sanitize(&l.name)));
         save_doc(&one, &path, SaveOpts::from_params(p))?;
         files.push(path);
     }
