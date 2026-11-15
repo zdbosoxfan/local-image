@@ -20,6 +20,8 @@ fn harness_mode(immediate: bool) -> Harness<'static, PhotocraftApp> {
     });
     // Use the actual catalogue id rather than relying on the display name.
     crate::ai_ui::TEST_STATUS.with(|s| s.borrow_mut().as_mut().unwrap().presets.insert(format!("{}:bf16", li_ai::ModelId::KleinRemove.key()), Ok(())));
+    // Pinned so an on-device LaMa installed on the test machine cannot stand in for ComfyUI.
+    crate::ai_ui::TEST_LAMA_READY.with(|r| *r.borrow_mut() = Some(false));
     let mut s = photocraft_engine::Session::new();
     s.execute("file.new", json!({"width": 320, "height": 240})).unwrap();
     let mut h = Harness::builder().with_size(vec2(1280.0, 800.0)).with_max_steps(64).build_eframe(move |cc| {
