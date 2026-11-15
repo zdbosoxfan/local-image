@@ -330,12 +330,17 @@ fn may_reach_limits(paths: &[(BezPath, FillRule)], eps: f64) -> bool {
 }
 
 impl Arrangement {
-    pub(crate) fn new(mut paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
+    pub(crate) fn new(paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
+        Self::new_budgeted(paths, crate::budget::MAX_SEGMENT_PAIRS)
+    }
+
+    /// An arrangement whose every sweep is refused past `cap` overlapping segment pairs.
+    pub(crate) fn new_budgeted(mut paths: Vec<(BezPath, FillRule)>, cap: usize) -> Result<Self, PathOpsError> {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
         snap_horizontals(&mut paths.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
         let edge_bytes = sweep_edge_bytes(&paths);
         let sweep = |paths: &[(BezPath, FillRule)]| {
-            crate::budget::charge_sweep(paths.iter().map(|(path, _)| path))?;
+            crate::budget::charge_sweep(paths.iter().map(|(path, _)| path), cap)?;
             // Art that cannot reach the limits is not swept twice.
             let may_refuse = may_reach_limits(paths, eps);
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

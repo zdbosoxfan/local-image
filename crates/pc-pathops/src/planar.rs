@@ -542,7 +542,7 @@ fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     }
     let eps = eps_for(inputs.iter().map(|p| &p.0))?;
     snap_horizontals(&mut inputs.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
-    crate::budget::charge_sweep(inputs.iter().map(|(path, _)| path))?;
+    crate::budget::charge_sweep(inputs.iter().map(|(path, _)| path), crate::budget::MAX_SEGMENT_PAIRS)?;
     // The sweep can panic on rare near-degenerate input; that must never take the app down.
     let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // Each edge keeps a `Crossings` on either side, with up to one entry per slot to its west.

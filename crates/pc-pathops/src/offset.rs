@@ -18,6 +18,10 @@ use crate::kernel::boolean::{Arrangement, DEFAULT_PRECISION, Tidy, all_contours_
 /// Flattening/fit tolerance handed to kurbo's stroker.
 const STROKE_TOL: f64 = 1e-3;
 
+/// Most overlapping segment pairs an Offset Path sweep may have. Strokes of many overlapping
+/// copies cross densely, and the sweep took seconds well under the general limit.
+const MAX_OFFSET_SEGMENT_PAIRS: usize = 1 << 19;
+
 fn stroke_bez(bp: &BezPath, width: f64, cap: Cap, join: Join, miter_limit: f64) -> BezPath {
     let style = Stroke::new(width).with_join(join).with_caps(cap).with_miter_limit(miter_limit.max(1.0));
     close_all(&kurbo::stroke(bp.iter(), &style, &StrokeOpts::default(), STROKE_TOL))
@@ -109,7 +113,7 @@ pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64
     let open_bp =
         if d > 0.0 && !open.is_empty() { stroke_bez(&PathData::new(open).to_bezpath(), 2.0 * d, Cap::Butt, join, miter_limit) } else { BezPath::new() };
     let tidy = Tidy::free_for(DEFAULT_PRECISION, [&fill, &ring, &open_bp]);
-    let arr = Arrangement::new(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)])?;
+    let arr = Arrangement::new_budgeted(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)], MAX_OFFSET_SEGMENT_PAIRS)?;
     let c = if delta >= 0.0 { arr.contours(|m| m[0] || m[1] || m[2]) } else { arr.contours(|m| m[0] && !m[1]) }?;
     // When `d` exceeds a curvature radius the stroker's inner offset inverts and its loops cancel
     // winding, leaving faces uncovered that are really within `d` of the path. Every face of the
@@ -197,6 +201,17 @@ mod tests {
     use kurbo::Shape;
 
     use super::*;
+
+    #[test]
+    fn offset_refuses_dense_overlapping_copies() {
+        let mut bp = BezPath::new();
+        for i in 0..300 {
+            let at = f64::from(i) * 0.1;
+            bp.extend(kurbo::Rect::new(at, at, at + 100.0, at + 100.0).to_path(0.1).iter());
+        }
+        let path = PathData::from_bezpath(&bp);
+        assert_eq!(try_offset_path(&path, 5.0, Join::Round, 4.0), Err(PathOpsError::TooComplex));
+    }
 
     #[test]
     fn stroke_region_unites_outlines_whatever_their_winding() {
