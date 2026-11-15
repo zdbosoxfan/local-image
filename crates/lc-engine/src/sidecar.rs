@@ -25,6 +25,7 @@
 //! fields ([`crate::crs`]). For raw/DNG files without a sidecar the file's embedded XMP is used.
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -103,6 +104,12 @@ pub struct SidecarData {
     pub extended_description: Option<String>,
     pub keywords: Option<Vec<String>>,
     pub regions: Option<Vec<lightcraft_meta::Region>>,
+    /// The size the regions were drawn on, when they don't say how the photo was turned
+    /// ([`lightcraft_meta::XmpData::regions_drawn_on`]), and how the photo's stored pixels turn upright: the
+    /// sidecar's `tiff:Orientation`, or the file's own Exif orientation where the caller knows it. With both,
+    /// [`merge_into`] puts boxes drawn on the photo as stored where the upright photo has them.
+    pub regions_drawn_on: Option<(f64, f64)>,
+    pub orientation: Option<lightcraft_meta::Orientation>,
     /// Capture time (ISO 8601) from `exif:DateTimeOriginal`, `photoshop:DateCreated` or
     /// `xmp:CreateDate` (first found). Used only when the file itself has no capture time.
     pub captured: Option<String>,
@@ -151,6 +158,9 @@ pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, S
         // `mwg-rs:Regions` byte for byte but never writes one) says nothing about regions, and the
         // photo's are kept.
         regions: d.values.contains_key("mwg-rs:Regions").then(|| m.regions.clone()),
+        regions_drawn_on: d.regions_drawn_on(),
+        // (only what the regions need: a packet that says nothing else still says nothing)
+        orientation: d.regions_drawn_on().and(m.orientation),
         captured: m.capture_time.map(|d| d.to_iso()),
         ..Default::default()
     };
@@ -225,6 +235,11 @@ pub fn merge_into(p: &mut Photo, sc: &SidecarData, now: &str) -> bool {
     }
     if let Some(r) = &sc.regions {
         m.regions = r.clone();
+        // (the photo's size is the upright one)
+        if let (Some(drawn_on), Some(o)) = (sc.regions_drawn_on, sc.orientation) {
+            let stored = if o.swaps_axes() { (p.height, p.width) } else { (p.width, p.height) };
+            lightcraft_meta::upright_regions(&mut m.regions, drawn_on, o, stored);
+        }
     }
     let develop = match &sc.develop {
         Some(DevelopPatch::Full(s)) => (**s).clone(),
@@ -254,7 +269,24 @@ impl SidecarData {
         }
         self
     }
+
+    /// Take the orientation of the photo file at `original` (the photo is shown turned by it, and the packet may
+    /// not repeat it) when the regions need it: they were drawn on a stated size ([`SidecarData::regions_drawn_on`]).
+    /// Only then is the start of the file read.
+    pub fn with_file_orientation(self, original: &str) -> Self {
+        if self.regions_drawn_on.is_none() {
+            return self;
+        }
+        let mut head = Vec::new();
+        let read =
+            li_fs::read::open_regular(Path::new(original), li_fs::read::MAX_FILE_BYTES).and_then(|f| f.take(ORIENTATION_SPAN).read_to_end(&mut head));
+        let orientation = read.ok().and_then(|_| lightcraft_meta::extract(&head).orientation);
+        SidecarData { orientation: orientation.or(self.orientation), ..self }
+    }
 }
+
+/// How much of a photo file [`SidecarData::with_file_orientation`] reads: Exif sits near the start of most files.
+const ORIENTATION_SPAN: u64 = 1 << 20;
 
 /// The sidecar packet for a photo; the colour label is written by its name in `cat` (custom
 /// label names included, as other editors do).
@@ -497,6 +529,7 @@ impl Session {
         let Some((packet, from)) = read_packet(orig, p.kind, self.sidecar_naming(id)) else { return Ok(None) };
         let sc = parse_sidecar(&packet, p.kind == MediaKind::Raw)
             .map_err(|e| EngineError::Other(format!("{}: {e}", from.display())))?
+            .with_file_orientation(orig)
             .resolve_label(&self.catalog);
         let mut q = (**p).clone();
         let develop_changed = merge_into(&mut q, &sc, &(self.clock)());
