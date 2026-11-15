@@ -57,7 +57,7 @@ pub fn scalar_alpha(m: &Mask) -> Option<f32> {
     if !matches!(c.shape, MaskShape::Full) {
         return None;
     }
-    let a = if c.op == MaskOp::Intersect || c.invert { 0.0 } else { 1.0 };
+    let a = if c.invert { 0.0 } else { 1.0 };
     Some((if m.invert { 1.0 - a } else { a }) * mask_scale(m))
 }
 
@@ -137,7 +137,7 @@ pub fn evaluate_one_tone(
         if comp.invert {
             c.data.iter_mut().for_each(|v| *v = 1.0 - *v);
         }
-        if first && comp.op != MaskOp::Intersect {
+        if first {
             alpha = c;
             first = false;
             continue;
@@ -616,6 +616,21 @@ mod tests {
         let oversized = shape_alpha(&MaskShape::ColorRange { samples, refine: 50.0 }, &frame(2, 2), 2, 2, &img, &log_l, 0.0);
         assert_eq!(bounded.data, vec![0.0; 4]);
         assert_eq!(oversized.data, bounded.data);
+    }
+
+    /// A mask whose first component is Intersect takes that component as its base selection, as a
+    /// first Add or Subtract does, instead of rendering empty.
+    #[test]
+    fn intersect_first_component_selects_its_shape() {
+        let f = frame(100, 100);
+        let img = RgbFrame::new(100, 100);
+        let l = GrayFrame::new(100, 100);
+        let shape = MaskShape::Radial { center: Point::new(0.5, 0.5), rx: 0.2, ry: 0.2, angle: 0.0, feather: 20.0, invert: false };
+        let m = Mask { components: vec![MaskComponent { name: None, op: MaskOp::Intersect, invert: false, shape }], ..Default::default() };
+        let a = evaluate_one(&m, &f, 100, 100, &img, &l, 0.0);
+        assert!(a.get(50, 50) > 0.99 && a.get(5, 5) < 0.01, "intersect first: {} {}", a.get(50, 50), a.get(5, 5));
+        let full = Mask { components: vec![MaskComponent { name: None, op: MaskOp::Intersect, invert: false, shape: MaskShape::Full }], ..Default::default() };
+        assert_eq!(scalar_alpha(&full), Some(1.0));
     }
 
     /// A caller that will not look past its own threshold builds to that threshold, not to the
