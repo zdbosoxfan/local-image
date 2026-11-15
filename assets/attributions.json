@@ -10815,6 +10815,704 @@
           "url": "https://github.com/storytold/photocraft/commit/9034223c4b6d80fe15a12b9e0d173786ac5f7a4c"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "Move tool: a huge layer isn't copied for every frame of a live drag (#6114, #6163)",
+          "commit": "cf07f076b502cd167fde951d7bd384edf1ab42d1",
+          "ours": "crates/pc-ui-egui/src/move_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/cf07f076b502cd167fde951d7bd384edf1ab42d1"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Move: bound the live-drag estimate by the worst case of four written tiles per stored tile; test the limit through preview initialization",
+          "commit": "f09757e4b6d6e6c24d399400cece5e1c164e27a5",
+          "ours": "crates/pc-ui-egui/src/move_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/f09757e4b6d6e6c24d399400cece5e1c164e27a5"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(algo): Liquify replays a stroke with an absurd brush size or position without overflowing",
+          "commit": "ff0f1ba0c55136b73e96f2fef17c1eece80da79c",
+          "ours": "crates/pc-algo/src/liquify.rs, crates/pc-algo/tests/coverage/liquify_coverage.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/ff0f1ba0c55136b73e96f2fef17c1eece80da79c"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Liquify: a huge far-off dab writes no NaN and reports the area it changed",
+          "commit": "200f38f7b60600096627762f1d6c5f320ad1274a",
+          "ours": "crates/pc-algo/src/liquify.rs, crates/pc-algo/tests/coverage/liquify_coverage.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/200f38f7b60600096627762f1d6c5f320ad1274a"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(ui): the Liquify preview shows the effect only inside the selection (#9541)",
+          "commit": "c2cc5eee54a6cf3cc020cf04da4a92e0752d337a",
+          "ours": "crates/pc-ui-egui/src/liquify_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/c2cc5eee54a6cf3cc020cf04da4a92e0752d337a"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "paint: stop a stroke past a dab-area budget and skip dabs outside the paintable area",
+          "commit": "d98b9ea17be9b1b96aa3e052fb33e981b36928b9",
+          "ours": "crates/pc-paint/src/render.rs, crates/pc-paint/src/render/budget_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/d98b9ea17be9b1b96aa3e052fb33e981b36928b9"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "paint: charge the dual brush apart, skip (not end on) a dab that does not fit the budget",
+          "commit": "efd725cc89aa0cea7844319d8a6561d914ec92cf",
+          "ours": "crates/pc-paint/src/render.rs, crates/pc-paint/src/render/budget_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/efd725cc89aa0cea7844319d8a6561d914ec92cf"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "paint: stream the dab generator's steps and keep non-finite brush values and points out",
+          "commit": "f5e92a6b3d0350a0beb0a99faec87c48a229d8cc",
+          "ours": "crates/pc-paint/src/dynamics.rs, crates/pc-paint/src/brush.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/f5e92a6b3d0350a0beb0a99faec87c48a229d8cc"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "paint: replace only NaN brush values, test a long pixel-grid segment",
+          "commit": "af025e18d51418ad5569111eddb0a782151368d2",
+          "ours": "crates/pc-paint/src/dynamics.rs, crates/pc-paint/src/brush.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/af025e18d51418ad5569111eddb0a782151368d2"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(paint): cap the total steps one stroke emits (#11195)",
+          "commit": "0ff76d6f0c089157ddf9c380abd6381a92946311",
+          "ours": "crates/pc-paint/src/dynamics.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/0ff76d6f0c089157ddf9c380abd6381a92946311"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "paint: refuse a sequential-dab stroke whose working copy is too large (#11070)",
+          "commit": "abeb16c96bb6c55c70f11a50f57138d17d546db1",
+          "ours": "crates/pc-paint/src/retouch.rs, crates/pc-paint/src/mixer.rs, crates/pc-paint/src/bg_erase.rs, crates/pc-paint/src/replace.rs, crates/pc-engine/src/brush_cmds.rs, crates/pc-engine/src/eraser_cmds.rs, crates/pc-engine/src/retouch_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/abeb16c96bb6c55c70f11a50f57138d17d546db1"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Guard zero-channel regions and saturate the pick-up bounds in Smudge",
+          "commit": "acd35e12027dffe870fc04100c70ed8127ebd430",
+          "ours": "crates/pc-paint/src/retouch.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/acd35e12027dffe870fc04100c70ed8127ebd430"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Background Eraser: alpha falls off over the whole Tolerance (#11901)",
+          "commit": "22882f690c1775a9447715e524a7849da17bea67",
+          "ours": "crates/pc-paint/src/bg_erase.rs, crates/pc-paint/src/bg_erase/graded_alpha_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/22882f690c1775a9447715e524a7849da17bea67"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Address CodeRabbit review: match the foreground at the document's precision, pin the protect-off row",
+          "commit": "6bd3773e0743d21bb28d76ca7026298462f967ea",
+          "ours": "crates/pc-paint/src/bg_erase.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/6bd3773e0743d21bb28d76ca7026298462f967ea"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Background Eraser: Find Edges erases soft edges graded instead of cutting them hard (#11904)",
+          "commit": "23f63c685eb3053f6434cdacc4b27afeb32e39c8",
+          "ours": "crates/pc-paint/src/bg_erase.rs, crates/pc-paint/src/bg_erase/find_edges_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/23f63c685eb3053f6434cdacc4b27afeb32e39c8"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Background Eraser: partly erased pixels lose the sampled colour's tint (#11902)",
+          "commit": "6d3fe6f96f4ee9bb670bf3903a44fc22de0c64d2",
+          "ours": "crates/pc-paint/src/bg_erase.rs, crates/pc-paint/src/bg_erase/decontamination_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/6d3fe6f96f4ee9bb670bf3903a44fc22de0c64d2"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Color Replacement: in Lab, Color keeps L and takes the foreground's a and b (#11922)",
+          "commit": "7efd224081a190521f6634e766df02d75de77ab7",
+          "ours": "crates/pc-paint/src/replace.rs, crates/pc-paint/src/replace/lab_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/7efd224081a190521f6634e766df02d75de77ab7"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Keep Lab/16 Color Replacement on the RGB blend (CodeRabbit review on crates/paint/src/replace.rs:101)",
+          "commit": "1cf1e15da5684388e43a17ecbca5fe179f248c20",
+          "ours": "crates/pc-paint/src/replace.rs, crates/pc-paint/src/replace/lab_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/1cf1e15da5684388e43a17ecbca5fe179f248c20"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "security(paint): cap spaced steps and procedural primitives (#8957)",
+          "commit": "cfd894aad3bab1d257238812f944daf359934f74",
+          "ours": "crates/pc-paint/src/dynamics.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/cfd894aad3bab1d257238812f944daf359934f74"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "fix(pathops): bound offset path complexity and handle arrangement failure safely (#4145)",
+          "commit": "08ff029ac22860f47cf0e0b427a932f7d675003e",
+          "ours": "crates/pc-pathops/src/offset.rs, crates/pc-pathops/src/boolean.rs, crates/pc-pathops/src/budget.rs, crates/pc-pathops/src/planar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/08ff029ac22860f47cf0e0b427a932f7d675003e"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Clipboard: Linux and BSD reads wait 2 s at most for the app that copied",
+          "commit": "825620eb6cd17a4298b4fa9041013abe3d35190c",
+          "ours": "apps/local-image/src/services.rs, apps/local-image/src/services/clipboard.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/825620eb6cd17a4298b4fa9041013abe3d35190c"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Respect quotes and parentheses when splitting SVG CSS declarations",
+          "commit": "29a98b750ac90e530d6bd03b45ea56b8cae2ca72",
+          "ours": "crates/pc-svg/src/import/css.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/29a98b750ac90e530d6bd03b45ea56b8cae2ca72"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Preserve comment markers inside CSS strings",
+          "commit": "2b37302fe5f7570238836d2aee943843673bf815",
+          "ours": "crates/pc-svg/src/import/css.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/2b37302fe5f7570238836d2aee943843673bf815"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Strip CSS comments from style attributes and rule declarations",
+          "commit": "194364304bec7b677a8d8a7118ecaaf6a865fb71",
+          "ours": "crates/pc-svg/src/import/css.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/194364304bec7b677a8d8a7118ecaaf6a865fb71"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "SVG import: bound selector matching and share the limits with linked and embedded SVGs",
+          "commit": "89f20c45c45c6b6eb2127d1dbb1ec7f53bb29488",
+          "ours": "crates/pc-svg/src/import/preflight.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/89f20c45c45c6b6eb2127d1dbb1ec7f53bb29488"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Fix #3773: Offset Path offsets a path whose ends meet as a closed shape",
+          "commit": "60267727656f64fc138d66b592c1bc1d0e7d0e76",
+          "ours": "crates/pc-pathops/src/offset.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/60267727656f64fc138d66b592c1bc1d0e7d0e76"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "fix: anchor positions and Simplify measure curves through the guarded arc length",
+          "commit": "1574dfe7293c3acf0f5d66b47a628e6483a96260",
+          "ours": "crates/pc-pathops/src/geom/path.rs, crates/pc-pathops/src/edit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/1574dfe7293c3acf0f5d66b47a628e6483a96260"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Path booleans: refuse out-of-range input, guard the contour pass, cuts report refusals (#5465)",
+          "commit": "e9510956172c5e48f555db7a93e2d139d757830f",
+          "ours": "crates/pc-pathops/src/boolean.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/e9510956172c5e48f555db7a93e2d139d757830f"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Booleans: limit of one unit, crop outside shortcut, tests (#5465)",
+          "commit": "0a2935cf8f984ddbfcb1959f4ff44166dd9efcc9",
+          "ours": "crates/pc-pathops/src/boolean.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/0a2935cf8f984ddbfcb1959f4ff44166dd9efcc9"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Bound work: flattening of huge curves, print layout past the page limit, script-check file names",
+          "commit": "0e64aca557462bb6507f6a2e8e2a50a86122f8db",
+          "ours": "crates/pc-pathops/src/geom/bez.rs, crates/pc-pathops/src/boolean.rs, crates/pc-pathops/src/planar.rs, crates/pc-pathops/src/offset.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/0e64aca557462bb6507f6a2e8e2a50a86122f8db"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "address review: draw a line for curves with far-out start or control points in flatten",
+          "commit": "9cd997b9aac07c8dad19c2f830407a346922d027",
+          "ours": "crates/pc-pathops/src/geom/bez.rs, crates/pc-pathops/src/boolean.rs, crates/pc-pathops/src/planar.rs, crates/pc-pathops/src/offset.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/9cd997b9aac07c8dad19c2f830407a346922d027"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Simplify: Convert to Straight Lines keeps the tip of a path that turns back past its end",
+          "commit": "bc19dd64db458f9b6d6a57c029b73d4ac965fcdc",
+          "ours": "crates/pc-pathops/src/edit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/bc19dd64db458f9b6d6a57c029b73d4ac965fcdc"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Fix #6634: Pen closing drag no longer gives the first anchor symmetric handles",
+          "commit": "e6add18663a01ce563f19e2698e6084eff6840b4",
+          "ours": "crates/pc-engine/src/vector_packages/pen/gesture.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/e6add18663a01ce563f19e2698e6084eff6840b4"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Brushes: Scale Proportionately art grows with the stroke weight",
+          "commit": "85e0d59bfa88b145f38658037e96d2a4884e4f9a",
+          "ours": "crates/pc-vecfx/src/brush/warp.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/85e0d59bfa88b145f38658037e96d2a4884e4f9a"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "SVG import: raster images follow their EXIF or TIFF orientation",
+          "commit": "1ce6431a99fb188e92d3992c45204a6f59125d2e",
+          "ours": "crates/pc-svg/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/1ce6431a99fb188e92d3992c45204a6f59125d2e"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Path booleans: check the windings against the operands' areas and resolve the operands when they don't add up (#5478)",
+          "commit": "6725f24a80c697c803b40685510bdc6d4a38d7b0",
+          "ours": "crates/pc-pathops/src/boolean.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/6725f24a80c697c803b40685510bdc6d4a38d7b0"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Audit: geometry length measurement refuses coordinates the integrator cannot handle",
+          "commit": "f4a30c1a94d9124236f0c7afd2b5b1e2d29ce0ef",
+          "ours": "crates/pc-pathops/src/geom/path.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/f4a30c1a94d9124236f0c7afd2b5b1e2d29ce0ef"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Security: bounded flattening, plug-in budgets and caches, loaded textures, Revolve paint copies, color book names and ICC names",
+          "commit": "e2a870e60202abd5216375de76b5f07e9df41d6c",
+          "ours": "crates/pc-pathops/src/geom/bez.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/e2a870e60202abd5216375de76b5f07e9df41d6c"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(raw): linear sparse planning, distinct-byte allocation bound, opcode list budget, ORF strip length (#3679)",
+          "commit": "b0c4aa8cc8acac043af6d767b3bfec30d0ab0c0a",
+          "ours": "crates/lc-raw/src/opcodes.rs, crates/lc-raw/src/vendor/orf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/b0c4aa8cc8acac043af6d767b3bfec30d0ab0c0a"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(heif): count alpha-grid tiles and bound hvcC parameter sets before heic-rs (#3645)",
+          "commit": "a42ee7042fee0f18e929b0f54e3c9d7a6369cf43",
+          "ours": "crates/pc-heif/src/lib.rs, crates/pc-heif/src/pps.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/a42ee7042fee0f18e929b0f54e3c9d7a6369cf43"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(meta): linear entity decoding, indexed keyword de-duplication, bounded XMP path building (#3672)",
+          "commit": "f786b87533e58c6d31c7f9f2897814904448f39a",
+          "ours": "crates/lc-meta/src/xmp.rs, crates/lc-meta/src/iptc.rs, crates/lc-engine/src/preset_luminar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/f786b87533e58c6d31c7f9f2897814904448f39a"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(raw): shared header-scan budget for tagged previews, tile-sized lossy JPEG budget, bound deflate tile padding (#3695)",
+          "commit": "a4a797e2f2e381fcb425d78394c0c4dd4f1ab6a8",
+          "ours": "crates/lc-raw/src/preview.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/a4a797e2f2e381fcb425d78394c0c4dd4f1ab6a8"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Never crash: a UTC offset of i16::MIN formats and validates without overflow (#2579)",
+          "commit": "8b3ce31b665c16983129649ebcab298e8b893ba7",
+          "ours": "crates/lc-meta/src/datetime.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/8b3ce31b665c16983129649ebcab298e8b893ba7"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-META-XMP: reject incomplete ISO timestamps",
+          "commit": "07d1f0ad5d1e2ce71ff5d22749e92893f958c994",
+          "ours": "crates/lc-meta/src/datetime.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/07d1f0ad5d1e2ce71ff5d22749e92893f958c994"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-META-EXIF-FULL: reject malformed EXIF clocks",
+          "commit": "a1e1b4cc0e37a8016b933eba099460ed99b00b4c",
+          "ours": "crates/lc-meta/src/datetime.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/a1e1b4cc0e37a8016b933eba099460ed99b00b4c"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Never crash: rational tag lists show 16 values like every other list (#2579)",
+          "commit": "84951ff57967f3778a6095663892ac59fb010bee",
+          "ours": "crates/lc-meta/src/tags.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/84951ff57967f3778a6095663892ac59fb010bee"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Never crash: strip byte counts near u64::MAX don't overflow their sum in ORF, SRW, ARW and PEF",
+          "commit": "1c906ea3db250369860ba1357ed1dc50935bbf27",
+          "ours": "crates/lc-raw/src/vendor/arw.rs, crates/lc-raw/src/vendor/orf.rs, crates/lc-raw/src/vendor/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/1c906ea3db250369860ba1357ed1dc50935bbf27"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(raw): CR3 timed maker notes are parsed once per distinct range under a shared budget; Sony quad tiles' frames may not exceed the tile (#3700)",
+          "commit": "cb86952cbf246b5994f5f1116e94e65db63f05c8",
+          "ours": "crates/lc-raw/src/vendor/arw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/cb86952cbf246b5994f5f1116e94e65db63f05c8"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "fix(codecs): validate JPEG ICC APP2 chunk sequences",
+          "commit": "0352b420a7dfbaeea5ea67aaaae7808527b25075",
+          "ours": "crates/lc-meta/src/container.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/0352b420a7dfbaeea5ea67aaaae7808527b25075"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "A raw with damaged sensor data opens its camera JPEG instead of failing",
+          "commit": "0133e139bb6857af2d4a2749ffe0ba99a7697e8d",
+          "ours": "crates/pc-io/src/raw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/0133e139bb6857af2d4a2749ffe0ba99a7697e8d"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "A preview fallback keeps the colour space the raw's EXIF states",
+          "commit": "17248a205dd71c6ae12931b53028e4ac0eb918df",
+          "ours": "crates/lc-codecs/src/jpeg.rs, crates/lc-codecs/src/lib.rs, crates/lc-engine/src/files.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Use craft-heif from craft-libs for HEIC/HEIF (#13076)",
+          "commit": "5d4b68f04cfefada1404fb709eb9ca2d3575f303",
+          "ours": "crates/pc-codecs/src/codecs/heif.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
