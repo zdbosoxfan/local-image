@@ -69,9 +69,15 @@ const BLEND_LONG_NAMES: [(BlendMode, &str); 17] = [
     (BlendMode::Luminosity, "luminosity"),
 ];
 
-/// A blend-mode enum from either its four-character code or its long string ID.
+/// A blend-mode enum from its four-character code, its long string ID, or the layer record's key:
+/// Photoshop 2026 writes `vLit`, `lddg`, `lbrn`… as an effect's `Md  ` for some modes.
 pub(crate) fn blend_from_id(v: &[u8]) -> Option<BlendMode> {
-    BLEND_NAMES.iter().chain(&BLEND_LONG_NAMES).find(|(_, n)| n.as_bytes() == v).map(|(m, _)| *m)
+    BLEND_NAMES
+        .iter()
+        .chain(&BLEND_LONG_NAMES)
+        .find(|(_, n)| n.as_bytes() == v)
+        .map(|(m, _)| *m)
+        .or_else(|| <[u8; 4]>::try_from(v).ok().and_then(BlendMode::from_psd_key))
 }
 
 fn blend_of(d: &Descriptor, key: &str, default: BlendMode) -> BlendMode {
@@ -773,6 +779,24 @@ mod tests {
         for (_, n) in BLEND_NAMES {
             assert!(s.insert(n));
         }
+    }
+
+    #[test]
+    fn layer_record_blend_keys_parse() {
+        for (key, mode) in [(b"vLit", BlendMode::VividLight), (b"lddg", BlendMode::LinearDodge), (b"lgCl", BlendMode::LighterColor)] {
+            assert_eq!(blend_from_id(key), Some(mode), "{}", String::from_utf8_lossy(key));
+        }
+        assert_eq!(blend_from_id(b"zzzz"), None);
+        // A Vivid Light Color Overlay stored as `vLit` must not import as Normal.
+        let key = |v: &str| Value::Enumerated { type_id: Id::new("BlnM"), value: Id::new(v) };
+        let d = Descriptor::new("null")
+            .with("masterFXSwitch", Value::Boolean(true))
+            .with("SoFi", Value::Descriptor(Descriptor::new("SoFi").with("enab", Value::Boolean(true)).with("Md  ", key("vLit"))));
+        let mut data = 0u32.to_be_bytes().to_vec();
+        data.extend(VersionedDescriptor { version: 16, descriptor: d }.to_bytes());
+        let (_, fx) = parse_lfx2(&data).unwrap();
+        let modes: Vec<BlendMode> = fx.iter().filter_map(|e| if let Effect::ColorOverlay { common, .. } = e { Some(common.blend) } else { None }).collect();
+        assert_eq!(modes, vec![BlendMode::VividLight]);
     }
 
     #[test]
