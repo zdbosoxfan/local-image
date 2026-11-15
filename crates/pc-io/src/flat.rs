@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
-use photocraft_codecs::{self as codecs, ChannelLayout, Format, Image, SampleType as CSample};
+use photocraft_codecs::{self as codecs, ChannelLayout, CodecError, Format, Image, SampleType as CSample};
 use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent};
 use photocraft_geom::{Rect, Size, TILE_SIZE};
-use photocraft_raster::Surface;
+use photocraft_raster::{AllocationError, Surface};
 
 use crate::{ExportOptions, ExportResult, ImportResult, IoError, XmpEmbed};
 
@@ -102,24 +102,44 @@ fn document_format(layout: ChannelLayout, sample: CSample) -> DocumentFormat {
     DocumentFormat { mode, depth, layout, sample, alpha, warning }
 }
 
-/// Writes `img` into `s` with its top-left pixel at `(x, y)`, converted to the document's
-/// layout and sample type a band of rows at a time: no second full-size copy of the image.
+/// Writes `img` into `s` with its top-left pixel at `(x, y)`, in the document's layout and
+/// sample type. A conversion goes straight from the decoded rows into each tile, the tiles on all
+/// cores: no converted copy of the image or of a band of it is made.
 fn write_converted(s: &mut Surface, x: u32, y: u32, img: &Image, f: &DocumentFormat) -> Result<(), IoError> {
     let (w, h) = img.dimensions();
     let (x, y) = (x as i32, y as i32);
-    let rect = |y0: usize, n: usize| Rect::new(x, y + y0 as i32, x + w as i32, y + (y0 + n) as i32);
-    let out_of_memory = |e: photocraft_raster::AllocationError| IoError::Unsupported(format!("not enough memory to open this image: {e}"));
+    let r = Rect::new(x, y, x + w as i32, y + h as i32);
+    let out_of_memory = |e: AllocationError| IoError::Unsupported(format!("not enough memory to open this image: {e}"));
     if img.layout() == f.layout && img.sample_type() == f.sample {
-        return s.try_write_interleaved(rect(0, h as usize), img.data()).map_err(out_of_memory);
+        return s.try_write_interleaved(r, img.data()).map_err(out_of_memory);
     }
-    let row = (img.data().len() / (h.max(1) as usize)).max(1);
-    let band = (BAND_BYTES / row).max(1);
-    for (i, rows) in img.data().chunks(row * band).enumerate() {
-        let n = rows.len() / row;
-        let part = Image::from_raw(w, n as u32, img.layout(), img.sample_type(), rows.to_vec())?.convert(f.layout, f.sample);
-        s.try_write_interleaved(rect(i * band, n), part.data()).map_err(out_of_memory)?;
-    }
-    Ok(())
+    let (from, to) = ((img.layout(), img.sample_type()), (f.layout, f.sample));
+    let (src_px, dst_px) = (from.0.channels() * from.1.bytes(), s.format().bytes_per_pixel());
+    let data = img.data();
+    let mut tiles = s.try_take_tiles(r).map_err(out_of_memory)?;
+    let written = {
+        use rayon::prelude::*;
+        tiles.par_iter_mut().try_for_each(|(tc, tile)| -> Result<(), CodecError> {
+            let oom = |e: AllocationError| CodecError::LimitExceeded(format!("not enough memory to open this image: {e}"));
+            if Arc::get_mut(tile).is_none() {
+                *tile = Arc::new(tile.try_clone().map_err(oom)?);
+            }
+            let t = Arc::get_mut(tile).ok_or_else(|| oom(AllocationError::SizeOverflow))?;
+            let tr = tc.rect().intersect(&r);
+            let n = tr.width() as usize;
+            for row_y in tr.y0..tr.y1 {
+                let at = ((row_y - r.y0) as usize * w as usize + (tr.x0 - r.x0) as usize) * src_px;
+                let px = codecs::convert_samples(data.get(at..at + n * src_px).unwrap_or_default(), n as u32, 1, from, to)?;
+                let to_at = ((row_y - tc.ty * TILE_SIZE) as usize * TILE_SIZE as usize + (tr.x0 - tc.tx * TILE_SIZE) as usize) * dst_px;
+                let dst =
+                    t.bytes_mut().get_mut(to_at..to_at + px.len()).ok_or_else(|| CodecError::InvalidImage("converted row does not fit its tile".into()))?;
+                dst.copy_from_slice(&px);
+            }
+            Ok(())
+        })
+    };
+    s.put_tiles(tiles);
+    written.map_err(IoError::from)
 }
 
 /// A decoded flat image as a single-layer document.

@@ -39,7 +39,7 @@ pub use crate::format::{
     ASYMMETRIC_EXCEPTIONS, DetectedFormat, Format, FormatCaps, PHOTO_EXTENSIONS, RAW_EXTENSIONS, caps, detect, from_extension, identify, is_readable_extension,
     raw_from_extension, readable_extensions, writable_extensions,
 };
-pub use crate::image::{ChannelLayout, ColorHint, DecodeWarning, DeepChannel, DeepImage, Image, Metadata, SampleType};
+pub use crate::image::{ChannelLayout, ColorHint, DecodeWarning, DeepChannel, DeepImage, Image, Metadata, SampleType, convert_samples};
 pub use crate::options::{DecodeOptions, EncodeOptions, ExrCompression, Limits, PngCompression, TiffCompression};
 pub use half::f16;
 

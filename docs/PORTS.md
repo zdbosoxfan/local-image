@@ -1209,6 +1209,7 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [storytold/photocraft@`4001a3092a5be314e2aeda2ff9bc4dc84e2115fb`](https://github.com/storytold/photocraft/commit/4001a3092a5be314e2aeda2ff9bc4dc84e2115fb) | TIFF: open images over 2^30 px, decoded a group of rows at a time into the layer (#8169) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-codecs/src/options.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs`<br>`crates/pc-io/src/flat.rs`<br>`crates/pc-raster/src/lib.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`98bcbfab9005b4915b3143b4daed91df365db107`](https://github.com/storytold/photocraft/commit/98bcbfab9005b4915b3143b4daed91df365db107) | perf(io): build JPEG/PNG tiles straight from the decoded rows, in parallel (#10259) (#10281) | `crates/pc-codecs/src/image.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
 
 Adapted port of `4001a309`: `Limits::banded` raises the size to 300,000 px a side on top of
 `Limits::desktop_photo` (whose 2 GiB `max_alloc` bounds each group of bands), the banded decode is
@@ -1216,3 +1217,9 @@ guarded against decoder panics like the whole-image decoders, a cut-off page kee
 of `decode_page`, and `Surface::try_write_interleaved` writes serially (`pc-raster` has no rayon).
 `image_to_document` keeps the locked Background layer, container colour hints and text-metadata warning,
 and now shares the fallible tile writes with the banded TIFF path.
+Partial port of `98bcbfab`: `codecs::convert_samples` and the per-tile conversion from the decoded
+rows (on all cores, through `Surface::try_take_tiles`) are ported; a decode that already has the
+document's layout keeps the serial `try_write_interleaved` copy. Not ported: upstream's
+`Surface::try_write_rows_with` (`pc-raster` has no rayon), the RGB8 to RGBA8 inline loop, the scratch
+pool and the cancellation checks of `import_flat_with` (no `Interrupt` here). Its F16-target alpha fix
+is already covered: `document_format` stores 16-bit float as 32-bit float (`crates/pc-io/src/flat.rs`).
