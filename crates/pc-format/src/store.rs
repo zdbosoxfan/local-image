@@ -1148,7 +1148,7 @@ mod blob_budget_tests {
         }
     }
 
-    /// Upstream 37a01ca8: what the load's total budget has left bounds a blob's decompression.
+    /// What the load's total budget has left bounds a blob's decompression.
     #[test]
     fn a_blob_inflates_only_to_the_remaining_total_budget() {
         let data = vec![0u8; 4096];

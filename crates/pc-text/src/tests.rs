@@ -887,7 +887,7 @@ fn works_without_craft_fonts() {
     }
 }
 
-/// Upstream 3fd5304d swapped the reverse scans for a binary search; it must pick the same run,
+/// The binary search must pick the run the reverse scan it replaced picked,
 /// including after zero-length runs (equal starts) and before the first start.
 #[test]
 fn run_index_at_matches_the_reverse_scan() {

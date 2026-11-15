@@ -380,7 +380,7 @@ mod tests {
         }
     }
 
-    /// Upstream 9a390661: without layer records the extra channels hold a merged transparency
+    /// Without layer records the extra channels hold a merged transparency
     /// unless the alpha channel names (1045, else 1006) name each of them and none first as
     /// "Transparency".
     #[test]
