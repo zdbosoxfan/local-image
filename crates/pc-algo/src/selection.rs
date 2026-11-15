@@ -260,6 +260,27 @@ impl Region {
     }
 }
 
+/// How a wand-style fill measures how far an 8-bit colour is from the clicked one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorDistance {
+    /// The largest difference in any one of R, G and B.
+    LargestChannel,
+    /// The spread of `{0, dR, dG, dB}`: changes in the same direction count once, opposite
+    /// changes add up. Only opaque colours were measured, so a partly transparent seed or pixel
+    /// uses [`Self::LargestChannel`].
+    Spread,
+}
+
+impl ColorDistance {
+    fn rgb(self, p: [u8; 4], seed: [u8; 4]) -> i32 {
+        let d = [0, 1, 2].map(|c| p[c] as i32 - seed[c] as i32);
+        match self {
+            Self::Spread if p[3] == 255 && seed[3] == 255 => d.iter().fold(0, |m, v| m.max(*v)) - d.iter().fold(0, |m, v| m.min(*v)),
+            Self::LargestChannel | Self::Spread => d.iter().fold(0, |m, v| m.max(v.abs())),
+        }
+    }
+}
+
 /// Magic wand on 8-bit pixels: a scanline flood fill (or a global match) that only allocates a
 /// byte mark per pixel, then anti-aliases just the edges inside the touched bounding box.
 /// Matches [`magic_wand`] for 8-bit sources. `None` if the seed is outside `area`.
@@ -271,13 +292,14 @@ pub fn wand_region(img: &[[u8; 4]], area: Rect, seed: (i32, i32), tolerance: f32
 /// `sample`×`sample` pixels around the seed (clipped to `area`), so one noisy pixel in a photo no
 /// longer decides the whole selection.
 pub fn wand_region_sampled(img: &[[u8; 4]], area: Rect, seed: (i32, i32), sample: u32, tolerance: f32, contiguous: bool, anti_alias: bool) -> Option<Region> {
-    wand_region_within(img, area, seed, sample, tolerance, contiguous, anti_alias, None)
+    wand_region_within(img, area, seed, sample, tolerance, contiguous, anti_alias, None, ColorDistance::LargestChannel)
 }
 
 /// [`wand_region_sampled`] whose contiguous fill only passes through pixels at least half selected
 /// in `within` (the current selection's coverage over `area`, row-major): Subtract and Intersect
 /// grow the region from the seed through the selection only, so a seed outside it finds nothing.
-/// A global match (`contiguous` off) ignores `within`.
+/// A global match (`contiguous` off) ignores `within`. `distance` measures how far a colour is
+/// from the target.
 pub fn wand_region_within(
     img: &[[u8; 4]],
     area: Rect,
@@ -287,6 +309,7 @@ pub fn wand_region_within(
     contiguous: bool,
     anti_alias: bool,
     within: Option<&[f32]>,
+    distance: ColorDistance,
 ) -> Option<Region> {
     if !area.contains(seed.0, seed.1) {
         return None;
@@ -299,7 +322,7 @@ pub fn wand_region_within(
     }
     let target = sample_mean(img, area, seed, sample);
     let tol = (tolerance + 1e-3).floor().max(0.0) as i32;
-    let similar = |p: [u8; 4]| (0..4).all(|c| (p[c] as i32 - target[c] as i32).abs() <= tol);
+    let similar = |p: [u8; 4]| distance.rgb(p, target) <= tol && (p[3] as i32 - target[3] as i32).abs() <= tol;
     let mut marks = vec![0u8; w * h];
     let (mut bx0, mut by0, mut bx1, mut by1) = (usize::MAX, usize::MAX, 0usize, 0usize);
     if contiguous {

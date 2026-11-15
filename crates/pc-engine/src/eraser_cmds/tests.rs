@@ -242,6 +242,41 @@ fn background_eraser_fails_gracefully() {
 }
 
 /// `cargo test --release -p photocraft-engine --lib bench_magic_eraser -- --ignored --nocapture`
+/// On 8-bit RGB the Magic Eraser's Tolerance is the spread of `{0, dR, dG, dB}`: opposite changes
+/// in two channels count double, same-direction changes once (Photoshop's measurement).
+#[test]
+fn magic_eraser_tolerance_counts_opposite_channel_changes_double() {
+    // Grey (100, 100, 100) with patches: (colour, spread from the grey).
+    let patches = [(10, "#826446", 60), (30, "#828264", 30), (50, "#468264", 60), (70, "#464646", 30)];
+    for tolerance in [29, 30, 59, 60] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 90, "height": 30, "mode": "rgb", "depth": 8})).unwrap();
+        s.execute("edit.fill", json!({"color": "#646464"})).unwrap();
+        for (x, color, _) in patches {
+            s.execute("select.rect", json!({"x": x, "y": 10, "width": 10, "height": 10, "antiAlias": false})).unwrap();
+            s.execute("edit.fill", json!({"color": color})).unwrap();
+        }
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("paint.magicEraser", json!({"x": 0, "y": 0, "tolerance": tolerance, "contiguous": false, "antiAlias": false})).unwrap();
+        for (x, color, spread) in patches {
+            assert_eq!(alpha(&s, x + 5, 15) == 0.0, tolerance >= spread, "tolerance {tolerance}, patch {color}");
+        }
+    }
+    // A partly transparent seed keeps the per-channel limit: (130, 100, 70) is 30 from the grey.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 20, "mode": "rgb", "depth": 8})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.edit("paint", |doc, active| {
+        let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+        surf.fill_rect(Rect::new(0, 0, 40, 20), &[100.0 / 255.0, 100.0 / 255.0, 100.0 / 255.0, 128.0 / 255.0]);
+        surf.fill_rect(Rect::new(20, 0, 40, 20), &[130.0 / 255.0, 100.0 / 255.0, 70.0 / 255.0, 128.0 / 255.0]);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("paint.magicEraser", json!({"x": 2, "y": 2, "tolerance": 30, "contiguous": false, "antiAlias": false})).unwrap();
+    assert_eq!(alpha(&s, 30, 10), 0.0);
+}
+
 #[test]
 #[ignore]
 fn bench_magic_eraser_24mp() {

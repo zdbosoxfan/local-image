@@ -86,8 +86,17 @@ fn magic_wand(s: &mut Session, p: &Value) -> Result<Value> {
     let within = matches!(m, SelectionMode::Subtract | SelectionMode::Intersect)
         .then(|| s.active().and_then(|st| st.doc.selection.as_ref()).map(|cur| sel::mask_from_surface(Some(cur), area)))
         .flatten();
-    let region =
-        sel::wand_region_within(&img, area, (x, y), sample, f(p, "tolerance", 32.0), b(p, "contiguous", true), b(p, "antiAlias", true), within.as_deref());
+    let region = sel::wand_region_within(
+        &img,
+        area,
+        (x, y),
+        sample,
+        f(p, "tolerance", 32.0),
+        b(p, "contiguous", true),
+        b(p, "antiAlias", true),
+        within.as_deref(),
+        sel::ColorDistance::LargestChannel,
+    );
     drop(img);
     let selected = s.edit("Magic Wand", |doc, _| {
         doc.selection = sel::combine_region(doc.selection.as_ref(), region.as_ref(), m);
