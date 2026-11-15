@@ -12,8 +12,7 @@ use crate::geometry::Frame;
 
 mod matting;
 
-/// Maximum color samples evaluated per pixel, including imported presets and catalog data.
-pub const MAX_COLOR_RANGE_SAMPLES: usize = 64;
+pub use lightcraft_develop::MAX_COLOR_RANGE_SAMPLES;
 
 #[derive(Clone)]
 pub struct Evaluated {
