@@ -614,9 +614,11 @@ pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicB
         memo.insert(node.id(), total);
         Ok(total)
     }
-    let expanded = cost(root, &ids, &use_ids, &mut HashSet::new(), &mut HashMap::new(), limits.objects, 0, None, None, &segment_weights)?;
-    // usvg matches the style sheets again for every copy a <use> makes.
-    if css_per_element.saturating_mul(expanded) > MAX_CSS_WORK {
+    cost(root, &ids, &use_ids, &mut HashSet::new(), &mut HashMap::new(), limits.objects, 0, None, None, &segment_weights)?;
+    // usvg matches the style sheets again for every copy a <use> makes, but not for
+    // referenced paint servers or clip paths, so this walk follows only raw <use>/tref hrefs.
+    let copies = cost(root, &HashMap::new(), &use_ids, &mut HashSet::new(), &mut HashMap::new(), limits.objects, 0, None, None, &segment_weights)?;
+    if css_per_element.saturating_mul(copies) > MAX_CSS_WORK {
         return Err(ImportError::Limit("CSS matching work"));
     }
     cost(root, &ids, &use_ids, &mut HashSet::new(), &mut HashMap::new(), limits.segments, 0, Some(&segment_weights), None, &segment_weights)?;
@@ -735,6 +737,15 @@ mod hostile_svg_tests {
         let uses = r##"<use href="#art"/>"##.repeat(100);
         let art = format!(r#"<svg xmlns="http://www.w3.org/2000/svg"><style>{rules}</style><defs><g id="art">{chain}</g></defs>{uses}</svg>"#);
         assert!(matches!(xml(&art, &ImportOptions::default(), &AtomicBool::new(false)), Err(ImportError::Limit("CSS matching work"))));
+    }
+    #[test]
+    fn paint_references_are_not_charged_as_css_copies() {
+        let rules = "svg g rect {fill:red}".repeat(6);
+        let rects = r##"<rect width="1" height="1" fill="url(#grad)"/>"##.repeat(10_000);
+        let art = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg"><style>{rules}</style><defs><linearGradient id="grad"><stop/><stop offset="1"/></linearGradient></defs><g><g>{rects}</g></g></svg>"#
+        );
+        xml(&art, &ImportOptions::default(), &AtomicBool::new(false)).unwrap();
     }
     #[test]
     fn exponential_css_is_rejected_before_either_style_matcher() {
