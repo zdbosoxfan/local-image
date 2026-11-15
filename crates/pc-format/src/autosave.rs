@@ -185,7 +185,7 @@ fn worker(
         let r = (|| {
             create_private_dir(&bundle)?;
             let stats = writer.save_dir(&job.snapshot, &bundle, &job.opts)?;
-            li_fs::atomic_write_private(&sidecar, &serde_json::to_vec_pretty(&job.info)?)?;
+            write_sidecar(&sidecar, &serde_json::to_vec_pretty(&job.info)?)?;
             Ok(stats)
         })();
         if let Ok(mut results) = completed.lock() {
@@ -200,6 +200,22 @@ fn worker(
             log::warn!("autosave cleanup: {e}");
         }
     }
+}
+
+/// The atomic writer follows a symlink at its destination; a link planted at the sidecar's name in
+/// the recovery folder must not redirect the write, so it is replaced, not followed.
+fn write_sidecar(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Ok(meta) = std::fs::symlink_metadata(path)
+        && meta.file_type().is_symlink()
+    {
+        // Windows removes a directory symlink with `remove_dir`, not `remove_file`.
+        #[cfg(windows)]
+        let dir_link = std::os::windows::fs::FileTypeExt::is_symlink_dir(&meta.file_type());
+        #[cfg(not(windows))]
+        let dir_link = false;
+        if dir_link { std::fs::remove_dir(path)? } else { std::fs::remove_file(path)? }
+    }
+    li_fs::atomic_write_private(path, bytes)
 }
 
 fn create_private_dir(path: &Path) -> std::io::Result<()> {
@@ -466,7 +482,9 @@ fn sweep_orphans(recovery_dir: &Path, min_age: std::time::Duration) {
         }
         // Anything at the sidecar's path (even a broken one) keeps the bundle.
         let has_sidecar = std::fs::symlink_metadata(recovery_dir.join(format!("{key}.json"))).is_ok();
-        let parts = [path.clone(), path.join("tiles"), path.join("blobs")];
+        // A linked `tiles/` or `blobs/` is left alone: sweeping it would delete files elsewhere.
+        let real_dir = |p: PathBuf| std::fs::symlink_metadata(&p).is_ok_and(|m| m.is_dir()).then_some(p);
+        let parts: Vec<PathBuf> = [Some(path.clone()), real_dir(path.join("tiles")), real_dir(path.join("blobs"))].into_iter().flatten().collect();
         if !has_sidecar && is_uncommitted(&path) && parts.iter().all(|p| untouched_for(p, min_age, true)) {
             let _ = std::fs::remove_dir_all(&path);
         } else {
@@ -505,10 +523,13 @@ fn is_uncommitted(bundle: &Path) -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 fn sweep_temp_file(path: &Path, min_age: std::time::Duration) {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return };
-    // `.{stem}.{pid}-{n}.pcsave.tmp`
-    let Some(rest) = name.strip_prefix('.').and_then(|n| n.strip_suffix(".pcsave.tmp")) else { return };
-    let Some((_, owner)) = rest.rsplit_once('.') else { return };
-    let Some(pid) = owner.split_once('-').and_then(|(pid, _)| pid.parse::<u32>().ok()) else { return };
+    // `lightcraft-{pid}-{n}.{hint}.pcsave.tmp` (dot-prefixed before upstream #11624), or the
+    // `.{stem}.{pid}-{n}.pcsave.tmp` of older writers.
+    let legacy = || -> Option<u32> {
+        let rest = name.strip_prefix('.')?.strip_suffix(".pcsave.tmp")?;
+        rest.rsplit_once('.')?.1.split_once('-')?.0.parse::<u32>().ok()
+    };
+    let Some(pid) = li_fs::temp_owner(name).map(|(pid, _)| pid).or_else(legacy) else { return };
     if pid != std::process::id() && untouched_for(path, min_age, false) {
         let _ = std::fs::remove_file(path);
     }
@@ -767,6 +788,34 @@ mod tests {
         assert!(matches!(error, FormatError::LimitExceeded(_)), "{error}");
         assert!(RecoveryStore::new(&dir).recover().is_empty());
         assert!(manifest.is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Upstream 8ef148ac (#11230): a symlinked sidecar is replaced, not written through, and the
+    /// sweep does not follow a bundle's linked `tiles/` folder.
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_in_the_recovery_folder_are_replaced_or_skipped_never_followed() {
+        let dir = temp("links");
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let victim = outside.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        let sidecar = dir.join("k.json");
+        std::os::unix::fs::symlink(&victim, &sidecar).unwrap();
+        write_sidecar(&sidecar, b"{}").unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        assert_eq!(std::fs::read(&sidecar).unwrap(), b"{}");
+        assert!(!std::fs::symlink_metadata(&sidecar).unwrap().is_symlink());
+        // Another process's stale staging file behind a linked `tiles` folder stays.
+        let stale = outside.join("lightcraft-4294967294-0.x.pcsave.tmp");
+        std::fs::write(&stale, b"tmp").unwrap();
+        let bundle = dir.join("doc-1.pcraft");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::os::unix::fs::symlink(&outside, bundle.join("tiles")).unwrap();
+        std::fs::write(dir.join("doc-1.json"), b"{}").unwrap();
+        sweep_orphans(&dir, std::time::Duration::ZERO);
+        assert!(stale.is_file(), "files behind a linked tiles folder are not swept");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

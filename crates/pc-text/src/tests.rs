@@ -887,6 +887,19 @@ fn works_without_craft_fonts() {
     }
 }
 
+/// Upstream 3fd5304d swapped the reverse scans for a binary search; it must pick the same run,
+/// including after zero-length runs (equal starts) and before the first start.
+#[test]
+fn run_index_at_matches_the_reverse_scan() {
+    let starts = [0, 3, 3, 3, 7, 10, 10];
+    for off in 0..14 {
+        let scan = starts.iter().rposition(|&s| s <= off).unwrap_or(0);
+        assert_eq!(crate::layout::run_index_at(&starts, off), scan, "offset {off}");
+    }
+    assert_eq!(crate::layout::run_index_at(&[2, 5], 0), 0);
+    assert_eq!(crate::layout::run_index_at(&[], 4), 0);
+}
+
 #[test]
 fn word_and_line_navigation() {
     use crate::layout::{byte_index, char_index, hit_char, line_edge, line_index, line_step, word_boundary};

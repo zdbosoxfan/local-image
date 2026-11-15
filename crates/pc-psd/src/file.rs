@@ -288,8 +288,38 @@ impl PsdFile {
         let marked = self.global_blocks.iter().any(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32"));
         match &self.layer_info {
             Some(li) => li.merged_alpha || marked,
-            None => true,
+            // A flat file from Photoshop names only its alpha and spot channels, while writers of
+            // plain RGBA files name nothing: a full list without "Transparency" first means none.
+            None => {
+                let names = self.alpha_channel_names();
+                marked || names.len() != usize::from(self.header.channels - color) || names.first().is_some_and(|n| n == "Transparency")
+            }
         }
+    }
+
+    /// The alpha channel names: the Unicode names (resource 1045), else the Pascal names (1006).
+    /// Reading stops at a truncated entry; empty when the file names no channel.
+    pub fn alpha_channel_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        if let Some(r) = self.resource(1045) {
+            let mut at = 0usize;
+            while let Some(len) = r.data.get(at..at.saturating_add(4)).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_be_bytes) {
+                at += 4;
+                let Some(end) = usize::try_from(len).ok().and_then(|n| n.checked_mul(2)).and_then(|n| at.checked_add(n)) else { break };
+                let Some(b) = r.data.get(at..end) else { break };
+                let units: Vec<u16> = b.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).collect();
+                names.push(String::from_utf16_lossy(&units).trim_end_matches('\0').to_string());
+                at = end;
+            }
+        } else if let Some(r) = self.resource(1006) {
+            let mut at = 0usize;
+            while let Some(&len) = r.data.get(at) {
+                let Some(name) = r.data.get(at + 1..at + 1 + usize::from(len)) else { break };
+                names.push(String::from_utf8_lossy(name).into_owned());
+                at += 1 + usize::from(len);
+            }
+        }
+        names
     }
 
     /// Checks structural invariants that the writer relies on.
@@ -348,5 +378,46 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Upstream 9a390661: without layer records the extra channels hold a merged transparency
+    /// unless the alpha channel names (1045, else 1006) name each of them and none first as
+    /// "Transparency".
+    #[test]
+    fn a_flat_file_names_its_extra_channels() {
+        let mut file = testgen::small(Version::Psd, Compression::Raw);
+        file.layer_info = None;
+        file.header.channels = 5;
+        file.resources.retain(|r| r.id != 1045 && r.id != 1006);
+        assert!(file.merged_has_alpha(), "nothing named: a plain RGBA file");
+        let pascal = |names: &[&str]| names.iter().flat_map(|n| std::iter::once(n.len() as u8).chain(n.bytes())).collect::<Vec<u8>>();
+        let unicode = |names: &[&str]| {
+            names
+                .iter()
+                .flat_map(|n| (n.encode_utf16().count() as u32).to_be_bytes().into_iter().chain(n.encode_utf16().flat_map(u16::to_be_bytes)))
+                .collect::<Vec<u8>>()
+        };
+        for (names, transparency) in
+            [(&["Spot", "Alpha 1"][..], false), (&["Transparency", "Alpha 1"][..], true), (&["Alpha 1"][..], true), (&["A", "B", "C"][..], true)]
+        {
+            let mut p = file.clone();
+            p.resources.push(ImageResource::new(1006, pascal(names)));
+            assert_eq!(p.merged_has_alpha(), transparency, "1006 {names:?}");
+            assert_eq!(p.alpha_channel_names(), names, "1006");
+            let mut u = file.clone();
+            u.resources.push(ImageResource::new(1045, unicode(names)));
+            assert_eq!(u.merged_has_alpha(), transparency, "1045 {names:?}");
+            assert_eq!(u.alpha_channel_names(), names, "1045");
+        }
+        // A merged-transparency marker wins over a complete list of names.
+        let mut marked = file.clone();
+        marked.resources.push(ImageResource::new(1006, pascal(&["Spot", "Alpha 1"])));
+        marked.global_blocks.push(TaggedBlock::new(*b"Mt32", Vec::new()));
+        assert!(marked.merged_has_alpha());
+        // Truncated names stop at the damage.
+        let mut cut = file.clone();
+        cut.resources.push(ImageResource::new(1006, vec![9, b'a']));
+        assert!(cut.alpha_channel_names().is_empty());
+        assert!(cut.merged_has_alpha());
     }
 }

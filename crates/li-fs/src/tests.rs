@@ -297,6 +297,27 @@ fn retry_and_permanent_rename_failure_parity() {
     }
 }
 
+/// Upstream #11624: an SMB share that hides dot files marked a dot-named staging file hidden, and
+/// the mark stayed on the saved file. Staging names have no leading dot; leftovers of both forms
+/// are still recognized, and nothing else is.
+#[test]
+fn staging_names_are_not_dot_files() {
+    let name = temp_name("report.psd");
+    assert!(!name.starts_with('.'), "{name}");
+    assert_eq!(temp_owner(&name), Some((std::process::id(), "report.psd")));
+    assert_eq!(temp_owner(".lightcraft-42-7.doc.pcraft.pcsave.tmp"), Some((42, "doc.pcraft")), "the older dot form");
+    for other in [
+        "doc.pcraft",
+        "lightcraft-42-7.doc.tmp",
+        "lightcraft-42.doc.pcsave.tmp",
+        "lightcraft-x-7.doc.pcsave.tmp",
+        "lightcraft-42-.doc.pcsave.tmp",
+        ".doc.42-7.pcsave.tmp",
+    ] {
+        assert_eq!(temp_owner(other), None, "{other}");
+    }
+}
+
 #[test]
 fn collisions_never_delete_an_unowned_temp() {
     let dir = Dir::new();
