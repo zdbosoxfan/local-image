@@ -1206,6 +1206,15 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 
 ## Upstream commit ports
 
+Not ported from `b0c4aa8c`: the distinct-byte allocation bound in `check_image`, because the batch test
+`hundred_megapixel_rgb_hdr_has_bounded_tile_batches` (`crates/lc-raw/src/tiffraw.rs`) plans its image from tiles
+all pointing at one 4096-byte payload, which that bound refuses (left for review); and the sparse planner (no
+sparse reader here). Already covered: `a4a797e2`'s tile-sized lossy JPEG budget by `lossy_jpeg`'s tile-bounded
+header and its Deflate padding bound by `check_image`'s tile-grid bound; `a42ee704`'s alpha-grid tiles by the
+shared extent-read budget; `f786b875`'s XMP path building by `property_key`'s key budget. Not applicable:
+`1c906ea3`'s PEF and SRW halves (PEF never sums strip counts here, no SRW decoder) and `cb86952c`'s CR3 half
+(CR3 goes through rawler). `5d4b68f0`'s craft-heif git dependency is not taken.
+
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`b0c4aa8cc8ac`](https://github.com/storytold/lightcraft/commit/b0c4aa8cc8acac043af6d767b3bfec30d0ab0c0a) | security(raw): linear sparse planning, distinct-byte allocation bound, opcode list budget, ORF strip length (#3679) | `crates/lc-raw/src/opcodes.rs`<br>`crates/lc-raw/src/vendor/orf.rs` | MIT OR Apache-2.0 |
