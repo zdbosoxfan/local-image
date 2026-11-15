@@ -12,14 +12,21 @@
 //! A shard directory that is a symlink or junction is not followed.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use li_raster::Rgba8;
 
 use crate::Hash128;
 
 const QUALITY: u8 = 90;
+
+/// How many files a prune or clear goes through between two looks at the gate
+/// ([`DiskCache::set_gate`]): a `stat` for every file would slow a pass over a big cache.
+const GATE_EVERY: usize = 256;
+
+/// Whether the cache may change its folder now (see [`DiskCache::set_gate`]).
+pub type WriteGate = Arc<dyn Fn() -> bool + Send + Sync>;
 
 pub struct DiskCache {
     dir: PathBuf,
@@ -30,6 +37,8 @@ pub struct DiskCache {
     pub hits: AtomicU64,
     pub misses: AtomicU64,
     pub writes: AtomicU64,
+    /// Asked before anything in the folder is written or removed.
+    gate: OnceLock<WriteGate>,
 }
 
 impl DiskCache {
@@ -41,6 +50,7 @@ impl DiskCache {
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             writes: AtomicU64::new(0),
+            gate: OnceLock::new(),
         }
     }
 
@@ -59,6 +69,27 @@ impl DiskCache {
         self.budget.store(bytes, Ordering::Relaxed);
     }
 
+    /// Ask `gate` before this cache writes or removes anything in its folder: while it says
+    /// `false` the folder is left as it is. The library gives one that says `false` while its
+    /// path leads to another folder than the one it was opened from, so a share mounted over the
+    /// library neither gets this library's thumbnails nor has its own pruned to this library's
+    /// budget. Reads are not gated: a thumbnail is named after what it shows. Set once (a second
+    /// gate is ignored).
+    pub fn set_gate(&self, gate: WriteGate) {
+        let _ = self.gate.set(gate);
+    }
+
+    /// Whether the folder may be changed now: there is no gate, or it says so.
+    fn writable(&self) -> bool {
+        self.gate.get().is_none_or(|g| g())
+    }
+
+    /// Whether a pass over many files may go on at file number `done`: the gate is looked at
+    /// every [`GATE_EVERY`] files.
+    fn may_go_on(&self, done: usize) -> bool {
+        done == 0 || !done.is_multiple_of(GATE_EVERY) || self.writable()
+    }
+
     fn path(&self, key: Hash128) -> PathBuf {
         let hex = key.to_string();
         self.dir.join(&hex[..2]).join(format!("{hex}.jpg"))
@@ -74,15 +105,19 @@ impl DiskCache {
             Some(img) => {
                 self.hits.fetch_add(1, Ordering::Relaxed);
                 // refresh recency for pruning
-                if let Ok(f) = std::fs::File::options().write(true).open(&p) {
+                if self.writable()
+                    && let Ok(f) = std::fs::File::options().write(true).open(&p)
+                {
                     let _ = f.set_modified(std::time::SystemTime::now());
                 }
                 Some(img)
             }
             None => {
-                log::warn!("preview cache: dropping unreadable {}", p.display());
-                if std::fs::remove_file(&p).is_ok() {
-                    self.adjust_total(0, bytes.len() as u64);
+                if self.writable() {
+                    log::warn!("preview cache: dropping unreadable {}", p.display());
+                    if std::fs::remove_file(&p).is_ok() {
+                        self.adjust_total(0, bytes.len() as u64);
+                    }
                 }
                 self.misses.fetch_add(1, Ordering::Relaxed);
                 None
@@ -91,6 +126,9 @@ impl DiskCache {
     }
 
     pub fn put(&self, key: Hash128, img: &Rgba8) {
+        if !self.writable() {
+            return;
+        }
         let Some(bytes) = encode_jpeg(img) else { return };
         let p = self.path(key);
         let Some(parent) = p.parent() else { return };
@@ -159,12 +197,16 @@ impl DiskCache {
 
     /// Remove least recently used files until the cache is at most 80 % of its budget.
     pub fn prune(&self) {
+        if !self.writable() {
+            return;
+        }
         let mut files = self.scan();
         let mut total: u64 = files.iter().map(|f| f.1).sum();
         let target = self.budget() / 5 * 4;
         files.sort_by_key(|f| f.2);
-        for (p, len, _) in files {
-            if total <= target {
+        for (done, (p, len, _)) in files.into_iter().enumerate() {
+            // (the gate may close midway through a big cache)
+            if total <= target || !self.may_go_on(done) {
                 break;
             }
             if std::fs::remove_file(&p).is_ok() {
@@ -181,7 +223,15 @@ impl DiskCache {
     }
 
     pub fn clear(&self) {
-        for (p, _, _) in self.scan() {
+        if !self.writable() {
+            return;
+        }
+        for (done, (p, _, _)) in self.scan().into_iter().enumerate() {
+            if !self.may_go_on(done) {
+                // (the files left are counted again by the next look)
+                *self.total.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                return;
+            }
             let _ = std::fs::remove_file(p);
         }
         *self.total.lock().unwrap_or_else(|e| e.into_inner()) = Some(0);
