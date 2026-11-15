@@ -85,20 +85,13 @@ pub fn apply_background_eraser(target: &mut Surface, stroke: &Stroke, bs: &BgEra
     let Some(a) = alpha_index(&fmt) else { return Ok(Rect::EMPTY) };
     let nc = a;
     let tol = if bs.tolerance.is_finite() { bs.tolerance.clamp(0.0, 1.0) } else { 0.0 };
-    let soft = bs.limits != Limits::FindEdges;
     let native = |c: [f32; 4]| -> Vec<f32> { from_rgba(&fmt, [c[0], c[1], c[2], 1.0])[..nc].to_vec() };
     let swatch = native(bs.background);
     let fg: Vec<f32> = native(bs.foreground).into_iter().map(|v| at_sample_precision(fmt.sample, v)).collect();
     let mut once: Option<Option<Vec<f32>>> = None;
-    let match_w = |d: f32| -> f32 {
-        if soft {
-            graded_weight(d, tol)
-        } else if d > tol {
-            0.0
-        } else {
-            1.0
-        }
-    };
+    // Find Edges grades soft edges like Contiguous does instead of cutting them hard (#11904):
+    // the reference application keeps at least as much of a blurred transition with it.
+    let match_w = |d: f32| -> f32 { graded_weight(d, tol) };
     let mut stroke = stroke.clone();
     stroke.brush.opacity = 1.0;
     stroke.brush.erase = false;
@@ -200,6 +193,9 @@ fn keep_connected(weight: &mut [f32], w: usize, h: usize, sx: usize, sy: usize) 
 
 #[cfg(test)]
 mod graded_alpha_tests;
+
+#[cfg(test)]
+mod find_edges_tests;
 
 #[cfg(test)]
 mod tests {
