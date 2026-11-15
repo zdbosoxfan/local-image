@@ -421,7 +421,26 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
 const MAX_CROP_SIDE: i32 = 300_000;
 
 fn crop(s: &mut Session, p: &Value) -> Result<Value> {
+    crop_with(s, p, false)
+}
+
+/// Image › Reveal All's crop: as `image.crop` with Delete Cropped Pixels off, but the Background
+/// stays a Background.
+pub(crate) fn crop_keeping_background(s: &mut Session, p: &Value) -> Result<Value> {
+    crop_with(s, p, true)
+}
+
+/// A crop with Delete Cropped Pixels off turns the Background into a normal layer ("Layer 0"), as
+/// in Photoshop: it keeps the pixels past the canvas, and an extension is transparent.
+fn unlock_background_for_crop(doc: &mut Document) {
+    if let Some(bg) = doc.layers.first_mut() {
+        crate::eraser_cmds::unlock_background(bg);
+    }
+}
+
+fn crop_with(s: &mut Session, p: &Value, keep_background: bool) -> Result<Value> {
     let delete = p.get("deleteCroppedPixels").and_then(Value::as_bool).unwrap_or(true);
+    let unlock = !delete && !keep_background;
     // Values beyond i32 would wrap through the narrowing casts into a rectangle unrelated to
     // the numbers passed; reject them (see `commands::int_i32`).
     let explicit = match (
@@ -464,6 +483,10 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
         let interp = photocraft_algo::transform::Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
         let mut out = r;
         s.edit("Crop", |doc, _| {
+            // Unlocked first, the Background turns like the other layers: transparent corners.
+            if unlock {
+                unlock_background_for_crop(doc);
+            }
             let (_, a) = crate::mode_cmds::rotate_doc(doc, -angle, interp, bg)?;
             let (cx, cy) = ((f64::from(r.x0) + f64::from(r.x1)) / 2.0, (f64::from(r.y0) + f64::from(r.y1)) / 2.0);
             let (nx, ny) = (a.m[0] * cx + a.m[2] * cy + a.m[4], a.m[1] * cx + a.m[3] * cy + a.m[5]);
@@ -478,6 +501,9 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(json!({ "x": out.x0, "y": out.y0, "width": out.width(), "height": out.height(), "angle": angle }));
     }
     s.edit("Crop", |doc, _| {
+        if unlock {
+            unlock_background_for_crop(doc);
+        }
         crop_doc(doc, "image.crop", r, delete)?;
         doc.selection = None;
         Ok(())
@@ -1099,6 +1125,38 @@ mod tests {
         s.execute("image.crop", json!({"x": 15, "y": 0, "width": 25, "height": 20})).unwrap();
         assert!(matches!(doc(&s).layers[1].content, LayerContent::Smart(_)) && matches!(doc(&s).layers[2].content, LayerContent::Text(_)));
         assert_eq!(bounds(&s), before.iter().map(|b| b.translate(-15, 0)).collect::<Vec<_>>());
+    }
+
+    /// As in Photoshop, a crop with Delete Cropped Pixels off turns the Background into "Layer 0",
+    /// straight or turned, in the crop's one step: it keeps its pixels past the frame and an
+    /// extension is transparent. Reveal All keeps the Background.
+    #[test]
+    fn crop_with_delete_off_turns_the_background_into_layer_0() {
+        for angle in [0.0, 10.0] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 40, "height": 40})).unwrap();
+            let past = s.active().unwrap().history.past_len();
+            s.execute("image.crop", json!({"x": -10, "y": 0, "width": 30, "height": 20, "angle": angle, "deleteCroppedPixels": false})).unwrap();
+            let l = &doc(&s).layers[0];
+            assert_eq!((l.name.as_str(), l.locks.transparency, l.locks.position), ("Layer 0", false, false), "{angle}");
+            assert_eq!(s.active().unwrap().history.past_len(), past + 1, "{angle}");
+            if angle == 0.0 {
+                let surf = l.surface().unwrap();
+                assert_eq!(surf.pixel(2, 5)[3], 0.0, "the extension is transparent");
+                assert_eq!(surf.content_bounds(), Rect::new(0, 0, 40, 40).translate(10, 0), "the hidden pixels stay");
+            }
+        }
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 40})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.edit("paint", |doc, active| {
+            let l = doc.layer_mut(active.unwrap()).unwrap();
+            l.surface_mut().unwrap().fill_rect(Rect::new(-5, 0, 10, 10), &[1.0, 0.0, 0.0, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("image.revealAll", json!({})).unwrap();
+        assert_eq!(doc(&s).layers[0].name, "Background");
     }
 
     /// Image Size resamples the pixels outside the canvas as well. After a non-deleting crop to

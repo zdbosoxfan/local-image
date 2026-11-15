@@ -676,7 +676,9 @@ pub fn specs() -> Vec<CommandSpec> {
             if all == canvas {
                 return Ok(json!({"changed": false}));
             }
-            s.execute("image.crop", json!({"x": all.x0, "y": all.y0, "width": all.width(), "height": all.height(), "deleteCroppedPixels": false}))?;
+            // The Background stays a Background, unlike a Crop tool crop with Delete Cropped Pixels off.
+            let p = json!({"x": all.x0, "y": all.y0, "width": all.width(), "height": all.height(), "deleteCroppedPixels": false});
+            crate::image_cmds::crop_keeping_background(s, &p)?;
             Ok(json!({"changed": true}))
         }),
         spec!("layer.new.layerFromBackground", "Layer From Background…", &["Layer", "New"], None, "{}", has_background, |s, _| layer_from_background(s)),

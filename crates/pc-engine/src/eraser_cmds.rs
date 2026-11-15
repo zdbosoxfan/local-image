@@ -60,7 +60,7 @@ fn is_background(l: &Layer) -> bool {
 }
 
 /// Photoshop converts the Background to a normal layer before erasing to transparency.
-fn unlock_background(l: &mut Layer) {
+pub(crate) fn unlock_background(l: &mut Layer) {
     if is_background(l) {
         l.name = "Layer 0".into();
         l.locks.transparency = false;
