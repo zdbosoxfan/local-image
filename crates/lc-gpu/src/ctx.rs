@@ -1055,7 +1055,7 @@ mod tests {
     }
 
     /// An upload that runs out of device memory fails the render instead of panicking: it went
-    /// through `create_buffer_init`, which maps the buffer it could not allocate (upstream #1764).
+    /// through `create_buffer_init`, which maps the buffer it could not allocate.
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
     #[ignore = "fills device memory; requires a real hardware GPU"]
