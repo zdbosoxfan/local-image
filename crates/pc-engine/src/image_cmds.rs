@@ -443,11 +443,20 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "x": r.x0, "y": r.y0, "width": r.width(), "height": r.height() }))
 }
 
+/// Flatten `doc`, refusing a canvas past the compositor's render limit (which flattens to nothing).
+fn flatten_within_render_limit(doc: &Document, op: &str) -> Result<photocraft_compose::Buffer> {
+    let bounds = doc.bounds();
+    if u64::from(bounds.width()) * u64::from(bounds.height()) > photocraft_compose::MAX_RENDER_PIXELS {
+        return Err(EngineError::Other(format!("the document is too large to {op}")));
+    }
+    Ok(photocraft_compose::flatten(doc))
+}
+
 /// Image → Trim.
 fn trim(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let canvas = d.doc.bounds();
-    let buf = photocraft_compose::flatten(&d.doc);
+    let buf = flatten_within_render_limit(&d.doc, "trim")?;
     let based = p.get("basedOn").and_then(Value::as_str).unwrap_or("transparent");
     let w = canvas.width() as usize;
     let reference = match based {
@@ -517,7 +526,7 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
     doc.id = photocraft_doc::DocId::fresh();
     doc.name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("{} copy", d.doc.name));
     if p.get("mergedOnly").and_then(Value::as_bool).unwrap_or(false) {
-        let buf = photocraft_compose::flatten(&doc);
+        let buf = flatten_within_render_limit(&doc, "duplicate merged")?;
         let fmt = doc.pixel_format();
         let mut surf = Surface::new(fmt);
         let vals: Vec<f32> = buf.px.iter().flat_map(|q| photocraft_raster::from_rgba(&fmt, *q)).collect();
@@ -1042,5 +1051,17 @@ mod tests {
         s.execute("image.crop", json!({"x": 15, "y": 0, "width": 25, "height": 20})).unwrap();
         assert!(matches!(doc(&s).layers[1].content, LayerContent::Smart(_)) && matches!(doc(&s).layers[2].content, LayerContent::Text(_)));
         assert_eq!(bounds(&s), before.iter().map(|b| b.translate(-15, 0)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn trim_and_duplicate_merged_refuse_documents_past_the_render_limit() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40000, "height": 30000, "background": "transparent"})).unwrap();
+        let (bounds, rev, docs) = (doc(&s).bounds(), s.active().unwrap().revision, s.documents().len());
+        let err = s.execute("image.trim", json!({"basedOn": "topLeft"})).unwrap_err().to_string();
+        assert!(err.contains("too large"), "{err}");
+        let err = s.execute("image.duplicate", json!({"mergedOnly": true})).unwrap_err().to_string();
+        assert!(err.contains("too large"), "{err}");
+        assert_eq!((doc(&s).bounds(), s.active().unwrap().revision, s.documents().len()), (bounds, rev, docs));
     }
 }
