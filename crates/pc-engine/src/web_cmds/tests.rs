@@ -598,3 +598,22 @@ fn quick_export_writes_the_format_its_path_names() {
     assert!(!std::path::Path::new(&tif).exists());
     s.execute("prefs.reset", json!({"path": "export"})).unwrap();
 }
+
+/// #5305: `folder` writes the whole image there under the document's own name, so an action
+/// recorded with the suggested name saves each document it is played on under that name.
+#[test]
+fn folder_saves_under_the_documents_own_name() {
+    let dir = tmp("folder_own_name");
+    let mut s = session(8);
+    let r = s.execute("file.export.saveForWebLegacy", json!({"folder": dir, "format": "png24"})).unwrap();
+    let first = format!("{dir}/web.png");
+    assert_eq!(r["files"], json!([first]));
+    assert_eq!(decode(&first).dimensions(), (64, 48));
+    s.execute("file.new", json!({"width": 8, "height": 4, "name": "second.psd"})).unwrap();
+    let r = s.execute("file.export.saveForWebLegacy", json!({"folder": dir, "format": "jpeg"})).unwrap();
+    assert_eq!(r["files"], json!([format!("{dir}/second.jpg")]));
+    // A `path` wins over `folder`.
+    let r = s.execute("file.export.saveForWebLegacy", json!({"path": format!("{dir}/named.png"), "folder": dir, "format": "png24"})).unwrap();
+    assert_eq!(r["files"], json!([format!("{dir}/named.png")]));
+    let _ = std::fs::remove_dir_all(&dir);
+}
