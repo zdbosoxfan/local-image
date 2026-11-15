@@ -826,6 +826,37 @@ fn batch_carries_the_authorization_gate_into_scratch_steps() {
 }
 
 #[test]
+fn image_processor_scratch_sessions_answer_to_the_authorization_gate() {
+    fn deny_image(id: &str, _: &Value) -> Result<()> {
+        if id.starts_with("image.") { Err(EngineError::Other(format!("automation command `{id}` is disabled"))) } else { Ok(()) }
+    }
+    let dir = tmp("proc-gate");
+    let input = png(&dir, "a.png", 40, 20, "#ff0000");
+    let mut s = Session::new();
+    s.authorize = Some(deny_image);
+    let r =
+        s.execute("file.scripts.imageProcessor", json!({"input": [input], "output": join(&dir, "out"), "format": "jpg", "width": 20, "height": 20})).unwrap();
+    assert_eq!(r["files"], json!([]), "{r}");
+    assert!(r["errors"][0]["error"].as_str().unwrap().contains("image.imageSize"), "{r}");
+}
+
+#[test]
+fn batch_save_points_answer_to_the_authorization_gate() {
+    fn deny_save(id: &str, _: &Value) -> Result<()> {
+        if id == "file.save" { Err(EngineError::Other(format!("automation command `{id}` is disabled"))) } else { Ok(()) }
+    }
+    let dir = tmp("batch-save-gate");
+    let input = png(&dir, "a.png", 8, 8, "#ff0000");
+    let out = join(&dir, "out");
+    let mut s = Session::new();
+    s.authorize = Some(deny_save);
+    let r = s.execute("file.automate.batch", json!({"steps": [["file.save", {}]], "input": [input], "output": out, "format": "png"})).unwrap();
+    assert_eq!(r["files"], json!([]), "{r}");
+    assert!(r["errors"][0]["error"].as_str().unwrap().contains("file.save"), "{r}");
+    assert!(!std::path::Path::new(&join(&out, "a.png")).exists());
+}
+
+#[test]
 fn batch_does_not_inherit_caller_actions_or_write_their_recorded_save_paths() {
     let dir = tmp("caller-action-scope");
     let input = png(&dir, "input.png", 4, 4, "#1234ab");
