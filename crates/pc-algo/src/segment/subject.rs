@@ -13,8 +13,9 @@
 //!    S. Süsstrunk, "Frequency-tuned Salient Region Detection", CVPR 2009): distance of the
 //!    lightly blurred CIELAB image from its mean colour.
 //! 4. Otsu's threshold on the saliency map seeds a GrabCut trimap (low-saliency border pixels
-//!    are definite background); the result is cleaned (small islands dropped, small holes
-//!    filled) and re-cut at full resolution.
+//!    are definite background); the result is cleaned (small islands dropped unless they lie
+//!    next to the main part, such as a head cut off by a neck too thin for the working
+//!    resolution; small holes filled) and re-cut at full resolution.
 //!
 //! Works well for a distinct object on a comparatively plain background; it is not a semantic
 //! segmenter.
@@ -64,11 +65,56 @@ pub fn select_subject(sampler: &dyn Sampler, canvas: Rect) -> Option<Region> {
     }
     let (fg, bg) = grabcut::grabcut(&img, &mut trimap, 6)?;
     let low: Vec<bool> = trimap.iter().map(|v| *v == PR_FG || *v == grabcut::FG).collect();
-    let low = super::clean_mask(&low, w, h, 0.2, 0.05);
+    let low = super::clean_mask(&keep_main_and_nearby(&low, w, h), w, h, 0.0, 0.05);
     if !low.iter().any(|v| *v) {
         return None;
     }
     super::finish_region(sampler, canvas, step, &low, w, h, Some((&fg, &bg)))
+}
+
+/// The connected parts of `mask` that make up the subject: those at least a fifth the size of
+/// the largest, and smaller ones (not specks) with pixels close to it. A part of the subject the
+/// cut separated from the rest (a head whose thin neck the working resolution lost, a tail,
+/// something held) would otherwise go missing. Clutter further away is still dropped, and so is
+/// a small narrow strip along an image edge.
+fn keep_main_and_nearby(mask: &[bool], w: usize, h: usize) -> Vec<bool> {
+    let (lab, sizes) = super::components(mask, w, h);
+    let Some((main, largest)) = sizes.iter().copied().enumerate().skip(1).max_by_key(|(_, n)| *n) else { return vec![false; w * h] };
+    // Bounding box per component: (x0, y0, x1, y1), inclusive.
+    let mut bbox = vec![(usize::MAX, usize::MAX, 0usize, 0usize); sizes.len()];
+    for (i, l) in lab.iter().enumerate() {
+        let (x, y) = (i % w, i / w);
+        let b = &mut bbox[*l as usize];
+        *b = (b.0.min(x), b.1.min(y), b.2.max(x), b.3.max(y));
+    }
+    let (mx0, my0, mx1, my1) = bbox[main];
+    let margin = ((mx1 - mx0 + 1).max(my1 - my0 + 1) as f32 * 0.15).ceil() as usize;
+    // A part is near when some of its pixels lie within the margin, not merely its box: a thin
+    // diagonal streak from a corner (a cable, a rail) can have a box that reaches the margin.
+    let mut near = vec![false; sizes.len()];
+    for y in my0.saturating_sub(margin)..=(my1 + margin).min(h - 1) {
+        for x in mx0.saturating_sub(margin)..=(mx1 + margin).min(w - 1) {
+            near[lab[y * w + x] as usize] = true;
+        }
+    }
+    let (big, speck) = ((largest as f32 * 0.2).ceil() as usize, ((largest as f32 * 0.005).ceil() as usize).max(4));
+    let keep: Vec<bool> = (0..sizes.len())
+        .map(|l| {
+            if l == 0 {
+                return false;
+            }
+            if l == main || sizes[l] >= big {
+                return true;
+            }
+            let (x0, y0, x1, y1) = bbox[l];
+            let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
+            // Edge clutter: a strip on an image edge, narrow against the canvas and at least
+            // twice as long as it is wide.
+            let strip = ((x0 == 0 || x1 + 1 == w) && bh < h * 12 / 100 && bw >= bh * 2) || ((y0 == 0 || y1 + 1 == h) && bw < w * 12 / 100 && bh >= bw * 2);
+            sizes[l] >= speck && near[l] && !strip
+        })
+        .collect();
+    lab.iter().map(|l| keep[*l as usize]).collect()
 }
 
 /// Per-pixel saliency in `0..=1` (see the module docs).
@@ -267,4 +313,32 @@ pub fn otsu(v: &[f32]) -> f32 {
         }
     }
     (bt as f32 + 0.5) / 255.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keep_main_and_nearby;
+
+    /// The main 40 x 40 part has a margin of ceil(40 x 0.15) = 6 pixels and a speck floor of
+    /// ceil(1600 x 0.005) = 8 pixels: a 3 x 3 part inside the margin is kept (a fifth of the
+    /// largest part used to be the floor), a 5 x 5 one past the margin and a 2 x 3 one inside it
+    /// are dropped, and so is a narrow strip down from the top edge that reaches the margin.
+    #[test]
+    fn small_parts_next_to_the_main_part_are_kept_and_clutter_is_dropped() {
+        let side = 240;
+        let mut mask = vec![false; side * side];
+        for (x0, y0, x1, y1) in [(100, 100, 140, 140), (120, 143, 123, 146), (147, 110, 152, 115), (110, 143, 112, 146), (112, 0, 115, 97)] {
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    mask[y * side + x] = true;
+                }
+            }
+        }
+        let kept = keep_main_and_nearby(&mask, side, side);
+        assert!(kept[100 * side + 100], "the main part");
+        assert!(kept[143 * side + 120], "a part inside the margin");
+        assert!(!kept[110 * side + 147], "clutter past the margin");
+        assert!(!kept[143 * side + 110], "a speck inside the margin");
+        assert!(!kept[112], "a narrow strip on the top edge");
+    }
 }
