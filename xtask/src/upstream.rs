@@ -298,10 +298,54 @@ impl PortStatus {
 }
 
 /// Switches of `cargo xtask port`.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct PortOptions {
     /// Let the commit delete files of ours that are still the upstream's files.
     pub allow_delete: bool,
+    /// With `Record`: our files a hand port changed, when the map cannot place the commit's paths.
+    pub files: Vec<String>,
+}
+
+/// The arguments of `cargo xtask port` after the task name; `--upstream-dir` is only checked
+/// here, since every upstream task shares it.
+pub struct PortArgs {
+    pub repo: String,
+    pub sha: String,
+    pub mode: PortMode,
+    pub options: PortOptions,
+}
+
+impl PortArgs {
+    /// Anything unknown is an error: a misspelt `--dry-run` must not turn into a real port.
+    pub fn parse(args: &[String]) -> Result<Self> {
+        let [repo, sha, flags @ ..] = args else { bail!("port needs <repo> <sha>") };
+        if repo.starts_with('-') || sha.starts_with('-') {
+            bail!("port needs <repo> <sha> before its flags");
+        }
+        let (mut dry_run, mut record, mut options) = (false, false, PortOptions::default());
+        let mut flags = flags.iter();
+        while let Some(flag) = flags.next() {
+            let mut value = || flags.next().filter(|v| !v.starts_with('-')).with_context(|| format!("{flag} needs a value"));
+            match flag.as_str() {
+                "--dry-run" => dry_run = true,
+                "--record" => record = true,
+                "--allow-delete" => options.allow_delete = true,
+                "--files" => options.files = value()?.split(',').map(str::to_string).collect(),
+                "--upstream-dir" => drop(value()?),
+                other => bail!("port does not know `{other}`"),
+            }
+        }
+        let mode = match (dry_run, record) {
+            (true, true) => bail!("--dry-run and --record exclude each other"),
+            (true, false) => PortMode::DryRun,
+            (false, true) => PortMode::Record,
+            (false, false) => PortMode::Apply,
+        };
+        if !options.files.is_empty() && mode != PortMode::Record {
+            bail!("--files goes with --record");
+        }
+        Ok(PortArgs { repo: repo.clone(), sha: sha.clone(), mode, options })
+    }
 }
 
 /// One file of the upstream commit that maps to a path of ours.
@@ -396,22 +440,30 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
             Route::Refuse(why) => refused.push(format!("{path}: {why}")),
         }
     }
-    if !refused.is_empty() {
-        return refuse(format!("{sha} touches paths that cannot be ported automatically:\n  {}", refused.join("\n  ")));
+    // A hand port of paths the map cannot place is recorded with the files the caller names.
+    let named = mode == PortMode::Record && !options.files.is_empty();
+    if !refused.is_empty() && !named {
+        let hint = if mode == PortMode::Record { "\nto record a port finished by hand, name our files: --record --files <a,b>" } else { "" };
+        return refuse(format!("{sha} touches paths that cannot be ported automatically:\n  {}{hint}", refused.join("\n  ")));
     }
-    if changes.is_empty() {
+    if changes.is_empty() && !named {
         return refuse(format!("{sha} only touches skipped paths"));
+    }
+    for file in options.files.iter().filter(|_| named) {
+        if local_state(root, file, "")? == Local::Missing {
+            return refuse(format!("--files: {file} is not a committed file of ours"));
+        }
     }
     for path in &dropped {
         println!("dropped: {path}");
     }
     let subject = git_out(&clone, &["log", "-1", "--format=%s", &sha])?;
-    let ours: Vec<&str> = changes.iter().map(|c| c.ours.as_str()).collect();
+    let ours: Vec<&str> = if named { options.files.iter().map(String::as_str).collect() } else { changes.iter().map(|c| c.ours.as_str()).collect() };
     let row = commit_row(upstream, &sha, &subject, &ours);
     let recorded = with_commit_row(&md, &row, &sha)?;
 
     if mode == PortMode::Record {
-        for c in &changes {
+        for c in changes.iter().filter(|_| !named) {
             println!("{} {} -> {}", c.status, c.from, c.ours);
         }
         std::fs::write(&ports_path, recorded).context("docs/PORTS.md")?;
@@ -984,7 +1036,7 @@ skip = ["docs/"]
         std::fs::remove_file(f.clone.join("crates/algo/src/old.rs")).unwrap();
         f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2")]));
         let sha = f.commit_upstream("refactor: drop old");
-        let allow = PortOptions { allow_delete: true };
+        let allow = PortOptions { allow_delete: true, ..Default::default() };
         let untouched = |f: &PortFixture| {
             assert_eq!(git(&f.ours, &["status", "--porcelain", "--untracked-files=all"]), "");
             assert_eq!(f.read("docs/PORTS.md"), PORTS_INTRO);
@@ -1012,6 +1064,47 @@ skip = ["docs/"]
         f.commit_ours("back to the upstream's old");
         assert_eq!(f.port_with(&sha, PortMode::Apply, &allow), PortStatus::Applied);
         assert_eq!(git(&f.ours, &["diff", "--cached", "--name-status"]), format!("M\tcrates/pc-algo/src/blur.rs\nD\t{ours}"));
+    }
+
+    #[test]
+    fn port_records_a_hand_port_of_paths_it_cannot_place() {
+        let f = PortFixture::new("port-record-files");
+        f.write(&f.clone, "crates/raw/src/lib.rs", "raw 2\n");
+        let sha = f.commit_upstream("fix(raw): by hand");
+        let files = |list: &[&str]| PortOptions { files: list.iter().map(|p| p.to_string()).collect(), ..Default::default() };
+
+        assert!(f.refused(&sha, PortMode::Record).contains("--record --files"));
+        match f.port_with(&sha, PortMode::Record, &files(&["crates/pc-algo/src/nope.rs"])) {
+            PortStatus::Refused(why) => assert!(why.contains("crates/pc-algo/src/nope.rs is not a committed file of ours"), "{why}"),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert_eq!(f.read("docs/PORTS.md"), PORTS_INTRO);
+        assert_eq!(f.port_with(&sha, PortMode::Record, &files(&["crates/pc-algo/src/blur.rs"])), PortStatus::Applied);
+        assert!(f.read("docs/PORTS.md").ends_with(&PortFixture::row(&sha, "fix(raw): by hand")));
+    }
+
+    #[test]
+    fn port_arguments_reject_what_they_do_not_know() {
+        let parse = |line: &str| PortArgs::parse(&line.split(' ').map(str::to_string).collect::<Vec<_>>());
+        let ok = parse("photocraft abc1234 --upstream-dir /clones --record --files a.rs,b.rs").unwrap();
+        assert_eq!((ok.repo.as_str(), ok.sha.as_str(), ok.mode), ("photocraft", "abc1234", PortMode::Record));
+        assert_eq!(ok.options, PortOptions { allow_delete: false, files: vec!["a.rs".into(), "b.rs".into()] });
+        assert_eq!(parse("photocraft abc1234").unwrap().mode, PortMode::Apply);
+        assert_eq!(parse("photocraft abc1234 --dry-run").unwrap().mode, PortMode::DryRun);
+        assert!(parse("photocraft abc1234 --allow-delete").unwrap().options.allow_delete);
+        for bad in [
+            "photocraft abc1234 --dryrun",
+            "photocraft abc1234 -n",
+            "photocraft abc1234 extra",
+            "photocraft abc1234 --upstream-dir",
+            "photocraft abc1234 --upstream-dir --dry-run",
+            "photocraft abc1234 --dry-run --record",
+            "photocraft abc1234 --files a.rs",
+            "--dry-run photocraft abc1234",
+            "photocraft",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -31,13 +31,16 @@
 //! cargo xtask upstream-reviewed <repo> <sha> [--upstream-dir DIR]
 //!     moves a storytold upstream's review cutoff in docs/PORTS.md forward to <sha>: every commit up
 //!     to it has been triaged. DIR holds the clones as DIR/<repo> (default target/upstream).
-//! cargo xtask port <repo> <sha> [--upstream-dir DIR] [--dry-run | --record]
+//! cargo xtask port <repo> <sha> [--upstream-dir DIR] [--dry-run | --allow-delete | --record [--files A,B]]
 //!     applies one storytold upstream commit to the current branch at our paths
 //!     (docs/upstream-paths.toml) with a three-way merge, staged but not committed, and appends its
-//!     row to docs/PORTS.md as an unstaged edit. Exit 0 applied, 1 error, 2 refused (dirty tree,
-//!     unknown, merge or already recorded commit, a path the map cannot place; nothing written),
-//!     3 conflicts left in the tree (no row). --dry-run prints the mapping, the row and `git apply --check`; --record
-//!     only appends the row, after a port finished by hand and committed.
+//!     row to docs/PORTS.md as an unstaged edit. Prints each file's change and whether ours has
+//!     local changes. Exit 0 applied, 1 error, 2 refused (dirty tree; unknown, merge, unmerged or
+//!     already recorded commit; a path the map cannot place; a deletion of a file of ours without
+//!     --allow-delete or with local changes; nothing written), 3 conflicts left in the tree (no
+//!     row). --dry-run prints the mapping, the row and `git apply --check`. --record only appends
+//!     the row, after a port finished by hand and committed; --files names our files when the map
+//!     cannot place the commit's paths. Unknown arguments are an error.
 //! cargo xtask upstream-drift [--upstream-dir DIR] [--repo R] [--rev REV]
 //!     a markdown table of how each mapped directory of our committed tree differs from the
 //!     upstream at REV (default: its review cutoff): identical, changed and one-sided files, and
@@ -587,7 +590,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   deps-pure
   upstream-check [--offline]
   upstream-reviewed <repo> <sha> [--upstream-dir DIR]
-  port <repo> <sha> [--upstream-dir DIR] [--dry-run | --record]
+  port <repo> <sha> [--upstream-dir DIR] [--dry-run | --allow-delete | --record [--files A,B]]
   upstream-drift [--upstream-dir DIR] [--repo R] [--rev REV]
   assets
   icons
@@ -619,17 +622,9 @@ fn main() -> Result<()> {
             print!("{}", upstream::upstream_drift(&root(), &upstream_dir(), value("--repo").as_deref(), value("--rev").as_deref())?);
             Ok(())
         }
-        Some("port") => match (positional(1), positional(2)) {
-            (Some(repo), Some(sha)) if !(flag("--dry-run") && flag("--record")) => {
-                let mode = if flag("--dry-run") {
-                    upstream::PortMode::DryRun
-                } else if flag("--record") {
-                    upstream::PortMode::Record
-                } else {
-                    upstream::PortMode::Apply
-                };
-                let options = upstream::PortOptions { allow_delete: flag("--allow-delete") };
-                let code = match upstream::port(&root(), repo, sha, &upstream_dir(), mode, &options) {
+        Some("port") => match upstream::PortArgs::parse(&args[1..]) {
+            Ok(a) => {
+                let code = match upstream::port(&root(), &a.repo, &a.sha, &upstream_dir(), a.mode, &a.options) {
                     Ok(status) => {
                         if let upstream::PortStatus::Refused(why) = &status {
                             eprintln!("refused: {why}");
@@ -643,7 +638,7 @@ fn main() -> Result<()> {
                 };
                 std::process::exit(code)
             }
-            _ => bail!("{USAGE}"),
+            Err(e) => bail!("{e}\n{USAGE}"),
         },
         Some("test-fast") => test_lane::fast(),
         Some("assets") => assets::run(&root()),
