@@ -109,8 +109,9 @@ impl Answer {
 #[cfg(target_os = "linux")]
 const IMAGE_WAIT: Duration = Duration::from_secs(10);
 
-/// The longest an X11 read of arboard's lasts while the owner sends nothing: a text read tries
-/// six formats and waits up to 4 s for each, and a second more covers the rest of the read.
+/// The longest an X11 read of arboard's lasts while the owner sends nothing, with room to spare:
+/// arboard waits up to 4 s for each format it tries, and the worker's image and file-list reads
+/// try one each.
 #[cfg(target_os = "linux")]
 const X11_READ_LIMIT: Duration = Duration::from_secs(25);
 
