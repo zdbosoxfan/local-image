@@ -96,8 +96,8 @@ impl Frame {
             flip_v: apply_crop && s.crop.flip_v,
             warp: (!warp.is_identity()).then_some(warp),
         };
-        if apply_crop && s.geometry.constrain_crop {
-            f.constrain_to_image();
+        if apply_crop {
+            f.constrain_to_image(s.geometry.constrain_crop);
         }
         f
     }
@@ -129,16 +129,33 @@ impl Frame {
         frame
     }
 
-    /// "Constrain Crop": the largest crop of the same aspect inside the user's crop that contains no area
-    /// outside the warped source. Shrinking about the crop's centre alone loses area on the lopsided
-    /// trapezoids Upright leaves (a vertical fix with a horizontal one or a roll), so the shrunk crop
-    /// also moves, within the room the shrink frees.
-    fn constrain_to_image(&mut self) {
-        let Some(wp) = self.warp.as_ref().filter(|w| w.moves_pixels()) else { return };
+    /// The largest crop of the same aspect inside the user's crop that contains no area outside the
+    /// warped source, in any colour plane. Lens corrections (profile, embedded camera warp, manual
+    /// distortion, lateral CA) always do this, as a corrected lens never shows the blank past the
+    /// photo's edge; perspective only with "Constrain Crop" (`with_persp`), so a keystone fix can keep
+    /// its corners. Shrinking about the crop's centre alone loses area on the lopsided trapezoids
+    /// Upright leaves (a vertical fix with a horizontal one or a roll), so the shrunk crop also moves,
+    /// within the room the shrink frees.
+    pub(crate) fn constrain_to_image(&mut self, with_persp: bool) {
+        let Some(full) = self.warp.as_ref().filter(|w| w.moves_pixels()) else { return };
+        let optics;
+        let wp = if with_persp || full.persp == Homography::IDENTITY {
+            full
+        } else {
+            let mut o = full.clone();
+            o.persp = Homography::IDENTITY;
+            o.persp_inv = Homography::IDENTITY;
+            optics = o;
+            &optics
+        };
+        if !wp.moves_pixels() {
+            return;
+        }
+        let planes: &[usize] = if wp.per_channel() { &[0, 1, 2] } else { &[1] };
         let a = self.crop.output_to_source(self.ow, self.oh, 1.0, 1.0);
         let (w, h) = (self.ow, self.oh);
-        // Crop coordinates (0..1 across the user's crop) → green-plane source position.
-        let map = |p: Point| wp.to_source(a.apply(p), 1);
+        // Crop coordinates (0..1 across the user's crop) → source position of colour plane `ch`.
+        let map = |p: Point, ch: usize| wp.to_source(a.apply(p), ch);
         let inside = |s: Point| s.x >= -1e-6 * w && s.y >= -1e-6 * h && s.x <= w * (1.0 + 1e-6) && s.y <= h * (1.0 + 1e-6);
         let samples = |t: f64, c: Point| {
             (0..=48).flat_map(move |i| {
@@ -146,7 +163,7 @@ impl Frame {
                 [(u, 0.0), (u, 1.0), (0.0, u), (1.0, u)].map(|(x, y)| Point::new(c.x + t * (x - 0.5), c.y + t * (y - 0.5)))
             })
         };
-        let fits = |t: f64, c: Point| samples(t, c).all(|p| inside(map(p)));
+        let fits = |t: f64, c: Point| samples(t, c).all(|p| planes.iter().all(|&ch| inside(map(p, ch))));
         let centre = Point::new(0.5, 0.5);
         if fits(1.0, centre) {
             return;
@@ -159,8 +176,8 @@ impl Frame {
             let mut c = centre;
             for _ in 0..6 {
                 let mut cons: Vec<([f64; 2], f64)> = Vec::new();
-                for p in samples(t, c) {
-                    let q = map(p);
+                for (p, &ch) in samples(t, c).flat_map(|p| planes.iter().map(move |ch| (p, ch))) {
+                    let q = map(p, ch);
                     if inside(q) {
                         continue;
                     }
@@ -169,7 +186,7 @@ impl Frame {
                         return None;
                     }
                     let e = 1e-4;
-                    let (qx, qy) = (map(Point::new(p.x + e, p.y)), map(Point::new(p.x, p.y + e)));
+                    let (qx, qy) = (map(Point::new(p.x + e, p.y), ch), map(Point::new(p.x, p.y + e), ch));
                     let jx = [(qx.x - q.x) / e, (qy.x - q.x) / e];
                     let jy = [(qx.y - q.y) / e, (qy.y - q.y) / e];
                     // keep a little inside: a hundredth of a source pixel
@@ -943,7 +960,7 @@ mod tests {
         s.geometry.vertical = -30.0;
         let mut f = Frame::new(600, 400, &s, true);
         f.warp.as_mut().expect("a perspective warp").k1 = f64::NAN;
-        f.constrain_to_image();
+        f.constrain_to_image(true);
         assert!(f.crop.rect.width() <= 0.05 && f.crop.rect.height() <= 0.05, "{:?}", f.crop.rect);
     }
 

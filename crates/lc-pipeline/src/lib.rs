@@ -400,6 +400,10 @@ pub fn frame_for(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, apply_c
     // calibrated CA profile would correct the same displacement twice.
     if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca && !info.embedded_ca_baked {
         frame.add_lateral_ca(optics::estimate_lateral_ca(src, basis.map(|[undo, _]| undo)));
+        if apply_crop {
+            // the estimated CA moves the colour planes too: keep the crop inside every one of them
+            frame.constrain_to_image(settings.geometry.constrain_crop);
+        }
     }
     if let Some(warp) = frame.warp.as_mut().filter(|w| w.per_channel()) {
         warp.camera_basis = basis;
