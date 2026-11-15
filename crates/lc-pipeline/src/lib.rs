@@ -258,6 +258,9 @@ pub struct RenderRequest {
     /// Output must fit in `max_w × max_h` (aspect preserved).
     pub max_w: usize,
     pub max_h: usize,
+    /// The box is the final export size, already fitted against the full-resolution photo: a
+    /// source whose shape only rounds differently must not fit it a second time.
+    pub exact_size: bool,
     pub quality: Quality,
     /// Show the crop frame's content only (true) or the whole uncropped image (crop tool active).
     pub apply_crop: bool,
@@ -314,6 +317,7 @@ impl RenderRequest {
         Self {
             max_w,
             max_h,
+            exact_size: false,
             quality: Quality::Full,
             apply_crop: true,
             overlay: Overlay::None,
@@ -321,6 +325,22 @@ impl RenderRequest {
             depth: OutputDepth::U8,
             proof: None,
         }
+    }
+
+    /// Render to a final size calculated from the original photo, even from a source that rounds
+    /// its shape differently.
+    pub fn exact(width: usize, height: usize) -> Self {
+        Self { exact_size: true, ..Self::fit(width, height) }
+    }
+
+    /// The output size for `frame`. An exact box stands against a source that only rounds the
+    /// photo's shape differently; a source of another shape (a raw's embedded preview) is fitted,
+    /// not stretched.
+    fn size(&self, frame: &geometry::Frame) -> (usize, usize) {
+        let fitted = frame.fit(self.max_w, self.max_h);
+        let exact = (self.max_w.max(1), self.max_h.max(1));
+        let near = |a: usize, b: usize| a.abs_diff(b) <= b / 64 + 1;
+        if self.exact_size && near(fitted.0, exact.0) && near(fitted.1, exact.1) { exact } else { fitted }
     }
 }
 
@@ -368,7 +388,7 @@ pub(crate) struct Prepared {
 
 /// Output size for a source of `src_w × src_h` under `s`, fitting `max_w × max_h`.
 pub fn output_size(src_w: usize, src_h: usize, s: &DevelopSettings, req: &RenderRequest) -> (usize, usize) {
-    geometry::Frame::new(src_w, src_h, s, req.apply_crop).fit(req.max_w, req.max_h)
+    req.size(&geometry::Frame::new(src_w, src_h, s, req.apply_crop))
 }
 
 /// Size of the cropped output of a `src_w × src_h` source under `s` at the source's own resolution
@@ -588,7 +608,7 @@ pub fn plan<'a>(src: &RgbFrame, info: &SourceInfo, s: &'a DevelopSettings, req: 
     visualize::adjust_settings(req.overlay, &mut settings);
     let s = &*settings;
     let frame = frame_for(src, info, s, req.apply_crop);
-    let (w, h) = frame.fit(req.max_w, req.max_h);
+    let (w, h) = req.size(&frame);
     let px_per_long = frame.px_per_long(w);
     let src_long = src.width.max(src.height);
     let geo = hash_of((format!("{frame:?}"), w, h));
@@ -1112,6 +1132,25 @@ mod tests_toolset;
 
 mod base_curve_data;
 pub mod basecurves;
+
+/// `plan` keeps the box an export already decided instead of fitting it again: a source whose
+/// aspect rounds differently (a 149 × 100 decode of a 240 × 160 photo) came out a pixel off.
+#[cfg(test)]
+#[test]
+fn plan_keeps_an_exact_box_and_never_stretches_another_shape() {
+    let src = RgbFrame::from_fn(149, 100, |_, _| [0.5; 3]);
+    let info = SourceInfo::default();
+    let s = DevelopSettings::default();
+    let fitted = plan(&src, &info, &s, &RenderRequest::fit(240, 160));
+    assert_eq!((fitted.w, fitted.h), (238, 160));
+    let req = RenderRequest::exact(240, 160);
+    let p = plan(&src, &info, &s, &req);
+    assert_eq!((p.w, p.h), (240, 160));
+    // an embedded preview of another shape keeps its shape: an exact box must not stretch it
+    let preview = RgbFrame::from_fn(120, 100, |_, _| [0.5; 3]);
+    let p = plan(&preview, &info, &s, &req);
+    assert_eq!((p.w, p.h), (192, 160));
+}
 
 #[cfg(test)]
 #[test]
