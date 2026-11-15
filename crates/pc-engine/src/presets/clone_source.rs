@@ -8,6 +8,7 @@
 //! sample point: a 200 % width paints the source twice as wide, a 30° rotation paints it turned
 //! 30° counter-clockwise on screen (Photoshop's sense).
 
+use photocraft_doc::DocId;
 use photocraft_geom::Rect;
 use photocraft_paint::retouch::Region;
 use serde::{Deserialize, Serialize};
@@ -25,8 +26,11 @@ pub struct CloneSource {
     pub source: Option<[f64; 2]>,
     /// Destination point paired with `source` (first aligned stroke after setting it).
     pub anchor: Option<[f64; 2]>,
-    /// Layer the source was set on (informational, like the panel's document/layer line).
+    /// Layer picked with the source; Current Layer sampling reads it after the target changes.
     pub layer: Option<u64>,
+    /// Document picked with the source; absent in slots saved before it was recorded.
+    #[serde(default)]
+    pub document: Option<DocId>,
     /// W and H in percent.
     pub scale: [f64; 2],
     /// Degrees, counter-clockwise.
@@ -37,7 +41,7 @@ pub struct CloneSource {
 
 impl Default for CloneSource {
     fn default() -> Self {
-        CloneSource { source: None, anchor: None, layer: None, scale: [100.0, 100.0], rotation: 0.0, flip_h: false, flip_v: false }
+        CloneSource { source: None, anchor: None, layer: None, document: None, scale: [100.0, 100.0], rotation: 0.0, flip_h: false, flip_v: false }
     }
 }
 
@@ -55,7 +59,7 @@ impl CloneSource {
     }
     fn to_json(&self, i: usize) -> Value {
         json!({
-            "index": i, "source": self.source, "anchor": self.anchor, "offset": self.offset(), "layer": self.layer,
+            "index": i, "source": self.source, "anchor": self.anchor, "offset": self.offset(), "layer": self.layer, "documentId": self.document,
             "width": self.scale[0], "height": self.scale[1], "rotation": self.rotation, "flipH": self.flip_h, "flipV": self.flip_v,
         })
     }
@@ -268,13 +272,14 @@ fn select(s: &mut Session, p: &Value) -> Result<Value> {
 fn set(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "cloneSource.set";
     let i = index(s, p, CMD)?;
-    let active_layer = s.active().and_then(|d| d.active_layer).map(|l| l.0);
+    let (document, active_layer) = (s.active().map(|d| d.doc.id), s.active().and_then(|d| d.active_layer).map(|l| l.0));
     let slot = &mut s.presets.clone.slots[i];
     if let Some((x, y)) = pt(p, "source") {
         // A new sample point re-pairs with the next stroke.
         slot.source = Some([x, y]);
         slot.anchor = None;
         slot.layer = p.get("layer").and_then(Value::as_u64).or(active_layer);
+        slot.document = document;
     }
     if let Some((dx, dy)) = pt(p, "offset") {
         // Offset X/Y fields: keep the anchor (or the source as anchor) and move the source.
@@ -354,7 +359,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Clone Sources",
             menu: &[],
             shortcut: None,
-            params: "{} → {active,sources:[{index,source,anchor,offset,layer,width,height,rotation,flipH,flipV}],overlay}",
+            params: "{} → {active,sources:[{index,source,anchor,offset,layer,documentId,width,height,rotation,flipH,flipV}],overlay}",
             enabled: always,
             run: list,
             journal: false,

@@ -1006,3 +1006,30 @@ fn clone_and_heal_with_a_far_source_are_plain_errors() {
         s.execute(cmd, json!({"points": [[10, 10], [30, 10]], "source": [2147483000, 0]})).unwrap();
     }
 }
+
+#[test]
+fn clone_stamp_samples_the_layer_and_document_its_source_was_picked_on() {
+    // Upstream 9b8536f5: after the source was picked, a stroke sampled whatever layer and
+    // document it painted on.
+    let mut s = session(64, 64, 8, "rgb");
+    paint_layer(&mut s, |x, y| [x as f32 / 64.0, y as f32 / 64.0, 0.25, 1.0]);
+    let want = rgba(&s, 16, 16);
+    s.execute("cloneSource.set", json!({"source": [16, 16]})).unwrap();
+    let stamp = json!({"points": [[48, 48]], "size": 8, "hardness": 100});
+    let cloned = |s: &Session, onto: &str| {
+        let got = rgba(s, 48, 48);
+        for c in 0..4 {
+            assert!((got[c] - want[c]).abs() <= tol(8), "{onto}: {got:?} vs {want:?}");
+        }
+    };
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("paint.cloneStamp", stamp.clone()).unwrap();
+    cloned(&s, "an empty layer above the source");
+    s.execute("file.new", json!({"width": 64, "height": 64, "depth": 8, "mode": "rgb"})).unwrap();
+    s.execute("paint.cloneStamp", stamp.clone()).unwrap();
+    cloned(&s, "another document");
+    // Closing the source's document leaves nothing to sample.
+    assert!(s.close(0).is_some());
+    let err = s.execute("paint.cloneStamp", stamp).unwrap_err();
+    assert!(matches!(err, EngineError::BadParams { .. }), "{err:?}");
+}

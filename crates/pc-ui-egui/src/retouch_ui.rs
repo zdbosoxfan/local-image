@@ -191,6 +191,10 @@ pub fn source_marker_point(app: &PhotocraftApp) -> Option<[f64; 2]> {
     if !matches!(app.ui.tool, Tool::CloneStamp | Tool::Healing) {
         return None;
     }
+    // A source picked in another document has no place on this canvas.
+    if app.session.presets.clone.active().document.is_some_and(|id| app.session.active().is_none_or(|st| st.doc.id != id)) {
+        return None;
+    }
     let at = app.drag.as_ref().filter(|d| matches!(d.tool, Tool::CloneStamp | Tool::Healing)).and_then(|d| d.points.last().map(|p| [p[0], p[1]]))?;
     match (crate::preset_panels::clone_sample_point(app, Some(at)), app.ui.clone_offset, app.ui.clone_source) {
         (Some(p), ..) => Some(p),
