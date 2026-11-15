@@ -172,10 +172,11 @@ fn rdp(pts: &[Point], tol: f64) -> Vec<Point> {
     while let Some((a, b)) = stack.pop() {
         let (pa, pb) = (pts[a], pts[b]);
         let chord = pb - pa;
-        let len = chord.hypot();
+        let len2 = chord.hypot2();
         let mut best = (0.0, a);
         for (i, &p) in pts.iter().enumerate().take(b).skip(a + 1) {
-            let d = if len < 1e-12 { p.distance(pa) } else { (p - pa).cross(chord).abs() / len };
+            // To the segment, not the infinite line: a point beyond an end is measured to that end.
+            let d = if len2 < 1e-24 { p.distance(pa) } else { p.distance(pa + chord * ((p - pa).dot(chord) / len2).clamp(0.0, 1.0)) };
             if d > best.0 {
                 best = (d, i);
             }

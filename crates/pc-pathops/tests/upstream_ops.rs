@@ -373,6 +373,25 @@ fn simplify_keeps_square_corners() {
 }
 
 #[test]
+fn a_path_that_turns_back_past_its_end_converted_to_straight_lines_keeps_its_tip() {
+    // A line to (100, 0), a smooth 0.2 pt U-turn and a line back to (50, 0.2): every point is
+    // within 0.4 pt of the line through the ends, but the tip is 50 pt past the end.
+    use photocraft_pathops::geom::Anchor;
+    let k = 0.2 * 2.0 / 3.0;
+    let (a, b) = (Point::new(100.0, 0.0), Point::new(100.0, 0.2));
+    let anchors = vec![
+        Anchor::corner(Point::new(0.0, 0.0)),
+        Anchor::with_handles(a, a, Point::new(100.0 + k, 0.0)),
+        Anchor::with_handles(b, Point::new(100.0 + k, 0.2), b),
+        Anchor::corner(Point::new(50.0, 0.2)),
+    ];
+    let path = PathData::single(SubPath::new(anchors, false));
+    let out = simplify_with(&path, &SimplifyOptions { tolerance: 1.0, straight_lines: true, ..Default::default() });
+    let reach = out.subpaths.iter().flat_map(|s| &s.anchors).map(|a| a.p.x).fold(f64::MIN, f64::max);
+    assert!(reach > 99.0, "the tip at x = 100 is kept, not cut back to {reach}");
+}
+
+#[test]
 fn simplify_straight_lines_option() {
     let c = dense_circle(50.0, 200);
     let s = simplify_with(&c, &SimplifyOptions { tolerance: 1.0, straight_lines: true, ..Default::default() });
