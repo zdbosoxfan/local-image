@@ -405,3 +405,34 @@ fn resetting_a_rendered_photo_keeps_the_generic_defaults() {
     s.execute("develop.reset", &json!({})).unwrap();
     assert_eq!(*s.develop_of(id).unwrap(), lightcraft_develop::DevelopSettings::default());
 }
+
+/// Auto Sync of a typed Temp (upstream LightCraft 67782d8f): the same Kelvin on every raw, each
+/// keeping its own tint, and a JPEG, which has no Kelvin of its own, moves by as much as the
+/// active raw did.
+#[test]
+fn auto_sync_temp_keeps_each_photos_tint_and_scale() {
+    use lightcraft_develop::WbMode;
+    use lightcraft_pipeline::local::effective_wb;
+    let mut s = Session::new();
+    // As Shot as a sidecar leaves it: the mode alone, without the camera's numbers
+    for (id, name, as_shot) in [(A, "a.dng", (5200.0, 4.0)), (B, "b.dng", (3300.0, -12.0))] {
+        let mut p = Photo::new(id, Source::File { path: name.into() }, name, "DNG", 64, 48, "2026-01-01");
+        p.kind = lightcraft_catalog::MediaKind::Raw;
+        p.measured_wb = true;
+        p.as_shot_wb = Some(as_shot);
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    }
+    let jpeg = Photo::new(C, Source::File { path: "c.jpg".into() }, "c.jpg", "JPEG", 64, 48, "2026-01-01");
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(jpeg) }).unwrap();
+    s.execute("library.select", &json!({"ids": [A.0, B.0, C.0], "active": A.0})).unwrap();
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    let wb = |s: &Session, id: PhotoId| effective_wb(&s.source_info(id), &s.develop_of(id).unwrap());
+    let jpeg_before = wb(&s, C);
+    s.execute("develop.set", &json!({"control": "wb.temp", "value": 5600.0})).unwrap();
+    assert_eq!(wb(&s, A), (5600.0, 4.0));
+    assert_eq!(wb(&s, B), (5600.0, -12.0), "the same Kelvin, its own tint");
+    assert_eq!(wb(&s, C), (jpeg_before.0 + 400.0, jpeg_before.1), "a JPEG moves by as much as the raw");
+    assert!([A, B, C].iter().all(|id| s.develop_of(*id).unwrap().wb.mode == WbMode::Custom));
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(wb(&s, C), jpeg_before, "one undo step");
+}

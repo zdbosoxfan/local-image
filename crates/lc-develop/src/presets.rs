@@ -1,8 +1,10 @@
 //! Presets and copy/paste subsets.
 //!
-//! A preset is a *partial* settings object (JSON) — only the groups it includes. Applying merges it
-//! into the photo's settings; `amount` (0..200 %) interpolates numeric values between the current
-//! settings and the preset's. Copy/paste/sync use the same group selection ([`SettingsGroup`]).
+//! A preset is a *partial* settings object (JSON) — only the settings it names. Applying it changes
+//! exactly those: every other setting keeps the photo's value. `amount` (0..200 %) moves each named
+//! number between the photo's *original* state (its import look, when one is recorded, else its
+//! current settings) and the preset's value ([`Preset::apply_on`]). Copy/paste/sync use the same
+//! group selection ([`SettingsGroup`]) and merge into the current settings.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -217,8 +219,33 @@ fn scale_patch(base: &Value, patch: &Value, t: f64) -> Value {
 /// Apply a partial settings object with an amount (1.0 = 100 %). Out-of-range values are clamped
 /// through the control specs.
 pub fn apply_partial(s: &DevelopSettings, partial: &Value, amount: f64) -> DevelopSettings {
-    let base = s.to_json_full();
-    let patch = if (amount - 1.0).abs() < 1e-9 { partial.clone() } else { scale_patch(&base, partial, amount) };
+    apply_partial_on(s, s, partial, amount)
+}
+
+/// Top-level settings keys that hold per-photo pixel repairs: a partial's repairs compose on the
+/// photo's own values, never on the original's.
+const REPAIR_KEYS: [&str; 3] = ["masks", "spots", "red_eye"];
+
+/// [`apply_partial`] with the amount measured from `original` instead of from `s`: each setting the
+/// partial names moves between `original`'s value and the partial's and replaces the photo's, and
+/// every setting it does not name keeps `s`'s value.
+fn apply_partial_on(s: &DevelopSettings, original: &DevelopSettings, partial: &Value, amount: f64) -> DevelopSettings {
+    let patch = if (amount - 1.0).abs() < 1e-9 {
+        partial.clone()
+    } else {
+        let mut base = original.to_json_full();
+        if !std::ptr::eq(s, original) {
+            let current = s.to_json_full();
+            if let (Some(b), Some(c)) = (base.as_object_mut(), current.as_object()) {
+                for k in REPAIR_KEYS {
+                    if let Some(v) = c.get(k) {
+                        b.insert(k.to_string(), v.clone());
+                    }
+                }
+            }
+        }
+        scale_patch(&base, partial, amount)
+    };
     let mut out = s.merged(&patch).unwrap_or_else(|_| s.clone());
     if partial.get("spots").is_some() {
         keep_ai_spots(s, &mut out);
@@ -295,21 +322,31 @@ impl Preset {
     pub fn from_settings(id: &str, name: &str, group: &str, s: &DevelopSettings, groups: &[SettingsGroup]) -> Preset {
         Preset { id: id.into(), name: name.into(), group: group.into(), settings: extract_groups(s, groups), favorite: false, builtin: false }
     }
-    /// Apply at `amount` (1.0 = 100 %). Masks in the preset are added to the photo's own (ones it
-    /// already has are skipped), their effect scaled by the amount.
+    /// Apply at `amount` (1.0 = 100 %), with `s` as both the photo's current and its original
+    /// settings (see [`Preset::apply_on`]). Masks in the preset are added to the photo's own (ones
+    /// it already has are skipped), their effect scaled by the amount.
     pub fn apply(&self, s: &DevelopSettings, amount: f64) -> DevelopSettings {
+        self.apply_on(s, s, amount)
+    }
+    /// Apply at `amount` (1.0 = 100 %), measuring the amount from `original` (the photo's import
+    /// state, or its current settings when that is not known): each setting the preset names is
+    /// computed from `original` and the preset's value and replaces the photo's. Every setting the
+    /// preset does not name keeps `current`'s value, and so do the photo's pixel repairs (masks,
+    /// spots, red eye), which the preset patches. A preset at 50 % therefore looks the same however
+    /// the photo was edited before.
+    pub fn apply_on(&self, current: &DevelopSettings, original: &DevelopSettings, amount: f64) -> DevelopSettings {
         let mut settings = self.settings.clone();
         if let Some(o) = settings.as_object_mut() {
             strip_photo_bound(o);
         }
         let Some(masks) = settings.get("masks").and_then(Value::as_array).filter(|m| !m.is_empty()) else {
-            return apply_partial(s, &settings, amount);
+            return apply_partial_on(current, original, &settings, amount);
         };
         let mut rest = settings.clone();
         if let Some(o) = rest.as_object_mut() {
             o.remove("masks");
         }
-        let mut out = apply_partial(s, &rest, amount);
+        let mut out = apply_partial_on(current, original, &rest, amount);
         let mut next = out.masks.iter().map(|m| m.id).max().unwrap_or(0);
         for m in masks {
             let Ok(mut m) = serde_json::from_value::<crate::Mask>(m.clone()) else { continue };

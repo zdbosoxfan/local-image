@@ -1228,3 +1228,14 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [storytold/lightcraft@`b90679da15385f6cbea7416ceb97d7f6fe1acf82`](https://github.com/storytold/lightcraft/commit/b90679da15385f6cbea7416ceb97d7f6fe1acf82) | LR-LIB-ALBUM: album commands skip photos the library lacks and record nothing when they add nothing | `crates/lc-engine/src/cmd/library.rs`<br>`crates/lc-engine/src/tests_library.rs` | MIT OR Apache-2.0 |
 
 Adapted ports: `b90679da` has no Local-photo skipping here, so `album_targets` only drops ids the catalog lacks and the results keep their existing fields (no `skipped` or `toggled`).
+
+## Upstream commit ports
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`5260206fd41b`](https://github.com/storytold/lightcraft/commit/5260206fd41b800ec6e51744ea152c017cfd2baa) | Issue #3405: Auto Import waits for an import that starts during its listing | `crates/lc-ui-egui/src/import.rs`<br>`crates/lc-ui-egui/src/lib.rs` | MIT OR Apache-2.0 |
+| [`fe632e05f9f9`](https://github.com/storytold/lightcraft/commit/fe632e05f9f9d90dd9f30054296662c71d4d1f41) | Keep a stitched panorama at the photos' own resolution (#3806) | `crates/lc-merge/src/pano/mod.rs`<br>`crates/lc-merge/tests/it/pano.rs` | MIT OR Apache-2.0 |
+| [`a856df5f422b`](https://github.com/storytold/lightcraft/commit/a856df5f422bc07044a6beaf5bfdb920292bb1c7) | Write camera make and lens make to EXIF on export (#3828) | `crates/lc-catalog/src/model.rs`<br>`crates/lc-engine/src/cmd/convert.rs`<br>`crates/lc-engine/src/export.rs`<br>`crates/lc-engine/src/files.rs`<br>`crates/lc-engine/src/tests_export.rs` | MIT OR Apache-2.0 |
+| [`3335fffb872a`](https://github.com/storytold/lightcraft/commit/3335fffb872a51cf9072c20f9208b39685798b1d) | Limit tone-curve steps between pixel populations in the camera look fit (#1904) | `crates/lc-engine/src/camera_preview.rs`<br>`crates/lc-engine/src/media.rs` | MIT OR Apache-2.0 |
+| [`67782d8f659a`](https://github.com/storytold/lightcraft/commit/67782d8f659a958552bff5cc8180d3a470bb85eb) | Auto Sync: As Shot, Auto and Temp apply to each selected photo's own white balance (#3571) | `crates/lc-engine/src/auto_wb.rs`<br>`crates/lc-engine/src/lib.rs`<br>`crates/lc-engine/src/tests_per_photo.rs` | MIT OR Apache-2.0 |
+| [`7b99ed3903f9`](https://github.com/storytold/lightcraft/commit/7b99ed3903f9f305f0e5fd6fb12f705aec0c1adb) | Presets change only the settings they name (fixes #2159) (#2207) | `crates/lc-develop/src/presets.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/presets.rs` | MIT OR Apache-2.0 |
