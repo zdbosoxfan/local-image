@@ -315,18 +315,29 @@ const MAX_ARRANGEMENT_CUTS: usize = 1 << 20;
 /// Two cubics meet at most nine times, and each meeting adds two edges.
 const MOST_CUTS_PER_PAIR: usize = 18;
 
+/// What one edge of a sweep over `paths` keeps: a dense `Multi` on either side, whatever its
+/// place in the sweep line.
+fn sweep_edge_bytes(paths: &[(BezPath, FillRule)]) -> usize {
+    2 * size_of::<i32>() * paths.len()
+}
+
+/// Whether a sweep of `paths` could pass the arrangement limits, so that a trial sweep must check
+/// it first. The sweep moves points by a few `eps` and cuts what they land on, so overlapping
+/// bounds alone would undercount.
+fn may_reach_limits(paths: &[(BezPath, FillRule)], eps: f64) -> bool {
+    let close_pairs = crate::budget::pairs_within(paths.iter().map(|(path, _)| path), 16.0 * eps, MAX_ARRANGEMENT_CUTS / MOST_CUTS_PER_PAIR);
+    close_pairs.is_none_or(|pairs| (pairs * MOST_CUTS_PER_PAIR).saturating_mul(sweep_edge_bytes(paths)) > MAX_SWEEP_VALUE_BYTES)
+}
+
 impl Arrangement {
     pub(crate) fn new(mut paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
         snap_horizontals(&mut paths.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
-        // Each edge keeps a dense `Multi` on either side, whatever its place in the sweep line.
-        let edge_bytes = 2 * size_of::<i32>() * paths.len();
+        let edge_bytes = sweep_edge_bytes(&paths);
         let sweep = |paths: &[(BezPath, FillRule)]| {
             crate::budget::charge_sweep(paths.iter().map(|(path, _)| path))?;
-            // Art that cannot reach the limits is not swept twice. The sweep moves points by a few
-            // `eps` and cuts what they land on, so overlapping bounds alone would undercount.
-            let close_pairs = crate::budget::pairs_within(paths.iter().map(|(path, _)| path), 16.0 * eps, MAX_ARRANGEMENT_CUTS / MOST_CUTS_PER_PAIR);
-            let may_refuse = close_pairs.is_none_or(|pairs| (pairs * MOST_CUTS_PER_PAIR).saturating_mul(edge_bytes) > MAX_SWEEP_VALUE_BYTES);
+            // Art that cannot reach the limits is not swept twice.
+            let may_refuse = may_reach_limits(paths, eps);
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 if may_refuse {
                     check_sweep_size(paths.iter().map(|(path, _)| path), eps, MAX_ARRANGEMENT_CUTS, |_| edge_bytes)?;
@@ -816,6 +827,37 @@ mod dsfix_tests {
         assert!(recovered[0].0.segments().count() > 1024);
         assert!((recovered[0].0.area().abs() - std::f64::consts::PI * 10000.).abs() < 1.);
         assert!(flatten_fallback(&[(ring(8194), FillRule::NonZero)], 200.).is_err());
+    }
+
+    #[test]
+    fn segments_stopping_short_of_others_may_reach_the_limits() {
+        // 60 stacked slivers and 1,000 tips that stop 4e-7 short of them: no bounds overlap, yet
+        // the sweep can cut every tip on every sliver.
+        let mut slivers = BezPath::new();
+        for i in 0..60 {
+            let y = -f64::from(i) * 1e-7;
+            slivers.move_to((0.0, y));
+            slivers.line_to((1000.0, y));
+        }
+        let mut tips = BezPath::new();
+        for i in 0..1000 {
+            let x = f64::from(i) + 0.5;
+            tips.move_to((x, 1.0));
+            tips.line_to((x, 4e-7));
+        }
+        let paths = [(slivers, FillRule::NonZero), (tips, FillRule::NonZero)];
+        assert!(may_reach_limits(&paths, eps_for(paths.iter().map(|p| &p.0)).unwrap()));
+    }
+
+    #[test]
+    fn disjoint_circles_cannot_reach_the_limits() {
+        let mut circles = BezPath::new();
+        for i in 0..2300 {
+            let centre = Point::new(f64::from(i % 50) * 30.0, f64::from(i / 50) * 30.0);
+            circles.extend(kurbo::Circle::new(centre, 10.0).path_elements(0.1));
+        }
+        let paths = [(circles, FillRule::NonZero)];
+        assert!(!may_reach_limits(&paths, eps_for(paths.iter().map(|p| &p.0)).unwrap()));
     }
 
     /// A closed path out to the unit circle and back to the origin, `count` times.
