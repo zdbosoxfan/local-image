@@ -894,7 +894,9 @@ fn set_filter_visible(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.smartFilter.setParams";
-    let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters)"))?;
+    let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters, or replacing them with `replace`)"))?;
+    // An editor holding all of a filter's settings replaces them, so a key it removed stops applying.
+    let replace = p.get("replace").and_then(Value::as_bool).unwrap_or(false);
     let authorize = s.authorize;
     let new_map = {
         let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
@@ -921,9 +923,13 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
         if f.command == photocraft_io::smart_map::UNSUPPORTED_FILTER {
             return Err(bad(CMD, "this Photoshop filter isn't implemented in PhotoCraft: it is kept as is (it can be hidden, moved or deleted)"));
         }
-        match (&mut f.params, new) {
-            (Value::Object(old), Value::Object(n)) => old.extend(n),
-            (slot, n) => *slot = n,
+        if replace {
+            f.params = new;
+        } else {
+            match (&mut f.params, new) {
+                (Value::Object(old), Value::Object(n)) => old.extend(n),
+                (slot, n) => *slot = n,
+            }
         }
         // The request alone can't be trusted: authorize the filter's command with the complete
         // merged params, including paths already stored in the document, before re-rendering.
@@ -1174,7 +1180,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "layer.smartFilter.setParams",
             "Edit Smart Filter",
             &[],
-            r##"{"layer":id?,"index":u32?,"params":{…} (merged)}"##,
+            r##"{"layer":id?,"index":u32?,"params":{…} (merged),"replace":bool=false (params replace the stored ones instead)}"##,
             has_smart_filters,
             set_filter_params
         ),

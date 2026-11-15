@@ -1066,3 +1066,36 @@ fn gated_contents_exports_embed_no_file_a_nested_link_names() {
     assert!(!has_png(&export(&mut s)), "an untrusted export does not");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// `replace` makes `params` the filter's whole settings, so a key the edit left out stops
+/// applying; without it the params merge, as partial edits rely on. Either way it is one undo.
+#[test]
+fn set_params_replace_drops_the_keys_it_leaves_out() {
+    let mut s = session(8);
+    paint(&mut s);
+    convert(&mut s);
+    // An adjustment recorded on the smart object, as an imported PSD holds it.
+    s.edit("record adjustment", |doc, active| {
+        let Some(LayerContent::Smart(sm)) = doc.layer_mut(active.unwrap()).map(|l| &mut l.content) else { panic!("smart") };
+        sm.smart_filters.push(photocraft_doc::SmartFilter {
+            command: "image.adjustments.channelMixer".into(),
+            params: json!({"monochrome": true, "gray": [30, 30, 40, 0]}),
+            blend: BlendMode::Normal,
+            opacity: 1.0,
+            visible: true,
+        });
+        Ok(())
+    })
+    .unwrap();
+    let params = |s: &Session| active_smart(s).smart_filters[0].params.clone();
+
+    s.execute("layer.smartFilter.setParams", json!({"params": {"monochrome": false}})).unwrap();
+    assert_eq!(params(&s), json!({"monochrome": false, "gray": [30, 30, 40, 0]}), "merged by default");
+
+    let edit = json!({"monochrome": false, "red": [70, 30, 0, 0]});
+    s.execute("layer.smartFilter.setParams", json!({"params": edit, "replace": true})).unwrap();
+    assert_eq!(params(&s), edit, "replaced");
+
+    s.undo();
+    assert_eq!(params(&s), json!({"monochrome": false, "gray": [30, 30, 40, 0]}));
+}

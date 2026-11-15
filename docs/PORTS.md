@@ -1209,3 +1209,5 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`805d238a9780`](https://github.com/storytold/photocraft/commit/805d238a9780721eae435d7cea75caaf000d1808) | Keep an adjustment smart filter's settings when its dialog opens | `crates/pc-ui-egui/src/adjust_dialog.rs`<br>`crates/pc-ui-egui/src/smart_ui.rs` | MIT OR Apache-2.0 |
+| [`2e13ec280b3f`](https://github.com/storytold/photocraft/commit/2e13ec280b3f89b658e8335b9cea73dd20e9aebf) | Replace an adjustment smart filter's params when its dialog edits them | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs`<br>`crates/pc-ui-egui/src/smart_ui.rs` | MIT OR Apache-2.0 |
+| [`390b3b388a0a`](https://github.com/storytold/photocraft/commit/390b3b388a0aefef080714e1fcc8aeb23aa59b44) | Replace params for every adjustment smart filter dialog and Shape Blur | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-ui-egui/src/smart_ui.rs` | MIT OR Apache-2.0 |
