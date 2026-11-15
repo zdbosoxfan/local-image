@@ -180,10 +180,14 @@ pub(super) fn live_stroke(app: &PhotocraftApp, idx: usize) -> Option<&LiveStroke
 }
 
 /// `paint.stroke` params for a Brush/Eraser drag (shared by the live preview and the commit). The
-/// stroke smoothing is the session brush's (the options bar's Smoothing %).
-pub(super) fn stroke_params(app: &PhotocraftApp, tool: Tool, erase: bool, points: &[Vec<f64>]) -> serde_json::Value {
-    let mut p = json!({ "points": points, "erase": erase, "zoom": app.current_zoom(), "target": paint_target(app), "freehand": true });
-    if tool == Tool::Pencil {
+/// stroke smoothing is the session brush's (the options bar's Smoothing %), except on a ⇧-click
+/// line, which isn't smoothed so it ends at the click whatever Catch-up on Stroke End is set to.
+pub(super) fn stroke_params(app: &PhotocraftApp, d: &Drag, points: &[Vec<f64>]) -> serde_json::Value {
+    let mut p = json!({ "points": points, "erase": d.erase, "zoom": app.current_zoom(), "target": paint_target(app), "freehand": true });
+    if d.line {
+        p["smoothing"] = json!(0.0);
+    }
+    if d.tool == Tool::Pencil {
         p["autoErase"] = json!(app.ui.tool_options.pencil_auto_erase);
     }
     p
@@ -315,7 +319,7 @@ pub(super) fn begin_live_stroke(app: &PhotocraftApp, settings: Option<&serde_jso
     static STROKES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let st = app.session.active()?;
     let d = app.drag.as_ref()?;
-    let mut p = stroke_params(app, d.tool, d.erase, &timed_points(app, d, settings));
+    let mut p = stroke_params(app, d, &timed_points(app, d, settings));
     if let Some(settings) = settings {
         apply_stroke_settings(&mut p, settings);
     }

@@ -1209,3 +1209,4 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [storytold/photocraft@`0e0d99d0b2b31cdc7809d2ffaf50927f09b6b853`](https://github.com/storytold/photocraft/commit/0e0d99d0b2b31cdc7809d2ffaf50927f09b6b853) | fix(engine): Magic Wand Subtract and Intersect grow from the seed through the selection (#11779) | `crates/pc-algo/src/selection.rs`<br>`crates/pc-engine/src/selection_cmds.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`ca005139f201c50c0dcfdacb406aadc983e35981`](https://github.com/storytold/photocraft/commit/ca005139f201c50c0dcfdacb406aadc983e35981) | Shift-click lines aren't smoothed, so they end at the click (#11887) | `crates/pc-ui-egui/src/canvas.rs`<br>`crates/pc-ui-egui/src/canvas/stroke.rs`<br>`crates/pc-ui-egui/src/canvas/tools.rs`<br>`crates/pc-ui-egui/src/stroke_constraint.rs` | MIT OR Apache-2.0 |

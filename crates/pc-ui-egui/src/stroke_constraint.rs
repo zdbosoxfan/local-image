@@ -243,6 +243,29 @@ mod tests {
     }
 
     #[test]
+    fn shift_click_line_ends_at_the_click_with_catch_up_on_stroke_end_off() {
+        // Smoothing doesn't apply to a ⇧-click line, whatever Smoothing and Catch-up on Stroke End
+        // are set to, so the line isn't cut short of the click.
+        let mut app = app();
+        app.ui.tool = Tool::Brush;
+        app.session.tools.brush.smoothing.amount = 0.6;
+        app.session.tools.brush.smoothing.catch_up_on_end = false;
+        let none = egui::Modifiers::NONE;
+        tool_event(&mut app, ToolEvent::Down { x: 10.0, y: 60.0, pressure: 1.0 }, none);
+        tool_event(&mut app, ToolEvent::Move { x: 100.0, y: 60.0, pressure: 1.0 }, none);
+        tool_event(&mut app, ToolEvent::Up { x: 100.0, y: 60.0 }, none);
+        let shift = egui::Modifiers::SHIFT;
+        tool_event(&mut app, ToolEvent::Down { x: 100.0, y: 110.0, pressure: 1.0 }, shift);
+        tool_event(&mut app, ToolEvent::Up { x: 100.0, y: 110.0 }, shift);
+        assert_eq!(last_stroke_points(&app), vec![[100.0, 60.0], [100.0, 110.0]]);
+        let p = app.session.journal.iter().rev().find(|(id, _)| id == "paint.stroke").map(|(_, p)| p.clone()).unwrap();
+        assert_eq!(p["smoothing"].as_f64(), Some(0.0));
+        assert!(alpha(&app, 100, 85) > 0.9 && alpha(&app, 100, 110) > 0.9);
+        // The options bar's Smoothing is unchanged.
+        assert_eq!(app.session.tools.brush.smoothing.amount, 0.6);
+    }
+
+    #[test]
     fn shift_click_interpolates_from_previous_strokes_endpoint_pressure() {
         let mut app = app();
         app.ui.tool = Tool::Brush;
