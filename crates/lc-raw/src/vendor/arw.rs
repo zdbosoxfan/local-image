@@ -334,7 +334,9 @@ fn read_quad_tiles(bytes: &[u8], info: &ImageInfo) -> Result<Vec<u16>> {
         .map(|c| {
             let src = chunk_bytes(bytes, c).ok_or_else(|| RawError::Corrupt("tile offset past end of file".into()))?;
             let f = ljpeg::decode(src, (c.width as usize * c.height as usize).max(1 << 16))?;
-            if f.components != 4 || f.data.len() < f.width * f.height * 4 {
+            // a tile's frame is half its nominal width and height: a larger one (which the sample cap above still lets
+            // through when the tile is small) is no Sony tile
+            if f.components != 4 || f.data.len() < f.width * f.height * 4 || f.width * 2 > c.width as usize || f.height * 2 > c.height as usize {
                 return Err(RawError::Corrupt(format!(
                     "lossless ARW tile: {} samples in a {}×{}×{} frame",
                     f.data.len(),
@@ -1631,6 +1633,31 @@ mod tests {
         missing.offsets[3] = file.len() as u64 + 64;
         assert!(matches!(check_image(&file, &missing), Err(RawError::Corrupt(_))));
         assert!(matches!(read_quad_tiles(&file, &missing), Err(RawError::Corrupt(_))));
+    }
+
+    /// A tile's frame is half its nominal width and height. One 8 × 8 tile holding a 64 × 64 frame (within the sample
+    /// cap for small tiles) is no Sony tile: decoding it was 64 times the work the tile stands for.
+    #[test]
+    fn quad_tile_frames_larger_than_their_tile_are_refused() {
+        let frame = vec![100u16; 64 * 64 * 4];
+        let file = ljpeg::encode(&frame, 64, 64, 4, 14, 1, 0);
+        let info = ImageInfo {
+            width: 8,
+            height: 8,
+            bits_per_sample: vec![14],
+            samples_per_pixel: 1,
+            compression: 7,
+            photometric: photometric::CFA,
+            planar: 1,
+            predictor: 1,
+            sample_format: 1,
+            new_subfile_type: 0,
+            layout: Layout::Tiles { tile_width: 8, tile_height: 8 },
+            offsets: vec![0],
+            byte_counts: vec![file.len() as u64],
+        };
+        let result = read_quad_tiles(&file, &info);
+        assert!(matches!(result, Err(RawError::Corrupt(_))), "{result:?}");
     }
 
     /// Truncated uncompressed and ARW2 strips are corrupt, not black bands.
