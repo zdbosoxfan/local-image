@@ -505,10 +505,13 @@ fn is_uncommitted(bundle: &Path) -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 fn sweep_temp_file(path: &Path, min_age: std::time::Duration) {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return };
-    // `.{stem}.{pid}-{n}.pcsave.tmp`
-    let Some(rest) = name.strip_prefix('.').and_then(|n| n.strip_suffix(".pcsave.tmp")) else { return };
-    let Some((_, owner)) = rest.rsplit_once('.') else { return };
-    let Some(pid) = owner.split_once('-').and_then(|(pid, _)| pid.parse::<u32>().ok()) else { return };
+    // `lightcraft-{pid}-{n}.{hint}.pcsave.tmp` (dot-prefixed before upstream #11624), or the
+    // `.{stem}.{pid}-{n}.pcsave.tmp` of older writers.
+    let legacy = || -> Option<u32> {
+        let rest = name.strip_prefix('.')?.strip_suffix(".pcsave.tmp")?;
+        rest.rsplit_once('.')?.1.split_once('-')?.0.parse::<u32>().ok()
+    };
+    let Some(pid) = li_fs::temp_owner(name).map(|(pid, _)| pid).or_else(legacy) else { return };
     if pid != std::process::id() && untouched_for(path, min_age, false) {
         let _ = std::fs::remove_file(path);
     }

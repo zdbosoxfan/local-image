@@ -601,13 +601,33 @@ fn resolve_symlink(path: &Path) -> io::Result<PathBuf> {
         Err(e) => Err(e),
     }
 }
-/// Short unique name with a bounded target hint; also recognized by legacy cleanup tools.
+/// Short unique name with a bounded target hint: `lightcraft-{pid}-{n}.{hint}.pcsave.tmp`.
+///
+/// It does not start with a dot: an SMB server that hides dot files (TrueNAS, macOS shares) marks
+/// such a file hidden when it is created, the mark survives the rename, and the saved file would
+/// be hidden too (upstream #11624). Older versions wrote `.lightcraft-…`; [`temp_owner`] reads both.
 pub fn temp_name(file: &str) -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     // A bounded ASCII target hint lets cache cleanup distinguish its files from unrelated
     // writers, and keeps even non-ASCII/NAME_MAX destinations well below the name limit.
     let hint: String = file.chars().take(64).map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
-    format!(".lightcraft-{}-{}.{hint}.pcsave.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+    format!("lightcraft-{}-{}.{hint}{TEMP_SUFFIX}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+/// What every [`temp_name`] ends with.
+const TEMP_SUFFIX: &str = ".pcsave.tmp";
+
+/// The process id and target hint of a [`temp_name`], in today's form or the dot-prefixed one
+/// older versions wrote, so their leftovers are still recognized; `None` for any other name.
+pub fn temp_owner(name: &str) -> Option<(u32, &str)> {
+    let rest = name.strip_prefix('.').unwrap_or(name).strip_prefix("lightcraft-")?.strip_suffix(TEMP_SUFFIX)?;
+    let (numbers, hint) = rest.split_once('.')?;
+    let (pid, n) = numbers.split_once('-')?;
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(pid) || !digits(n) {
+        return None;
+    }
+    Some((pid.parse().ok()?, hint))
 }
 pub fn sync_dir(dir: &Path) {
     let _ = sync_dir_checked(dir);

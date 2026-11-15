@@ -203,7 +203,7 @@ fn is_shard_name(s: &str) -> bool {
 }
 
 /// Whether `name` inside shard directory `shard` is a file this cache wrote: `<32 hex>.jpg`
-/// (whose first two digits are the shard) or a shared `.lightcraft-<pid>-<counter>.<key>.jpg.pcsave.tmp` staging file from
+/// (whose first two digits are the shard) or a shared [`li_fs::temp_name`] staging file from
 /// [`DiskCache::put`]. Anything else in the cache directory belongs to someone else.
 pub fn is_cache_file(shard: &str, name: &str) -> bool {
     if !is_shard_name(shard) {
@@ -211,12 +211,9 @@ pub fn is_cache_file(shard: &str, name: &str) -> bool {
     }
     // A shared-writer staging file is ours only when its target hint is a cache key
     // belonging to this shard. Other writers may be saving unrelated files here.
-    if let Some(parts) = name.strip_prefix(".lightcraft-").and_then(|n| n.strip_suffix(".pcsave.tmp")) {
-        let Some((numbers, hint)) = parts.split_once('.') else { return false };
-        let valid_numbers = numbers.split_once('-').is_some_and(|(pid, counter)| {
-            !pid.is_empty() && !counter.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()) && counter.bytes().all(|b| b.is_ascii_digit())
-        });
-        return valid_numbers && hint.strip_suffix(".jpg").is_some_and(|key| key.len() == 32 && is_lower_hex(key) && key.starts_with(shard));
+    if name.ends_with(".pcsave.tmp") {
+        return li_fs::temp_owner(name)
+            .is_some_and(|(_, hint)| hint.strip_suffix(".jpg").is_some_and(|key| key.len() == 32 && is_lower_hex(key) && key.starts_with(shard)));
     }
     name.strip_suffix(".jpg").is_some_and(|stem| stem.len() == 32 && is_lower_hex(stem) && stem.starts_with(shard))
 }
