@@ -1209,5 +1209,8 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [storytold/vectorcraft@`9a05e8ad36c96d4dadef03e0122803920251ce38`](https://github.com/storytold/vectorcraft/commit/9a05e8ad36c96d4dadef03e0122803920251ce38) | Batch: do not save over another source file in the destination folder | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`5d8cb2a39ad70e31260f1f3fc2010ca132daff65`](https://github.com/storytold/photocraft/commit/5d8cb2a39ad70e31260f1f3fc2010ca132daff65) | fix(actions): resolve recorded visibility targets by layer name | `crates/pc-engine/src/actions_cmds.rs`<br>`crates/pc-engine/src/jobs.rs`<br>`crates/pc-engine/src/file_cmds/batch_actions.rs` | MIT OR Apache-2.0 |
 
-Adapted: upstream numbers the output (`a-2`); our batch already reports output-name collisions instead of renaming (#422), so `process_files` reports an input whose output would replace another input in the output folder, and that input saves over itself.
+Adapted `9a05e8ad`: upstream numbers the output (`a-2`); our batch already reports output-name collisions instead of renaming (#422), so `process_files` reports an input whose output would replace another input in the output folder, and that input saves over itself.
+
+Adapted `5d8cb2a3`: our Actions panel plays through `actions.play`, so there is no shell playback to change; Batch steps resolve the recorded target too, as upstream does later. Upstream's `names_existing_layer` relaxation has no counterpart here (`layer.setProps` still needs an active layer).
