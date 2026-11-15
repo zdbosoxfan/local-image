@@ -310,7 +310,7 @@ pub fn file_tag_rows(bytes: &[u8]) -> Vec<TagRow> {
 mod tests {
     use super::*;
 
-    /// Rational lists were joined whole, unlike every other list (#2579): a tag of millions of
+    /// Rational lists were joined whole, unlike every other list: a tag of millions of
     /// fractions became a string as long in the tag panel.
     #[test]
     fn rational_lists_show_sixteen_values_like_other_lists() {

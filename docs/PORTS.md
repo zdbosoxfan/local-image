@@ -1213,7 +1213,12 @@ sparse reader here). Already covered: `a4a797e2`'s tile-sized lossy JPEG budget 
 header and its Deflate padding bound by `check_image`'s tile-grid bound; `a42ee704`'s alpha-grid tiles by the
 shared extent-read budget; `f786b875`'s XMP path building by `property_key`'s key budget. Not applicable:
 `1c906ea3`'s PEF and SRW halves (PEF never sums strip counts here, no SRW decoder) and `cb86952c`'s CR3 half
-(CR3 goes through rawler). `5d4b68f0`'s craft-heif git dependency is not taken.
+(CR3 goes through rawler) and `f786b875`'s lensdb XML half (lens profiles come from the `lensfun` crate's
+bundled database; we have no lens XML reader). `5d4b68f0`'s craft-heif git dependency is not taken. Not ported
+here: `0352b420`'s decode side (the lone or incoherent ICC chunk refusal in `crates/pc-codecs/src/codecs/jpeg.rs`
+and the IccUnsupported origin for an invalid profile), left to the package that owns pc-codecs. Local extension of
+`17248a20`: the Library's embedded-preview paths (`lc-engine` `load_embedded_preview`, `embedded_preview_srgb`) take
+the same EXIF colour-space tag, and a preview with EXIF of its own is read by that EXIF, not the raw's.
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
