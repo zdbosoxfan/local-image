@@ -90,11 +90,27 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
     check_previews(bytes)?;
     // Check declared sizes before any pixel allocation.
     let meta = exr::meta::MetaData::read_from_buffered(Cursor::new(bytes), false).map_err(err)?;
+    let mut total: u64 = 0;
+    // DWAA/DWAB parts are counted apart: they go past 2^16:1 (a flat 8192x4320 frame with 12
+    // alpha-scheme mattes is about 30 KB, over 75000:1).
+    let mut dwa: u64 = 0;
     for header in meta.headers.iter() {
         let size = header.layer_size;
         let (w, h) = (u32::try_from(size.0).unwrap_or(u32::MAX), u32::try_from(size.1).unwrap_or(u32::MAX));
         let bpp = header.channels.list.len().max(1) as u64 * 4;
         limits.check_bytes(w, h, bpp)?;
+        let part = u64::from(w).saturating_mul(u64::from(h)).saturating_mul(bpp);
+        total = total.saturating_add(part);
+        if matches!(header.compression, Compression::DWAA(_) | Compression::DWAB(_)) {
+            dwa = dwa.saturating_add(part);
+        }
+    }
+    // The `exr` crate allocates a flat part's samples before reading its chunks, so the file
+    // must be able to hold them. The other compressions stay far below 2^16:1 even against this
+    // f32 budget. DWA's run-length channels are zlib-packed on top and reach about 132000:1, so
+    // DWA parts get 2^18:1. Deep parts size their samples from the file's own counts.
+    if !meta.requirements.has_deep_data {
+        Limits::check_plausible(total.saturating_sub(dwa).saturating_add(dwa / 4), bytes.len(), 1 << 16)?;
     }
 
     // Deep parts are rejected by the `exr` crate's reader; walk their chunks ourselves and
