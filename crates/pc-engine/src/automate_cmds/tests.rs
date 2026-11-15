@@ -163,6 +163,21 @@ fn contact_sheet_places_thumbnails_with_captions() {
     }
 }
 
+#[test]
+fn a_flattened_contact_sheet_ends_as_a_normal_layer() {
+    let dir = tmp("contact-flat");
+    images(&dir, 2, 60, 30);
+    let mut s = Session::new();
+    let p = json!({"input": dir, "units": "pixels", "width": 200, "height": 200, "columns": 2, "rows": 1, "caption": false, "flatten": true});
+    let r = s.execute("file.automate.contactSheetII", p).unwrap();
+    let st = &s.documents()[r["documents"][0].as_u64().unwrap() as usize];
+    assert_eq!(st.doc.layers.len(), 1);
+    let l = &st.doc.layers[0];
+    assert_eq!(l.name, "Contact Sheet II");
+    assert!(!l.locks.transparency && !l.locks.position, "a normal layer, not a Background");
+    assert_eq!(st.active_layer, Some(l.id));
+}
+
 /// A droplet keeps the action's recorded saves, which mark the result as in Batch, so one made from
 /// an action ending in Save As and Close writes its files instead of failing on every one.
 #[test]

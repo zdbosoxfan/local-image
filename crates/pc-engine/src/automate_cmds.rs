@@ -583,6 +583,14 @@ fn contact_sheet(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if flatten {
             s.execute("layer.flattenImage", json!({}))?;
+            // Photoshop ends a flattened sheet with a normal layer, not a Background.
+            s.edit("Make Layer", |doc, active| {
+                let l = doc.layers.first_mut().ok_or(EngineError::Other("the flattened sheet has no layer".into()))?;
+                crate::extra_cmds::unlock_background(l);
+                l.name = "Contact Sheet II".into();
+                *active = Some(l.id);
+                Ok(())
+            })?;
         }
         docs.push(idx);
     }
