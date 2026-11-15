@@ -45,6 +45,7 @@ pub struct DevelopSettings {
     pub orientation: Orientation,
     pub masks: Vec<Mask>,
     pub spots: Vec<Spot>,
+    /// Red eye corrections; the first [`MAX_RED_EYES`] render.
     pub red_eye: Vec<RedEye>,
     pub lens_blur: LensBlur,
     pub enhance: Enhance,
@@ -1577,6 +1578,10 @@ pub struct AiPatch {
     /// the patch may not line up (Develop offers Regenerate).
     pub geometry: String,
 }
+
+/// Most red eye / pet eye corrections a photo renders. Every output pixel goes through every eye,
+/// so render cost is pixels x eyes.
+pub const MAX_RED_EYES: usize = 64;
 
 /// A red eye / pet eye correction: the user's ellipse (centre normalized, radii as fractions of
 /// the long edge); the pupil inside it is found automatically.
