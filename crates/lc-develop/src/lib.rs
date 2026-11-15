@@ -78,6 +78,22 @@ impl DevelopSettings {
         Ok(settings)
     }
 
+    /// [`Self::from_json`] for settings from outside the app, such as a sidecar's `lc:settings`:
+    /// every slider clamped through its control spec and the crop angle kept within ±45° (not
+    /// finite: 0). The crop rect is bounded where the photo's size is known
+    /// (`CropGeometry::bounded`, applied by the pipeline).
+    pub fn from_untrusted_json(v: &Value) -> Result<DevelopSettings, serde_json::Error> {
+        let mut s = DevelopSettings::from_json(v)?;
+        for c in controls::CONTROLS {
+            if let Some(v) = controls::get(&s, c.id) {
+                controls::set(&mut s, c.id, v);
+            }
+        }
+        let g = &mut s.crop.geometry;
+        g.angle = if g.angle.is_finite() { g.angle.clamp(-45.0, 45.0) } else { 0.0 };
+        Ok(s)
+    }
+
     /// Merge a partial JSON object into these settings (fields not mentioned are kept).
     pub fn merged(&self, partial: &Value) -> Result<DevelopSettings, serde_json::Error> {
         let mut v = self.to_json();
