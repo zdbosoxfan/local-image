@@ -356,8 +356,12 @@ fn comps_to_files(s: &mut Session, p: &Value) -> Result<Value> {
         _ if flag(p, "selectedOnly", false) => vec![comp_param(&doc, &json!({}), cmd)?],
         _ => doc.layer_comps.iter().map(|c| c.id).collect(),
     };
+    let matching: Vec<(usize, &LayerComp)> = doc.layer_comps.iter().enumerate().filter(|(_, c)| chosen.contains(&c.id)).collect();
+    if matching.is_empty() {
+        return Err(bad(cmd, "no matching layer comps"));
+    }
     let mut files = Vec::new();
-    for (i, c) in doc.layer_comps.iter().enumerate().filter(|(_, c)| chosen.contains(&c.id)) {
+    for &(i, c) in &matching {
         let mut one = (*doc).clone();
         apply_comp(&mut one, c, false)?;
         one.last_applied_comp = Some(c.id);
@@ -365,8 +369,10 @@ fn comps_to_files(s: &mut Session, p: &Value) -> Result<Value> {
         save_doc(&one, &path, SaveOpts::from_params(p))?;
         files.push(path);
     }
-    if files.is_empty() {
-        return Err(bad(cmd, "no matching layer comps"));
+    // As in Photoshop, the document ends on the last exported comp, one history state per comp.
+    // A failed write returns above and leaves the document and its history alone.
+    for &(_, c) in &matching {
+        apply(s, c.id, "Apply Layer Comp")?;
     }
     Ok(json!({"files": files}))
 }
