@@ -1033,3 +1033,17 @@ fn clone_stamp_samples_the_layer_and_document_its_source_was_picked_on() {
     let err = s.execute("paint.cloneStamp", stamp).unwrap_err();
     assert!(matches!(err, EngineError::BadParams { .. }), "{err:?}");
 }
+
+#[test]
+fn unaligned_clone_strokes_report_their_offset_without_becoming_the_aligned_pairing() {
+    // Upstream b7143324: the slot's offset stayed empty after an unaligned stroke.
+    let mut s = session(64, 64, 8, "rgb");
+    paint_layer(&mut s, |x, y| [x as f32 / 64.0, y as f32 / 64.0, 0.25, 1.0]);
+    s.execute("cloneSource.set", json!({"source": [16, 16]})).unwrap();
+    for (x, y) in [(40, 30), (50, 40)] {
+        s.execute("paint.cloneStamp", json!({"points": [[x, y]], "size": 8, "hardness": 100, "aligned": false})).unwrap();
+        let listed = s.execute("cloneSource.list", json!({})).unwrap();
+        assert_eq!(listed["sources"][0]["offset"], json!([16.0 - f64::from(x), 16.0 - f64::from(y)]), "stroke at {x},{y}");
+        assert!(s.presets.clone.active().anchor.is_none(), "reporting an offset must not start aligned sampling");
+    }
+}

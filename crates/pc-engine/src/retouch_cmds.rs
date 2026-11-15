@@ -230,9 +230,9 @@ fn sample(pre: &Document, id: Option<LayerId>, surf: &Surface, which: SampleLaye
 
 /// Where a clone stroke samples: `offset` / `source` params, else the active Clone Source slot,
 /// with the slot's (or the call's) scale, rotation and flips (see `presets::clone_source`).
-fn clone_mapping(s: &mut Session, p: &Value, stroke: &Stroke, cmd: &str) -> Result<crate::presets::clone_source::Mapping> {
+fn clone_mapping(s: &Session, p: &Value, stroke: &Stroke, cmd: &str) -> Result<crate::presets::clone_source::Mapping> {
     let f = stroke.points[0];
-    crate::presets::clone_source::mapping(s, p, (f.x, f.y), cmd)
+    crate::presets::clone_source::resolve(s, p, (f.x, f.y), cmd)
 }
 
 /// Source pixels for destination `rect`: a translated read, or a bilinear resample when the
@@ -259,7 +259,13 @@ fn clone_sample(
         r.rect = rect;
         return Ok(r);
     }
-    let src = source.sample(pre, id, surf, which, map.source_rect(rect), cmd)?;
+    let source_rect = map.source_rect(rect);
+    // A scaled-down source reads far more pixels than the stroke covers, which the stroke's own
+    // budget does not bound: refuse it before allocating them.
+    if u64::from(source_rect.width()).saturating_mul(u64::from(source_rect.height())) > MAX_STROKE_PIXELS {
+        return Err(bad(cmd, "transformed clone source exceeds the sampling budget; increase source scale or reduce the brush"));
+    }
+    let src = source.sample(pre, id, surf, which, source_rect, cmd)?;
     Ok(crate::presets::clone_source::resample(&src, rect, map, alpha_index(&surf.format())))
 }
 
@@ -323,6 +329,7 @@ fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
         let paint = clone_sample(pre, id, surf, which, &source, bounds, &map, CMD)?;
         Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
     })?;
+    crate::presets::clone_source::remember_mapping(s, p, &map);
     Ok(clone_result(dmg, off, aligned, p, &stroke))
 }
 
@@ -415,6 +422,7 @@ fn healing_brush(s: &mut Session, p: &Value) -> Result<Value> {
         let healed = heal_region(&fmt, &src, &dst, &mask);
         Ok(apply_coverage(surf, g, &cov, stroke.brush.opacity, sel, lock, &healed, mode))
     })?;
+    crate::presets::clone_source::remember_mapping(s, p, &map);
     Ok(clone_result(dmg, off, aligned, p, &stroke))
 }
 

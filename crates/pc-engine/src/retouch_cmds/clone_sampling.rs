@@ -78,7 +78,7 @@ fn convert_region(region: Region, from: PixelFormat, to: PixelFormat, transform:
 /// samples the painted document; one that follows the slot samples the document and layer the
 /// slot was picked on, and fails when either is gone.
 pub(super) fn resolve(s: &Session, p: &Value, cmd: &str) -> Result<CloneFrom> {
-    let picked = p.get("source").is_none() && p.get("offset").is_none();
+    let picked = crate::presets::clone_source::uses_slot(p);
     let slot = s.presets.clone.active();
     if !targets_pixels(p) {
         // A mask or channel has no counterpart in another document: refuse instead of cloning
