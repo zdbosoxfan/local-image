@@ -3691,7 +3691,7 @@ name = "li-ai"
 version = "0.8.0-alpha"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "dirs",
  "hex",
  "image",
@@ -5437,7 +5437,7 @@ dependencies = [
 name = "photocraft-automation"
 version = "0.8.0-alpha"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "cap-std",
  "getrandom 0.3.4",
  "li-fs",
@@ -5802,7 +5802,7 @@ dependencies = [
 name = "photocraft-svg"
 version = "0.8.0-alpha"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "flate2",
  "image",
  "kurbo 0.13.1",
@@ -5876,7 +5876,7 @@ name = "photocraft-ui-egui"
 version = "0.8.0-alpha"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "eframe",
  "egui",
  "egui_extras",
@@ -9371,7 +9371,7 @@ name = "xtask"
 version = "0.8.0-alpha"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "flate2",
  "hayro-interpret",
  "hayro-syntax",
