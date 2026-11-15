@@ -498,6 +498,16 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         patches.push((e.value_at, encode_u(if lab { 2 } else { 1 }, len)));
     }
 
+    // Opening the directory reads both chunk tables with the `tiff` crate's default limits
+    // (`with_limits` applies only once it is open): tables that alone are over `max_alloc` (as
+    // every band worker holds them) are refused before they are read.
+    let table_bytes = expected.saturating_mul(DECODER_BYTES_PER_CHUNK);
+    if table_bytes > limits.max_alloc {
+        return Err(CodecError::LimitExceeded(format!(
+            "the strip or tile tables of a {w}x{h} image ({expected} chunks) need {table_bytes} bytes, exceeding max_alloc {}",
+            limits.max_alloc
+        )));
+    }
     let tl = {
         let mut l = tiff::decoder::Limits::default();
         l.decoding_buffer_size = limits.alloc_usize();

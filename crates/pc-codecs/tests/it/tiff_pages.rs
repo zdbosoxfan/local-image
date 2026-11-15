@@ -620,3 +620,19 @@ fn a_tight_budget_decodes_its_strips_one_after_another() {
     }
     assert_eq!(decode(&file).unwrap().to_u16_samples().unwrap(), v);
 }
+
+/// The `tiff` crate reads both chunk tables in full while it opens a directory, under its own
+/// default limits. A 1x65536 gray page in one-row strips holds a 64 KiB image but 1 MiB of
+/// tables as the decoder keeps them: under a 512 KiB budget it is refused before the open.
+#[test]
+fn strip_tables_are_refused_before_the_decoder_opens() {
+    let h = 65_536u32;
+    let file = build(true, false, &[strips(1, h, 8, 1, 1, 1, &vec![7u8; h as usize])], &[0]).bytes;
+    match decode_with(&file, &with_max_alloc(512 << 10)) {
+        Err(CodecError::LimitExceeded(m)) => assert!(m.contains("tables") && m.contains("65536 chunks"), "{m}"),
+        other => panic!("tables over max_alloc must be refused: {:?}", other.map(|i| i.data().len())),
+    }
+    let img = decode_with(&file, &with_max_alloc(4 << 20)).unwrap();
+    assert_eq!(img.dimensions(), (1, h));
+    assert!(img.data().iter().all(|&v| v == 7));
+}
