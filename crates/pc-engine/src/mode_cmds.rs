@@ -94,6 +94,8 @@ pub(crate) fn rotate_doc(doc: &mut Document, deg: f64, interp: Interp, bg: [f32;
     let canvas = doc.bounds();
     let fmt = doc.pixel_format();
     let dpi = doc.resolution_dpi;
+    // Type in a font that isn't installed turns its own pixels, as it can't re-render.
+    crate::canvas_geom::map_missing_font_type(&mut doc.layers, &mut |c| photocraft_algo::transform::warp_surface(c, c.content_bounds(), &h, interp));
     for l in doc.layers.iter_mut() {
         let background = l.name == "Background" && l.locks.position && matches!(l.content, LayerContent::Raster(_));
         if background && let Some(surf) = l.surface_mut() {
@@ -127,7 +129,8 @@ pub(crate) fn rotate_doc(doc: &mut Document, deg: f64, interp: Interp, bg: [f32;
     if let Some(sel) = &doc.selection {
         doc.selection = Some(crate::transform_cmds::warp_gray(sel, &h, Interp::Bilinear)).filter(|s| !s.content_bounds().is_empty());
     }
-    // Type, shapes and smart objects re-render from their new geometry.
+    // Type, shapes and smart objects re-render from their new geometry; type in a missing font
+    // keeps its turned pixels.
     crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All)?;
     doc.guides = Default::default();
     Ok((new, a))
