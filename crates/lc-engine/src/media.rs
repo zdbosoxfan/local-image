@@ -1268,6 +1268,7 @@ impl crate::Session {
 
     /// Synchronous render (CLI, MCP, tests).
     pub fn render_now(&mut self, id: PhotoId, max_w: usize, max_h: usize) -> Result<Rendered, String> {
+        lightcraft_pipeline::check_output_size(max_w, max_h)?;
         let job = self.render_job(id, max_w, max_h, false, true).ok_or("no such photo")?;
         let r = job.run();
         self.accept(&r);
@@ -1298,6 +1299,7 @@ impl crate::Session {
         space: lightcraft_pipeline::OutputSpace,
         depth: lightcraft_pipeline::OutputDepth,
     ) -> Result<RenderJob, String> {
+        lightcraft_pipeline::check_output_size(max_w, max_h)?;
         if self.develop_of(id).is_some_and(|d| d.enhance.denoise > 0.0 && d.enhance.ai.is_some_and(|a| a.preview)) {
             return Err("Run Apply AI Denoise at full resolution before exporting the preview result.".into());
         }
