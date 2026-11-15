@@ -680,6 +680,8 @@ pub(crate) fn process_files(
             }
             let bytes = read_file(path)?;
             let mut scratch = Session::new();
+            // Nested commands answer to the gate of the request that started this run.
+            scratch.authorize = crate::jobs::installed_authorization();
             let doc = import(&file_name(path), &bytes)?;
             scratch.add_document(doc, Some(path.clone()));
             if !f(&mut scratch, &out)? {

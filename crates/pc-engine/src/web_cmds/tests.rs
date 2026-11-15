@@ -575,6 +575,33 @@ fn save_for_web_has_no_default_matte_while_presets_and_quick_export_keep_white()
     s.execute("prefs.reset", json!({"path": "export"})).unwrap();
 }
 
+/// Quick Export as WebP goes through the regular exporter, which embeds a document's XMP and
+/// EXIF whole: the Export Preferences metadata choice still decides what the file carries.
+#[test]
+fn quick_export_webp_keeps_only_the_chosen_metadata() {
+    let dir = tmp("quick_webp_metadata");
+    let mut s = session(8);
+    s.execute("file.fileInfo", json!({"copyright": "© Example", "description": "secret notes"})).unwrap();
+    // A little-endian TIFF with one tag, Orientation = 1.
+    let exif = b"II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x01\0\0\0\0\0\0\0".to_vec();
+    s.edit("exif", |doc, _| {
+        doc.metadata.exif = Some(std::sync::Arc::new(exif));
+        Ok(())
+    })
+    .unwrap();
+    for choice in ["none", "copyright", "all"] {
+        s.execute("file.export.exportPreferences", json!({"quickExportFormat": "png", "metadata": choice})).unwrap();
+        let path = format!("{dir}/{choice}.webp");
+        s.execute("file.export.quickExport", json!({"path": path})).unwrap();
+        let meta = decode(&path).meta;
+        let xmp = meta.xmp.unwrap_or_default();
+        assert_eq!(xmp.contains("secret notes"), choice == "all", "{choice}: description");
+        assert_eq!(xmp.contains("Example"), choice != "none", "{choice}: copyright");
+        assert_eq!(meta.exif.is_some(), choice == "all", "{choice}: EXIF");
+    }
+    s.execute("prefs.reset", json!({"path": "export"})).unwrap();
+}
+
 #[test]
 fn quick_export_writes_the_format_its_path_names() {
     let dir = tmp("quick_ext");

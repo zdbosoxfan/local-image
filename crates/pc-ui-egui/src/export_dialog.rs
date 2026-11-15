@@ -231,6 +231,8 @@ fn settings(f: &Map<String, Value>) -> ExportSettings {
     let quality = n(f, "quality", 85.0).clamp(1.0, 100.0) as u8;
     ExportSettings {
         jpeg_quality: (fmt == "jpg").then_some(quality),
+        // 4:2:0 smears saturated text and graphics; above Save for Web's cutoff keep full chroma.
+        jpeg_chroma_subsampling: fmt == "jpg" && quality <= 50,
         webp_lossless: fmt != "webp" || lossless(f),
         webp_quality: (fmt == "webp" && !lossless(f)).then_some(quality),
         xmp_all: s(f, "metadata") == "all",
@@ -615,6 +617,17 @@ mod tests {
         let proxy = export_document(&doc, &f, Some(40)).unwrap();
         assert_eq!(proxy.size.width, 40);
         assert_eq!(settings(&f).jpeg_quality, Some(85));
+    }
+
+    #[test]
+    fn jpeg_settings_keep_full_chroma_above_quality_50() {
+        let mut f = Map::new();
+        f.insert("format".into(), json!("jpg"));
+        for (quality, subsampled) in [(1, true), (50, true), (51, false), (100, false)] {
+            f.insert("quality".into(), json!(quality));
+            assert_eq!(settings(&f).jpeg_chroma_subsampling, subsampled, "quality {quality}");
+        }
+        assert!(ExportSettings::default().jpeg_chroma_subsampling, "Save As keeps the codec's 4:2:0 default");
     }
 
     #[test]
