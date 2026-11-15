@@ -628,7 +628,10 @@ mod tests {
         let m = Mask { components: vec![MaskComponent { name: None, op: MaskOp::Intersect, invert: false, shape }], ..Default::default() };
         let a = evaluate_one(&m, &f, 100, 100, &img, &l, 0.0);
         assert!(a.get(50, 50) > 0.99 && a.get(5, 5) < 0.01, "intersect first: {} {}", a.get(50, 50), a.get(5, 5));
-        let full = Mask { components: vec![MaskComponent { name: None, op: MaskOp::Intersect, invert: false, shape: MaskShape::Full }], ..Default::default() };
+        let full = Mask {
+            components: vec![MaskComponent { name: None, op: MaskOp::Intersect, invert: false, shape: MaskShape::Full }],
+            ..Default::default()
+        };
         assert_eq!(scalar_alpha(&full), Some(1.0));
     }
 

@@ -296,7 +296,8 @@ impl FinishParams {
         let ev = s.light.exposure as f32;
         let gain = 2f32.powf(ev);
         let out_to_norm = frame.out_to_norm(w, h);
-        let finite_frame = frame.ow.is_finite() && frame.oh.is_finite() && frame.ow.max(frame.oh) > 0.0 && out_to_norm.0.iter().all(|v| v.is_finite());
+        let finite_frame =
+            frame.ow.is_finite() && frame.oh.is_finite() && frame.ow.max(frame.oh) > 0.0 && out_to_norm.0.iter().all(|v| v.is_finite());
         let grain = if effects && finite_frame { grain(s, px_per_long) } else { None };
         FinishParams {
             mode: FinishMode::Display,
