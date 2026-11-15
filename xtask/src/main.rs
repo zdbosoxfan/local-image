@@ -38,6 +38,10 @@
 //!     already recorded commit, a path the map cannot place; nothing written), 3 conflicts left in
 //!     the tree (no row). --dry-run prints the mapping, the row and `git apply --check`; --record
 //!     only appends the row, after a port finished by hand and committed.
+//! cargo xtask upstream-drift [--upstream-dir DIR] [--repo R] [--rev REV]
+//!     a markdown table of how each mapped directory of our committed tree differs from the
+//!     upstream at REV (default: its review cutoff): identical, changed and one-sided files, and
+//!     a line count of each side's lines the other lacks. Writes nothing.
 //! cargo xtask assets
 //!     audit asset attribution rows and referenced licence files.
 //! cargo xtask tool-icons
@@ -584,6 +588,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   upstream-check [--offline]
   upstream-reviewed <repo> <sha> [--upstream-dir DIR]
   port <repo> <sha> [--upstream-dir DIR] [--dry-run | --record]
+  upstream-drift [--upstream-dir DIR] [--repo R] [--rev REV]
   assets
   icons
   tool-icons
@@ -610,6 +615,10 @@ fn main() -> Result<()> {
             (Some(repo), Some(sha)) => upstream::upstream_reviewed(&root(), repo, sha, &upstream_dir()),
             _ => bail!("{USAGE}"),
         },
+        Some("upstream-drift") => {
+            print!("{}", upstream::upstream_drift(&root(), &upstream_dir(), value("--repo").as_deref(), value("--rev").as_deref())?);
+            Ok(())
+        }
         Some("port") => match (positional(1), positional(2)) {
             (Some(repo), Some(sha)) if !(flag("--dry-run") && flag("--record")) => {
                 let mode = if flag("--dry-run") {

@@ -4,7 +4,7 @@
 //! The commands read the clones under `--upstream-dir` (default `target/upstream/<key>`) and never
 //! clone or fetch; in a blob-less clone git downloads the file contents it needs on demand.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -484,6 +484,134 @@ fn append_commit_row(path: &Path, md: &str, row: &str) -> Result<()> {
     Ok(())
 }
 
+// upstream-drift
+
+/// `cargo xtask upstream-drift`: for each mapped directory, how our committed copy differs from
+/// the upstream at `rev` (default: its review cutoff), as a markdown table. Writes nothing.
+pub fn upstream_drift(root: &Path, upstream_dir: &Path, repo: Option<&str>, rev: Option<&str>) -> Result<String> {
+    if rev.is_some() && repo.is_none() {
+        bail!("--rev needs --repo");
+    }
+    let maps = load_path_maps(root)?;
+    let markers = review_markers(&std::fs::read_to_string(root.join("docs/PORTS.md")).context("docs/PORTS.md")?)?;
+    let mut upstreams: Vec<&Upstream> = match repo {
+        Some(key) => vec![by_key(key).with_context(|| format!("unknown upstream `{key}`"))?],
+        None => UPSTREAMS.iter().collect(),
+    };
+    upstreams.sort_by_key(|u| u.name);
+    let mut out = String::from(
+        "| Upstream | Upstream dir | Ours | Identical | Changed | Ours only | Upstream only | Lines +ours/-upstream |\n|---|---|---|---|---|---|---|---|\n",
+    );
+    for upstream in upstreams {
+        let Some(map) = maps.get(upstream.key).filter(|m| !m.map.is_empty() || !m.moved.is_empty()) else { continue };
+        let clone = upstream_dir.join(upstream.key);
+        let rev = match rev {
+            Some(rev) => rev,
+            None => markers.get(upstream.key).with_context(|| format!("docs/PORTS.md has no review cutoff for {}", upstream.name))?,
+        };
+        let rev = resolve_commit(&clone, rev)?;
+        let mut rows: Vec<(&str, String)> = Vec::new();
+        let mut changed: Vec<(&str, String, String)> = Vec::new();
+        for (dir, ours) in &map.map {
+            let theirs = tree_blobs(&clone, &rev, dir)?;
+            let mine = tree_blobs(root, "HEAD", ours)?;
+            let identical = theirs.iter().filter(|(p, id)| mine.get(*p) == Some(id)).count();
+            let both = theirs.keys().filter(|p| mine.contains_key(*p)).count();
+            for (p, id) in &theirs {
+                if let Some(our_id) = mine.get(p).filter(|o| *o != id) {
+                    changed.push((dir, our_id.clone(), id.clone()));
+                }
+            }
+            let counts = format!("{identical} | {} | {} | {}", both - identical, mine.len() - both, theirs.len() - both);
+            rows.push((dir, format!("| {} | {dir} | {ours} | {counts} |", upstream.name)));
+        }
+        let our_text = cat_blobs(root, changed.iter().map(|(_, o, _)| o.as_str()))?;
+        let their_text = cat_blobs(&clone, changed.iter().map(|(_, _, t)| t.as_str()))?;
+        let mut lines: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+        for (dir, o, t) in &changed {
+            let (plus, minus) = line_drift(&our_text[o], &their_text[t]);
+            let sum = lines.entry(dir).or_default();
+            *sum = (sum.0 + plus, sum.1 + minus);
+        }
+        for (dir, row) in &mut rows {
+            let (plus, minus) = lines.get(dir).copied().unwrap_or_default();
+            row.push_str(&format!(" +{plus}/-{minus} |"));
+        }
+        for (dir, m) in &map.moved {
+            rows.push((dir, format!("| {} | {dir} | {} | moved to {} at {} | | | | |", upstream.name, m.ours, m.to, m.at)));
+        }
+        rows.sort();
+        for (_, row) in rows {
+            out.push_str(&row);
+            out.push('\n');
+        }
+    }
+    out.push_str("\nLines +ours/-upstream counts the lines each side has that the other lacks (not a diff).\n");
+    Ok(out)
+}
+
+/// Path under `prefix` → blob id, for the committed tree `rev` of `repo`.
+fn tree_blobs(repo: &Path, rev: &str, prefix: &str) -> Result<BTreeMap<String, String>> {
+    let out = git(repo).args(["ls-tree", "-r", "-z", rev, "--", prefix]).output()?;
+    if !out.status.success() {
+        bail!("git ls-tree {rev} {prefix} in {}: {}", repo.display(), String::from_utf8_lossy(&out.stderr).trim());
+    }
+    let mut blobs = BTreeMap::new();
+    for entry in out.stdout.split(|&b| b == 0).filter(|e| !e.is_empty()) {
+        let entry = String::from_utf8_lossy(entry);
+        let Some((meta, path)) = entry.split_once('\t') else { bail!("unexpected ls-tree entry {entry}") };
+        if let [_, "blob", id] = meta.split(' ').collect::<Vec<_>>().as_slice()
+            && let Some(rel) = path.strip_prefix(prefix)
+        {
+            blobs.insert(rel.to_string(), id.to_string());
+        }
+    }
+    Ok(blobs)
+}
+
+/// The contents of blobs `ids` of `repo`, read through one `git cat-file --batch`.
+fn cat_blobs<'a>(repo: &Path, ids: impl Iterator<Item = &'a str>) -> Result<HashMap<String, Vec<u8>>> {
+    let input: String = ids.map(|id| format!("{id}\n")).collect();
+    if input.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let out = output_with_stdin(git(repo).args(["cat-file", "--batch"]), input.into_bytes())?;
+    if !out.status.success() {
+        bail!("git cat-file --batch in {}: {}", repo.display(), String::from_utf8_lossy(&out.stderr).trim());
+    }
+    let mut blobs = HashMap::new();
+    let mut rest = out.stdout.as_slice();
+    while !rest.is_empty() {
+        let end = rest.iter().position(|&b| b == b'\n').context("truncated cat-file header")?;
+        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
+        let [id, _, size] = header.split(' ').collect::<Vec<_>>()[..] else { bail!("git cat-file in {}: {header}", repo.display()) };
+        let size: usize = size.parse().with_context(|| format!("git cat-file header {header}"))?;
+        let body = rest.get(end + 1..end + 1 + size).context("truncated cat-file body")?;
+        blobs.insert(id.to_string(), body.to_vec());
+        rest = rest.get(end + 2 + size..).unwrap_or_default();
+    }
+    Ok(blobs)
+}
+
+/// (lines of `ours` missing from `theirs`, lines of `theirs` missing from `ours`), each side
+/// counted as a multiset of lines.
+fn line_drift(ours: &[u8], theirs: &[u8]) -> (usize, usize) {
+    let lines = |b: &[u8]| -> Vec<Vec<u8>> {
+        let b = b.strip_suffix(b"\n").unwrap_or(b);
+        if b.is_empty() { Vec::new() } else { b.split(|&c| c == b'\n').map(<[u8]>::to_vec).collect() }
+    };
+    let mut counts: HashMap<Vec<u8>, isize> = HashMap::new();
+    for l in lines(ours) {
+        *counts.entry(l).or_default() += 1;
+    }
+    for l in lines(theirs) {
+        *counts.entry(l).or_default() -= 1;
+    }
+    let plus = counts.values().filter(|&&c| c > 0).sum::<isize>().unsigned_abs();
+    let minus = counts.values().filter(|&&c| c < 0).sum::<isize>().unsigned_abs();
+    (plus, minus)
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::path::{Path, PathBuf};
@@ -742,6 +870,33 @@ skip = ["docs/"]
         assert_eq!(f.port(&clean, PortMode::Apply), PortStatus::Refused);
         assert_eq!(f.port(&clean, PortMode::Record), PortStatus::Refused);
         assert_eq!(f.read("docs/PORTS.md"), recorded);
+    }
+
+    #[test]
+    fn upstream_drift_counts_files_and_lines() -> Result<()> {
+        let f = PortFixture::new("drift");
+        f.write(&f.clone, "crates/algo/src/changed.rs", "a\nb\nc\n");
+        f.write(&f.clone, "crates/algo/src/upstream_only.rs", "u\n");
+        let rev = f.commit_upstream("upstream side");
+        f.write(&f.ours, "crates/pc-algo/src/changed.rs", "a\nB\nc\nd\n");
+        f.write(&f.ours, "crates/pc-algo/src/ours_only.rs", "o\n");
+        f.write(&f.ours, "docs/PORTS.md", &format!("| Upstream | Reviewed up to |\n|---|---|\n| PhotoCraft | `{rev}` |\n"));
+        f.commit_ours("our side");
+
+        let table = upstream_drift(&f.ours, &f.dir.join("upstream"), Some("photocraft"), None)?;
+        assert_eq!(
+            table,
+            format!(
+                "| Upstream | Upstream dir | Ours | Identical | Changed | Ours only | Upstream only | Lines +ours/-upstream |\n|---|---|---|---|---|---|---|---|\n\
+                 | PhotoCraft | crates/algo/ | crates/pc-algo/ | 1 | 1 | 1 | 1 | +2/-1 |\n\
+                 | PhotoCraft | crates/cms/ | crates/pc-cms/ | moved to craft-libs craft-cms at {} | | | | |\n\
+                 \nLines +ours/-upstream counts the lines each side has that the other lacks (not a diff).\n",
+                f.moved
+            )
+        );
+        assert_eq!(git(&f.ours, &["status", "--porcelain"]), "");
+        assert!(format!("{:#}", upstream_drift(&f.ours, &f.dir.join("upstream"), Some("photocraft"), Some("0000000")).unwrap_err()).contains("fetch origin"));
+        Ok(())
     }
 
     #[test]
