@@ -271,10 +271,32 @@ pub fn wand_region(img: &[[u8; 4]], area: Rect, seed: (i32, i32), tolerance: f32
 /// `sample`×`sample` pixels around the seed (clipped to `area`), so one noisy pixel in a photo no
 /// longer decides the whole selection.
 pub fn wand_region_sampled(img: &[[u8; 4]], area: Rect, seed: (i32, i32), sample: u32, tolerance: f32, contiguous: bool, anti_alias: bool) -> Option<Region> {
+    wand_region_within(img, area, seed, sample, tolerance, contiguous, anti_alias, None)
+}
+
+/// [`wand_region_sampled`] whose contiguous fill only passes through pixels at least half selected
+/// in `within` (the current selection's coverage over `area`, row-major): Subtract and Intersect
+/// grow the region from the seed through the selection only, so a seed outside it finds nothing.
+/// A global match (`contiguous` off) ignores `within`.
+pub fn wand_region_within(
+    img: &[[u8; 4]],
+    area: Rect,
+    seed: (i32, i32),
+    sample: u32,
+    tolerance: f32,
+    contiguous: bool,
+    anti_alias: bool,
+    within: Option<&[f32]>,
+) -> Option<Region> {
     if !area.contains(seed.0, seed.1) {
         return None;
     }
     let (w, h) = (area.width() as usize, area.height() as usize);
+    let within = within.filter(|m| contiguous && m.len() >= w * h);
+    let inside = |i: usize| within.is_none_or(|m| m[i] >= 0.5);
+    if !inside((seed.1 - area.y0) as usize * w + (seed.0 - area.x0) as usize) {
+        return None;
+    }
     let target = sample_mean(img, area, seed, sample);
     let tol = (tolerance + 1e-3).floor().max(0.0) as i32;
     let similar = |p: [u8; 4]| (0..4).all(|c| (p[c] as i32 - target[c] as i32).abs() <= tol);
@@ -289,10 +311,10 @@ pub fn wand_region_sampled(img: &[[u8; 4]], area: Rect, seed: (i32, i32), sample
                 continue;
             }
             let (mut l, mut r) = (x, x);
-            while l > 0 && marks[row + l - 1] == 0 && similar(img[row + l - 1]) {
+            while l > 0 && marks[row + l - 1] == 0 && similar(img[row + l - 1]) && inside(row + l - 1) {
                 l -= 1;
             }
-            while r + 1 < w && marks[row + r + 1] == 0 && similar(img[row + r + 1]) {
+            while r + 1 < w && marks[row + r + 1] == 0 && similar(img[row + r + 1]) && inside(row + r + 1) {
                 r += 1;
             }
             marks[row + l..=row + r].fill(255);
@@ -304,7 +326,7 @@ pub fn wand_region_sampled(img: &[[u8; 4]], area: Rect, seed: (i32, i32), sample
                 let nrow = ny * w;
                 let mut in_run = false;
                 for nx in l..=r {
-                    let ok = marks[nrow + nx] == 0 && similar(img[nrow + nx]);
+                    let ok = marks[nrow + nx] == 0 && similar(img[nrow + nx]) && inside(nrow + nx);
                     if ok && !in_run {
                         stack.push((nx, ny));
                     }
