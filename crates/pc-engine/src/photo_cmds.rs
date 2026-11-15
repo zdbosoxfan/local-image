@@ -66,11 +66,66 @@ pub(crate) struct Source {
 /// Loaded sources, the common pixel format and the first source's ICC profile.
 type Loaded = (Vec<Source>, PixelFormat, Option<std::sync::Arc<Vec<u8>>>);
 
-fn load_sources(s: &Session, p: &Value, cmd: &str) -> Result<Loaded> {
-    let mut docs: Vec<(String, Document)> = Vec::new();
+/// Sources flattened one at a time into the first one's format, within a memory budget.
+struct Sources {
+    out: Vec<Source>,
+    fmt: Option<PixelFormat>,
+    icc: Option<std::sync::Arc<Vec<u8>>>,
+    /// `None` (Merge to HDR Pro) loads without a limit.
+    budget: Option<u64>,
+    /// Bytes of the flattened sources kept so far.
+    retained: u64,
+}
+
+impl Sources {
+    /// Flattens `d`, refusing it before the flatten allocates when it would pass the budget.
+    /// `encoded` is the size of the file `d` was decoded from (0 for an open document).
+    fn add(&mut self, name: String, d: &Document, encoded: usize, cmd: &str) -> Result<()> {
+        let source_fmt = d.pixel_format();
+        let first = self.fmt.is_none();
+        let fmt = *self.fmt.get_or_insert_with(|| {
+            if matches!(source_fmt.mode, ColorMode::Cmyk | ColorMode::Lab | ColorMode::Multichannel) {
+                // Registration and blending work in RGB; like Photoshop, the result is RGB.
+                PixelFormat::new(ColorMode::Rgb, source_fmt.sample, true)
+            } else {
+                source_fmt
+            }
+        });
+        if first && source_fmt.mode == fmt.mode {
+            self.icc = d.icc_profile.clone();
+        }
+        let (w, h) = (d.size.width as usize, d.size.height as usize);
+        let surface = (w as u64).saturating_mul(h as u64).saturating_mul(fmt.bytes_per_pixel() as u64);
+        if let Some(budget) = self.budget {
+            // The kept surface and the flatten's working copy of it, while the file's bytes are held.
+            let needed = self.retained.saturating_add(encoded as u64).saturating_add(surface.saturating_mul(2));
+            if needed > budget {
+                return Err(crate::allocation::error(
+                    cmd,
+                    &format!(
+                        "loading {} source image(s) plus another {w}×{h} one needs about {} MiB, which exceeds the {} MiB budget; use fewer or smaller images, or raise \"memoryBudget\"",
+                        self.out.len(),
+                        needed >> 20,
+                        budget >> 20
+                    ),
+                ));
+            }
+        }
+        self.retained = self.retained.saturating_add(surface);
+        let info = d.metadata.exif.as_ref().map(|e| exif::read(e)).unwrap_or_default();
+        self.out.push(Source { name, surf: flattened(d, fmt)?, w, h, exif: info });
+        Ok(())
+    }
+}
+
+/// Flattens the open documents and files named by `p` into common-format sources. With a
+/// `budget` (bytes) each source is admitted before it is flattened, so an oversized set is refused
+/// while the earlier sources are all that is held.
+fn load_sources(s: &Session, p: &Value, cmd: &str, budget: Option<u64>) -> Result<Loaded> {
+    let mut src = Sources { out: Vec::new(), fmt: None, icc: None, budget, retained: 0 };
     if p.get("useOpenDocuments").and_then(Value::as_bool).unwrap_or(false) {
         for d in s.documents() {
-            docs.push((d.doc.name.clone(), (*d.doc).clone()));
+            src.add(d.doc.name.clone(), &d.doc, 0, cmd)?;
         }
     }
     let paths: Vec<String> = match p.get("paths").or_else(|| p.get("input")) {
@@ -80,26 +135,55 @@ fn load_sources(s: &Session, p: &Value, cmd: &str) -> Result<Loaded> {
     };
     for path in &paths {
         let bytes = read_file(path)?;
-        docs.push((file_name(path), import(&file_name(path), &bytes)?));
+        let name = file_name(path);
+        let doc = import(&name, &bytes)?;
+        src.add(name, &doc, bytes.len(), cmd)?;
     }
-    if docs.is_empty() {
+    let Some(fmt) = src.fmt else {
         return Err(bad(cmd, "pass \"paths\" (files or a folder) or \"useOpenDocuments\": true"));
+    };
+    Ok((src.out, fmt, src.icc))
+}
+
+/// Photomerge's working-memory budget in bytes: the `memoryBudget` param, else what heavy work may
+/// still plan for on this machine, at least 1 GiB.
+fn photomerge_memory_budget(p: &Value) -> u64 {
+    p.get("memoryBudget").and_then(Value::as_u64).unwrap_or_else(|| lightcraft_sysmem::heavy_jobs().headroom().max(1 << 30))
+}
+
+/// Estimated peak working memory of a Photomerge in bytes: the largest of its phases. Warping
+/// holds the sources and the warped images (`warped`: their sizes). A blend keeps the warped
+/// images and its ROIs throughout; on top of them come the accumulator pyramids with every image's
+/// bands (`multiband` builds them all before it adds any), then the blended planes, the composite
+/// and the output layers, and last the fill.
+fn estimate_photomerge_memory(sources: &[(usize, usize)], warped: &[(usize, usize)], canvas: (usize, usize), fmt: PixelFormat, blend: bool, fill: bool) -> u64 {
+    const F32: u64 = 4;
+    let px_sum = |sizes: &[(usize, usize)]| sizes.iter().fold(0u64, |a, &(w, h)| a.saturating_add((w as u64).saturating_mul(h as u64)));
+    let (cc, nch, bpp) = (fmt.mode.color_channels() as u64, fmt.channels() as u64, fmt.bytes_per_pixel() as u64);
+    let roi_px = px_sum(warped);
+    let warped_bytes = roi_px.saturating_mul(bpp);
+    let warp = px_sum(sources).saturating_mul(bpp).saturating_add(warped_bytes);
+    if !blend {
+        return warp;
     }
-    let first = &docs[0].1;
-    let mut fmt = first.pixel_format();
-    if matches!(fmt.mode, ColorMode::Cmyk | ColorMode::Lab | ColorMode::Multichannel) {
-        // Registration and blending work in RGB; like Photoshop, the result is RGB.
-        fmt = PixelFormat::new(ColorMode::Rgb, fmt.sample, true);
-    }
-    let icc = (first.pixel_format().mode == fmt.mode).then(|| first.icc_profile.clone()).flatten();
-    let out = docs
-        .into_iter()
-        .map(|(name, d)| {
-            let info = d.metadata.exif.as_ref().map(|e| exif::read(e)).unwrap_or_default();
-            Ok(Source { name, surf: flattened(&d, fmt)?, w: d.size.width as usize, h: d.size.height as usize, exif: info })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok((out, fmt, icc))
+    let canvas_px = (canvas.0 as u64).saturating_mul(canvas.1 as u64);
+    // ROI colours and coverage, their canvas-relative copy, and the seam weights.
+    let held = warped_bytes.saturating_add(roi_px.saturating_mul((2 * cc + 3) * F32));
+    // The accumulator and weight-sum pyramids: 4/3 of a plane each.
+    let accumulators = canvas_px.saturating_mul((cc + 1) * F32 * 4 / 3);
+    // Each image on its ROI grown by the blend margin: its Laplacian and weight pyramids plus the
+    // planes they are built from, about three colour-and-weight planes in all.
+    let margin = 8usize << (blend_levels(canvas.0, canvas.1).min(7) - 1);
+    let band_px = warped.iter().fold(0u64, |a, &(w, h)| {
+        a.saturating_add((w.saturating_add(margin).min(canvas.0) as u64).saturating_mul(h.saturating_add(margin).min(canvas.1) as u64))
+    });
+    let bands = band_px.saturating_mul((cc + 1) * F32 * 3);
+    let composite = canvas_px.saturating_mul(bpp);
+    let layers = roi_px.saturating_mul(bpp + 1);
+    // The blended colour and coverage, the composite's staging buffer and surface, the layers.
+    let output = canvas_px.saturating_mul((cc + 1 + nch) * F32).saturating_add(composite).saturating_add(layers);
+    let filling = if fill { warped_bytes.saturating_add(layers).saturating_add(composite.saturating_mul(2)).saturating_add(24 << 20) } else { 0 };
+    warp.max(held.saturating_add(accumulators).saturating_add(bands)).max(held.saturating_add(output)).max(filling)
 }
 
 /// Luminance and coverage of `surf` over `area`, box-downsampled by `k`.
@@ -401,7 +485,9 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
     let vignette = p.get("vignetteRemoval").and_then(Value::as_bool).unwrap_or(false);
     let geometric = p.get("geometricCorrection").and_then(Value::as_bool).unwrap_or(false);
     let fill = p.get("contentAwareFill").and_then(Value::as_bool).unwrap_or(false);
-    let (srcs, fmt, icc) = load_sources(s, p, cmd)?;
+    // Resolved before loading: the sources are flattened and kept one at a time.
+    let budget = photomerge_memory_budget(p);
+    let (mut srcs, fmt, icc) = load_sources(s, p, cmd, Some(budget))?;
     if srcs.len() < 2 {
         return Err(bad(cmd, "Photomerge needs two or more images"));
     }
@@ -428,8 +514,11 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
             let failed: Vec<String> = (0..srcs.len()).filter(|&i| al.placements[i].is_none()).map(|i| srcs[i].name.clone()).collect();
             // Canvas: union of the placed images.
             let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+            // Each placed image's warped extent.
+            let mut extents: Vec<(f64, f64)> = Vec::with_capacity(placed.len());
             for (&i, pl) in placed.iter().zip(&placements) {
                 let b = pl.bounds(srcs[i].w as f64, srcs[i].h as f64);
+                extents.push((b[2] - b[0], b[3] - b[1]));
                 x0 = x0.min(b[0]);
                 y0 = y0.min(b[1]);
                 x1 = x1.max(b[2]);
@@ -441,18 +530,35 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
             }
             let canvas = Rect::new(0, 0, cw as i32, ch as i32);
             let offset = (-x0.floor(), -y0.floor());
-            let warped: Vec<Surface> = {
-                placed
-                    .iter()
-                    .zip(&placements)
-                    .enumerate()
-                    .map(|(k, (&i, pl))| {
-                        ctx.check()?;
-                        ctx.report(0.35 + 0.25 * k as f32 / placed.len().max(1) as f32, "");
-                        Ok(warp_placed(&srcs[i].surf, Rect::new(0, 0, srcs[i].w as i32, srcs[i].h as i32), (0.0, 0.0), pl, offset, Interp::Bicubic))
-                    })
-                    .collect::<Result<Vec<Surface>>>()?
-            };
+            // Refused here, before the warp and blend buffers exist. The estimate follows the
+            // warped images (a pixel of slack for sub-pixel bounds), clipped to the canvas.
+            let source_sizes: Vec<(usize, usize)> = srcs.iter().map(|s| (s.w, s.h)).collect();
+            let warped_sizes: Vec<(usize, usize)> =
+                extents.iter().map(|&(w, h)| ((w.ceil() + 1.0).max(0.0).min(cw) as usize, (h.ceil() + 1.0).max(0.0).min(ch) as usize)).collect();
+            let needed = estimate_photomerge_memory(&source_sizes, &warped_sizes, (cw as usize, ch as usize), fmt, blend, fill);
+            if needed > budget {
+                return Err(crate::allocation::error(
+                    "Photomerge",
+                    &format!(
+                        "estimated memory of {} MiB exceeds the {} MiB budget; use fewer or smaller images, or raise \"memoryBudget\"",
+                        needed >> 20,
+                        budget >> 20
+                    ),
+                ));
+            }
+            // A source is freed once it is warped (an unplaced one now), as the estimate assumes.
+            for (i, src) in srcs.iter_mut().enumerate() {
+                if al.placements[i].is_none() {
+                    src.surf = Surface::new(fmt);
+                }
+            }
+            let mut warped: Vec<Surface> = Vec::with_capacity(placed.len());
+            for (k, (&i, pl)) in placed.iter().zip(&placements).enumerate() {
+                ctx.check()?;
+                ctx.report(0.35 + 0.25 * k as f32 / placed.len().max(1) as f32, "");
+                warped.push(warp_placed(&srcs[i].surf, Rect::new(0, 0, srcs[i].w as i32, srcs[i].h as i32), (0.0, 0.0), pl, offset, Interp::Bicubic));
+                srcs[i].surf = Surface::new(fmt);
+            }
             let t_warp = t0.ms() / 1000.0;
             ctx.check()?;
             ctx.report(0.6, "Photomerge: blending images");
@@ -592,7 +698,7 @@ fn shift_rgba(px: &[[f32; 4]], w: usize, h: usize, dx: i32, dy: i32) -> Vec<[f32
 fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.automate.mergeToHdrPro";
     let t0 = Stopwatch::start();
-    let (srcs, _fmt, icc) = load_sources(s, p, cmd)?;
+    let (srcs, _fmt, icc) = load_sources(s, p, cmd, None)?;
     if srcs.len() < 2 {
         return Err(bad(cmd, "Merge to HDR Pro needs two or more exposures"));
     }
@@ -859,7 +965,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Photomerge…",
             menu: &["File", "Automate"],
             shortcut: None,
-            params: r##"{"paths":[str]|folder,"useOpenDocuments":bool=false,"layout":"auto|perspective|cylindrical|spherical|collage|reposition","blend":bool=true,"vignetteRemoval":bool=false,"geometricCorrection":bool=false,"contentAwareFill":bool=false,"focalLength":mm=0 (35 mm equivalent; 0 = EXIF or estimated)} → new document, one masked layer per image"##,
+            params: r##"{"paths":[str]|folder,"useOpenDocuments":bool=false,"layout":"auto|perspective|cylindrical|spherical|collage|reposition","blend":bool=true,"vignetteRemoval":bool=false,"geometricCorrection":bool=false,"contentAwareFill":bool=false,"focalLength":mm=0 (35 mm equivalent; 0 = EXIF or estimated),"memoryBudget":bytes?=the heavy-job memory headroom} → new document, one masked layer per image"##,
             enabled: always,
             run: photomerge,
             journal: true,
@@ -987,6 +1093,28 @@ mod tests {
         assert!(s.execute("file.automate.photomerge", json!({"useOpenDocuments": true, "layout": "zigzag"})).is_err());
         let mut empty = Session::new();
         assert!(empty.execute("file.automate.photomerge", json!({})).is_err());
+    }
+
+    /// Photomerge refuses a job past its memory budget before it allocates: at the source that
+    /// would pass it while loading, or at the estimate once the canvas is known.
+    #[test]
+    fn photomerge_refuses_jobs_past_its_memory_budget() {
+        let (sw, sh) = (520, 220);
+        let sc = scene(sw, sh, 5);
+        let mut s = Session::new();
+        for (k, (x0, g)) in [(0usize, 1.0f32), (130, 1.15), (260, 1.0)].into_iter().enumerate() {
+            s.add_document(doc_from(&format!("img{k}"), &crop(&sc, sw, x0, 10, 220, 200, g), 220, 200, SampleType::U8), None);
+        }
+        let p = |budget: u64| json!({"useOpenDocuments": true, "layout": "reposition", "memoryBudget": budget});
+        // A 220 × 200 RGBA8 source is 176000 bytes, twice that while it is flattened.
+        let err = s.execute("file.automate.photomerge", p(300_000)).unwrap_err().to_string();
+        assert!(err.contains("loading 0 source image(s) plus another 220×200 one"), "{err}");
+        // The three sources load within 704000 bytes; warping them needs over a megabyte.
+        let err = s.execute("file.automate.photomerge", p(800_000)).unwrap_err().to_string();
+        assert!(err.contains("estimated memory of"), "{err}");
+        assert_eq!(s.documents().len(), 3);
+        s.execute("file.automate.photomerge", p(1 << 30)).unwrap();
+        assert_eq!(s.documents().len(), 4);
     }
 
     #[test]
