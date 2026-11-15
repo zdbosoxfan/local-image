@@ -268,7 +268,8 @@ pub enum PortMode {
 #[derive(Debug, PartialEq)]
 pub enum PortStatus {
     Applied,
-    Refused,
+    /// Nothing was written; the reason why.
+    Refused(String),
     Conflicts,
 }
 
@@ -276,7 +277,7 @@ impl PortStatus {
     pub fn code(&self) -> i32 {
         match self {
             PortStatus::Applied => 0,
-            PortStatus::Refused => 2,
+            PortStatus::Refused(_) => 2,
             PortStatus::Conflicts => 3,
         }
     }
@@ -292,11 +293,8 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
     let upstream = by_key(key).with_context(|| format!("unknown upstream `{key}`"))?;
     let clone = upstream_dir.join(key);
     git_out(&clone, &["rev-parse", "--git-dir"]).with_context(|| format!("no clone of {} in {}", upstream.name, clone.display()))?;
-    let refuse = |why: String| {
-        eprintln!("refused: {why}");
-        Ok(PortStatus::Refused)
-    };
-    let status = git_out(root, &["status", "--porcelain"])?;
+    let refuse = |why: String| Ok(PortStatus::Refused(why));
+    let status = git_out(root, &["status", "--porcelain", "--untracked-files=normal"])?;
     if !status.is_empty() {
         return refuse(format!("the working tree has changes; commit or stash them first:\n{status}"));
     }
@@ -309,9 +307,10 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
     }
     let ports_path = root.join("docs/PORTS.md");
     let md = std::fs::read_to_string(&ports_path).context("docs/PORTS.md")?;
-    let recorded = attributions::parse_ports(&md).into_iter().map(|r| r.commit).chain(attributions::parse_commit_ports(&md)?.into_iter().map(|c| c.commit));
-    if let Some(c) = recorded.into_iter().find(|c| sha.starts_with(c.as_str())) {
-        return refuse(format!("{sha} is already recorded in docs/PORTS.md (as {c})"));
+    let in_files = attributions::parse_ports(&md).into_iter().map(|r| (r.commit, "a file table"));
+    let in_commits = attributions::parse_commit_ports(&md)?.into_iter().map(|c| (c.commit, "the commit table"));
+    if let Some((c, table)) = in_files.chain(in_commits).find(|(c, _)| sha.starts_with(c.as_str())) {
+        return refuse(format!("{sha} is already recorded in {table} of docs/PORTS.md (as {c})"));
     }
 
     let maps = load_path_maps(root)?;
@@ -389,7 +388,7 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
         bail!("git apply --3way: {}", String::from_utf8_lossy(&applied.stderr).trim());
     }
     append_commit_row(&ports_path, &md, &row)?;
-    println!("{row}\nstaged; add the regression test, then `cargo xtask attributions`");
+    println!("{row}\nthe change is staged and the docs/PORTS.md row is not; add the regression test, then `cargo xtask attributions`");
     Ok(PortStatus::Applied)
 }
 
@@ -449,8 +448,8 @@ fn commit_row(upstream: &Upstream, sha: &str, subject: &str, ours: &[&str]) -> S
     format!("| [`{}`]({}/commit/{sha}) | {} | {} | {} |", &sha[..12], upstream.url, subject.replace('|', "\\|"), files.join("<br>"), upstream.licence)
 }
 
-/// Appends `row` to the table of PORTS.md's final `## Upstream commit ports` section, creating the
-/// section if it is missing.
+/// Appends `row` to the table under PORTS.md's first `## Upstream commit ports` heading, creating
+/// the section at the end of the file if it is missing.
 fn append_commit_row(path: &Path, md: &str, row: &str) -> Result<()> {
     let parts: Vec<&str> = md.split_inclusive('\n').collect();
     let mut out = String::new();
@@ -756,6 +755,13 @@ skip = ["docs/"]
             port(&self.ours, "photocraft", sha, &self.dir.join("upstream"), mode).unwrap()
         }
 
+        fn refused(&self, sha: &str, mode: PortMode) -> String {
+            match self.port(sha, mode) {
+                PortStatus::Refused(why) => why,
+                other => panic!("expected a refusal, got {other:?}"),
+            }
+        }
+
         fn read(&self, path: &str) -> String {
             std::fs::read_to_string(self.ours.join(path)).unwrap()
         }
@@ -847,21 +853,22 @@ skip = ["docs/"]
         f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2")]));
         let clean = f.commit_upstream("clean");
 
+        git(&f.ours, &["config", "status.showUntrackedFiles", "no"]);
         f.write(&f.ours, "scratch.txt", "untracked");
-        assert_eq!(f.port(&clean, PortMode::Apply), PortStatus::Refused);
-        assert_eq!(f.port(&clean, PortMode::Record), PortStatus::Refused);
+        assert!(f.refused(&clean, PortMode::Apply).contains("the working tree has changes"));
+        assert!(f.refused(&clean, PortMode::Record).contains("the working tree has changes"));
         std::fs::remove_file(f.ours.join("scratch.txt")).unwrap();
         unchanged(&f);
 
         f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(3, "upstream 3")]));
         f.write(&f.clone, "crates/raw/src/lib.rs", "raw 2\n");
         let unmapped = f.commit_upstream("touches raw");
-        assert_eq!(f.port(&unmapped, PortMode::Apply), PortStatus::Refused);
+        assert!(f.refused(&unmapped, PortMode::Apply).contains("crates/raw/src/lib.rs: reads RAW elsewhere"));
         unchanged(&f);
 
         f.write(&f.clone, "crates/cms/src/lib.rs", "after the move\n");
         let after_move = f.commit_upstream("cms after the move");
-        assert_eq!(f.port(&after_move, PortMode::Apply), PortStatus::Refused);
+        assert!(f.refused(&after_move, PortMode::Apply).contains("crates/cms/src/lib.rs: moved to craft-libs craft-cms"));
         unchanged(&f);
 
         git(&f.clone, &["checkout", "--quiet", "-b", "side", &clean]);
@@ -870,14 +877,14 @@ skip = ["docs/"]
         git(&f.clone, &["checkout", "--quiet", "-"]);
         git(&f.clone, &["merge", "--quiet", "--no-ff", "-m", "merge side", "side"]);
         let merge = git(&f.clone, &["rev-parse", "HEAD"]);
-        assert_eq!(f.port(&merge, PortMode::Apply), PortStatus::Refused);
+        assert!(f.refused(&merge, PortMode::Apply).contains("is a merge commit"));
         unchanged(&f);
 
         assert_eq!(f.port(&clean, PortMode::Apply), PortStatus::Applied);
         f.commit_ours("port");
         let recorded = f.read("docs/PORTS.md");
-        assert_eq!(f.port(&clean, PortMode::Apply), PortStatus::Refused);
-        assert_eq!(f.port(&clean, PortMode::Record), PortStatus::Refused);
+        assert!(f.refused(&clean, PortMode::Apply).contains("already recorded in the commit table"));
+        assert!(f.refused(&clean, PortMode::Record).contains("already recorded in the commit table"));
         assert_eq!(f.read("docs/PORTS.md"), recorded);
     }
 

@@ -34,9 +34,9 @@
 //! cargo xtask port <repo> <sha> [--upstream-dir DIR] [--dry-run | --record]
 //!     applies one storytold upstream commit to the current branch at our paths
 //!     (docs/upstream-paths.toml) with a three-way merge, staged but not committed, and appends its
-//!     row to docs/PORTS.md. Exit 0 applied, 1 error, 2 refused (dirty tree, unknown, merge or
-//!     already recorded commit, a path the map cannot place; nothing written), 3 conflicts left in
-//!     the tree (no row). --dry-run prints the mapping, the row and `git apply --check`; --record
+//!     row to docs/PORTS.md as an unstaged edit. Exit 0 applied, 1 error, 2 refused (dirty tree,
+//!     unknown, merge or already recorded commit, a path the map cannot place; nothing written),
+//!     3 conflicts left in the tree (no row). --dry-run prints the mapping, the row and `git apply --check`; --record
 //!     only appends the row, after a port finished by hand and committed.
 //! cargo xtask upstream-drift [--upstream-dir DIR] [--repo R] [--rev REV]
 //!     a markdown table of how each mapped directory of our committed tree differs from the
@@ -629,7 +629,12 @@ fn main() -> Result<()> {
                     upstream::PortMode::Apply
                 };
                 let code = match upstream::port(&root(), repo, sha, &upstream_dir(), mode) {
-                    Ok(status) => status.code(),
+                    Ok(status) => {
+                        if let upstream::PortStatus::Refused(why) = &status {
+                            eprintln!("refused: {why}");
+                        }
+                        status.code()
+                    }
                     Err(e) => {
                         eprintln!("error: {e:#}");
                         1

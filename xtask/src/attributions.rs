@@ -1114,14 +1114,14 @@ mod tests {
                 licence: "MIT OR Apache-2.0".into(),
             }]
         );
-        for bad in [
-            format!("| [`abcdef2`](https://github.com/storytold/lightcraft/commit/{sha}) | s | `x.rs` | MIT |"),
-            format!("| [`abcdef1`](https://example.com/storytold/lightcraft/commit/{sha}) | s | `x.rs` | MIT |"),
-            format!("| [`abcdef1`](https://github.com/storytold/designcraft/commit/{sha}) | s | `x.rs` | MIT |"),
+        for (bad, why) in [
+            (format!("| [`abcdef2`](https://github.com/storytold/lightcraft/commit/{sha}) | s | `x.rs` | MIT |"), "does not match the commit"),
+            (format!("| [`abcdef1`](https://example.com/storytold/lightcraft/commit/{sha}) | s | `x.rs` | MIT |"), "is not a storytold GitHub commit"),
+            (format!("| [`abcdef1`](https://github.com/storytold/designcraft/commit/{sha}) | s | `x.rs` | MIT |"), "unknown upstream `designcraft`"),
         ] {
             let md = format!("intro\n\n| Upstream commit | Subject | Our files | Licence |\n|---|---|---|---|\n{good}\n{bad}\n");
             let error = format!("{:#}", parse_commit_ports(&md).expect_err(&bad));
-            assert!(error.contains("docs/PORTS.md line 6:"), "{error}");
+            assert!(error.contains("docs/PORTS.md line 6:") && error.contains(why), "{error}");
         }
     }
 
