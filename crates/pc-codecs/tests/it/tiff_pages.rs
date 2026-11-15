@@ -704,3 +704,26 @@ fn a_blank_fax_page_wider_than_4096_px_passes_the_bomb_guard() {
         }
     }
 }
+
+/// TIFF 6.0 gives each extra sample its own ExtraSamples value, so the alpha may follow an
+/// unspecified extra sample: it is read from wherever it comes, chunky or planar.
+#[test]
+fn alpha_after_an_unspecified_extra_sample_is_the_alpha() {
+    let (w, h) = (5usize, 3usize);
+    let t = truth(w * h * 6, 9);
+    let pick = |spp: usize, at: &[usize]| -> Vec<u8> { t.u8s[..w * h * spp].chunks(spp).flat_map(|p| at.iter().map(|&i| p[i]).collect::<Vec<_>>()).collect() };
+    for planar in [false, true] {
+        for (photometric, color, layout) in [(1u16, 1usize, ChannelLayout::GrayA), (2, 3, ChannelLayout::Rgba), (5, 4, ChannelLayout::CmykA)] {
+            let spp = color + 2;
+            let px = &t.u8s[..w * h * spp];
+            let chunks = if planar { planar_strips(px, w, h, spp, 1, 2) } else { px.chunks(w * spp * 2).map(<[u8]>::to_vec).collect() };
+            let mut d = Dir { entries: base(w as u32, h as u32, 8, spp as u16, photometric), chunks, tiled: false }.tag(278, LONG, &[2]).tag(338, SHORT, &[0, 2]);
+            if planar {
+                d = d.tag(284, SHORT, &[2]);
+            }
+            let img = decode_ok(&build(true, false, &[d], &[0]).bytes);
+            let want: Vec<usize> = (0..color).chain([color + 1]).collect();
+            assert_eq!((img.layout(), img.data()), (layout, &pick(spp, &want)[..]), "photometric {photometric}, planar {planar}");
+        }
+    }
+}

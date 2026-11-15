@@ -312,6 +312,8 @@ struct Layout {
     invert: bool,
     /// Associated (premultiplied) alpha to turn straight.
     premultiplied: bool,
+    /// The sample the alpha is read from, when it is not the one after the colour samples.
+    alpha_sample: Option<usize>,
     /// Palette images: the colour map (16-bit RGB per index).
     palette: Option<Vec<[u16; 3]>>,
     /// Upper bound for one chunk's scratch buffer.
@@ -322,6 +324,13 @@ impl Layout {
     fn out_channels(&self) -> usize {
         self.out_layout.channels()
     }
+    /// The sample in the file that output channel `k` is read from.
+    fn sample_of(&self, k: usize) -> usize {
+        match self.alpha_sample {
+            Some(at) if k + 1 == self.out_channels() => at,
+            _ => k,
+        }
+    }
     fn out_row(&self) -> usize {
         self.w * self.out_channels() * self.out.bytes()
     }
@@ -331,7 +340,7 @@ impl Layout {
     }
     /// Chunk rows are output rows: copied without conversion.
     fn copyable(&self) -> bool {
-        !self.planar && self.palette.is_none() && self.src.is_identity() && self.chunk_spp == self.out_channels()
+        self.alpha_sample.is_none() && !self.planar && self.palette.is_none() && self.src.is_identity() && self.chunk_spp == self.out_channels()
     }
 }
 
@@ -500,6 +509,17 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     if lab && (spp < 3 || !matches!(src, Src::U8 | Src::U16)) {
         return Err(CodecError::unsupported(F, format!("Lab image with {spp} samples of {bits} bits")));
     }
+    // TIFF 6.0 gives each extra sample its own ExtraSamples value, so the alpha may follow an
+    // unspecified extra sample. The `tiff` crate only returns an alpha that comes first: for a
+    // later one it is asked for every sample (as multiband gray) and the alpha is picked here.
+    let color: u64 = match photometric {
+        2 | 8 | 9 => 3,
+        5 => 4,
+        _ => 1,
+    };
+    let alpha_at = extra.iter().position(|&e| matches!(e, 1 | 2));
+    let later_alpha = alpha_at.filter(|&a| a > 0 && palette.is_none() && color + a as u64 + 1 <= spp).map(|a| color as usize + a);
+    let alpha_kind = alpha_at.and_then(|a| extra.get(a)).copied();
     let mut patches: Vec<(u64, Vec<u8>)> = Vec::new();
     let encode_u = |v: u64, len: usize| -> Vec<u8> {
         let b = if f.le { v.to_le_bytes() } else { v.to_be_bytes() };
@@ -514,14 +534,14 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     // The directory is seen as the last of its chain: the chain was walked already, and a
     // cycle through it must not fail this page.
     patches.push((dir.next_at, vec![0; if f.big { 8 } else { 4 }]));
-    if invert || palette.is_some() || lab {
+    if invert || palette.is_some() || lab || later_alpha.is_some() {
         let e = photometric_entry.ok_or_else(|| err("missing PhotometricInterpretation"))?;
         let len = match e.ty {
             3 if e.count == 1 => 2,
             4 if e.count == 1 => 4,
             _ => return Err(err("malformed PhotometricInterpretation")),
         };
-        patches.push((e.value_at, encode_u(if lab { 2 } else { 1 }, len)));
+        patches.push((e.value_at, encode_u(if lab && later_alpha.is_none() { 2 } else { 1 }, len)));
     }
 
     // Opening the directory reads both chunk tables with the `tiff` crate's default limits
@@ -551,6 +571,9 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let gray_alpha = alpha_first || (extra.is_empty() && spp == 2);
     let (out_layout, chunk_spp) = match ct {
         _ if palette.is_some() => (ChannelLayout::Rgb, 1),
+        tiff::ColorType::Multiband { num_samples, .. } if later_alpha.is_some() => {
+            (if color == 1 { ChannelLayout::GrayA } else if color == 4 { ChannelLayout::CmykA } else { ChannelLayout::Rgba }, usize::from(num_samples))
+        }
         tiff::ColorType::Gray(_) => (ChannelLayout::Gray, 1),
         tiff::ColorType::Multiband { num_samples, .. } if photometric <= 1 => {
             (if gray_alpha { ChannelLayout::GrayA } else { ChannelLayout::Gray }, usize::from(num_samples))
@@ -643,7 +666,8 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         across,
         chunks_per_plane,
         invert: invert && palette.is_none(),
-        premultiplied: !keep_associated && out_layout.has_alpha() && extra.first() == Some(&1),
+        premultiplied: !keep_associated && out_layout.has_alpha() && alpha_kind == Some(1),
+        alpha_sample: later_alpha,
         palette,
         scratch_cap,
     };
@@ -687,7 +711,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let mut img = Image::from_raw(w, h, out_layout, out, data)?;
     img.source_bit_depth = Some(bits as u8);
     img.source_float = Some(format == 3);
-    img.associated_alpha = keep_associated && out_layout.has_alpha() && extra.first() == Some(&1);
+    img.associated_alpha = keep_associated && out_layout.has_alpha() && alpha_kind == Some(1);
     if tally.missing > 0 {
         img.warnings.push(DecodeWarning::Truncated { format: F });
     }
@@ -805,7 +829,8 @@ fn decode_band(lay: &Layout, dec: &mut Decoder<Patched<'_>>, scratch: &mut Vec<u
     let mut tally = Tally::default();
     for plane in 0..lay.planes {
         for col in 0..lay.across {
-            let chunk = plane
+            let chunk = lay
+                .sample_of(plane)
                 .checked_mul(lay.chunks_per_plane)
                 .and_then(|c| c.checked_add(b.checked_mul(lay.across)?))
                 .and_then(|c| c.checked_add(col))
@@ -880,7 +905,7 @@ fn convert_row(lay: &Layout, src: &[u8], dst: &mut [u8], n: usize, plane: usize)
         transfer(lay.src, src, 1, 0, dst, lay.out, och, plane, n);
     } else {
         for k in 0..och {
-            transfer(lay.src, src, lay.chunk_spp, k, dst, lay.out, och, k, n);
+            transfer(lay.src, src, lay.chunk_spp, lay.sample_of(k), dst, lay.out, och, k, n);
         }
     }
 }
