@@ -334,6 +334,49 @@ fn dissolve_coverage_matches_opacity() {
     assert_eq!(flatten(&d), b);
 }
 
+/// Dissolve picks the layer or the backdrop per pixel for adjustments and clipped fills, with
+/// coverage from Opacity x Fill; a Normal mix would leave grays.
+#[test]
+fn dissolve_adjustments_and_clipped_fills_are_a_per_pixel_choice() {
+    let either = |b: &Buffer, x0: usize, x1: usize, w: usize| -> (usize, usize) {
+        let (mut black, mut white) = (0, 0);
+        for (i, p) in b.px.iter().enumerate() {
+            if i % w < x0 || i % w >= x1 {
+                continue;
+            }
+            if close4(*p, [0.0, 0.0, 0.0, 1.0]) {
+                black += 1;
+            } else {
+                assert!(close4(*p, [1.0; 4]), "Dissolve must not interpolate: {p:?}");
+                white += 1;
+            }
+        }
+        (black, white)
+    };
+    let mut d = doc_white(16, 16);
+    let mut inv = Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert));
+    inv.blend = BlendMode::Dissolve;
+    inv.opacity = 0.5;
+    d.layers.push(inv);
+    let (black, white) = either(&flatten(&d), 0, 16, 16);
+    assert!(black > 40 && white > 40, "adjustment: black {black} white {white}");
+
+    let mut d = doc_white(40, 12);
+    d.layers.push(solid_layer("base", Rect::new(0, 0, 20, 12), [1.0, 1.0, 1.0, 1.0]));
+    let mut clip = solid_layer("clip", d.bounds(), [0.0, 0.0, 0.0, 1.0]);
+    clip.clipped = true;
+    clip.blend = BlendMode::Dissolve;
+    clip.opacity = 0.6;
+    clip.fill_opacity = 0.5;
+    d.layers.push(clip);
+    let b = flatten(&d);
+    let (black, white) = either(&b, 0, 20, 40);
+    let share = black as f32 / (black + white) as f32;
+    assert!((share - 0.3).abs() < 0.1, "clipped coverage follows 60% opacity x 50% fill: {black}/{white}");
+    let (outside, _) = either(&b, 20, 40, 40);
+    assert_eq!(outside, 0, "outside the base the clipped layer is invisible");
+}
+
 #[test]
 fn render_is_tile_independent() {
     // Rendering a sub-rect must equal the same region of a full render.
