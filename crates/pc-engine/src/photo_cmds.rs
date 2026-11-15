@@ -123,12 +123,15 @@ impl Sources {
 /// while the earlier sources are all that is held.
 fn load_sources(s: &Session, p: &Value, cmd: &str, budget: Option<u64>) -> Result<Loaded> {
     let mut src = Sources { out: Vec::new(), fmt: None, icc: None, budget, retained: 0 };
-    if p.get("useOpenDocuments").and_then(Value::as_bool).unwrap_or(false) {
+    // "Use open documents" merges the open documents; the dialog still sends its prefilled folder
+    // (a string), which is not scanned then. An explicit file list still adds to them.
+    let open = p.get("useOpenDocuments").and_then(Value::as_bool).unwrap_or(false);
+    if open {
         for d in s.documents() {
             src.add(d.doc.name.clone(), &d.doc, 0, cmd)?;
         }
     }
-    let paths: Vec<String> = match p.get("paths").or_else(|| p.get("input")) {
+    let paths: Vec<String> = match p.get("paths").or_else(|| p.get("input")).filter(|v| !(open && v.is_string())) {
         Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
         Some(Value::String(dir)) => list_images(dir)?,
         _ => Vec::new(),
@@ -1115,6 +1118,22 @@ mod tests {
         assert_eq!(s.documents().len(), 3);
         s.execute("file.automate.photomerge", p(1 << 30)).unwrap();
         assert_eq!(s.documents().len(), 4);
+    }
+
+    /// With "Use open documents" the dialog's prefilled folder is not scanned: a folder that
+    /// cannot be read no longer fails the merge of the open documents.
+    #[test]
+    fn photomerge_open_documents_ignores_the_folder() {
+        let (sw, sh) = (520, 220);
+        let sc = scene(sw, sh, 5);
+        for paths in [json!("/no/such/folder"), json!("")] {
+            let mut s = Session::new();
+            for (k, x0) in [0usize, 180].into_iter().enumerate() {
+                s.add_document(doc_from(&format!("o{k}"), &crop(&sc, sw, x0, 10, 260, 200, 1.0), 260, 200, SampleType::U8), None);
+            }
+            let r = s.execute("file.automate.photomerge", json!({"useOpenDocuments": true, "layout": "reposition", "paths": paths})).unwrap();
+            assert_eq!(r["placed"].as_array().map(Vec::len), Some(2), "{r}");
+        }
     }
 
     #[test]
