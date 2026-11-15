@@ -598,3 +598,36 @@ fn quick_export_writes_the_format_its_path_names() {
     assert!(!std::path::Path::new(&tif).exists());
     s.execute("prefs.reset", json!({"path": "export"})).unwrap();
 }
+
+/// The PNG's chunk types, in order.
+fn png_chunks(bytes: &[u8]) -> Vec<String> {
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "a PNG");
+    let mut out = Vec::new();
+    let mut at = 8;
+    while let Some(head) = bytes.get(at..at + 8) {
+        let len = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as usize;
+        out.push(String::from_utf8_lossy(&head[4..8]).into_owned());
+        at += 12 + len;
+    }
+    out
+}
+
+#[test]
+fn png24_embeds_the_profile_only_with_embed_color_profile_on() {
+    let dir = tmp("png_icc");
+    let mut s = session(8);
+    s.execute("edit.assignProfile", json!({"profile": "display-p3"})).unwrap();
+    let (on, off) = (format!("{dir}/on.png"), format!("{dir}/off.png"));
+    s.execute("file.export.saveForWebLegacy", json!({"format": "png24", "embedIcc": true, "convertToSrgb": false, "path": on})).unwrap();
+    s.execute("file.export.saveForWebLegacy", json!({"format": "png24", "embedIcc": false, "convertToSrgb": false, "path": off})).unwrap();
+    assert!(png_chunks(&std::fs::read(&on).unwrap()).iter().any(|c| c == "iCCP"), "Embed Color Profile on");
+    assert!(!png_chunks(&std::fs::read(&off).unwrap()).iter().any(|c| c == "iCCP"), "Embed Color Profile off");
+    let rgba = |p: &str| decode(p).convert(photocraft_codecs::ChannelLayout::Rgba, photocraft_codecs::SampleType::U8).data().to_vec();
+    assert_eq!(rgba(&on), rgba(&off), "only the profile differs");
+    // Quick Export never asks for the profile.
+    s.execute("file.export.exportPreferences", json!({"quickExportFormat": "png", "metadata": "none"})).unwrap();
+    let quick = format!("{dir}/quick.png");
+    s.execute("file.export.quickExport", json!({"path": quick})).unwrap();
+    assert!(!png_chunks(&std::fs::read(&quick).unwrap()).iter().any(|c| c == "iCCP"));
+    s.execute("prefs.reset", json!({"path": "export"})).unwrap();
+}
