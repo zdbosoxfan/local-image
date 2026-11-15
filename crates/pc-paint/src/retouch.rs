@@ -359,8 +359,13 @@ impl Smudge {
     /// Apply one dab to the working copy.
     pub fn dab(&mut self, work: &mut Region, fp: &Footprint) {
         let (r, n) = (self.radius, work.ch);
+        if n == 0 {
+            return;
+        }
         let side = (2 * r + 1) as usize;
         let (cx, cy) = (fp.dab.center.x.floor() as i32, fp.dab.center.y.floor() as i32);
+        // Document position of pick-up square index `q` about `c`, saturating at the i32 range.
+        let at = |c: i32, q: usize| c.saturating_add(q as i32 - r);
         let wr = work.rect;
         let alpha = self.alpha.filter(|a| *a < n);
         let clamp_px = |work: &Region, x: i32, y: i32| -> Vec<f32> {
@@ -379,7 +384,7 @@ impl Smudge {
                             premultiply(&mut f, alpha);
                             f
                         }
-                        None => clamp_px(work, cx + qx as i32 - r, cy + qy as i32 - r),
+                        None => clamp_px(work, at(cx, qx), at(cy, qy)),
                     };
                     c[(qy * side + qx) * n..(qy * side + qx + 1) * n].copy_from_slice(&v[..n]);
                 }
@@ -390,8 +395,8 @@ impl Smudge {
         for y in fp.rect.y0.max(wr.y0)..fp.rect.y1.min(wr.y1) {
             for x in fp.rect.x0.max(wr.x0)..fp.rect.x1.min(wr.x1) {
                 let k = fp.at(x, y) * self.deposit;
-                let (qx, qy) = (x - cx + r, y - cy + r);
-                if k <= 0.0 || qx < 0 || qy < 0 || qx >= side as i32 || qy >= side as i32 {
+                let (qx, qy) = (i64::from(x) - i64::from(cx) + i64::from(r), i64::from(y) - i64::from(cy) + i64::from(r));
+                if k <= 0.0 || qx < 0 || qy < 0 || qx >= side as i64 || qy >= side as i64 {
                     continue;
                 }
                 let q = (qy as usize * side + qx as usize) * n;
@@ -425,7 +430,7 @@ impl Smudge {
         let keep = self.strength;
         for qy in 0..side {
             for qx in 0..side {
-                let (x, y) = (cx + qx as i32 - r, cy + qy as i32 - r);
+                let (x, y) = (at(cx, qx), at(cy, qy));
                 if !wr.contains(x, y) {
                     continue;
                 }
@@ -491,6 +496,36 @@ mod tests {
             assert!(p[..n - 1].iter().all(|v| (v - 0.8).abs() < 1e-2) && p[n - 1] == 1.0, "{fmt:?} {p:?}");
             assert!((s.pixel(40, 40)[0] - 0.2).abs() < 1e-2);
         }
+    }
+
+    /// A region without channels is left alone: no carry is built for it.
+    #[test]
+    fn smudge_leaves_a_zero_channel_region_alone() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        s.fill_rect(Rect::new(0, 0, 60, 40), &[1.0, 1.0, 1.0, 1.0]);
+        let st = stroke(&[(20.0, 20.0), (40.0, 20.0)], 12.0, 1.0);
+        let mut sm = Smudge::new(0.8, None, 12.0);
+        let mut calls = 0;
+        apply_dab_stroke(&mut s, &st, None, false, 0, |w, fp| {
+            let mut empty = Region::new(w.rect, 0);
+            sm.dab(&mut empty, fp);
+            assert!(empty.data.is_empty() && sm.carry.is_none(), "no carry is built for zero channels");
+            calls += 1;
+        })
+        .unwrap();
+        assert!(calls > 0);
+    }
+
+    /// A dab at the edge of the coordinate range smudges without overflowing its pick-up square.
+    #[test]
+    fn smudge_at_an_extreme_coordinate_does_not_overflow() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        let x = f64::from(i32::MAX) - 2.0;
+        s.fill_rect(Rect::new(i32::MAX - 40, 0, i32::MAX, 40), &[1.0, 0.0, 0.0, 1.0]);
+        let st = stroke(&[(x, 20.0)], 12.0, 1.0);
+        let mut sm = Smudge::new(0.8, None, 12.0);
+        apply_dab_stroke(&mut s, &st, None, false, 0, |w, fp| sm.dab(w, fp)).unwrap();
+        assert!(sm.carry.is_some());
     }
 
     #[test]
