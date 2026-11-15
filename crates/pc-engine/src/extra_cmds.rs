@@ -436,6 +436,11 @@ fn ungroup(s: &mut Session, p: &Value) -> Result<Value> {
         };
         let children = group.children.clone();
         let (&idx, parent) = path.split_last().ok_or(EngineError::NoLayer(id))?;
+        // An empty group that is the only layer would leave no layers at all; `layer.delete`
+        // refuses to drop the last layer too.
+        if parent.is_empty() && children.is_empty() && doc.layers.len() == 1 {
+            return Err(EngineError::Other("a document must keep at least one layer".into()));
+        }
         let sib = if parent.is_empty() { &mut doc.layers } else { doc.layer_at_mut(parent).and_then(Layer::children_mut).ok_or(EngineError::NoLayer(id))? };
         sib.remove(idx);
         let top = children.last().map(|l| l.id);
@@ -1067,6 +1072,24 @@ mod tests {
         assert_eq!(s.active().unwrap().active_layer, Some(a));
         assert!(doc(&s).layers.iter().all(|l| !l.is_group()));
         assert_eq!(doc(&s).layers.len(), 2);
+    }
+
+    #[test]
+    fn ungroup_the_sole_empty_group_is_refused() {
+        let mut s = session(8);
+        let group = s
+            .edit("setup", |doc, active| {
+                let g = Layer::group("Group 1", Vec::new());
+                let id = g.id;
+                doc.layers = vec![g];
+                *active = Some(id);
+                Ok(id)
+            })
+            .unwrap();
+        let steps = s.active().unwrap().history.past_len();
+        assert!(s.execute("layer.ungroupLayers", json!({"layer": group.0})).is_err());
+        assert_eq!(doc(&s).layers.len(), 1, "the group is left in place");
+        assert_eq!((s.active().unwrap().history.past_len(), s.active().unwrap().active_layer), (steps, Some(group)));
     }
 
     #[test]
