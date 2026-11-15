@@ -950,7 +950,14 @@ fn quick_export(s: &mut Session, p: &Value) -> Result<Value> {
         }
         "webp" => {
             // WebP has no legacy Save for Web optimiser: write it through the regular exporter.
-            let (wdoc, _, _) = web_document(&doc, &json!({}), &WebSettings { convert_to_srgb: prefs.convert_to_srgb, ..Default::default() })?;
+            let st = WebSettings::from_params(&Value::Object(o), cmd)?;
+            let (mut wdoc, _, _) = web_document(&doc, &json!({}), &st)?;
+            // That exporter embeds the document's XMP and EXIF whole: hand it only what the
+            // metadata choice keeps. EXIF holds the camera and GPS fields, so only "all" keeps it.
+            wdoc.metadata.xmp = web_xmp(&doc, st.metadata);
+            if st.metadata != WebMetadata::All {
+                wdoc.metadata.exif = None;
+            }
             let warnings = crate::file_cmds::save_doc(&wdoc, &path, None)?;
             crate::automate_cmds::fire_event(s, "export");
             return Ok(json!({"path": path, "format": fmt, "warnings": warnings}));
