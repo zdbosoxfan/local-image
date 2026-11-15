@@ -113,8 +113,12 @@ fn parse_brush(s: &Session, p: &Value, cmd: &str) -> Result<(Stroke, Option<Laye
     if pts.is_empty() {
         return Err(bad(cmd, "`points` is empty"));
     }
-    let base = s.tools.brush.clone();
+    let mut base = s.tools.brush.clone();
     let pct = |k: &str, d: f32, lo: f32, hi: f32| num(p, k, d).clamp(lo, hi) / 100.0;
+    // The options bar's Smoothing; the UI sends 0 for a ⇧-click line, which isn't smoothed.
+    if p.get("smoothing").is_some() {
+        base.smoothing.amount = pct("smoothing", 0.0, 0.0, 100.0);
+    }
     let brush = BrushSettings {
         size: num(p, "size", base.size).max(1.0),
         hardness: pct("hardness", base.hardness * 100.0, 0.0, 100.0),
@@ -750,7 +754,7 @@ fn smudge_cmd(s: &mut Session, p: &Value) -> Result<Value> {
 /// The brush every retouching command shares, plus the tool's own params.
 macro_rules! brush_params {
     ($extra:literal) => {
-        concat!("{", r#""points":[[x,y,pressure?],…],"size":1..5000 px=tool size,"hardness":0..100=tool hardness,"opacity":1..100=100,"flow":1..100=100,"spacing":1..1000 (% of size)=25,"layer":id?=active,"target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target"#, $extra, "}")
+        concat!("{", r#""points":[[x,y,pressure?],…],"size":1..5000 px=tool size,"hardness":0..100=tool hardness,"opacity":1..100=100,"flow":1..100=100,"spacing":1..1000 (% of size)=25,"smoothing":0..100=options bar Smoothing,"layer":id?=active,"target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target"#, $extra, "}")
     };
 }
 

@@ -529,7 +529,7 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
     {
         app.last_stroke_end = Some((st.doc.id, end));
     }
-    if crate::eraser_ui::finish_stroke(app, d.tool, &d.points) || crate::retouch_ui::finish_stroke(app, d.tool, &d.points, d.modifiers) {
+    if crate::eraser_ui::finish_stroke(app, d.tool, &d.points, d.line) || crate::retouch_ui::finish_stroke(app, d.tool, &d.points, d.modifiers, d.line) {
         return;
     }
     match d.tool {

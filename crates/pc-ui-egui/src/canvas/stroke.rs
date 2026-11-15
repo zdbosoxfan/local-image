@@ -184,13 +184,19 @@ pub(super) fn live_stroke(app: &PhotocraftApp, idx: usize) -> Option<&LiveStroke
 /// line, which isn't smoothed so it ends at the click whatever Catch-up on Stroke End is set to.
 pub(super) fn stroke_params(app: &PhotocraftApp, d: &Drag, points: &[Vec<f64>]) -> serde_json::Value {
     let mut p = json!({ "points": points, "erase": d.erase, "zoom": app.current_zoom(), "target": paint_target(app), "freehand": true });
-    if d.line {
-        p["smoothing"] = json!(0.0);
-    }
+    unsmoothed_line(&mut p, d.line);
     if d.tool == Tool::Pencil {
         p["autoErase"] = json!(app.ui.tool_options.pencil_auto_erase);
     }
     p
+}
+
+/// A ⇧-click line isn't smoothed, so it ends at the click whatever Catch-up on Stroke End is set
+/// to. Applied to every painting tool's stroke params.
+pub(crate) fn unsmoothed_line(p: &mut serde_json::Value, line: bool) {
+    if line && let Some(o) = p.as_object_mut() {
+        o.insert("smoothing".into(), json!(0.0));
+    }
 }
 
 /// The airbrush (Brush settings › Build-up, or the options bar's airbrush button) on a painting
