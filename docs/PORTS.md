@@ -1209,3 +1209,4 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`1b810052bc3a`](https://github.com/storytold/photocraft/commit/1b810052bc3a876c1eaf1a8766870ffdba9f8a80) | fix(engine): guard trim and duplicate merged against documents exceeding render limits (#7223) | `crates/pc-engine/src/image_cmds.rs` | MIT OR Apache-2.0 |
+| [`f4adb8fb9b9a`](https://github.com/storytold/photocraft/commit/f4adb8fb9b9a0608dae983338467b3a0c66658e2) | Render Video: cap the total an animated GIF keeps staged (#6103) | `crates/pc-engine/src/video_cmds.rs` | MIT OR Apache-2.0 |

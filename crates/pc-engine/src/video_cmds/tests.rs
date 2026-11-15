@@ -221,3 +221,13 @@ fn restricted_video_psds_embed_no_linked_image() {
     s.authorize = Some(|_, _| Ok(()));
     assert!(!contains(&save(&mut s)));
 }
+
+#[test]
+fn render_video_rejects_a_gif_whose_frames_together_are_too_large() {
+    // Each 4000 x 4000 frame is under the per-frame cap, but 100,000 of them would stage ~1.6 TB.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 4000, "height": 4000})).unwrap();
+    s.execute("timeline.create", json!({"duration": 100_000, "fps": 30})).unwrap();
+    let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("many-gif"), "format": "gif"})).unwrap_err();
+    assert!(err.to_string().contains("staged in total"), "{err}");
+}
