@@ -40,6 +40,9 @@ impl OriginalGuard {
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         put(format!("{stem}.xmp"), path.with_extension("xmp"), format!("the XMP sidecar of {label}"));
         put(format!("{name}.xmp"), PathBuf::from(format!("{}.xmp", path.to_string_lossy())), format!("the XMP sidecar of {label}"));
+        // the upper-case `.XMP` the sidecar reader also accepts: another file on a case-sensitive volume
+        put(format!("{stem}.xmp"), path.with_extension("XMP"), format!("the XMP sidecar of {label}"));
+        put(format!("{name}.xmp"), PathBuf::from(format!("{}.XMP", path.to_string_lossy())), format!("the XMP sidecar of {label}"));
     }
 
     /// `Err` (a message for the user) when writing `target` would replace a protected file, or

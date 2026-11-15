@@ -336,7 +336,7 @@ fn backup(path: &Path, stamp: &str) -> std::io::Result<PathBuf> {
     if !std::fs::symlink_metadata(path)?.is_file() {
         return Err(std::io::Error::other(format!("{} is not a regular file", path.display())));
     }
-    let bytes = std::fs::read(path)?;
+    let bytes = read_regular(path, SIDECAR_READ_MAX)?;
     let stamp: String = stamp.chars().filter(char::is_ascii_alphanumeric).collect();
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     for k in 0..1000 {
@@ -367,7 +367,7 @@ pub struct SidecarSaved {
 /// The new contents for the sidecar at `path`: `fresh` merged into the existing file, if any.
 /// Returns (contents, merged, backup).
 fn sidecar_contents(path: &Path, fresh: String, stamp: &str) -> std::io::Result<(String, bool, Option<PathBuf>)> {
-    let bytes = match std::fs::read(path) {
+    let bytes = match read_regular(path, SIDECAR_READ_MAX) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((fresh, false, None)),
         // can't see what is there: never overwrite it blindly
@@ -390,6 +390,15 @@ fn sidecar_contents(path: &Path, fresh: String, stamp: &str) -> std::io::Result<
     }
 }
 
+/// Most bytes of a sidecar read into memory.
+const SIDECAR_READ_MAX: u64 = 256 << 20;
+
+/// The whole of the regular file at `path`, at most `max` bytes: a FIFO or device under a
+/// sidecar's or original's name is refused, not read.
+fn read_regular(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
+    li_fs::read::file(path, max, &lightcraft_sysmem::jobs::Interrupt::NONE)
+}
+
 /// Key of the stem sidecar a file maps to (case-insensitive).
 fn stem_key(original: &str) -> String {
     sidecar_path(original, SidecarNaming::Stem).to_string_lossy().to_lowercase()
@@ -405,12 +414,12 @@ fn file_path(p: &Photo) -> Option<&str> {
 /// The XMP packet that describes a photo on disk: its sidecar, else (raw/DNG) the embedded XMP.
 pub fn read_packet(original: &str, kind: MediaKind, naming: SidecarNaming) -> Option<(String, PathBuf)> {
     if let Some(sc) = find_sidecar(original, naming)
-        && let Ok(s) = std::fs::read_to_string(&sc)
+        && let Some(s) = read_regular(&sc, SIDECAR_READ_MAX).ok().and_then(|b| String::from_utf8(b).ok())
     {
         return Some((s, sc));
     }
     if kind == MediaKind::Raw {
-        let bytes = std::fs::read(original).ok()?;
+        let bytes = read_regular(Path::new(original), li_fs::read::MAX_FILE_BYTES).ok()?;
         let x = lightcraft_meta::embedded(&bytes).xmp?;
         return Some((x, PathBuf::from(original)));
     }

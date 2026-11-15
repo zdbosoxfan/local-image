@@ -715,6 +715,20 @@ fn source_profile_encoding_converts_pixels_and_stays_out_of_presets() {
     }
 }
 
+/// A catalog's file name never adds a folder level through the empty-naming fallback or the
+/// original's extension.
+#[test]
+fn file_name_fallback_and_extension_are_one_path_component() {
+    let empty = |format| ExportOptions { format, naming: "{title}".into(), ..Default::default() };
+    for name in ["../../x.jpg", "..\\y.jpg", "a/b/c.jpg"] {
+        let f = empty(ExportFormat::Jpeg).file_name_for(&named(name), 1);
+        assert!(!f.contains(['/', '\\']), "{f}");
+    }
+    let f = empty(ExportFormat::Original).file_name_for(&named("x.a/../b"), 1);
+    assert!(!f.contains(['/', '\\']), "{f}");
+    assert_eq!(empty(ExportFormat::Jpeg).file_name_for(&named("IMG_1.jpg"), 1), "IMG_1.jpg");
+}
+
 fn named(file_name: &str) -> lightcraft_catalog::Photo {
     use lightcraft_catalog::{Photo, PhotoId, Source};
     Photo::new(PhotoId(1), Source::Demo { scene: 0 }, file_name, "", 1, 1, "2026-01-01T00:00:00")
