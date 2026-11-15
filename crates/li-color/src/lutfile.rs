@@ -196,8 +196,11 @@ pub fn parse_cube_with_domain(text: &str) -> Result<ParsedLut, LutError> {
     err("no LUT_3D_SIZE in .cube file")
 }
 
-/// Lustre `.3dl`: an optional shaper line of input values, then integer RGB rows with **blue**
-/// varying fastest; the output bit depth is inferred from the largest value.
+/// Lustre `.3dl`: an optional `3DMESH` magic and `Mesh <inBits> <outBits>` line, an optional
+/// shaper line of input values, then integer RGB rows with **blue** varying fastest. The `Mesh`
+/// line declares the cube edge (2^inBits + 1) and the output code range (up to 2^outBits - 1),
+/// as Photoshop honours; without it the edge is the cube root of the row count and the output
+/// bit depth is inferred from the largest value.
 /// Linear identity shapers are accepted; nonlinear shapers are rejected explicitly.
 pub fn parse_3dl(text: &str) -> Result<LutFile, LutError> {
     editor_limit(parse_3dl_inner(text)?)
@@ -213,9 +216,26 @@ fn editor_limit(lut: LutFile) -> Result<LutFile, LutError> {
 fn parse_3dl_inner(text: &str) -> Result<LutFile, LutError> {
     let mut rows: Vec<[f64; 3]> = Vec::new();
     let mut shaper = None;
+    let mut mesh: Option<(u32, u32)> = None;
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
-        if line.is_empty() || line.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            // `Mesh` is the only header keyword with data, and only as exactly two integers;
+            // any other form is ignored like every other text line.
+            let mut it = line.split_whitespace();
+            if it.next().is_some_and(|k| k.eq_ignore_ascii_case("Mesh")) {
+                let fields: Vec<&str> = it.collect();
+                if let [a, b] = fields.as_slice()
+                    && let (Ok(in_bits), Ok(out_bits)) = (a.parse::<u32>(), b.parse::<u32>())
+                    && (1..=7).contains(&in_bits)
+                    && (1..=16).contains(&out_bits)
+                {
+                    mesh = Some((in_bits, out_bits));
+                }
+            }
             continue;
         }
         let v: Vec<f64> = line.split_whitespace().filter_map(|s| s.parse().ok()).collect();
@@ -235,7 +255,16 @@ fn parse_3dl_inner(text: &str) -> Result<LutFile, LutError> {
     if shaper.is_none() && cube_edge(rows.len()).is_none() && rows.len() > 1 && cube_edge(rows.len() - 1).is_some() {
         shaper = Some(rows.remove(0).to_vec());
     }
-    let n = cube_edge(rows.len()).ok_or_else(|| LutError(format!("{} rows is not a cube", rows.len())))?;
+    let n = match mesh {
+        Some((in_bits, _)) => {
+            let n = (1usize << in_bits) + 1;
+            if rows.len() != n * n * n {
+                return err(format!("expected {} rows for the declared {n}³ cube, found {}", n * n * n, rows.len()));
+            }
+            n
+        }
+        None => cube_edge(rows.len()).ok_or_else(|| LutError(format!("{} rows is not a cube", rows.len())))?,
+    };
     checked_data_len(n)?;
     if let Some(shaper) = shaper {
         let peak = *shaper.last().unwrap_or(&0.0);
@@ -248,7 +277,13 @@ fn parse_3dl_inner(text: &str) -> Result<LutFile, LutError> {
         }
     }
     let max = rows.iter().flatten().fold(0.0f64, |a, &b| a.max(b));
-    let scale = if max <= 1.0 { 1.0 } else { [255.0, 1023.0, 4095.0, 16383.0, 65535.0].into_iter().find(|&s| max <= s).unwrap_or(max) };
+    // A declared range covers every in-range code, so code 1 under 12 bits is 1/4095; a node
+    // beyond it means a wrong declaration, and the inference keeps such a file loading.
+    let scale = match mesh.map(|(_, out_bits)| f64::from((1u32 << out_bits) - 1)) {
+        Some(declared) if max <= declared => declared,
+        _ if max <= 1.0 => 1.0,
+        _ => [255.0, 1023.0, 4095.0, 16383.0, 65535.0].into_iter().find(|&s| max <= s).unwrap_or(max),
+    };
     let mut data = vec![0.0f32; n * n * n * 3];
     for (i, row) in rows.iter().enumerate() {
         let (r, g, b) = (i / (n * n), (i / n) % n, i % n);
@@ -537,6 +572,39 @@ mod tests {
         assert_eq!(parse_3dl(&cube(3, 4094)).unwrap().data.len(), 27 * 3);
         let error = parse_3dl(&format!("0 64 512 1023\n{table}")).unwrap_err();
         assert!(error.0.contains("unsupported nonlinear .3dl shaper"));
+    }
+
+    #[test]
+    fn three_dl_mesh_header_declares_edge_and_output_depth() {
+        fn table(mesh: &str, n: usize, code: impl Fn(usize, usize, usize) -> usize) -> String {
+            let mut s = format!("3DMESH\n{mesh}\n");
+            for r in 0..n {
+                for g in 0..n {
+                    for b in 0..n {
+                        let v = code(r, g, b);
+                        s.push_str(&format!("{v} {v} {v}\n"));
+                    }
+                }
+            }
+            s
+        }
+        // 10-bit codes under a 12-bit declaration divide by 4095, not the inferred 1023.
+        let l = parse_3dl(&table("Mesh 2 12", 5, |r, _, _| r * 255)).unwrap();
+        assert_eq!(l.size, 5);
+        assert!((l.data[l.data.len() - 3] - 1020.0 / 4095.0).abs() < 1e-6, "{:?}", &l.data[l.data.len() - 3..]);
+        // A small max is still a declared code: 1 is 1/4095 of full output, not all of it.
+        let l = parse_3dl(&table("Mesh 1 12", 3, |r, g, b| usize::from(r + g + b == 0))).unwrap();
+        assert!((l.data[0] - 1.0 / 4095.0).abs() < 1e-6, "{:?}", &l.data[..3]);
+        // A row count that disagrees with the declared edge is refused.
+        assert!(parse_3dl(&table("Mesh 1 12", 2, |r, _, _| r * 1023)).is_err());
+        // A node beyond the declared range keeps the old inference.
+        let l = parse_3dl(&table("Mesh 1 10", 3, |r, _, _| r * 2047)).unwrap();
+        assert!((l.data[l.data.len() - 3] - 4094.0 / 4095.0).abs() < 1e-6);
+        // Anything but exactly two integers is no declaration: a 2³ table stays a 2³ table.
+        for mesh in ["Mesh invalid 1 12", "Mesh 1 12 13", "Mesh 1 x", "Mesh 1"] {
+            let l = parse_3dl(&table(mesh, 2, |r, _, _| r * 1023)).unwrap();
+            assert_eq!(l.size, 2, "{mesh}");
+        }
     }
 
     #[test]
