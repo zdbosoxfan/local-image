@@ -330,7 +330,7 @@ pub(super) fn tool_event_with_pose(
             if let Some(p) = from {
                 points.insert(0, p);
             }
-            app.drag = Some(Drag::new(tool, from.map_or([x, y], |p| [p[0], p[1]]), points, mods, erase));
+            app.drag = Some(Drag { line: from.is_some(), ..Drag::new(tool, from.map_or([x, y], |p| [p[0], p[1]]), points, mods, erase) });
             if tool == Tool::Move {
                 crate::move_ui::begin_pixels(app, mods.alt);
             }
@@ -472,7 +472,7 @@ pub(super) fn finish_brush_gesture(app: &mut PhotocraftApp, d: Drag, settings: O
     }
     let captured = settings.is_some();
     let frozen = settings.unwrap_or_else(|| stroke_settings(app));
-    let mut p = stroke_params(app, d.tool, d.erase, &timed_points(app, &d, Some(&frozen)));
+    let mut p = stroke_params(app, &d, &timed_points(app, &d, Some(&frozen)));
     if crate::stroke_constraint::connects(d.tool)
         && let Some(st) = app.session.active()
     {
@@ -529,7 +529,7 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
     {
         app.last_stroke_end = Some((st.doc.id, end));
     }
-    if crate::eraser_ui::finish_stroke(app, d.tool, &d.points) || crate::retouch_ui::finish_stroke(app, d.tool, &d.points, d.modifiers) {
+    if crate::eraser_ui::finish_stroke(app, d.tool, &d.points, d.line) || crate::retouch_ui::finish_stroke(app, d.tool, &d.points, d.modifiers, d.line) {
         return;
     }
     match d.tool {

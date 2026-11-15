@@ -81,9 +81,23 @@ fn magic_wand(s: &mut Session, p: &Value) -> Result<Value> {
     let (area, img) = sample_rgba8(s, b(p, "sampleAllLayers", false))?;
     // local-image: Sample Size (1 = point, 3, 5, 11, 31, 51, 101).
     let sample = f(p, "sampleSize", 1.0).clamp(1.0, 101.0) as u32;
-    let region = sel::wand_region_sampled(&img, area, (x, y), sample, f(p, "tolerance", 32.0), b(p, "contiguous", true), b(p, "antiAlias", true));
-    drop(img);
     let m = mode(p);
+    // Subtract and Intersect grow the region from the seed through the selection only.
+    let within = matches!(m, SelectionMode::Subtract | SelectionMode::Intersect)
+        .then(|| s.active().and_then(|st| st.doc.selection.as_ref()).map(|cur| sel::mask_from_surface(Some(cur), area)))
+        .flatten();
+    let region = sel::wand_region_within(
+        &img,
+        area,
+        (x, y),
+        sample,
+        f(p, "tolerance", 32.0),
+        b(p, "contiguous", true),
+        b(p, "antiAlias", true),
+        within.as_deref(),
+        sel::ColorDistance::LargestChannel,
+    );
+    drop(img);
     let selected = s.edit("Magic Wand", |doc, _| {
         doc.selection = sel::combine_region(doc.selection.as_ref(), region.as_ref(), m);
         Ok(doc.selection.is_some())
@@ -474,6 +488,26 @@ mod tests {
         assert_eq!(coverage(&s, 10, 10), 0.0);
         s.execute("select.magicWand", json!({"x": 7, "y": 7, "contiguous": false, "antiAlias": false})).unwrap();
         assert_eq!(coverage(&s, 30, 10), 1.0);
+    }
+
+    #[test]
+    fn magic_wand_subtract_and_intersect_grow_only_through_the_selection() {
+        // The background around both squares is one contiguous region that overlaps the rectangle;
+        // a seed at (37, 2) lies outside it.
+        let select_left = |s: &mut Session| s.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 20})).unwrap();
+        let mut s = session();
+        select_left(&mut s);
+        s.execute("select.magicWand", json!({"x": 37, "y": 2, "mode": "subtract", "antiAlias": false})).unwrap();
+        assert_eq!((coverage(&s, 2, 2), coverage(&s, 10, 10)), (1.0, 1.0), "a seed outside subtracts nothing");
+        let mut s = session();
+        select_left(&mut s);
+        s.execute("select.magicWand", json!({"x": 37, "y": 2, "mode": "intersect", "antiAlias": false})).unwrap();
+        assert!(s.active().unwrap().doc.selection.is_none(), "a seed outside intersects to nothing");
+        // A seed inside still subtracts its region within the selection.
+        let mut s = session();
+        select_left(&mut s);
+        s.execute("select.magicWand", json!({"x": 2, "y": 2, "mode": "subtract", "antiAlias": false})).unwrap();
+        assert_eq!((coverage(&s, 2, 2), coverage(&s, 10, 10)), (0.0, 1.0));
     }
 
     #[test]

@@ -1024,3 +1024,20 @@ fn clone_and_heal_with_a_far_source_are_plain_errors() {
         s.execute(cmd, json!({"points": [[10, 10], [30, 10]], "source": [2147483000, 0]})).unwrap();
     }
 }
+
+/// `smoothing` (the options bar's %) overrides the session brush's amount and keeps its other
+/// options; without it the stroke takes the session brush's. The UI sends 0 for a ⇧-click line.
+#[test]
+fn retouch_brush_takes_the_smoothing_param() {
+    let mut s = session(20, 20, 8, "rgb");
+    s.tools.brush.smoothing.amount = 0.6;
+    s.tools.brush.smoothing.pulled_string = true;
+    let brush = |p: Value| parse_brush(&s, &p, "paint.burn").unwrap().0.brush.smoothing;
+    assert_eq!(brush(json!({"points": [[5, 5]]})), s.tools.brush.smoothing);
+    let line = brush(json!({"points": [[5, 5]], "smoothing": 0}));
+    assert_eq!(line.amount, 0.0);
+    assert!(line.pulled_string);
+    assert_eq!(brush(json!({"points": [[5, 5]], "smoothing": 25})).amount, 0.25);
+    assert_eq!(brush(json!({"points": [[5, 5]], "smoothing": 1e9})).amount, 1.0);
+    assert_eq!(brush(json!({"points": [[5, 5]], "smoothing": -5})).amount, 0.0);
+}
