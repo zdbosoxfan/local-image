@@ -1325,9 +1325,17 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
 /// Mixing premultiplied colour by `k` equals compositing the layer at `k` × its alpha, since
 /// every blend mode's source-over result is linear in the source alpha.
 fn apply_blend_if(layer: &Layer, before: &Buffer, out: &mut Buffer, cx: &Ctx, mut coverage: Option<&mut [f32]>, own_override: Option<&Buffer>) {
-    // "This Layer" is the layer's own colour; adjustment layers (no content of their own) are
-    // judged by their result.
-    let isolated = if own_override.is_none() && !matches!(layer.content, LayerContent::Adjustment(_)) { render_content(layer, out.rect, cx) } else { None };
+    // "This Layer" is the layer's own colour. An adjustment layer (no content of its own) is
+    // judged by its result at full strength, before Opacity and its mask mix it in.
+    let isolated = match &layer.content {
+        _ if own_override.is_some() => None,
+        LayerContent::Adjustment(adj) => {
+            let mut result = before.clone();
+            adjust::apply_depth_mode(adj, &mut result, cx.transfer, Some(cx.depth), cx.mode);
+            Some(result)
+        }
+        _ => render_content(layer, out.rect, cx),
+    };
     let own = own_override.or(isolated.as_ref());
     for (i, (p, b)) in out.px.iter_mut().zip(&before.px).enumerate() {
         let this = match own {

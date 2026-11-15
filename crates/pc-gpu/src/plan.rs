@@ -528,12 +528,19 @@ impl<'a> Planner<'a> {
         if !bi {
             return Ok(after);
         }
-        let own = if matches!(layer.content, LayerContent::Adjustment(_)) { None } else { Some(self.content(layer)?) };
+        // "This Layer": an adjustment layer is judged by its result at full strength, before
+        // Opacity and its mask (compose::apply_blend_if).
+        let own = match &layer.content {
+            LayerContent::Adjustment(adj) => {
+                let backdrop = self.retain(before);
+                self.adjust(adj, backdrop)?
+            }
+            _ => self.content(layer)?,
+        };
         let mut p = Pass::new(Kernel::BlendIf, 0);
         p.a = Some(before);
         p.b = Some(after);
-        p.c = own;
-        p.adjust_kind = i32::from(own.is_none());
+        p.c = Some(own);
         p.params[0][0] = if self.cx.mode == photocraft_color::ColorMode::Rgb { 4.0 } else { 2.0 };
         let mut row = [0.0; 4096];
         for side in 0..2 {
