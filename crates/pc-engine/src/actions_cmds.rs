@@ -209,8 +209,20 @@ fn play(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("actions.play", "an action is already playing"));
     }
     let idx = resolve(&s.actions.list, p, "actions.play")?;
+    let len = s.actions.list[idx].steps.len();
+    let from = from_step(p, len)?;
+    // Inside a script or batch every stored step of the call costs one unit of the shared
+    // budget, run or skipped, and a call that no longer fits is refused before the action is
+    // copied. Calls that skip a large action's steps would otherwise copy it each time for the
+    // price of one step.
+    if s.actions.script_depth > 0 {
+        let max = crate::automate_cmds::MAX_SCRIPT_STEPS;
+        if s.actions.script_steps.saturating_add(len as u64) > max {
+            return Err(bad("actions.play", format!("the script or batch ran more than {max} steps in all")));
+        }
+        s.actions.script_steps += from as u64;
+    }
     let action = s.actions.list[idx].clone();
-    let from = from_step(p, action.steps.len())?;
     s.actions.playing = s.actions.playing.saturating_add(1);
     let (ran, failed) = run_recorded(s, &action.steps, from);
     s.actions.playing = s.actions.playing.saturating_sub(1);
@@ -277,7 +289,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Play Action",
             menu: &[],
             shortcut: None,
-            params: r##"{"action":name|index, "from":step?} → {action, ran, failed?:{step, id, error}}. step and from are 0-based. Stops at the first error (the command still returns ok, with failed set) and leaves one history step per step that ran. Refuses to play while a play is already running. Each step is checked with Session::authorize when one is installed."##,
+            params: r##"{"action":name|index, "from":step?} → {action, ran, failed?:{step, id, error}}. step and from are 0-based. Stops at the first error (the command still returns ok, with failed set) and leaves one history step per step that ran. Refuses to play while a play is already running. Inside a script or batch the steps before from count toward its step limit. Each step is checked with Session::authorize when one is installed."##,
             enabled: always,
             run: play,
             journal: false,
@@ -393,6 +405,20 @@ mod tests {
         assert_eq!(r["failed"]["id"], "file.open");
         assert!(r["failed"]["error"].as_str().unwrap().contains("disabled"), "{r}");
         assert!(s.documents().is_empty(), "the refused step does not open a document");
+    }
+
+    /// Each call costs its own script step and the 1,000 it skips, so the hundredth no longer fits
+    /// in the 100,000-step budget.
+    #[test]
+    fn steps_a_call_skips_are_charged_to_the_script_budget() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        s.actions.list.push(Action { name: "Big".into(), steps: vec![("select.all".to_string(), json!({})); 1000] });
+        let calls: Vec<Value> = (0..200).map(|_| json!(["actions.play", {"action": "Big", "from": 1000}])).collect();
+        let r = s.execute("file.scripts.browse", json!({"steps": calls})).unwrap();
+        let results = r["results"].as_array().unwrap();
+        assert_eq!(results.len(), 100, "{}", r["ok"]);
+        assert!(results[99]["error"].as_str().unwrap().contains("steps in all"), "{}", results[99]);
     }
 
     #[test]
