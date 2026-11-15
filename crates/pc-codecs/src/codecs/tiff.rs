@@ -35,7 +35,7 @@ use tiff::encoder::colortype::{self, ColorType as TiffColorType};
 use tiff::encoder::{Rational, TiffEncoder, TiffKind, TiffKindBig, TiffKindStandard, TiffValue};
 use tiff::tags::{PhotometricInterpretation, ResolutionUnit, SampleFormat, Tag, Type};
 
-use super::tiff_exif;
+use super::{tiff_exif, tiff_ycbcr};
 use super::tiff_ifd::{self as ifd, File, Ifd};
 use crate::Format;
 use crate::error::CodecError;
@@ -509,6 +509,13 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     if lab && (spp < 3 || !matches!(src, Src::U8 | Src::U16)) {
         return Err(CodecError::unsupported(F, format!("Lab image with {spp} samples of {bits} bits")));
     }
+    // YCbCr, as scanners and cameras write it (usually JPEG-compressed with subsampled chroma):
+    // the `tiff` crate decodes and upsamples the samples, and they are turned into RGB after
+    // decoding.
+    let ycbcr = photometric == 6;
+    if ycbcr && (spp != 3 || !matches!(src, Src::U8 | Src::U16)) {
+        return Err(CodecError::unsupported(F, format!("YCbCr image with {spp} samples of {bits} bits")));
+    }
     // TIFF 6.0 gives each extra sample its own ExtraSamples value, so the alpha may follow an
     // unspecified extra sample. The `tiff` crate only returns an alpha that comes first: for a
     // later one it is asked for every sample (as multiband gray) and the alpha is picked here.
@@ -579,6 +586,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
             (if gray_alpha { ChannelLayout::GrayA } else { ChannelLayout::Gray }, usize::from(num_samples))
         }
         tiff::ColorType::RGB(_) => (ChannelLayout::Rgb, 3),
+        tiff::ColorType::YCbCr(_) if ycbcr => (ChannelLayout::Rgb, 3),
         tiff::ColorType::RGBA(_) => (ChannelLayout::Rgba, 4),
         tiff::ColorType::CMYK(_) => (ChannelLayout::Cmyk, 4),
         tiff::ColorType::CMYKA(_) => (ChannelLayout::CmykA, 5),
@@ -704,6 +712,10 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let tally = decode_bands(&lay, &mut data, band_bytes, workers, &mut dec, &open)?;
     if tally.decoded == 0 && tally.missing > 0 {
         return Err(err("the image data is missing (cut off or past the end of the file)"));
+    }
+    if ycbcr {
+        let max = if out == SampleType::U16 { 65535.0 } else { 255.0 };
+        tiff_ycbcr::YCbCr::of(f, dir, compression, max).convert(&mut data, out_layout.channels(), out);
     }
     if lab {
         convert_ab(&mut data, out_layout.channels(), out, photometric == 8, false);
