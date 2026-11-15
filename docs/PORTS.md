@@ -1209,3 +1209,4 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`4bbeaaa560c4`](https://github.com/storytold/lightcraft/commit/4bbeaaa560c4f880b3f8b5a60cccd0ef68c52f1b) | LR-EXP-LOCATION: an export subfolder never leaves the destination folder (#2571) | `crates/lc-engine/src/export.rs`<br>`crates/lc-engine/src/export/options.rs`<br>`crates/lc-engine/src/tests_export.rs` | MIT OR Apache-2.0 |
+| [`a93172c2f7c6`](https://github.com/storytold/lightcraft/commit/a93172c2f7c6b570669281c6b106208463cf46f2) | security(engine): Find Missing Photos hashes only regular files, no further than their size (#3704) | `crates/lc-engine/src/cmd/missing.rs` | MIT OR Apache-2.0 |

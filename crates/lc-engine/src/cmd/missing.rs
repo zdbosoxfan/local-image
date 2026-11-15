@@ -102,8 +102,23 @@ fn stored_hash(p: &Photo) -> Option<String> {
 }
 
 /// The content identity of the file at `path` (BLAKE3, as import computes it), if it can be read.
+/// Only a regular file is hashed (a FIFO or device never ends), in pieces and no further than its
+/// size at open.
 fn file_hash(path: &str) -> Option<String> {
-    std::fs::read(path).ok().map(|bytes| lightcraft_preview::ContentId::of(&bytes).to_string())
+    use std::io::Read;
+    let file = li_fs::read::open_regular(Path::new(path), u64::MAX).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut file = file.take(len);
+    let mut h = lightcraft_preview::ContentHasher::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => return Some(h.finish().to_string()),
+            Ok(n) => h.update(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        };
+    }
 }
 
 /// An in-scope photo ([`checked_path`]) as Find Missing Photos sees it: its file, the size and
@@ -368,4 +383,30 @@ pub fn specs() -> Vec<CommandSpec> {
             find_missing
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::file_hash;
+
+    /// A FIFO or device in the searched folder never ends: only regular files are hashed.
+    #[cfg(unix)]
+    #[test]
+    fn only_regular_files_are_hashed() {
+        let dir = std::env::temp_dir().join(format!("lc-missing-hash-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("IMG_0001.CR3");
+        let _ = std::fs::remove_file(&fifo);
+        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let path = fifo.to_string_lossy().into_owned();
+        std::thread::spawn(move || tx.send(file_hash(&path)));
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)), Ok(None), "a FIFO is not hashed");
+        assert_eq!(file_hash(dir.to_str().unwrap()), None, "a folder has no content hash");
+        assert_eq!(file_hash("/dev/zero"), None, "a device never ends");
+        let f = dir.join("a.png");
+        std::fs::write(&f, b"pixels").unwrap();
+        assert_eq!(file_hash(f.to_str().unwrap()), Some(lightcraft_preview::ContentId::of(b"pixels").to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
