@@ -50,6 +50,7 @@ pub fn import_with(bytes: &[u8], options: &ImportOptions, mut fonts: Option<&mut
         cancelled(cancel)?;
         let limit = options.limits.decompressed_bytes;
         let max_pixels = options.limits.pixels;
+        let allowance = std::sync::atomic::AtomicU64::new(limit);
         let opt = usvg::Options {
             dpi: options.dpi,
             // usvg's default string resolver opens files, even with resources_dir=None.
@@ -64,7 +65,10 @@ pub fn import_with(bytes: &[u8], options: &ImportOptions, mut fonts: Option<&mut
                     if !matches!(mime, "image/png" | "image/jpeg" | "image/jpg" | "image/webp") {
                         return None;
                     }
-                    if let Some(png) = upright_png(&data, max_pixels) {
+                    if cancel.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    if let Some(png) = upright_png(&data, max_pixels, &allowance) {
                         return Some(usvg::ImageKind::PNG(std::sync::Arc::new(png)));
                     }
                     match mime {
@@ -84,16 +88,27 @@ pub fn import_with(bytes: &[u8], options: &ImportOptions, mut fonts: Option<&mut
 }
 
 /// `data` re-encoded upright as PNG when its EXIF orientation turns or flips its pixels, so usvg
-/// sizes and fits the image as it is shown (CSS `image-orientation: from-image`). None when it
-/// needs no turn or can't be read within `max_pixels`: it is then handed on as stored.
-fn upright_png(data: &[u8], max_pixels: u64) -> Option<Vec<u8>> {
+/// sizes and fits the image as it is shown (CSS `image-orientation: from-image`). usvg asks again
+/// for every use of an image, so all turning shares one decode `allowance`. None when it needs no
+/// turn or can't be turned within the limits: it is then handed on as stored, and the layer
+/// conversion applies its own limits to it.
+fn upright_png(data: &[u8], max_pixels: u64, allowance: &std::sync::atomic::AtomicU64) -> Option<Vec<u8>> {
     use image::ImageDecoder as _;
-    let mut decoder = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format().ok()?.into_decoder().ok()?;
+    let left = allowance.load(Ordering::Relaxed);
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(left);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder().ok()?;
     let orientation = decoder.orientation().ok()?;
     let (w, h) = decoder.dimensions();
-    if orientation == image::metadata::Orientation::NoTransforms || u64::from(w) * u64::from(h) > max_pixels {
+    let pixels = u64::from(w) * u64::from(h);
+    // The decoded pixels and their turned copy.
+    let bytes = pixels.saturating_mul(u64::from(decoder.color_type().bytes_per_pixel())).saturating_mul(2);
+    if orientation == image::metadata::Orientation::NoTransforms || pixels > max_pixels || bytes > left {
         return None;
     }
+    allowance.store(left - bytes, Ordering::Relaxed);
     let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
     image.apply_orientation(orientation);
     let mut png = Vec::new();

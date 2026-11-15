@@ -922,12 +922,11 @@ fn svg_deep_nesting_and_backtracking_selectors_finish_quickly() {
     assert!(start.elapsed().as_secs() < 20, "{:?}", start.elapsed());
 }
 
-#[test]
-fn an_embedded_jpeg_follows_its_exif_orientation() {
+/// Base64 of a uniform `w` x `h` JPEG whose EXIF orientation 6 turns it a quarter clockwise.
+fn turned_jpeg(w: u32, h: u32) -> String {
     use base64::Engine as _;
-    // A 4 x 2 JPEG whose EXIF orientation 6 turns it a quarter clockwise: shown 2 x 4.
     let mut jpeg = Vec::new();
-    image::RgbImage::from_pixel(4, 2, image::Rgb([200, 30, 30])).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+    image::RgbImage::from_pixel(w, h, image::Rgb([200, 30, 30])).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
     let tiff = [
         b"MM\0*".as_slice(),
         &8u32.to_be_bytes(),
@@ -943,7 +942,13 @@ fn an_embedded_jpeg_follows_its_exif_orientation() {
     let app1 = [b"Exif\0\0".as_slice(), &tiff].concat();
     let segment = [[0xFF, 0xE1].as_slice(), &u16::try_from(app1.len() + 2).unwrap().to_be_bytes(), &app1].concat();
     jpeg.splice(2..2, segment);
-    let data = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+    base64::engine::general_purpose::STANDARD.encode(&jpeg)
+}
+
+#[test]
+fn an_embedded_jpeg_follows_its_exif_orientation() {
+    // Stored 4 x 2, shown 2 x 4.
+    let data = turned_jpeg(4, 2);
     let source = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="40"><image width="40" height="40" xlink:href="data:image/jpeg;base64,{data}"/></svg>"#
     );
@@ -963,4 +968,19 @@ fn an_embedded_jpeg_follows_its_exif_orientation() {
     // Fitted upright in the 40 x 40 box: 20 wide and 40 tall, centred.
     assert!(alpha(20, 3) > 0.5 && alpha(20, 36) > 0.5, "the turned image fills the box's height");
     assert!(alpha(3, 20) < 0.5 && alpha(36, 20) < 0.5, "and leaves its sides empty");
+}
+
+#[test]
+fn turning_embedded_rasters_stays_within_one_decode_allowance() {
+    // Turning this 2048 x 2048 RGB image takes 24 MiB: the decoded pixels and their turned copy.
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="10" height="10"><defs><image id="i" width="10" height="10" xlink:href="data:image/jpeg;base64,{}"/></defs>{}</svg>"##,
+        turned_jpeg(2048, 2048),
+        r##"<use xlink:href="#i"/>"##.repeat(256)
+    );
+    let mut opts = ImportOptions::default();
+    opts.limits.decompressed_bytes = 16 << 20;
+    let start = Instant::now();
+    assert!(matches!(photocraft_svg::import(svg.as_bytes(), &opts), Err(photocraft_svg::ImportError::Limit(_))));
+    assert!(start.elapsed() < Duration::from_secs(1), "{:?}", start.elapsed());
 }
