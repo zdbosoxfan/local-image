@@ -10578,6 +10578,243 @@
           "url": "https://github.com/storytold/photocraft/commit/dcf5c61a64716bec507ee79735ef18ce0837fbce"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "codecs: leave Extended XMP fragments out of zune-jpeg's header parse (#10981)",
+          "commit": "20f92ee405dc1c195a7a10ed54d2af9ca2ecef06",
+          "ours": "crates/pc-codecs/src/codecs/jpeg.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/20f92ee405dc1c195a7a10ed54d2af9ca2ecef06"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Codecs: a PNG's iCCP profile inflates to at most 16.7 MB (#8599)",
+          "commit": "42929264805c70be29813fabd738c905c5b07460",
+          "ours": "crates/pc-codecs/src/codecs/png.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/42929264805c70be29813fabd738c905c5b07460"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Codecs: a PNG's iCCP profile also keeps to the caller's allocation limit (#8599)",
+          "commit": "acd57a36af62ccba3c21004052113716605bb937",
+          "ours": "crates/pc-codecs/src/codecs/png.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/acd57a36af62ccba3c21004052113716605bb937"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "codecs: charge dropped PNG text against the metadata budget (#10980)",
+          "commit": "d82e166494f95f9805af18d02e2121f29edd5ef5",
+          "ours": "crates/pc-codecs/src/codecs/png.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/d82e166494f95f9805af18d02e2121f29edd5ef5"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "codecs: refuse EXR preview attributes larger than their value (#10982)",
+          "commit": "4a65ae3fb0b8a1518f2e1da7051a6285f82af4e5",
+          "ours": "crates/pc-codecs/src/codecs/exr.rs, crates/pc-codecs/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/4a65ae3fb0b8a1518f2e1da7051a6285f82af4e5"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "codecs: count TIFF strip/tile scratch against max_alloc",
+          "commit": "81ce14c1b4ac178efa328f23d88b5a6e18cfc691",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/src/options.rs, crates/pc-codecs/tests/it/tiff_pages.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/81ce14c1b4ac178efa328f23d88b5a6e18cfc691"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "TIFF: reserve a strip's scratch buffer fallibly in decode_band",
+          "commit": "2d3f6dc91a92a6b0b9f9374c968256dfc85fc495",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/2d3f6dc91a92a6b0b9f9374c968256dfc85fc495"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "codecs: refuse TIFF chunk tables over max_alloc before the decoder opens",
+          "commit": "f4d4524161b25b432b32537c7a9ea9be2a875349",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/tests/it/tiff_pages.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/f4d4524161b25b432b32537c7a9ea9be2a875349"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "codecs: bound the TIFF JPEG header walk by the file length",
+          "commit": "eef1638eff87d9fef5a6a28ee01acdaf706ee55b",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/tests/it/tiff_pages.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/eef1638eff87d9fef5a6a28ee01acdaf706ee55b"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "codecs: check TIFF structural tags, predicted rows and JPEG chunk frames (#10983)",
+          "commit": "f45711c74937cb5d723758a81f2cd9e069f4c67f",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/tests/it/tiff_regressions.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/f45711c74937cb5d723758a81f2cd9e069f4c67f"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Integration: blank Group 4 fax pages pass the TIFF bomb guard (#8536)",
+          "commit": "129e6aec9000bad90c935ae4b3da62c4708a3040",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/tests/it/tiff_pages.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/129e6aec9000bad90c935ae4b3da62c4708a3040"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(codecs): check header dimensions against the file size before allocating",
+          "commit": "fb04b02893c55e359ab86f4d0fdcc6165e8b0b47",
+          "ours": "crates/pc-codecs/src/codecs/via_image.rs, crates/pc-codecs/src/codecs/exr.rs, crates/pc-codecs/tests/it/limits.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/fb04b02893c55e359ab86f4d0fdcc6165e8b0b47"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Integration: file-size bound fits DWA EXR, RLE BMP and GIF screens (#8704)",
+          "commit": "c65b7d93d65027e14a608f3407b9fd99f5cef5b1",
+          "ours": "crates/pc-codecs/src/codecs/via_image.rs, crates/pc-codecs/src/codecs/exr.rs, crates/pc-codecs/tests/it/limits.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/c65b7d93d65027e14a608f3407b9fd99f5cef5b1"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "codecs: admit animated GIF screens, sparse RLE BMPs and icon PNG profiles (#10979)",
+          "commit": "3225307e57802c76b540ee7a8691b5d635e447d8",
+          "ours": "crates/pc-codecs/src/codecs/via_image.rs, crates/pc-codecs/tests/it/limits.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/3225307e57802c76b540ee7a8691b5d635e447d8"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "TIFF: alpha after another extra sample places and opens as transparency",
+          "commit": "ddae31bad4662005d2b04a6d85db4217b6173d1e",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/tests/it/tiff_pages.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/ddae31bad4662005d2b04a6d85db4217b6173d1e"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(codecs): checked sizes in encoders, EXR name lookup, FITS float limit, VP8 plane copies, EXIF thumbnail bytes (#11164)",
+          "commit": "ab4ba9f37cf2428cba5b28426fde228e5c4d1b04",
+          "ours": "crates/pc-codecs/src/codecs/vp8/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/ab4ba9f37cf2428cba5b28426fde228e5c4d1b04"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "TIFF: open YCbCr images as RGB (#10316) (#10319)",
+          "commit": "9034223c4b6d80fe15a12b9e0d173786ac5f7a4c",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/src/codecs/tiff_ycbcr.rs, crates/pc-codecs/src/codecs/mod.rs, crates/pc-codecs/tests/it/main.rs, crates/pc-codecs/tests/it/tiff_ycbcr.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/9034223c4b6d80fe15a12b9e0d173786ac5f7a4c"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
