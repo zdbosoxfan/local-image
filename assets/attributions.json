@@ -8068,7 +8068,7 @@
         },
         {
           "name": "arboard",
-          "version": "3.6.1",
+          "version": "3.7.0",
           "used_for": "Image and text handling for the OS clipboard.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/1Password/arboard"
@@ -8138,7 +8138,7 @@
         },
         {
           "name": "async-executor",
-          "version": "1.14.0",
+          "version": "1.14.1",
           "used_for": "Async executor",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/smol-rs/async-executor"
@@ -8649,7 +8649,7 @@
         },
         {
           "name": "crc32fast",
-          "version": "1.5.2",
+          "version": "1.5.5",
           "used_for": "Fast, SIMD-accelerated CRC32 (IEEE) checksum computation",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/srijs/rust-crc32fast"
@@ -9118,7 +9118,7 @@
         },
         {
           "name": "flate2",
-          "version": "1.1.10",
+          "version": "1.1.11",
           "used_for": "DEFLATE compression and decompression exposed as Read/BufRead/Write streams. Supports miniz_oxide and multiple zlib implementations. Supports zlib, gzip, and raw deflate streams.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/rust-lang/flate2-rs"
@@ -10091,7 +10091,7 @@
         },
         {
           "name": "log",
-          "version": "0.4.34",
+          "version": "0.4.35",
           "used_for": "A lightweight logging facade for Rust",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/rust-lang/log"
@@ -10581,7 +10581,7 @@
         },
         {
           "name": "open",
-          "version": "5.4.4",
+          "version": "5.4.5",
           "used_for": "Open a path or URL using the program configured on the system",
           "licence": "MIT",
           "url": "https://github.com/Byron/open-rs"
@@ -10917,14 +10917,14 @@
         },
         {
           "name": "prost",
-          "version": "0.14.4",
+          "version": "0.14.5",
           "used_for": "A Protocol Buffers implementation for the Rust Language.",
           "licence": "Apache-2.0",
           "url": "https://github.com/tokio-rs/prost"
         },
         {
           "name": "prost-derive",
-          "version": "0.14.4",
+          "version": "0.14.6",
           "used_for": "Generate encoding and decoding implementations for Prost annotated types.",
           "licence": "Apache-2.0",
           "url": "https://github.com/tokio-rs/prost"
@@ -11246,21 +11246,21 @@
         },
         {
           "name": "rmcp",
-          "version": "3.5.1",
+          "version": "3.9.0",
           "used_for": "Rust SDK for Model Context Protocol",
           "licence": "Apache-2.0",
           "url": "https://github.com/modelcontextprotocol/rust-sdk/"
         },
         {
           "name": "rmcp-macros",
-          "version": "3.5.1",
+          "version": "3.10.0",
           "used_for": "Rust SDK for Model Context Protocol macros library",
           "licence": "Apache-2.0",
           "url": "https://github.com/modelcontextprotocol/rust-sdk/"
         },
         {
           "name": "ron",
-          "version": "0.12.2",
+          "version": "0.12.3",
           "used_for": "Rusty Object Notation",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/ron-rs/ron"
@@ -11274,7 +11274,7 @@
         },
         {
           "name": "roxmltree",
-          "version": "0.21.1",
+          "version": "0.21.2",
           "used_for": "Represent an XML as a read-only tree.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/RazrFalcon/roxmltree"
@@ -11323,7 +11323,7 @@
         },
         {
           "name": "rustix",
-          "version": "1.1.5",
+          "version": "1.1.6",
           "used_for": "Safe Rust bindings to POSIX/Unix/Linux/Winsock-like syscalls",
           "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
           "url": "https://github.com/bytecodealliance/rustix"
@@ -11492,6 +11492,13 @@
         {
           "name": "sha2",
           "version": "0.10.9",
+          "used_for": "Pure Rust implementation of the SHA-2 hash function family including SHA-224, SHA-256, SHA-384, and SHA-512.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/hashes"
+        },
+        {
+          "name": "sha2",
+          "version": "0.11.1",
           "used_for": "Pure Rust implementation of the SHA-2 hash function family including SHA-224, SHA-256, SHA-384, and SHA-512.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/RustCrypto/hashes"
@@ -11862,7 +11869,7 @@
         },
         {
           "name": "tokio",
-          "version": "1.53.3",
+          "version": "1.54.1",
           "used_for": "An event-driven, non-blocking I/O platform for writing asynchronous I/O backed applications.",
           "licence": "MIT",
           "url": "https://github.com/tokio-rs/tokio"
@@ -12135,14 +12142,14 @@
         },
         {
           "name": "ureq",
-          "version": "3.4.2",
+          "version": "3.5.2",
           "used_for": "Simple, safe HTTP client",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/algesten/ureq"
         },
         {
           "name": "ureq-proto",
-          "version": "0.6.4",
+          "version": "0.7.1",
           "used_for": "ureq support crate",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/algesten/ureq-proto"
@@ -12177,7 +12184,7 @@
         },
         {
           "name": "uuid",
-          "version": "1.28.0",
+          "version": "1.29.2",
           "used_for": "A library to generate and parse UUIDs.",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/uuid-rs/uuid"
@@ -12555,20 +12562,6 @@
         },
         {
           "name": "windows-sys",
-          "version": "0.59.0",
-          "used_for": "Rust for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
-          "name": "windows-sys",
-          "version": "0.60.2",
-          "used_for": "Rust for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
-          "name": "windows-sys",
           "version": "0.61.2",
           "used_for": "Rust for Windows",
           "licence": "MIT OR Apache-2.0",
@@ -12577,13 +12570,6 @@
         {
           "name": "windows-targets",
           "version": "0.52.6",
-          "used_for": "Import libs for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
-          "name": "windows-targets",
-          "version": "0.53.5",
           "used_for": "Import libs for Windows",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/microsoft/windows-rs"
@@ -12603,22 +12589,8 @@
           "url": "https://github.com/microsoft/windows-rs"
         },
         {
-          "name": "windows_aarch64_gnullvm",
-          "version": "0.53.1",
-          "used_for": "Import lib for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
           "name": "windows_aarch64_msvc",
           "version": "0.52.6",
-          "used_for": "Import lib for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
-          "name": "windows_aarch64_msvc",
-          "version": "0.53.1",
           "used_for": "Import lib for Windows",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/microsoft/windows-rs"
@@ -12631,22 +12603,8 @@
           "url": "https://github.com/microsoft/windows-rs"
         },
         {
-          "name": "windows_i686_gnu",
-          "version": "0.53.1",
-          "used_for": "Import lib for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
           "name": "windows_i686_gnullvm",
           "version": "0.52.6",
-          "used_for": "Import lib for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
-          "name": "windows_i686_gnullvm",
-          "version": "0.53.1",
           "used_for": "Import lib for Windows",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/microsoft/windows-rs"
@@ -12659,22 +12617,8 @@
           "url": "https://github.com/microsoft/windows-rs"
         },
         {
-          "name": "windows_i686_msvc",
-          "version": "0.53.1",
-          "used_for": "Import lib for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
           "name": "windows_x86_64_gnu",
           "version": "0.52.6",
-          "used_for": "Import lib for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
-          "name": "windows_x86_64_gnu",
-          "version": "0.53.1",
           "used_for": "Import lib for Windows",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/microsoft/windows-rs"
@@ -12687,22 +12631,8 @@
           "url": "https://github.com/microsoft/windows-rs"
         },
         {
-          "name": "windows_x86_64_gnullvm",
-          "version": "0.53.1",
-          "used_for": "Import lib for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
           "name": "windows_x86_64_msvc",
           "version": "0.52.6",
-          "used_for": "Import lib for Windows",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/microsoft/windows-rs"
-        },
-        {
-          "name": "windows_x86_64_msvc",
-          "version": "0.53.1",
           "used_for": "Import lib for Windows",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/microsoft/windows-rs"
@@ -12758,7 +12688,7 @@
         },
         {
           "name": "wl-clipboard-rs",
-          "version": "0.9.4",
+          "version": "0.9.5",
           "used_for": "Access to the Wayland clipboard for terminal and other window-less applications.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/YaLTeR/wl-clipboard-rs"
@@ -12792,8 +12722,22 @@
           "url": "https://github.com/psychon/x11rb"
         },
         {
+          "name": "x11rb",
+          "version": "0.14.0",
+          "used_for": "Rust bindings to X11",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/psychon/x11rb"
+        },
+        {
           "name": "x11rb-protocol",
           "version": "0.13.2",
+          "used_for": "Rust bindings to X11",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/psychon/x11rb"
+        },
+        {
+          "name": "x11rb-protocol",
+          "version": "0.14.0",
           "used_for": "Rust bindings to X11",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/psychon/x11rb"
@@ -12949,6 +12893,13 @@
           "name": "zeroize",
           "version": "1.9.1",
           "used_for": "Securely clear secrets from memory with a simple trait built on stable Rust primitives which guarantee memory is zeroed using an operation will not be 'optimized away' by the compiler. Uses a portable pure Rust implementation that works everywhere, even WASM!",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/utils"
+        },
+        {
+          "name": "zeroize_derive",
+          "version": "1.5.0",
+          "used_for": "Custom derive support for zeroize",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/RustCrypto/utils"
         },

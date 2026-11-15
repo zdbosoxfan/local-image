@@ -111,7 +111,7 @@ impl Transport for CancelTransport {
         let deadline = self.deadline(next);
         let remaining = self.remaining(deadline, next.reason)?.min(SETUP_LIMIT);
         // Forward exactly once, even on timeout after partial transmission.
-        let result = self.inner.transmit_output(amount, NextTimeout { after: WireDuration::Exact(remaining), reason: next.reason });
+        let result = self.inner.transmit_output(amount, NextTimeout { after: WireDuration::Exact(remaining), ..next });
         if result.is_err() {
             self.failed = true;
         }
@@ -126,7 +126,7 @@ impl Transport for CancelTransport {
         let deadline = self.deadline(next);
         loop {
             let remaining = self.remaining(deadline, next.reason)?;
-            let sliced = NextTimeout { after: WireDuration::Exact(remaining.min(RECEIVE_SLICE)), reason: next.reason };
+            let sliced = NextTimeout { after: WireDuration::Exact(remaining.min(RECEIVE_SLICE)), ..next };
             let result = self.inner.await_input(sliced);
             cancelled(&self.control)?;
             match result {
@@ -193,9 +193,48 @@ mod tests {
         )
     }
     #[test]
+    fn per_read_and_per_write_limits_reach_the_inner_transport() {
+        #[derive(Debug)]
+        struct Record {
+            buffers: LazyBuffers,
+            seen: Arc<std::sync::Mutex<Vec<NextTimeout>>>,
+        }
+        impl Transport for Record {
+            fn buffers(&mut self) -> &mut dyn Buffers {
+                &mut self.buffers
+            }
+            fn transmit_output(&mut self, _: usize, next: NextTimeout) -> Result<(), Error> {
+                self.seen.lock().unwrap().push(next);
+                Ok(())
+            }
+            fn await_input(&mut self, next: NextTimeout) -> Result<bool, Error> {
+                self.seen.lock().unwrap().push(next);
+                Ok(true)
+            }
+            fn is_open(&mut self) -> bool {
+                true
+            }
+        }
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut transport = CancelTransport {
+            inner: Box::new(Record { buffers: LazyBuffers::new(16, 16), seen: seen.clone() }),
+            control: JobControl::new(),
+            setup_deadline: Instant::now() + SETUP_LIMIT,
+            deadlines: Vec::new(),
+            failed: false,
+        };
+        let (read, write) = (Some(WireDuration::from_secs(2)), Some(WireDuration::from_secs(3)));
+        let next = NextTimeout { after: WireDuration::from_secs(20), reason: Timeout::RecvBody, per_read: read, per_write: write };
+        transport.transmit_output(8, next).unwrap();
+        assert!(transport.await_input(next).unwrap());
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen.iter().all(|n| n.per_read == read && n.per_write == write), "{seen:?}");
+    }
+    #[test]
     fn artificial_receive_timeouts_retry_but_partial_writes_never_replay() {
         let (mut transport, reads, writes) = probe();
-        let next = NextTimeout { after: WireDuration::from_secs(1), reason: Timeout::RecvBody };
+        let next = NextTimeout { after: WireDuration::from_secs(1), reason: Timeout::RecvBody, ..Default::default() };
         assert!(transport.await_input(next).unwrap());
         assert_eq!(reads.load(Ordering::SeqCst), 3);
         assert!(transport.transmit_output(8, next).is_err());
@@ -205,7 +244,7 @@ mod tests {
     #[test]
     fn stale_tls_fragment_timeouts_cannot_extend_phase_deadline() {
         let (mut transport, _, _) = probe();
-        let next = NextTimeout { after: WireDuration::from_millis(80), reason: Timeout::RecvBody };
+        let next = NextTimeout { after: WireDuration::from_millis(80), reason: Timeout::RecvBody, ..Default::default() };
         let first = transport.deadline(next);
         std::thread::sleep(Duration::from_millis(20));
         assert_eq!(transport.deadline(next), first);
@@ -216,7 +255,7 @@ mod tests {
     fn tls_connect_cannot_restart_the_budget_after_tcp() {
         let (mut transport, reads, _) = probe();
         transport.setup_deadline = Instant::now();
-        let next = NextTimeout { after: WireDuration::from_secs(20), reason: Timeout::Connect };
+        let next = NextTimeout { after: WireDuration::from_secs(20), reason: Timeout::Connect, ..Default::default() };
         assert!(matches!(transport.await_input(next), Err(Error::Timeout(Timeout::Connect))));
         assert_eq!(reads.load(Ordering::SeqCst), 0);
         let (mut transport, _, _) = probe();
