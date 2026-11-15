@@ -271,45 +271,45 @@ fn modify(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     set_selection(s, label, area, out, SelectionMode::Replace)
 }
 
-/// Grow (contiguous) / Similar (anywhere): pixels whose colour lies within
-/// the selected pixels' colour range widened by the tolerance.
+/// Grow (contiguous) / Similar (anywhere): pixels whose colour lies within the tolerance of a
+/// selected pixel's colour.
 fn grow_similar(s: &mut Session, p: &Value, contiguous: bool) -> Result<Value> {
     let tol = f(p, "tolerance", 32.0) / 255.0;
     let (area, px) = sample_pixels(s, b(p, "sampleAllLayers", false))?;
     let (_, m) = current_mask(&s.active().ok_or(EngineError::NoDocument)?.doc);
-    let (mut lo, mut hi) = ([f32::MAX; 4], [f32::MIN; 4]);
-    for (q, v) in px.iter().zip(&m) {
-        if *v >= 0.5 {
-            for c in 0..4 {
-                lo[c] = lo[c].min(q[c]);
-                hi[c] = hi[c].max(q[c]);
-            }
-        }
-    }
-    if lo[0] > hi[0] {
+    let matcher = sel::ColorMatcher::new(px.iter().zip(&m).filter(|(_, v)| **v >= 0.5).map(|(q, _)| *q), tol);
+    if matcher.is_empty() {
         return Err(EngineError::Other("selection is empty".into()));
     }
-    let inside = |q: &[f32; 4]| (0..4).all(|c| q[c] >= lo[c] - tol - 1e-6 && q[c] <= hi[c] + tol + 1e-6);
     let (w, h) = (area.width() as usize, area.height() as usize);
     let mut out: Vec<f32> = m.iter().map(|v| if *v >= 0.5 { 1.0 } else { 0.0 }).collect();
     if contiguous {
-        let mut stack: Vec<usize> = (0..out.len()).filter(|i| out[*i] > 0.0).collect();
+        // Start from the selection's edge: a selected pixel surrounded by selected pixels has
+        // nothing to grow into.
+        let mut stack: Vec<usize> = (0..out.len())
+            .filter(|&i| {
+                let (x, y) = (i % w, i / w);
+                out[i] > 0.0
+                    && ((x > 0 && out[i - 1] == 0.0) || (x + 1 < w && out[i + 1] == 0.0) || (y > 0 && out[i - w] == 0.0) || (y + 1 < h && out[i + w] == 0.0))
+            })
+            .collect();
         while let Some(i) = stack.pop() {
             let (x, y) = (i % w, i / w);
             let n = [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), (y > 0).then(|| i - w), (y + 1 < h).then(|| i + w)];
             for j in n.into_iter().flatten() {
-                if out[j] == 0.0 && inside(&px[j]) {
+                if out[j] == 0.0 && matcher.matches(px[j]) {
                     out[j] = 1.0;
                     stack.push(j);
                 }
             }
         }
     } else {
-        for (o, q) in out.iter_mut().zip(&px) {
-            if inside(q) {
+        use rayon::prelude::*;
+        out.par_iter_mut().zip(px.par_iter()).for_each(|(o, q)| {
+            if *o == 0.0 && matcher.matches(*q) {
                 *o = 1.0;
             }
-        }
+        });
     }
     set_selection(s, if contiguous { "Grow" } else { "Similar" }, area, out, SelectionMode::Replace)
 }
@@ -638,6 +638,28 @@ mod tests {
         s.execute("select.similar", json!({"tolerance": 5})).unwrap();
         assert_eq!(coverage(&s, 30, 10), 1.0);
         assert_eq!(coverage(&s, 20, 20), 0.0);
+    }
+
+    /// With a red and a blue patch selected, Similar takes the rest of the red and the blue but
+    /// not the black or purple that lie between them in colour.
+    #[test]
+    fn similar_leaves_out_colours_between_the_selected_ones() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 30})).unwrap();
+        s.edit("paint", |doc, _| {
+            let bg = doc.layers[0].surface_mut().unwrap();
+            bg.fill_rect(Rect::new(5, 5, 15, 15), &[1.0, 0.0, 0.0, 1.0]);
+            bg.fill_rect(Rect::new(25, 5, 35, 15), &[0.0, 0.0, 1.0, 1.0]);
+            bg.fill_rect(Rect::new(5, 18, 15, 28), &[0.0, 0.0, 0.0, 1.0]);
+            bg.fill_rect(Rect::new(25, 18, 35, 28), &[0.5, 0.0, 0.5, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("select.rect", json!({"x": 6, "y": 6, "width": 2, "height": 2})).unwrap();
+        s.execute("select.rect", json!({"x": 26, "y": 6, "width": 2, "height": 2, "mode": "add"})).unwrap();
+        s.execute("select.similar", json!({"tolerance": 5})).unwrap();
+        assert_eq!((coverage(&s, 10, 10), coverage(&s, 30, 10)), (1.0, 1.0), "the red and the blue");
+        assert_eq!((coverage(&s, 10, 22), coverage(&s, 30, 22)), (0.0, 0.0), "the black and the purple");
     }
 
     #[test]

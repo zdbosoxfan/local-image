@@ -646,6 +646,87 @@ pub fn polygon(points: &[(f32, f32)], area: Rect, anti_alias: bool) -> Vec<f32> 
     m
 }
 
+/// Matches colours against a set of selected colours: a colour matches when every channel is
+/// within the tolerance of one selected colour's.
+///
+/// One box around all the selected colours would also take the colours between them (black and
+/// purple between a selected red and blue), so the colours are held in a bounding-volume tree and
+/// a query is tested against a subtree only when it is within the tolerance of that subtree's
+/// box. Fully transparent pixels match each other whatever their hidden RGB.
+pub struct ColorMatcher {
+    has_transparent: bool,
+    tree: ColorBvh,
+    tol: f32,
+}
+
+enum ColorBvh {
+    Empty,
+    Leaf(Vec<[f32; 4]>),
+    Node { min: [f32; 4], max: [f32; 4], left: Box<ColorBvh>, right: Box<ColorBvh> },
+}
+
+impl ColorBvh {
+    fn build(mut points: Vec<[f32; 4]>) -> Self {
+        if points.is_empty() {
+            return Self::Empty;
+        }
+        if points.len() <= 16 {
+            return Self::Leaf(points);
+        }
+        let (mut min, mut max) = ([f32::MAX; 4], [f32::MIN; 4]);
+        for p in &points {
+            for c in 0..4 {
+                min[c] = min[c].min(p[c]);
+                max[c] = max[c].max(p[c]);
+            }
+        }
+        // Split at the median of the channel with the widest spread.
+        let axis = (0..4usize).max_by(|a, b| (max[*a] - min[*a]).total_cmp(&(max[*b] - min[*b]))).unwrap_or(0);
+        let mid = points.len() / 2;
+        points.select_nth_unstable_by(mid, |a, b| a[axis].total_cmp(&b[axis]));
+        let right = points.split_off(mid);
+        Self::Node { min, max, left: Box::new(Self::build(points)), right: Box::new(Self::build(right)) }
+    }
+
+    fn matches(&self, q: &[f32; 4], tol: f32) -> bool {
+        match self {
+            Self::Empty => false,
+            Self::Leaf(points) => points.iter().any(|p| (0..4).all(|c| (q[c] - p[c]).abs() <= tol)),
+            Self::Node { min, max, left, right } => {
+                (0..4).all(|c| q[c] >= min[c] - tol && q[c] <= max[c] + tol) && (left.matches(q, tol) || right.matches(q, tol))
+            }
+        }
+    }
+}
+
+impl ColorMatcher {
+    /// A matcher for the `selected` RGBA colours with a per-channel tolerance in 0–1.
+    pub fn new(selected: impl IntoIterator<Item = [f32; 4]>, tol: f32) -> Self {
+        let mut has_transparent = false;
+        let mut seen = std::collections::HashSet::new();
+        let mut colors = Vec::new();
+        for c in selected {
+            // A transparent colour stays in the tree too: a nearly transparent query is compared
+            // by its RGB and alpha like any other.
+            has_transparent |= c[3] == 0.0;
+            if seen.insert(c.map(f32::to_bits)) {
+                colors.push(c);
+            }
+        }
+        Self { has_transparent, tree: ColorBvh::build(colors), tol: tol.max(0.0) + 1e-6 }
+    }
+
+    /// Whether no colour was given.
+    pub fn is_empty(&self) -> bool {
+        matches!(self.tree, ColorBvh::Empty)
+    }
+
+    /// Whether `q` is within the tolerance of a selected colour.
+    pub fn matches(&self, q: [f32; 4]) -> bool {
+        (q[3] == 0.0 && self.has_transparent) || self.tree.matches(&q, self.tol)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
