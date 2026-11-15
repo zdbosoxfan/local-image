@@ -104,7 +104,11 @@ impl DateTime {
     /// ISO 8601 (XMP date): `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-MM-DDThh:mm[:ss[.s+]][TZD]`.
     pub fn parse_iso(s: &str) -> Option<DateTime> {
         let s = s.trim();
-        let (d, t) = s.split_once('T').unwrap_or((s, ""));
+        let (d, t) = match s.split_once('T') {
+            Some((_, "")) => return None,
+            Some(parts) => parts,
+            None => (s, ""),
+        };
         let dp: Vec<&str> = d.split('-').collect();
         let year = num(dp.first()?)?.try_into().ok()?;
         let month = dp.get(1).map(|m| num(m)).unwrap_or(Some(1))?.try_into().ok()?;
@@ -119,12 +123,20 @@ impl DateTime {
                 None => (t, None),
             };
             let cp: Vec<&str> = clock.split(':').collect();
+            if cp.len() > 3 {
+                return None;
+            }
             dt.hour = num(cp.first()?)?.try_into().ok()?;
             dt.minute = num(cp.get(1)?)?.try_into().ok()?;
             if let Some(sec) = cp.get(2) {
                 let (whole, frac) = sec.split_once('.').unwrap_or((sec, ""));
                 dt.second = num(whole)?.try_into().ok()?;
-                dt = dt.with_subsec(frac);
+                if sec.contains('.') {
+                    if frac.is_empty() || !frac.bytes().all(|b| b.is_ascii_digit()) {
+                        return None;
+                    }
+                    dt = dt.with_subsec(frac);
+                }
             }
             if let Some(o) = off {
                 dt.offset_minutes = Some(Self::parse_offset(o)?);
@@ -237,6 +249,26 @@ mod tests {
         assert_eq!(DateTime::parse_iso("2019-07-04T10:11").unwrap().minute, 11);
         assert!(DateTime::parse_iso("nonsense").is_none());
         assert!(DateTime::parse_iso("2019-07-04Tab:cd").is_none());
+    }
+
+    /// An incomplete or unconsumed clock was read as its valid prefix (`2026-01-01T` as midnight), so a wrong
+    /// capture time entered the catalog or matched a tracklog point.
+    #[test]
+    fn iso_rejects_incomplete_or_unconsumed_clock_text() {
+        for value in [
+            "2026-01-01T",
+            "2026-01-01T12:34:56:99Z",
+            "2026-01-01T12:34:56.Z",
+            "2026-01-01T12:34:56.123junkZ",
+            "2026-01-01T12:34:56.1.2Z",
+            "2026-01-01T12:34:56.12 3Z",
+            "2026-01-01T12::34Z",
+        ] {
+            assert!(DateTime::parse_iso(value).is_none(), "accepted malformed timestamp {value:?}");
+        }
+        assert_eq!(DateTime::parse_iso("2019-07-04T10:11:12.123456Z").unwrap().millis, 123);
+        assert_eq!(DateTime::parse_iso(" 2019-07-04T10:11:12.5Z ").unwrap().millis, 500);
+        assert_eq!(DateTime::parse_iso("2019-07-04T10:11:60Z").unwrap().second, 60);
     }
 
     #[test]
