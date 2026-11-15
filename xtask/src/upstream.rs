@@ -252,16 +252,34 @@ impl PathMap {
 
 /// Upstream key → its path map.
 fn load_path_maps(root: &Path) -> Result<BTreeMap<String, PathMap>> {
-    let maps: BTreeMap<String, PathMap> = toml::from_str(&std::fs::read_to_string(root.join(PATH_MAP)).context(PATH_MAP)?).context(PATH_MAP)?;
+    parse_path_maps(&std::fs::read_to_string(root.join(PATH_MAP)).context(PATH_MAP)?).context(PATH_MAP)
+}
+
+/// Reads the maps and refuses entries that would send two upstream directories into one of ours
+/// (patches from unrelated histories would merge into the same files) or that glue a path onto a
+/// target without its `/`.
+fn parse_path_maps(text: &str) -> Result<BTreeMap<String, PathMap>> {
+    let maps: BTreeMap<String, PathMap> = toml::from_str(text)?;
+    let mut targets: Vec<&str> = Vec::new();
     for (key, map) in &maps {
         if by_key(key).is_none() {
-            bail!("{PATH_MAP}: unknown upstream `{key}`");
+            bail!("unknown upstream `{key}`");
         }
         let mut prefixes: Vec<&str> = map.rules().map(|(p, _)| p).collect();
         prefixes.sort_unstable();
         if let Some(w) = prefixes.windows(2).find(|w| w[0] == w[1]) {
-            bail!("{PATH_MAP}: [{key}] lists `{}` twice", w[0]);
+            bail!("[{key}] lists `{}` twice", w[0]);
         }
+        for (from, ours) in map.map.iter().chain(map.moved.iter().map(|(p, m)| (p, &m.ours))) {
+            if from.ends_with('/') != ours.ends_with('/') {
+                bail!("[{key}] `{from}` and `{ours}` must both end with `/` or neither");
+            }
+            targets.push(ours);
+        }
+    }
+    targets.sort_unstable();
+    if let Some(w) = targets.windows(2).find(|w| w[0] == w[1] || (w[0].ends_with('/') && w[1].starts_with(w[0]))) {
+        bail!("`{}` and `{}` overlap: two upstream paths would land in the same files of ours", w[0], w[1]);
     }
     Ok(maps)
 }
@@ -836,6 +854,18 @@ skip = ["docs/"]
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn path_maps_reject_targets_that_collide_or_drop_the_slash() {
+        let err = |toml: &str| format!("{:#}", parse_path_maps(toml).unwrap_err());
+        assert!(err("[photocraft.map]\n\"crates/raster/\" = \"crates/pc-raster\"\n").contains("must both end with `/` or neither"));
+        let across = "[photocraft.map]\n\"crates/a/\" = \"crates/pc-a/\"\n[lightcraft.map]\n\"crates/b/\" = \"crates/pc-a/\"\n";
+        assert!(err(across).contains("`crates/pc-a/` and `crates/pc-a/` overlap"));
+        let nested = "[photocraft.map]\n\"crates/a/\" = \"crates/pc-a/\"\n\
+                      [photocraft.moved]\n\"crates/b/\" = { ours = \"crates/pc-a/src/\", to = \"craft-libs\", at = \"abc1234\" }\n";
+        assert!(err(nested).contains("`crates/pc-a/` and `crates/pc-a/src/` overlap"));
+        assert!(parse_path_maps("[photocraft.map]\n\"crates/a/\" = \"crates/pc-a/\"\n\"crates/ab/\" = \"crates/pc-ab/\"\n").is_ok());
     }
 
     /// An upstream clone (`upstream/photocraft`: a base commit, then `moved`, the commit that moved
