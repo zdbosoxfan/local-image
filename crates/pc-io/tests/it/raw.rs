@@ -38,7 +38,14 @@ fn cr2_opens() {
 /// A NEF-like file with Nikon's (undocumented) compression and a full-size
 /// baseline JPEG preview in IFD0.
 fn nef_with_preview() -> Vec<u8> {
-    let img = Image::from_u8(32, 20, ChannelLayout::Rgb, vec![180; 32 * 20 * 3]).unwrap();
+    nef_with_preview_of(&[180, 180, 180], false)
+}
+
+/// The same with a preview of one `colour`; `adobe_rgb`: the EXIF says the camera was set to
+/// Adobe RGB (ColorSpace Uncalibrated, InteropIndex "R03"), as on a Sony body, and the JPEG
+/// carries no profile or EXIF of its own.
+fn nef_with_preview_of(colour: &[u8; 3], adobe_rgb: bool) -> Vec<u8> {
+    let img = Image::from_u8(32, 20, ChannelLayout::Rgb, colour.repeat(32 * 20)).unwrap();
     let jpeg = photocraft_codecs::encode(&img, Format::Jpeg, &EncodeOptions::default()).unwrap();
     let mut t = TiffBuilder::default();
     let strip = t.blob(vec![0; 64]);
@@ -54,13 +61,19 @@ fn nef_with_preview() -> Vec<u8> {
         (33421, Val::Short(vec![2, 2])),
         (33422, Val::Byte(vec![0, 1, 1, 2])),
     ]);
-    let ifd0 = t.ifd(vec![
+    let mut tags = vec![
         (271, Val::Ascii("NIKON CORPORATION".into())),
         (272, Val::Ascii("UNSUPPORTED SYNTHETIC NEF".into())),
         (330, Val::Ifds(vec![raw])),
         (513, Val::Blobs(vec![preview])),
         (514, Val::Long(vec![jpeg.len() as u32])),
-    ]);
+    ];
+    if adobe_rgb {
+        let interop = t.ifd(vec![(0x0001, Val::Ascii("R03".into()))]);
+        let exif = t.ifd(vec![(0xA001, Val::Short(vec![0xFFFF])), (0xA005, Val::Ifds(vec![interop]))]);
+        tags.push((34665, Val::Ifds(vec![exif])));
+    }
+    let ifd0 = t.ifd(tags);
     t.chain = vec![ifd0];
     t.build()
 }
@@ -107,6 +120,19 @@ fn damaged_raw_opens_its_camera_jpeg_with_a_warning() {
     assert_eq!((r.document.size.width, r.document.size.height, r.document.depth), (32, 20, SampleType::U8));
     assert!(r.warnings[0].contains("damaged") && r.warnings[0].contains("8-bit, not the raw sensor data"), "{:?}", r.warnings);
     assert!(matches!(import("shot.dng", &dng(false)), Err(IoError::Raw(_))));
+}
+
+/// A preview opened in place of the raw is read in the colour space the raw's EXIF states: an
+/// Adobe RGB green is more saturated in sRGB than its stored values. Unstated, it stays sRGB.
+#[test]
+fn a_preview_fallback_keeps_the_colour_space_the_raw_states() {
+    let green = [60, 180, 60];
+    let red_of = |adobe_rgb: bool| {
+        let r = import("DSC_0001.NEF", &nef_with_preview_of(&green, adobe_rgb)).unwrap();
+        (r.document.layers[0].surface().unwrap().pixel(16, 10)[0] * 255.0).round() as i32
+    };
+    assert!((red_of(false) - 60).abs() <= 3, "{}", red_of(false));
+    assert!(red_of(true) < 40, "{}", red_of(true));
 }
 
 #[test]
