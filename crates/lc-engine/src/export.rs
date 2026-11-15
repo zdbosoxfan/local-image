@@ -985,6 +985,7 @@ fn original_embeds_location(bytes: &[u8]) -> Result<bool, String> {
     let m = lightcraft_meta::try_extract(bytes).map_err(|e| e.to_string())?;
     Ok(m.dji.is_some()
         || m.gps.is_some()
+        || m.other_location
         || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty())))
 }
 
@@ -998,7 +999,13 @@ fn unreadable_original(bytes: &[u8], file_name: &str) -> String {
             extension => extension,
         },
     };
+    let formats = location_free_formats(bytes);
     format!(
-        "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as JPEG or TIFF instead"
+        "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as {formats} instead"
     )
+}
+
+/// What a refused original can be exported as. DNG export needs a raw photo.
+fn location_free_formats(bytes: &[u8]) -> &'static str {
+    if lightcraft_raw::probe(bytes).is_some() { "JPEG, TIFF or DNG" } else { "JPEG or TIFF" }
 }

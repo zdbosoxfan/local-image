@@ -291,11 +291,13 @@ impl PreparedExport {
                             return Err(unreadable_original(&bytes, &label));
                         }
                         let embeds_location = original_embeds_location(&bytes).map_err(|e| {
-                            format!("{label}: can't verify location metadata in this original file: {e}; export as JPEG, TIFF or DNG instead")
+                            let formats = location_free_formats(&bytes);
+                            format!("{label}: can't verify location metadata in this original file: {e}; export as {formats} instead")
                         })?;
                         if embeds_location {
+                            let formats = location_free_formats(&bytes);
                             return Err(format!(
-                                "{label}: can't remove the location from an original file that embeds location info; export as JPEG, TIFF or DNG instead"
+                                "{label}: can't remove the location from an original file that embeds location info; export as {formats} instead"
                             ));
                         }
                     }

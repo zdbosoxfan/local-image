@@ -35,7 +35,7 @@ pub struct MergeRules<'a> {
     pub owned_if_present: &'a [&'a str],
 }
 
-fn listed(list: &[&str], name: &str) -> bool {
+pub(crate) fn listed(list: &[&str], name: &str) -> bool {
     list.iter().any(|p| match p.strip_suffix('*') {
         Some(ns) => name.starts_with(ns),
         None => *p == name,

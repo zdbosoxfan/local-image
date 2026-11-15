@@ -806,6 +806,259 @@ fn remove_location_still_copies_originals_it_can_read() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// `crafted` through an Original export, swapped in after a clean import because the check reads the
+/// bytes it copies. Without Remove Location Info the copy is exact whatever the file holds.
+fn remove_location_from(dir: &std::path::Path, crafted: &[u8]) -> Result<Vec<u8>, String> {
+    let path = dir.join("photo.png");
+    std::fs::write(&path, include_bytes!("../../lc-codecs/tests/fixtures/shared-export/rgb8.png")).unwrap();
+    let mut session = Session::new().with_fs();
+    session.execute("library.import", &json!({"paths": [path]})).unwrap();
+    let id = session.catalog.photos().next().unwrap().id;
+    std::fs::write(&path, crafted).unwrap();
+    let keep = ExportOptions::from_json(&json!({"format": "original"}));
+    assert_eq!(export_photo(&mut session, id, &keep, 1).unwrap().bytes, crafted);
+    let remove = ExportOptions::from_json(&json!({"format": "original", "removeLocation": true}));
+    export_photo(&mut session, id, &remove, 1).map(|exported| exported.bytes)
+}
+
+fn jpeg_with(segments: &[(u8, Vec<u8>)]) -> Vec<u8> {
+    let mut out = vec![0xff, 0xd8];
+    for (marker, payload) in segments {
+        out.extend_from_slice(&[0xff, *marker]);
+        out.extend_from_slice(&u16::try_from(payload.len() + 2).unwrap().to_be_bytes());
+        out.extend_from_slice(payload);
+    }
+    out.extend_from_slice(&[0xff, 0xd9]);
+    out
+}
+
+fn jpeg_exif(exif: &[u8]) -> (u8, Vec<u8>) {
+    (0xe1, [b"Exif\0\0", exif].concat())
+}
+
+fn jpeg_xmp(packet: &[u8]) -> (u8, Vec<u8>) {
+    (0xe1, [b"http://ns.adobe.com/xap/1.0/\0", packet].concat())
+}
+
+/// One extended-XMP segment: signature, GUID, full length, offset, data.
+fn jpeg_extended_xmp(packet: &[u8]) -> (u8, Vec<u8>) {
+    let length = u32::try_from(packet.len()).unwrap().to_be_bytes();
+    (0xe1, [&b"http://ns.adobe.com/xmp/extension/\0"[..], &[b'A'; 32], &length, &[0; 4], packet].concat())
+}
+
+fn png_with(chunks: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    for (kind, data) in chunks.iter().chain([&(b"IEND", Vec::new())]) {
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_be_bytes());
+        out.extend_from_slice(*kind);
+        out.extend_from_slice(data);
+        out.extend_from_slice(&[0; 4]);
+    }
+    out
+}
+
+fn png_xmp(packet: &[u8]) -> (&'static [u8; 4], Vec<u8>) {
+    (b"iTXt", [b"XML:com.adobe.xmp\0\0\0\0\0", packet].concat())
+}
+
+fn webp_with(chunks: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+    let mut out = b"RIFF\0\0\0\0WEBP".to_vec();
+    for (id, data) in chunks {
+        out.extend_from_slice(*id);
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_le_bytes());
+        out.extend_from_slice(data);
+        if !data.len().is_multiple_of(2) {
+            out.push(0);
+        }
+    }
+    out
+}
+
+/// `packet` in every container that holds a packet as text. A TIFF is patched: its writer takes UTF-8.
+fn containers_with_xmp(packet: &[u8]) -> [(&'static str, Vec<u8>); 4] {
+    let mut tiff = tiff_with_xmp(&"0".repeat(packet.len()));
+    let at = tiff.windows(packet.len()).position(|bytes| bytes.iter().all(|&byte| byte == b'0')).unwrap();
+    tiff[at..at + packet.len()].copy_from_slice(packet);
+    [("JPEG", jpeg_with(&[jpeg_xmp(packet)])), ("PNG", png_with(&[png_xmp(packet)])), ("WebP", webp_with(&[(b"XMP ", packet)])), ("TIFF", tiff)]
+}
+
+fn rdf(properties: &str) -> String {
+    format!(
+        r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/" xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/" xmlns:loc="http://iptc.org/std/Iptc4xmpExt/2008-02-29/" {properties}</rdf:RDF>"#
+    )
+}
+
+fn gps_metadata() -> lightcraft_meta::Metadata {
+    lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 42.36, longitude: -71.06, altitude: None }), ..Default::default() }
+}
+
+/// The lenient reader takes each of these packets for one without a location.
+#[test]
+fn remove_location_refuses_xmp_it_cannot_read_in_any_container() {
+    let dir = temp_dir("export-noloc-broken-xmp");
+    let whole = rdf(r#"exif:GPSLatitude="45,0N"><exif:GPSLongitude>7,0E</exif:GPSLongitude></rdf:Description>"#);
+    let mut not_utf8 = rdf(r#"exif:GPSLatitude="45,0N" exif:GPSLongitude="7,0E"/>"#).into_bytes();
+    let longitude = not_utf8.windows(4).position(|bytes| bytes == b"7,0E").unwrap();
+    not_utf8[longitude] = 0xff;
+    let packets = [
+        ("unquoted", rdf(r#"exif:GPSLatitude="45,0N" exif:GPSLongitude=7,0E/>"#).into_bytes()),
+        ("repeated", rdf(r#"exif:GPSLatitude="" exif:GPSLatitude="45,0N" exif:GPSLongitude="7,0E"/>"#).into_bytes()),
+        ("cut off", whole.as_bytes()[..whole.find("7,0E").unwrap()].to_vec()),
+        ("not UTF-8", not_utf8),
+    ];
+    let mut copied = Vec::new();
+    for (case, packet) in &packets {
+        for (container, file) in containers_with_xmp(packet) {
+            let result = remove_location_from(&dir, &file);
+            if !result.as_ref().is_err_and(|error| error.contains("can't verify location metadata")) {
+                copied.push(format!("{container} {case}: {:?}", result.map(|bytes| bytes.len())));
+            }
+        }
+    }
+    assert!(copied.is_empty(), "{copied:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Well-formed files with blocks no walker reads, each named in the refusal. PNG and WebP keep the
+/// last repeat and JPEG the first, so the block holding the location is the one left unread.
+#[test]
+fn remove_location_refuses_metadata_blocks_it_cannot_read() {
+    let dir = temp_dir("export-noloc-unread-blocks");
+    let plain = lightcraft_meta::Metadata::default();
+    let (exif, gps_exif) = (lightcraft_meta::write_exif(&plain), lightcraft_meta::write_exif(&gps_metadata()));
+    let (xmp, gps_xmp) = (lightcraft_meta::write_xmp(&plain, None).into_bytes(), lightcraft_meta::write_xmp(&gps_metadata(), None).into_bytes());
+    let files = [
+        ("compressed XMP", png_with(&[(b"iTXt", b"XML:com.adobe.xmp\0\x01\0\0\0deflated".to_vec())])),
+        ("XMP in a text chunk", png_with(&[(b"zTXt", b"XML:com.adobe.xmp\0\0deflated".to_vec())])),
+        ("XMP in a text chunk", png_with(&[(b"tEXt", [b"XML:com.adobe.xmp\0", &gps_xmp[..]].concat())])),
+        ("raw metadata profile", png_with(&[(b"zTXt", b"Raw profile type exif\0\0deflated".to_vec())])),
+        ("raw metadata profile", png_with(&[(b"tEXt", b"Raw profile type xmp\0\nxmp\n   2\n3c61".to_vec())])),
+        ("raw metadata profile", png_with(&[(b"iTXt", b"Raw profile type iptc\0\0\0\0\0text".to_vec())])),
+        ("a second Exif block", jpeg_with(&[jpeg_exif(&exif), jpeg_exif(&gps_exif)])),
+        ("a second XMP packet", jpeg_with(&[jpeg_xmp(&xmp), jpeg_xmp(&gps_xmp)])),
+        ("a second Exif block", png_with(&[(b"eXIf", gps_exif.clone()), (b"eXIf", exif.clone())])),
+        ("a second XMP packet", png_with(&[png_xmp(&gps_xmp), png_xmp(&xmp)])),
+        ("a second Exif block", webp_with(&[(b"EXIF", &gps_exif), (b"EXIF", &exif)])),
+        ("a second XMP packet", webp_with(&[(b"XMP ", &gps_xmp), (b"XMP ", &xmp)])),
+        ("a cut-off metadata block", png_with(&[png_xmp(&gps_xmp)])[..60].to_vec()),
+        ("a cut-off metadata block", webp_with(&[(b"XMP ", &gps_xmp)])[..60].to_vec()),
+        ("a cut-off metadata block", png_with(&[(b"tEXt", [b"Raw profile type exif\0", &gps_xmp[..]].concat())])[..60].to_vec()),
+        ("a cut-off metadata block", png_with(&[(b"iTXt", b"XML:com.adobe.xmp\0\0\0".to_vec())])),
+        ("a cut-off metadata block", jpeg_with(&[(0xe1, b"http://ns.adobe.com/xmp/extension/\0short".to_vec())])),
+    ];
+    let mut copied = Vec::new();
+    for (index, (block, file)) in files.iter().enumerate() {
+        let result = remove_location_from(&dir, file);
+        if !result.as_ref().is_err_and(|error| error.contains("can't verify location metadata") && error.contains(block)) {
+            copied.push(format!("{index} {block}: {:?}", result.map(|bytes| bytes.len())));
+        }
+    }
+    assert!(copied.is_empty(), "{copied:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn remove_location_reads_jpeg_extended_xmp() {
+    let dir = temp_dir("export-noloc-extended-xmp");
+    let main = jpeg_xmp(lightcraft_meta::write_xmp(&Default::default(), None).as_bytes());
+    let extended = |packet: &[u8]| jpeg_with(&[main.clone(), jpeg_extended_xmp(packet)]);
+    let location = extended(lightcraft_meta::write_xmp(&gps_metadata(), None).as_bytes());
+    let error = remove_location_from(&dir, &location).err().unwrap();
+    assert!(error.contains("embeds location info"), "{error}");
+    let error = remove_location_from(&dir, &extended(b"<x:xmpmeta><cut")).err().unwrap();
+    assert!(error.contains("can't verify location metadata"), "{error}");
+    let clean =
+        extended(lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { title: Some("Long".into()), ..Default::default() }, None).as_bytes());
+    assert_eq!(remove_location_from(&dir, &clean).unwrap(), clean);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn remove_location_refuses_location_fields_metadata_does_not_carry() {
+    let dir = temp_dir("export-noloc-other-fields");
+    let structure = |name: &str| {
+        rdf(&format!(
+            r#"><{name}><rdf:Bag><rdf:li rdf:parseType="Resource"><Iptc4xmpExt:City>Boston</Iptc4xmpExt:City></rdf:li></rdf:Bag></{name}></rdf:Description>"#
+        ))
+    };
+    let packets = [
+        structure("Iptc4xmpExt:LocationCreated"),
+        structure("loc:LocationShown"),
+        rdf(r#"Iptc4xmpCore:CountryCode="US"/>"#),
+        rdf(r#"exif:GPSDestLatitude="42,21.6N"/>"#),
+        rdf(r#"exif:GPSAreaInformation="Boston"/>"#),
+        rdf(r#"><exif:GPSAltitude>125/10</exif:GPSAltitude></rdf:Description>"#),
+        rdf(r#"exif:GPSLatitude="42,21.6N"/>"#),
+        rdf(r#"exif:GPSLatitude="north" exif:GPSLongitude="71,3.6W"/>"#),
+    ];
+    let mut copied = Vec::new();
+    for packet in packets {
+        let result = remove_location_from(&dir, &tiff_with_xmp(&packet));
+        if !result.as_ref().is_err_and(|error| error.contains("embeds location info")) {
+            copied.push(format!("{packet}: {:?}", result.map(|bytes| bytes.len())));
+        }
+    }
+    assert!(copied.is_empty(), "{copied:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// The refusals above must not reach a file that has nothing to hide.
+#[test]
+fn remove_location_copies_readable_packets_without_a_location() {
+    let dir = temp_dir("export-noloc-clean-packets");
+    let written = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { title: Some("Plain".into()), ..Default::default() }, None);
+    let packets = [
+        written.clone(),
+        format!("\u{feff}{written}"),
+        format!("{written}\0\0"),
+        rdf(r#"Iptc4xmpCore:CountryCode="" exif:GPSLatitude=" "/>"#),
+        rdf(r#"><Iptc4xmpExt:LocationCreated><rdf:Bag/></Iptc4xmpExt:LocationCreated></rdf:Description>"#),
+        rdf(r#"exif:GPSVersionID="2.3.0.0" exif:GPSTimeStamp="2026-10-30T12:00:00Z"/>"#),
+    ];
+    for packet in packets {
+        for (container, file) in containers_with_xmp(packet.as_bytes()) {
+            assert_eq!(remove_location_from(&dir, &file).as_deref(), Ok(&file[..]), "{container}: {packet}");
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Corrupt Exif outside PSD stays best-effort, and a text chunk under another keyword says nothing.
+#[test]
+fn remove_location_copies_files_cut_off_in_other_chunks() {
+    let dir = temp_dir("export-noloc-cut-off");
+    let exif = lightcraft_meta::write_exif(&gps_metadata());
+    let comment = [&b"Comment\0"[..], &[b'a'; 64]].concat();
+    let files = [png_with(&[(b"eXIf", exif.clone())]), webp_with(&[(b"EXIF", &exif)]), png_with(&[(b"tEXt", comment)])];
+    for file in files {
+        let cut_off = &file[..60];
+        assert_eq!(remove_location_from(&dir, cut_off).as_deref(), Ok(cut_off));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// DNG export needs a raw photo, so a refusal offers it only for one.
+#[test]
+fn remove_location_offers_dng_only_for_raw_photos() {
+    const HEIC: &[u8] = include_bytes!("../../lc-codecs/tests/fixtures/shared-decode-heic/checker-64.heic");
+    let dir = temp_dir("export-noloc-advice");
+    let mut raf = b"FUJIFILMCCD-RAW 0201FF000000TEST".to_vec();
+    raf.resize(92, 0);
+    let advice = [
+        (synthetic_psd_with_metadata(1, &gps_metadata()), "embeds location info", "export as JPEG or TIFF instead"),
+        (synthetic_psd(1, &[(1060, b"<x:xmpmeta><broken")]), "can't verify location metadata", "export as JPEG or TIFF instead"),
+        (HEIC.to_vec(), "can't check this", "export as JPEG or TIFF instead"),
+        (synthetic_dng_with(None, gps_metadata()), "embeds location info", "export as JPEG, TIFF or DNG instead"),
+        (synthetic_dng_with(Some("<x:xmpmeta><broken"), Default::default()), "can't verify location metadata", "export as JPEG, TIFF or DNG instead"),
+        (raf, "can't check this", "export as JPEG, TIFF or DNG instead"),
+    ];
+    for (file, refusal, formats) in advice {
+        let error = remove_location_from(&dir, &file).err().unwrap();
+        assert!(error.contains(refusal) && error.contains(formats), "{error}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Exports write what the catalog holds, so an import that stopped at the budget loses these fields
 /// from every later file.
 #[test]
