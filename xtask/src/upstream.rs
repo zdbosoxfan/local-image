@@ -393,22 +393,23 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
     Ok(PortStatus::Applied)
 }
 
-/// The commit's `format-patch` with `dropped` paths' file blocks removed and the headers of the
-/// others rewritten to our paths, and the preimage blob ids the three-way merge needs.
+/// The commit's diff with `dropped` paths' file blocks removed and the headers of the others
+/// rewritten to our paths, and the preimage blob ids the three-way merge needs. The commit message
+/// is left out: an unindented diff in it would otherwise be applied as part of the patch.
 fn mapped_patch(clone: &Path, sha: &str, mapped: &[(String, String)], dropped: &[String]) -> Result<(Vec<u8>, Vec<String>)> {
-    let out = git(clone).args(["format-patch", "-1", "--stdout", "--full-index", "--binary", "--no-renames", sha]).output()?;
+    let out = git(clone)
+        .args(["diff-tree", "-p", "--root", "--no-commit-id", "--full-index", "--binary", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", sha])
+        .output()?;
     if !out.status.success() {
-        bail!("git format-patch {sha}: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!("git diff-tree {sha}: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
     let (mut patch, mut preimages) = (Vec::new(), Vec::new());
     // (upstream path, our path) of the current file block; None while skipping a dropped one.
     let mut block: Option<(&str, &str)> = None;
     let mut in_header = false;
-    let mut before_first_block = true;
     for line in out.stdout.split_inclusive(|&b| b == b'\n') {
         if line.starts_with(b"diff --git ") {
             let is = |p: &str| line == format!("diff --git a/{p} b/{p}\n").as_bytes();
-            before_first_block = false;
             in_header = true;
             if dropped.iter().any(|p| is(p)) {
                 block = None;
@@ -417,10 +418,6 @@ fn mapped_patch(clone: &Path, sha: &str, mapped: &[(String, String)], dropped: &
             let (from, to) = mapped.iter().find(|(p, _)| is(p)).with_context(|| format!("unexpected patch header {}", String::from_utf8_lossy(line).trim()))?;
             block = Some((from, to));
             patch.extend_from_slice(format!("diff --git a/{to} b/{to}\n").as_bytes());
-            continue;
-        }
-        if before_first_block {
-            patch.extend_from_slice(line);
             continue;
         }
         let Some((from, to)) = block else { continue };
@@ -799,6 +796,18 @@ skip = ["docs/"]
                 PortFixture::row(&sha, "fix(blur): exact \\| variance")
             )
         );
+    }
+
+    #[test]
+    fn port_ignores_diffs_quoted_in_the_commit_message() {
+        let f = PortFixture::new("port-message-diff");
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2")]));
+        let quoted = "diff --git a/crates/algo/src/blur.rs b/crates/algo/src/blur.rs\n--- a/crates/algo/src/blur.rs\n\
+                      +++ b/crates/algo/src/blur.rs\n@@ -10 +10 @@\n-line 10\n+not in the diff\n";
+        let sha = f.commit_upstream(&format!("fix(blur): quote a diff\n\n{quoted}"));
+
+        assert_eq!(f.port(&sha, PortMode::Apply), PortStatus::Applied);
+        assert_eq!(git(&f.ours, &["show", ":crates/pc-algo/src/blur.rs"]), blur(&[(2, "upstream 2")]).trim_end());
     }
 
     #[test]
