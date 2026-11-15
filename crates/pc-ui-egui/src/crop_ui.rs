@@ -206,6 +206,19 @@ fn dismiss_key(app: &PhotocraftApp) -> Option<(photocraft_doc::DocId, u32, u32)>
     app.session.active().map(|st| (st.doc.id, st.doc.size.width, st.doc.size.height))
 }
 
+/// A crop is pending: the frame has been drawn, moved or resized, not just the untouched default
+/// frame the tool shows.
+pub fn pending(app: &PhotocraftApp) -> bool {
+    app.ui.tool == Tool::Crop && app.ui.crop_rect.is_some() && !app.crop.default_frame
+}
+
+/// A History jump waits for a pending crop: it would resize the document under the frame, which
+/// keeps its coordinates, so Enter would crop the old ones. The History panel's state rows step
+/// through Undo and Redo, so the panel checks [`pending`] for those itself.
+pub fn holds_history(app: &PhotocraftApp, id: &str) -> bool {
+    pending(app) && matches!(id, "history.restoreSnapshot" | "history.deleteState")
+}
+
 /// A crop gesture is in progress: Space repositions the frame rather than panning.
 pub fn active(app: &PhotocraftApp) -> bool {
     app.ui.tool == Tool::Crop && app.crop.drag.is_some()
@@ -341,6 +354,28 @@ mod tests {
             tool_event(app, ToolEvent::Move { x: p[0], y: p[1], pressure: 1.0 }, mods);
         }
         tool_event(app, ToolEvent::Up { x: last[0], y: last[1] }, mods);
+    }
+
+    /// A History jump under a drawn frame would resize the document while the frame keeps its
+    /// coordinates, so Enter cropped the old ones: restoring a snapshot or deleting the state
+    /// waits for the crop.
+    #[test]
+    fn history_jumps_wait_for_a_pending_crop() {
+        let size = |app: &PhotocraftApp| app.session.active().map(|st| (st.doc.size.width, st.doc.size.height));
+        let mut app = app(SampleType::U8);
+        app.run("history.newSnapshot", json!({})).unwrap();
+        app.run("image.canvasSize", json!({"width": 300, "height": 200, "anchor": "topLeft"})).unwrap();
+        app.ui.crop_rect = Some([220.0, 120.0, 290.0, 190.0]);
+        app.crop.default_frame = false;
+        for cmd in ["history.restoreSnapshot", "history.deleteState"] {
+            assert!(app.run(cmd, json!({"index": 0})).is_err(), "{cmd} waits for the crop");
+            assert_eq!(size(&app), Some((300, 200)), "{cmd} left the document as it was");
+        }
+        assert_eq!(app.ui.crop_rect, Some([220.0, 120.0, 290.0, 190.0]), "the frame stays");
+        // The tool's own untouched frame holds nothing back.
+        app.crop.default_frame = true;
+        app.run("history.restoreSnapshot", json!({"index": 0})).unwrap();
+        assert_eq!(size(&app), Some((200, 100)));
     }
 
     #[test]

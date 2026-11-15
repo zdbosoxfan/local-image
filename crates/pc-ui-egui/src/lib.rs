@@ -991,6 +991,9 @@ impl PhotocraftApp {
         if let Some(r) = transform_tool::intercept(self, id) {
             return r;
         }
+        if crop_ui::holds_history(self, id) {
+            return Err("Commit or cancel the crop first".into());
+        }
         if matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteSeamless" | "file.newFromClipboard") {
             let files =
                 self.services.clipboard_get_files.as_mut().and_then(|f| std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok()).unwrap_or_default();
