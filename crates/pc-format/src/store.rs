@@ -375,6 +375,12 @@ impl Sink for Collect<'_> {
     }
 }
 
+/// Limits a save is checked against: the format's own total, not this machine's load budget, so
+/// a document already in memory is never refused for the RAM it occupies.
+fn save_limits() -> LoadOptions {
+    LoadOptions { max_total_bytes: crate::MAX_TOTAL_BYTES, ..LoadOptions::default() }
+}
+
 fn tile_le(t: &Tile, sample: SampleType) -> std::borrow::Cow<'_, [u8]> {
     if cfg!(target_endian = "big") {
         let mut b = t.bytes().to_vec();
@@ -612,7 +618,7 @@ impl PcraftWriter {
 
     /// Save as a ZIP bundle in memory.
     pub fn save_zip(&mut self, doc: &Document, opts: &SaveOptions) -> Result<(Vec<u8>, SaveStats)> {
-        self.save_zip_with_limits(doc, opts, &LoadOptions::default(), crate::read::MAX_FILE_BYTES as usize)
+        self.save_zip_with_limits(doc, opts, &save_limits(), crate::read::MAX_FILE_BYTES as usize)
     }
 
     fn save_zip_with_limits(&mut self, doc: &Document, opts: &SaveOptions, limits: &LoadOptions, max_archive_bytes: usize) -> Result<(Vec<u8>, SaveStats)> {
@@ -655,7 +661,7 @@ impl PcraftWriter {
     /// rewrites missing or damaged objects, then writes the manifest
     /// atomically and removes unreferenced objects.
     pub fn save_dir(&mut self, doc: &Document, dir: &Path, opts: &SaveOptions) -> Result<SaveStats> {
-        self.save_dir_with_limits(doc, dir, opts, &LoadOptions::default())
+        self.save_dir_with_limits(doc, dir, opts, &save_limits())
     }
 
     fn save_dir_with_limits(&mut self, doc: &Document, dir: &Path, opts: &SaveOptions, limits: &LoadOptions) -> Result<SaveStats> {
@@ -775,7 +781,7 @@ impl PcraftWriter {
     /// Save to `path`: a directory bundle if `path` is an existing directory
     /// or ends with a path separator, otherwise a ZIP file (written atomically).
     pub fn save_path(&mut self, doc: &Document, path: &Path, opts: &SaveOptions) -> Result<SaveStats> {
-        self.save_path_with_limits(doc, path, opts, &LoadOptions::default(), crate::read::MAX_FILE_BYTES as usize)
+        self.save_path_with_limits(doc, path, opts, &save_limits(), crate::read::MAX_FILE_BYTES as usize)
     }
 
     fn save_path_with_limits(&mut self, doc: &Document, path: &Path, opts: &SaveOptions, limits: &LoadOptions, max_archive_bytes: usize) -> Result<SaveStats> {

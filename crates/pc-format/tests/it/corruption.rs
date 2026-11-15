@@ -474,3 +474,21 @@ fn out_of_range_number_refused_on_open() {
     assert!(matches!(e, FormatError::Corrupt(_)), "{e}");
     assert!(e.to_string().contains("document.layers[0].opacity"), "{e}");
 }
+
+/// #8595: the default decode budget follows the machine: the format's cap, lowered to the RAM
+/// available, never below 1 GiB. A bundle that expands past the budget a machine gets stops with
+/// an error instead of running it out of memory.
+#[test]
+fn the_default_decode_budget_follows_the_machines_memory() {
+    let cap = MAX_TOTAL_BYTES;
+    assert_eq!(total_budget(cap, 4 << 30), 4 << 30);
+    assert_eq!(total_budget(cap, 64 << 30), cap);
+    assert_eq!(total_budget(cap, 0), MIN_TOTAL_BUDGET, "a brief shortage doesn't refuse every load");
+    assert_eq!(total_budget(1 << 20, 4 << 30), 1 << 20, "never above the cap");
+    assert!(LoadOptions::default().max_total_bytes <= cap);
+    // The budget a machine gets is enforced: a bundle that expands past it is refused.
+    let b = sample();
+    assert!(load_from_bytes(&b).is_ok());
+    let opts = LoadOptions { max_total_bytes: total_budget(1000, 4 << 30), ..Default::default() };
+    assert!(matches!(load_from_bytes_with(&b, &opts), Err(FormatError::LimitExceeded(_))));
+}

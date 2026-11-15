@@ -1209,3 +1209,4 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [storytold/photocraft@`bf162c2215e84f7f96f4894bc7fa2008c45ef4d8`](https://github.com/storytold/photocraft/commit/bf162c2215e84f7f96f4894bc7fa2008c45ef4d8) | automation: save_bytes never reads linked files (#11233) | `crates/pc-automation/src/files.rs`<br>`crates/pc-automation/src/headless.rs`<br>`crates/pc-automation/tests/it/linked_save_bytes.rs`<br>`crates/pc-automation/tests/it/main.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`7426cb9858315123eaedb702d2c20d5b645be348`](https://github.com/storytold/photocraft/commit/7426cb9858315123eaedb702d2c20d5b645be348) | fix(format): a .pcraft load's decode budget follows the machine (#8595) | `crates/pc-format/Cargo.toml`<br>`crates/pc-format/src/lib.rs`<br>`crates/pc-format/src/store.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
