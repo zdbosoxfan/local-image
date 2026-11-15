@@ -7,7 +7,7 @@
 //! Join, Split Into Grid.
 
 use crate::geom::{Anchor, PathData, SubPath};
-use kurbo::{CubicBez, ParamCurve, ParamCurveArclen, ParamCurveExtrema, ParamCurveNearest, Point, Rect, Vec2};
+use kurbo::{CubicBez, ParamCurve, ParamCurveExtrema, ParamCurveNearest, Point, Rect, Vec2};
 
 use crate::kernel::boolean::{Seg, segs_to_subpath};
 use crate::kernel::fit::{end_tangent, fit_single, fit_single_from, sample, start_tangent};
@@ -109,7 +109,7 @@ fn simplify_impl(path: &PathData, opts: &SimplifyOptions, optimize: bool) -> Pat
             if opts.straight_lines {
                 let mut pts = Vec::new();
                 for (k, s) in run.iter().enumerate() {
-                    let len = s.c.arclen(1e-6);
+                    let len = crate::geom::path::measured_arclen(&kurbo::PathSeg::Cubic(s.c), 1e-6);
                     let m = ((len / (tol * 0.5)).ceil() as usize).clamp(4, 256);
                     sample(&s.c, m, &mut pts, k == 0);
                 }
