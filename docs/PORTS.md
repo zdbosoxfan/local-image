@@ -1209,3 +1209,4 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`08ff029ac228`](https://github.com/storytold/vectorcraft/commit/08ff029ac22860f47cf0e0b427a932f7d675003e) | fix(pathops): bound offset path complexity and handle arrangement failure safely (#4145) | `crates/pc-pathops/src/offset.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/budget.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+| [`825620eb6cd1`](https://github.com/storytold/vectorcraft/commit/825620eb6cd17a4298b4fa9041013abe3d35190c) | Clipboard: Linux and BSD reads wait 2 s at most for the app that copied | `apps/local-image/src/services.rs`<br>`apps/local-image/src/services/clipboard.rs` | MIT OR Apache-2.0 |
