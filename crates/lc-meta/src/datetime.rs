@@ -55,6 +55,9 @@ impl DateTime {
             return None;
         }
         let tp: Vec<&str> = if t.is_empty() { vec![] } else { t.split(':').collect() };
+        if tp.len() > 3 {
+            return None;
+        }
         let g = |v: &Vec<&str>, i: usize| v.get(i).map(|x| num(x.trim())).unwrap_or(Some(0));
         DateTime {
             year: num(dp[0])?.try_into().ok()?,
@@ -205,6 +208,20 @@ mod tests {
         assert_eq!(DateTime::parse_exif("2024-06-01").unwrap().hour, 0);
         assert_eq!(DateTime::parse_exif("2024:06:01 13:45:59").unwrap().with_subsec("5").millis, 500);
         assert_eq!(DateTime::parse_exif("2024:06:01 13:45:59").unwrap().with_subsec("0123").millis, 12);
+    }
+
+    /// Only the first three clock fields were read, so a malformed `DateTimeOriginal` became a plausible capture
+    /// time and kept the later EXIF and XMP dates from being used.
+    #[test]
+    fn exif_clock_rejects_extra_components() {
+        for value in
+            ["2026:01:01 12:34:56:99", "2026:01:01 12:34:56:junk", "2026:01:01 12:34:56:", "2026:01:01 12:34:56::", "2026:01:01 12:34:56:99:junk"]
+        {
+            assert!(DateTime::parse_exif(value).is_none(), "accepted malformed EXIF clock {value:?}");
+        }
+        for (value, expected) in [("2026:01:01 12", "2026-01-01T12:00:00"), ("2026:01:01 12:34", "2026-01-01T12:34:00")] {
+            assert_eq!(DateTime::parse_exif(value).map(|date| date.to_iso()).as_deref(), Some(expected), "{value:?}");
+        }
     }
 
     #[test]
