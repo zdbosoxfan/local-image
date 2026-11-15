@@ -717,7 +717,8 @@ fn alpha_after_an_unspecified_extra_sample_is_the_alpha() {
             let spp = color + 2;
             let px = &t.u8s[..w * h * spp];
             let chunks = if planar { planar_strips(px, w, h, spp, 1, 2) } else { px.chunks(w * spp * 2).map(<[u8]>::to_vec).collect() };
-            let mut d = Dir { entries: base(w as u32, h as u32, 8, spp as u16, photometric), chunks, tiled: false }.tag(278, LONG, &[2]).tag(338, SHORT, &[0, 2]);
+            let mut d =
+                Dir { entries: base(w as u32, h as u32, 8, spp as u16, photometric), chunks, tiled: false }.tag(278, LONG, &[2]).tag(338, SHORT, &[0, 2]);
             if planar {
                 d = d.tag(284, SHORT, &[2]);
             }

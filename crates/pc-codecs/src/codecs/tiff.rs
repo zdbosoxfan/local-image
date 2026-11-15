@@ -35,8 +35,8 @@ use tiff::encoder::colortype::{self, ColorType as TiffColorType};
 use tiff::encoder::{Rational, TiffEncoder, TiffKind, TiffKindBig, TiffKindStandard, TiffValue};
 use tiff::tags::{PhotometricInterpretation, ResolutionUnit, SampleFormat, Tag, Type};
 
-use super::{tiff_exif, tiff_ycbcr};
 use super::tiff_ifd::{self as ifd, File, Ifd};
+use super::{tiff_exif, tiff_ycbcr};
 use crate::Format;
 use crate::error::CodecError;
 use crate::fidelity::Plan;
@@ -525,7 +525,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         _ => 1,
     };
     let alpha_at = extra.iter().position(|&e| matches!(e, 1 | 2));
-    let later_alpha = alpha_at.filter(|&a| a > 0 && palette.is_none() && color + a as u64 + 1 <= spp).map(|a| color as usize + a);
+    let later_alpha = alpha_at.filter(|&a| a > 0 && palette.is_none() && color + (a as u64) < spp).map(|a| color as usize + a);
     let alpha_kind = alpha_at.and_then(|a| extra.get(a)).copied();
     let mut patches: Vec<(u64, Vec<u8>)> = Vec::new();
     let encode_u = |v: u64, len: usize| -> Vec<u8> {
@@ -578,9 +578,16 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let gray_alpha = alpha_first || (extra.is_empty() && spp == 2);
     let (out_layout, chunk_spp) = match ct {
         _ if palette.is_some() => (ChannelLayout::Rgb, 1),
-        tiff::ColorType::Multiband { num_samples, .. } if later_alpha.is_some() => {
-            (if color == 1 { ChannelLayout::GrayA } else if color == 4 { ChannelLayout::CmykA } else { ChannelLayout::Rgba }, usize::from(num_samples))
-        }
+        tiff::ColorType::Multiband { num_samples, .. } if later_alpha.is_some() => (
+            if color == 1 {
+                ChannelLayout::GrayA
+            } else if color == 4 {
+                ChannelLayout::CmykA
+            } else {
+                ChannelLayout::Rgba
+            },
+            usize::from(num_samples),
+        ),
         tiff::ColorType::Gray(_) => (ChannelLayout::Gray, 1),
         tiff::ColorType::Multiband { num_samples, .. } if photometric <= 1 => {
             (if gray_alpha { ChannelLayout::GrayA } else { ChannelLayout::Gray }, usize::from(num_samples))
@@ -796,7 +803,14 @@ fn bands_per_task(bands: usize, workers: usize, threads: usize) -> usize {
 /// Decodes every band into `data`, in parallel on native targets (one decoder and scratch
 /// buffer per worker, at most `workers` of them at once).
 #[cfg(not(target_arch = "wasm32"))]
-fn decode_bands<'a, O>(lay: &Layout, data: &mut [u8], band_bytes: usize, workers: usize, _first: &mut Decoder<Patched<'a>>, open: &O) -> Result<Tally, CodecError>
+fn decode_bands<'a, O>(
+    lay: &Layout,
+    data: &mut [u8],
+    band_bytes: usize,
+    workers: usize,
+    _first: &mut Decoder<Patched<'a>>,
+    open: &O,
+) -> Result<Tally, CodecError>
 where
     O: Fn() -> Result<Decoder<Patched<'a>>, CodecError> + Sync,
 {
@@ -817,7 +831,14 @@ where
 
 /// Decodes every band into `data`, one after the other.
 #[cfg(target_arch = "wasm32")]
-fn decode_bands<'a, O>(lay: &Layout, data: &mut [u8], band_bytes: usize, _workers: usize, first: &mut Decoder<Patched<'a>>, _open: &O) -> Result<Tally, CodecError>
+fn decode_bands<'a, O>(
+    lay: &Layout,
+    data: &mut [u8],
+    band_bytes: usize,
+    _workers: usize,
+    first: &mut Decoder<Patched<'a>>,
+    _open: &O,
+) -> Result<Tally, CodecError>
 where
     O: Fn() -> Result<Decoder<Patched<'a>>, CodecError> + Sync,
 {
@@ -825,7 +846,14 @@ where
 }
 
 /// Decodes the consecutive bands in `task` (the first is band `b0`), one after the other.
-fn decode_task(lay: &Layout, dec: &mut Decoder<Patched<'_>>, scratch: &mut Vec<u8>, b0: usize, task: &mut [u8], band_bytes: usize) -> Result<Tally, CodecError> {
+fn decode_task(
+    lay: &Layout,
+    dec: &mut Decoder<Patched<'_>>,
+    scratch: &mut Vec<u8>,
+    b0: usize,
+    task: &mut [u8],
+    band_bytes: usize,
+) -> Result<Tally, CodecError> {
     let mut tally = Tally::default();
     for (i, band) in task.chunks_mut(band_bytes).enumerate() {
         tally = tally + decode_band(lay, dec, scratch, b0.saturating_add(i), band)?;

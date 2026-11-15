@@ -1,5 +1,5 @@
-use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
 use crate::common::tiffgen::*;
+use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
 use photocraft_codecs::{CodecError, DecodeOptions, Image, Limits, decode, decode_with};
 
 fn classic_white_is_zero() -> Vec<u8> {

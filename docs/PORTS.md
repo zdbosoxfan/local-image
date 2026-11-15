@@ -1225,3 +1225,21 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [`ddae31bad466`](https://github.com/storytold/vectorcraft/commit/ddae31bad4662005d2b04a6d85db4217b6173d1e) | TIFF: alpha after another extra sample places and opens as transparency | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
 | [`ab4ba9f37cf2`](https://github.com/storytold/photocraft/commit/ab4ba9f37cf2428cba5b28426fde228e5c4d1b04) | fix(codecs): checked sizes in encoders, EXR name lookup, FITS float limit, VP8 plane copies, EXIF thumbnail bytes (#11164) | `crates/pc-codecs/src/codecs/vp8/mod.rs` | MIT OR Apache-2.0 |
 | [`9034223c4b6d`](https://github.com/storytold/photocraft/commit/9034223c4b6d80fe15a12b9e0d173786ac5f7a4c) | TIFF: open YCbCr images as RGB (#10316) (#10319) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/codecs/tiff_ycbcr.rs`<br>`crates/pc-codecs/src/codecs/mod.rs`<br>`crates/pc-codecs/tests/it/main.rs`<br>`crates/pc-codecs/tests/it/tiff_ycbcr.rs` | MIT OR Apache-2.0 |
+
+Codec hostile-input bounds (2026-11-15). Adapted ports: `81ce14c1` charges band-worker scratch,
+the JPEG copy and the chunk tables next to the output, without upstream's extra-sample accounting,
+which this decoder does not have. `eef1638e` takes only the step budget, in our `jpeg_dimensions`
+walk; its working-memory and float-predictor charges extend accounting this decoder does not have.
+`f45711c7` keeps our existing refusal of JPEG chunks larger than their strip or tile, or without
+SOI, and adds the repeated-tag, predictor-row and decoded-frame checks. `129e6aec` sets the Group 4
+ratio on our file-length bound. `fb04b028`, `c65b7d93` and `3225307e` port the image-crate and EXR
+plausibility checks and the ICO profile check; `dimensions` runs the ICO check too. `ddae31ba`
+(VectorCraft) is ported as the TIFF codec reading an alpha that follows an unspecified extra sample,
+where VectorCraft fixed its CMYK document loader. `9034223c` reads its float tags in
+`tiff_ycbcr.rs`, as our directory type comes from `lightcraft-tiff`. Not ported: `fb04b028`'s JPEG
+hunk and `07f91c6d`, whose truncated-file guard was declined in the October parser ports;
+`fb04b028`'s PCX and XPM, `3225307e`'s animated-GIF, `4a65ae3f`'s Cryptomatte and `ab4ba9f3`'s
+FITS, EXR channel-lookup and EXIF-thumbnail hunks, which have no counterpart here; `ab4ba9f3`'s
+checked multiplications in the PNG and web encoders, which cannot overflow on 64-bit targets.
+`d03c23e1` and `f98983ff` are already covered before the first scan, where our walker skips stray
+bytes without counting them; after a scan our walker stops (`DataEnd::Unread`) by design.
