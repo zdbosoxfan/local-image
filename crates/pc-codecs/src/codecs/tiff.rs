@@ -549,7 +549,8 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     // its declared size is refused before the image is allocated. Uncompressed data may be up
     // to three quarters missing (that decodes with a `Truncated` warning).
     let stored = u64::from(w).saturating_mul(u64::from(h)).saturating_mul(spp).saturating_mul(bits).div_ceil(8);
-    let ratio: u64 = match f.tag_uint(dir, ifd::TAG_COMPRESSION).unwrap_or(1) {
+    let compression = f.tag_uint(dir, ifd::TAG_COMPRESSION).unwrap_or(1);
+    let ratio: u64 = match compression {
         1 => 4,
         32773 => 130,
         _ => 4096,
@@ -578,7 +579,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         .and_then(|s| s.checked_mul(src.bytes()))
         .ok_or_else(|| CodecError::LimitExceeded("tile size".into()))?;
     let scratch_cap = chunk_bytes.saturating_mul(2).max(64 << 20).min(limits.alloc_usize());
-    let lay = Layout {
+    let mut lay = Layout {
         w: wu,
         src,
         out,
@@ -594,14 +595,37 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         palette,
         scratch_cap,
     };
+    // The decode's working memory shares `max_alloc` with the output: each band worker holds an
+    // open decoder (its chunk tables) and, unless strips decode in place, one chunk's scratch
+    // buffer (for JPEG the `tiff` crate also holds a decoded copy of the chunk). The first chunk
+    // of a plane is the largest in it (the others are the same size or clipped at the image's
+    // edge), and no chunk may ask for more than that. As many workers run at once as fit beside
+    // the output; when not even one does, the image is refused before anything is allocated.
+    let out_row = lay.out_row();
+    let band_bytes = out_row.checked_mul(ch.min(hu)).ok_or_else(|| CodecError::LimitExceeded("band size".into()))?;
+    let first = dec.image_chunk_buffer_layout(0).map_err(map_err)?;
+    let mut largest = first.len;
+    if planes_in_file > 1 {
+        let plane1 = u32::try_from(chunks_per_plane).map_err(|_| err("too many tiles"))?;
+        largest = largest.max(dec.image_chunk_buffer_layout(plane1).map_err(map_err)?.len);
+    }
+    let in_place = lay.direct() && first.len == band_bytes && first.row_stride.map(|s| s.get()) == Some(out_row);
+    let scratch = if in_place { 0 } else { largest };
+    if scratch > lay.scratch_cap {
+        return Err(CodecError::LimitExceeded(format!("a {scratch} byte strip or tile")));
+    }
+    lay.scratch_cap = scratch;
+    let tables = u64::from(total).saturating_mul(DECODER_BYTES_PER_CHUNK);
+    let jpeg_copy = if matches!(compression, 6 | 7) { largest as u64 } else { 0 };
+    let per_worker = (scratch as u64).saturating_add(jpeg_copy).saturating_add(tables);
+    let len = out_row.checked_mul(hu).ok_or_else(|| CodecError::LimitExceeded("image size".into()))?;
+    // The output and the first decoder (kept open next to the workers).
+    let held = (len as u64).saturating_add(tables);
+    let workers = budget_workers(held, per_worker, limits.max_alloc, worker_threads())?;
 
     // The output, allocated once and fallibly.
-    let out_row = lay.out_row();
-    let len = out_row.checked_mul(hu).ok_or_else(|| CodecError::LimitExceeded("image size".into()))?;
     let mut data = zeroed(len)?;
-    let band_bytes = out_row.checked_mul(ch.min(hu)).ok_or_else(|| CodecError::LimitExceeded("band size".into()))?;
-
-    let tally = decode_bands(&lay, &mut data, band_bytes, &mut dec, &open)?;
+    let tally = decode_bands(&lay, &mut data, band_bytes, workers, &mut dec, &open)?;
     if tally.decoded == 0 && tally.missing > 0 {
         return Err(err("the image data is missing (cut off or past the end of the file)"));
     }
@@ -649,21 +673,55 @@ impl std::ops::Add for Tally {
     }
 }
 
+/// Bytes an open `tiff` decoder keeps per chunk: its offset and its byte count, as `u64`s.
+const DECODER_BYTES_PER_CHUNK: u64 = 16;
+
+/// Threads the band decode may run on.
+fn worker_threads() -> usize {
+    #[cfg(not(target_arch = "wasm32"))]
+    return rayon::current_num_threads().max(1);
+    #[cfg(target_arch = "wasm32")]
+    return 1;
+}
+
+/// How many band workers, each holding `per_worker` bytes, fit in `max_alloc` beside the `held`
+/// bytes already allocated (at most `threads`, at least one), or a limit error when none does.
+fn budget_workers(held: u64, per_worker: u64, max_alloc: u64, threads: usize) -> Result<usize, CodecError> {
+    let threads = threads.max(1);
+    let room = max_alloc.saturating_sub(held);
+    let fit = room.checked_div(per_worker).map_or(threads, |n| usize::try_from(n).unwrap_or(usize::MAX));
+    if fit == 0 {
+        return Err(CodecError::LimitExceeded(format!(
+            "decoding needs {per_worker} bytes of strip or tile scratch beside {held} bytes of image, exceeding max_alloc {max_alloc}"
+        )));
+    }
+    Ok(fit.min(threads))
+}
+
+/// Bands each parallel task decodes, one after the other: one band per task when every thread
+/// may hold a worker, else the bands split into `workers` runs so that no more than `workers`
+/// decoders and scratch buffers are ever alive at once.
+fn bands_per_task(bands: usize, workers: usize, threads: usize) -> usize {
+    if workers >= threads { 1 } else { bands.div_ceil(workers.max(1)).max(1) }
+}
+
 /// Decodes every band into `data`, in parallel on native targets (one decoder and scratch
-/// buffer per worker).
+/// buffer per worker, at most `workers` of them at once).
 #[cfg(not(target_arch = "wasm32"))]
-fn decode_bands<'a, O>(lay: &Layout, data: &mut [u8], band_bytes: usize, _first: &mut Decoder<Patched<'a>>, open: &O) -> Result<Tally, CodecError>
+fn decode_bands<'a, O>(lay: &Layout, data: &mut [u8], band_bytes: usize, workers: usize, _first: &mut Decoder<Patched<'a>>, open: &O) -> Result<Tally, CodecError>
 where
     O: Fn() -> Result<Decoder<Patched<'a>>, CodecError> + Sync,
 {
     use rayon::prelude::*;
-    data.par_chunks_mut(band_bytes.max(1))
+    let band_bytes = band_bytes.max(1);
+    let per_task = bands_per_task(data.len().div_ceil(band_bytes), workers, worker_threads());
+    data.par_chunks_mut(band_bytes.saturating_mul(per_task))
         .enumerate()
         .map_init(
             || open().map(|d| (d, Vec::new())).map_err(|e| e.to_string()),
-            |worker, (b, band)| {
+            |worker, (t, task)| {
                 let (dec, scratch) = worker.as_mut().map_err(|e| err(e.clone()))?;
-                decode_band(lay, dec, scratch, b, band)
+                decode_task(lay, dec, scratch, t.saturating_mul(per_task), task, band_bytes)
             },
         )
         .try_reduce(Tally::default, |a, b| Ok(a + b))
@@ -671,14 +729,18 @@ where
 
 /// Decodes every band into `data`, one after the other.
 #[cfg(target_arch = "wasm32")]
-fn decode_bands<'a, O>(lay: &Layout, data: &mut [u8], band_bytes: usize, first: &mut Decoder<Patched<'a>>, _open: &O) -> Result<Tally, CodecError>
+fn decode_bands<'a, O>(lay: &Layout, data: &mut [u8], band_bytes: usize, _workers: usize, first: &mut Decoder<Patched<'a>>, _open: &O) -> Result<Tally, CodecError>
 where
     O: Fn() -> Result<Decoder<Patched<'a>>, CodecError> + Sync,
 {
-    let mut scratch = Vec::new();
+    decode_task(lay, first, &mut Vec::new(), 0, data, band_bytes.max(1))
+}
+
+/// Decodes the consecutive bands in `task` (the first is band `b0`), one after the other.
+fn decode_task(lay: &Layout, dec: &mut Decoder<Patched<'_>>, scratch: &mut Vec<u8>, b0: usize, task: &mut [u8], band_bytes: usize) -> Result<Tally, CodecError> {
     let mut tally = Tally::default();
-    for (b, band) in data.chunks_mut(band_bytes.max(1)).enumerate() {
-        tally = tally + decode_band(lay, first, &mut scratch, b, band)?;
+    for (i, band) in task.chunks_mut(band_bytes).enumerate() {
+        tally = tally + decode_band(lay, dec, scratch, b0.saturating_add(i), band)?;
     }
     Ok(tally)
 }
