@@ -423,3 +423,20 @@ fn dsfix_skipped_group_keeps_tip_shared_with_deleted_group() {
     assert_eq!(std::fs::read(dir.0.join(&tip)).unwrap(), original);
     assert_eq!(std::fs::read(dir.0.join(&file)).unwrap(), b"broken json");
 }
+
+/// A symlink planted among the presets must not carry a managed write to its target.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_preset_entry_is_refused_not_written_through() {
+    let dir = TempDir::new("symlink");
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let outside = dir.0.join("outside.txt");
+    std::fs::write(&outside, b"victim").unwrap();
+    std::os::unix::fs::symlink(&outside, dir.0.join("planted.json")).unwrap();
+    let be = DirBackend::new(&dir.0);
+    let e = be.write("planted.json", b"{}").unwrap_err();
+    assert!(e.contains("symbolic link"), "{e}");
+    assert_eq!(std::fs::read(&outside).unwrap(), b"victim");
+    be.write("fresh.json", b"{}").unwrap();
+    assert_eq!(be.read("fresh.json", 1024).unwrap(), b"{}");
+}
