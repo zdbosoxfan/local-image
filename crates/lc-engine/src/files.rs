@@ -54,7 +54,8 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         copyright_url: m.copyright_url.clone().unwrap_or_default(),
         creator: m.artist.clone().unwrap_or_default(),
         creators: m.creators.clone(),
-        keywords: m.keywords.clone(),
+        // paths from `lr:hierarchicalSubject`, names from `dc:subject` that aren't their levels
+        keywords: lightcraft_catalog::keywords::from_file(&m.keywords, &m.hierarchical_keywords),
         regions: m.regions.clone(),
         person_ids: Vec::new(),
     };
@@ -207,6 +208,7 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
                     as_shot_wb: None,
                     content_hash,
                     xmp,
+                    orientation: m.orientation,
                     preview_only: Some(why),
                     ..Default::default()
                 });
@@ -243,6 +245,7 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
             as_shot_wb,
             content_hash,
             xmp,
+            orientation: Some(raw.orientation),
             preview_only: None,
             modified: None,
         });
@@ -256,6 +259,18 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
     let (mut w, mut h) = (d.source_width, d.source_height);
     if o.swaps_axes() {
         std::mem::swap(&mut w, &mut h);
+    }
+    // regions another app drew on the photo as stored: `extract` could only tell by the size the metadata states, which
+    // can be missing or wrong; the header's is the size as stored, so the boxes as written are turned by it
+    let mut meta = meta;
+    if o.swaps_axes()
+        && !meta.regions.is_empty()
+        && let Some(xmp) = xmp.as_deref().and_then(|x| lightcraft_meta::parse_whole_xmp(x).ok())
+        && let Some(drawn_on) = xmp.regions_drawn_on()
+        && !xmp.metadata.regions.is_empty()
+    {
+        meta.regions = xmp.metadata.regions;
+        lightcraft_meta::upright_regions(&mut meta.regions, drawn_on, o, (d.source_width, d.source_height));
     }
     let format = match ext_upper(name).as_str() {
         "JPG" | "JPEG" => "JPEG".to_string(),
@@ -275,6 +290,7 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
         content_hash,
         embedded_lens: None,
         xmp: None,
+        orientation: m.orientation,
         preview_only: None,
         modified: None,
     })
