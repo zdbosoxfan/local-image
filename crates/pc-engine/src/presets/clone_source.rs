@@ -476,7 +476,7 @@ mod tests {
         // Upstream 35e45def: a sample past the i32 range saturated at the edge and its right
         // neighbour overflowed; a non-finite one became NaN alpha.
         let mut source = Region::new(Rect::new(0, 0, 2, 2), 4);
-        for px in source.data.chunks_exact_mut(4) {
+        for px in source.data.as_chunks_mut::<4>().0 {
             px.copy_from_slice(&[1.0, 0.0, 0.0, 1.0]);
         }
         for at in [(3.0e9, 0.0), (0.0, 3.0e9), (-3.0e9, 0.0), (f64::MAX, f64::MAX), (f64::INFINITY, 0.0), (f64::NAN, 0.0)] {
