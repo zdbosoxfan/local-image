@@ -1,0 +1,110 @@
+# Where each storytold upstream's files live in Local Image, for `cargo xtask port`.
+#
+# One table per upstream (its repository name):
+#   map       upstream path prefix -> our path prefix
+#   moved     upstream moved this code to craft-libs in commit `at`: commits before `at` still map
+#             to `ours`; later ones are refused, because later fixes land in craft-libs
+#   unmapped  prefix -> why `port` refuses it (port such changes by hand)
+#   skip      prefixes dropped from patches and listed in the output
+# A path takes its longest matching prefix ("dir/" matches below it, "file" only itself). A path
+# that matches nothing is refused until it is added here.
+#
+# Derived 2026-11-14 from `git ls-tree` of the clones (photocraft 2fec95b0d91b, lightcraft
+# 6b2b7e6d1117, vectorcraft 895e9493d2da) against our crates/ at e132c176, matched by package
+# name (crates/algo is photocraft-algo, our crates/pc-algo) and confirmed by same-path and
+# identical-blob counts.
+
+[photocraft]
+skip = ["docs/", "book/", "README.md", "CHANGELOG.md", "Cargo.lock", ".github/", "scorecard/", "perf/"]
+
+[photocraft.map]
+"crates/algo/" = "crates/pc-algo/"
+"crates/automation/" = "crates/pc-automation/"
+"crates/color/" = "crates/pc-color/"
+"crates/compose/" = "crates/pc-compose/"
+"crates/doc/" = "crates/pc-doc/"
+"crates/engine/" = "crates/pc-engine/"
+"crates/format/" = "crates/pc-format/"
+"crates/geom/" = "crates/pc-geom/"
+"crates/gpu/" = "crates/pc-gpu/"
+"crates/io/" = "crates/pc-io/"
+"crates/ops/" = "crates/pc-ops/"
+"crates/paint/" = "crates/pc-paint/"
+"crates/plugins/" = "crates/pc-plugins/"
+"crates/raster/" = "crates/pc-raster/"
+"crates/tablet/" = "crates/pc-tablet/"
+"crates/testkit/" = "crates/pc-testkit/"
+"crates/text/" = "crates/pc-text/"
+"crates/ui-egui/" = "crates/pc-ui-egui/"
+"crates/vector/" = "crates/pc-vector/"
+"apps/photocraft/" = "apps/local-image/"
+
+[photocraft.moved]
+"crates/affinity/" = { ours = "crates/pc-affinity/", to = "craft-libs craft-affinity", at = "8c7544ed2" }   # 2026-11-14
+"crates/cms/" = { ours = "crates/pc-cms/", to = "craft-libs craft-cms", at = "2b75a0092" }                  # 2026-11-11
+"crates/codecs/" = { ours = "crates/pc-codecs/", to = "craft-libs craft-image-codecs", at = "b0e0bcc6c" }   # 2026-11-13, PR 14236
+"crates/heif/" = { ours = "crates/pc-heif/", to = "craft-libs craft-heif", at = "5d4b68f04" }               # 2026-11-11
+"crates/psd/" = { ours = "crates/pc-psd/", to = "craft-libs craft-psd", at = "74330157c" }                  # 2026-11-12
+
+[photocraft.unmapped]
+"crates/raw/" = "Local Image reads RAW with lc-raw (LightCraft)"
+"crates/ipp/" = "printing (CUPS/IPP) is not ported"
+"apps/photocraft-cli/" = "merged into apps/local-image-cli; port by hand"
+"apps/photocraft-web/" = "web build not ported"
+"apps/photocraft-web-boot/" = "web build not ported"
+"Cargo.toml" = "workspace dependencies change only through our gates"
+"xtask/" = "our xtask is separate"
+
+[lightcraft]
+skip = ["docs/", "README.md", "CHANGELOG.md", "Cargo.lock", ".github/", "nix/", "clean-room/"]
+
+[lightcraft.map]
+"crates/catalog/" = "crates/lc-catalog/"
+"crates/codecs/" = "crates/lc-codecs/"
+"crates/develop/" = "crates/lc-develop/"
+"crates/engine/" = "crates/lc-engine/"
+"crates/geom/" = "crates/lc-geom/"
+"crates/gpu/" = "crates/lc-gpu/"
+"crates/merge/" = "crates/lc-merge/"
+"crates/meta/" = "crates/lc-meta/"
+"crates/pipeline/" = "crates/lc-pipeline/"
+"crates/preview/" = "crates/lc-preview/"
+"crates/raw/" = "crates/lc-raw/"
+"crates/scenes/" = "crates/lc-scenes/"
+"crates/segment/" = "crates/lc-segment/"
+"crates/sysmem/" = "crates/lc-sysmem/"
+"crates/ui-egui/" = "crates/lc-ui-egui/"
+
+[lightcraft.moved]
+"crates/tiff/" = { ours = "crates/lc-tiff/", to = "craft-libs craft-tiff", at = "c5d60d2f" }   # 2026-11-11, PR 4088
+
+[lightcraft.unmapped]
+"crates/color/" = "merged into li-color; port by hand"
+"crates/raster/" = "merged into li-raster; port by hand"
+"crates/testkit/" = "merged into li-testkit; port by hand"
+"apps/lightcraft/" = "merged into apps/local-image; port by hand"
+"crates/denoise/" = "no counterpart crate"
+"crates/denoise-core/" = "no counterpart crate"
+"crates/faces/" = "no counterpart crate"
+"crates/fetch/" = "no counterpart crate"
+"crates/film/" = "no counterpart crate"
+"crates/geocode/" = "no counterpart crate"
+"crates/inpaint/" = "no counterpart crate"
+"crates/lensdb/" = "no counterpart crate"
+"crates/mcp/" = "no counterpart crate"
+"crates/slideshow/" = "no counterpart crate"
+"crates/wincolor/" = "Windows only"
+"Cargo.toml" = "workspace dependencies change only through our gates"
+"xtask/" = "our xtask is separate"
+
+# VectorCraft was adapted, not forked: of the files that share a path between
+# crates/{affinity,pathops,pdf,svg,trace,geom,doc} and our pc-* crates, none has an identical blob
+# (2026-11-14).
+[vectorcraft]
+skip = ["docs/", "README.md", "Cargo.lock", ".github/"]
+
+[vectorcraft.unmapped]
+"crates/" = "VectorCraft code was adapted into pc-* crates (pc-affinity, pc-pathops, pc-svg, pc-pdf, pc-vecfx, pc-trace); port by hand"
+"apps/" = "no counterpart app"
+"Cargo.toml" = "workspace dependencies change only through our gates"
+

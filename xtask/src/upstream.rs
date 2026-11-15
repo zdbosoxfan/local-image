@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use serde::Deserialize;
 
 use crate::attributions::{plain, table_rows};
 
@@ -149,6 +150,92 @@ pub fn commits_since_markers(md: &str, cache: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
+// Path map
+
+pub const PATH_MAP: &str = "docs/upstream-paths.toml";
+
+/// One upstream's table in docs/upstream-paths.toml (its header comment explains the entries).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PathMap {
+    #[serde(default)]
+    map: BTreeMap<String, String>,
+    #[serde(default)]
+    moved: BTreeMap<String, Moved>,
+    #[serde(default)]
+    unmapped: BTreeMap<String, String>,
+    #[serde(default)]
+    skip: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Moved {
+    ours: String,
+    to: String,
+    at: String,
+}
+
+/// What happens to an upstream path.
+#[derive(Debug, PartialEq)]
+enum Route {
+    To(String),
+    Skip,
+    Refuse(String),
+}
+
+enum Rule<'a> {
+    Map(&'a str),
+    Moved(&'a Moved),
+    Unmapped(&'a str),
+    Skip,
+}
+
+impl PathMap {
+    fn rules(&self) -> impl Iterator<Item = (&str, Rule<'_>)> {
+        let map = self.map.iter().map(|(p, ours)| (p.as_str(), Rule::Map(ours)));
+        let moved = self.moved.iter().map(|(p, m)| (p.as_str(), Rule::Moved(m)));
+        let unmapped = self.unmapped.iter().map(|(p, why)| (p.as_str(), Rule::Unmapped(why)));
+        map.chain(moved).chain(unmapped).chain(self.skip.iter().map(|p| (p.as_str(), Rule::Skip)))
+    }
+
+    /// The longest prefix rule for `path`. `moved_since(at)` says whether the commit being ported
+    /// is `at` or a descendant of it.
+    fn route(&self, path: &str, moved_since: &dyn Fn(&str) -> Result<bool>) -> Result<Route> {
+        let matches = |prefix: &str| path == prefix || (prefix.ends_with('/') && path.starts_with(prefix));
+        let best = self.rules().filter(|(p, _)| matches(p)).max_by_key(|(p, _)| p.len());
+        Ok(match best {
+            None => Route::Refuse(format!("not in {PATH_MAP}; add it there")),
+            Some((p, Rule::Map(ours))) => Route::To(format!("{ours}{}", &path[p.len()..])),
+            Some((p, Rule::Moved(m))) => {
+                if moved_since(&m.at)? {
+                    Route::Refuse(format!("moved to {} in {}; port by hand into {}", m.to, m.at, m.ours))
+                } else {
+                    Route::To(format!("{}{}", m.ours, &path[p.len()..]))
+                }
+            }
+            Some((_, Rule::Unmapped(why))) => Route::Refuse(why.to_string()),
+            Some((_, Rule::Skip)) => Route::Skip,
+        })
+    }
+}
+
+/// Upstream key → its path map.
+fn load_path_maps(root: &Path) -> Result<BTreeMap<String, PathMap>> {
+    let maps: BTreeMap<String, PathMap> = toml::from_str(&std::fs::read_to_string(root.join(PATH_MAP)).context(PATH_MAP)?).context(PATH_MAP)?;
+    for (key, map) in &maps {
+        if by_key(key).is_none() {
+            bail!("{PATH_MAP}: unknown upstream `{key}`");
+        }
+        let mut prefixes: Vec<&str> = map.rules().map(|(p, _)| p).collect();
+        prefixes.sort_unstable();
+        if let Some(w) = prefixes.windows(2).find(|w| w[0] == w[1]) {
+            bail!("{PATH_MAP}: [{key}] lists `{}` twice", w[0]);
+        }
+    }
+    Ok(maps)
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::path::{Path, PathBuf};
@@ -180,6 +267,54 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::{git, temp_dir};
     use super::*;
+
+    #[test]
+    fn path_map_resolves_longest_prefix() -> Result<()> {
+        let map: PathMap = toml::from_str(
+            r#"
+skip = ["docs/"]
+[map]
+"crates/" = "ours/"
+"crates/algo/" = "crates/pc-algo/"
+[moved]
+"crates/cms/" = { ours = "crates/pc-cms/", to = "craft-libs craft-cms", at = "abc1234" }
+[unmapped]
+"crates/algo/vendor/" = "vendored"
+"Cargo.toml" = "workspace dependencies"
+"#,
+        )?;
+        let before = |at: &str| -> Result<bool> {
+            assert_eq!(at, "abc1234");
+            Ok(false)
+        };
+        let after = |_: &str| -> Result<bool> { Ok(true) };
+        let route = |path: &str| map.route(path, &before).unwrap();
+        assert_eq!(route("crates/algo/src/blur.rs"), Route::To("crates/pc-algo/src/blur.rs".into()));
+        assert_eq!(route("crates/other/a.rs"), Route::To("ours/other/a.rs".into()));
+        assert_eq!(route("crates/algo/vendor/x.c"), Route::Refuse("vendored".into()));
+        assert_eq!(route("Cargo.toml"), Route::Refuse("workspace dependencies".into()));
+        assert_eq!(route("docs/a.md"), Route::Skip);
+        assert_eq!(route("Cargo.toml.orig"), Route::Refuse(format!("not in {PATH_MAP}; add it there")));
+        assert_eq!(route("crates/cms/src/a.rs"), Route::To("crates/pc-cms/src/a.rs".into()));
+        assert_eq!(
+            map.route("crates/cms/src/a.rs", &after)?,
+            Route::Refuse("moved to craft-libs craft-cms in abc1234; port by hand into crates/pc-cms/".into())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn committed_path_map_targets_exist() -> Result<()> {
+        let root = crate::root();
+        let maps = load_path_maps(&root)?;
+        assert_eq!(maps.keys().map(String::as_str).collect::<Vec<_>>(), ["lightcraft", "photocraft", "vectorcraft"]);
+        for (key, map) in &maps {
+            for ours in map.map.values().chain(map.moved.values().map(|m| &m.ours)) {
+                assert!(root.join(ours).is_dir(), "{PATH_MAP} [{key}]: {ours} does not exist");
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn review_markers_read_and_advance() -> Result<()> {
