@@ -340,20 +340,32 @@ fn is_eof(e: &tiff::TiffError) -> bool {
     matches!(e, tiff::TiffError::IoError(io) if io.kind() == io::ErrorKind::UnexpectedEof)
 }
 
-/// Read SOF without allocating, including abbreviated JPEG with external tables.
-fn jpeg_dimensions(data: &[u8]) -> Result<(u16, u16), CodecError> {
+/// Steps [`jpeg_dimensions`] may take per strip or tile beyond the file's length: room to read
+/// again the few header segments of chunks that share one stream.
+const JPEG_HEADER_STEPS_PER_CHUNK: u64 = 64;
+
+/// Read SOF without allocating, including abbreviated JPEG with external tables. Each fill byte
+/// and marker takes one of `steps` (a segment's body is jumped over), so the walks of chunks that
+/// do not overlap fit in the file's length; running out refuses the image.
+fn jpeg_dimensions(data: &[u8], steps: &mut u64) -> Result<(u16, u16), CodecError> {
     if !data.starts_with(&[0xff, 0xd8]) {
         return Err(err("JPEG chunk header"));
     }
+    let mut step = || -> Result<(), CodecError> {
+        *steps = steps.checked_sub(1).ok_or_else(|| err("the JPEG headers of the strips or tiles are longer than the file (they overlap)"))?;
+        Ok(())
+    };
     let mut at = 2usize;
     while at < data.len() {
         if data.get(at) != Some(&0xff) {
             return Err(err("JPEG chunk marker"));
         }
         while data.get(at) == Some(&0xff) {
+            step()?;
             at += 1;
         }
         let marker = *data.get(at).ok_or_else(|| err("JPEG chunk header"))?;
+        step()?;
         at += 1;
         if matches!(marker, 0xd9 | 0xda) {
             break;
@@ -430,12 +442,13 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         return Err(err(format!("{expected} strips or tiles expected, the tables list {counts:?}")));
     }
     if f.tag_uint(dir, 259) == Some(7) {
+        let mut steps = (f.b.len() as u64).saturating_add(expected.saturating_mul(JPEG_HEADER_STEPS_PER_CHUNK));
         for i in 0..expected {
             let offset = dir.get(offsets_tag).and_then(|e| f.uint(e, i)).ok_or_else(|| err("JPEG chunk offset"))?;
             let count = dir.get(counts_tag).and_then(|e| f.uint(e, i)).ok_or_else(|| err("JPEG chunk length"))?;
             let data =
                 offset.checked_add(count).and_then(|end| f.b.get(offset as usize..usize::try_from(end).ok()?)).ok_or_else(|| err("JPEG chunk outside file"))?;
-            let (jw, jh) = jpeg_dimensions(data)?;
+            let (jw, jh) = jpeg_dimensions(data, &mut steps)?;
             if u64::from(jw) > cw || u64::from(jh) > ch {
                 return Err(err("JPEG dimensions exceed TIFF chunk"));
             }

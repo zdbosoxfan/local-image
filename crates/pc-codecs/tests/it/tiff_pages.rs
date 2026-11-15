@@ -636,3 +636,35 @@ fn strip_tables_are_refused_before_the_decoder_opens() {
     assert_eq!(img.dimensions(), (1, h));
     assert!(img.data().iter().all(|&v| v == 7));
 }
+
+/// The JPEG headers of every tile are read before the decode. 65536 JPEG tiles that all span
+/// the same 64 KiB of fill bytes before their frame header made that read step through billions of bytes; it is now
+/// bounded by the file's length plus a few steps per tile, and the page is refused at once.
+#[test]
+fn overlapping_jpeg_tiles_are_refused_within_the_file_length() {
+    let (w, h, tile) = (4096u32, 4096u32, 16u32);
+    let n = ((w / tile) * (h / tile)) as usize;
+    // SOI, 64 KiB of fill bytes, then a 16x16 frame header.
+    let mut fill = vec![0xFFu8; 64 << 10];
+    fill[1] = 0xD8;
+    fill.extend_from_slice(&[0xC0, 0x00, 0x0B, 0x08, 0x00, 0x10, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00]);
+    let page = |offset: u64| {
+        let mut entries = base(w, h, 8, 1, 1);
+        entries.retain(|e| e.0 != 259);
+        let d = Dir { entries, chunks: Vec::new(), tiled: true }
+            .tag(259, SHORT, &[7])
+            .tag(322, LONG, &[u64::from(tile)])
+            .tag(323, LONG, &[u64::from(tile)])
+            .tag(324, LONG, &vec![offset; n])
+            .tag(325, LONG, &vec![fill.len() as u64; n])
+            .bytes(65000, UNDEFINED, &fill);
+        build(true, false, &[d], &[0]).bytes
+    };
+    let at = page(0).windows(4).position(|s| s == [0xFF, 0xD8, 0xFF, 0xFF]).unwrap();
+    let file = page(at as u64);
+    assert_eq!(file[at..at + fill.len()], fill[..]);
+    match decode(&file) {
+        Err(CodecError::Malformed { message, .. }) => assert!(message.contains("overlap"), "{message}"),
+        other => panic!("{:?}", other.map(|i| i.data().len())),
+    }
+}
