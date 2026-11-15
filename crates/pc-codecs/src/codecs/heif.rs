@@ -43,8 +43,19 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits, keep_orientation: bool) -> R
     let layout = if info.has_alpha { ChannelLayout::Rgba } else { ChannelLayout::Rgb };
     let sample = if info.sixteen_bit { SampleType::U16 } else { SampleType::U8 };
     let (w, h) = if keep_orientation { (info.coded_width, info.coded_height) } else { (info.width, info.height) };
-    limits.check(w, h, layout, sample)?;
-    let options = photocraft_heif::Options { max_pixels: limits.max_pixels, apply_transforms: !keep_orientation };
+    // heic-rs keeps its decoded 16-bit planes (at most two bytes a channel) while it writes the
+    // output image, so the peak is both of them, not the output alone.
+    let peak = (layout.channels() * (2 + sample.bytes())) as u64;
+    limits.check_bytes(w, h, peak)?;
+    // The coded image is decoded in full before any clean-aperture crop or rotation, so a small
+    // visible image must not hide a large coded allocation.
+    if !keep_orientation && (info.coded_width, info.coded_height) != (w, h) {
+        limits.check_bytes(info.coded_width, info.coded_height, peak)?;
+    }
+    // A grid's payload can declare a larger canvas than the `ispe` probed above; heic-rs holds the
+    // canvas it really decodes to `max_pixels`, so `max_alloc` is passed down as pixels too.
+    let max_pixels = limits.max_pixels.min(limits.max_alloc / peak);
+    let options = photocraft_heif::Options { max_pixels, apply_transforms: !keep_orientation };
     let decoded = photocraft_heif::decode(bytes, &options).map_err(err)?;
     // The decoder re-reads the container; trust its output's shape, not the probe's.
     let layout = if decoded.has_alpha { ChannelLayout::Rgba } else { ChannelLayout::Rgb };
@@ -90,6 +101,18 @@ mod tests {
         0x69, 0x61, 0x66, 0x4d, 0x69, 0x48, 0x42, 0x72, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6d, 0x65, 0x74, 0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x10, 0x75, 0x75, 0x69, 0x64, 0x00, 0x00, 0x00, 0x00, 0x03, 0x08, 0x08, 0x08, 0x00, 0x03, 0x01, 0x03, 0x70, 0x00, 0xa8, 0x00,
     ];
+
+    /// heic-rs keeps its decoded 16-bit planes while it writes the output image, so an 8-bit RGB
+    /// HEIC peaks at nine bytes a pixel, not the output's three.
+    #[cfg(feature = "heif")]
+    #[test]
+    fn a_heic_is_checked_against_its_decode_peak() {
+        let bytes = include_bytes!("../../../lc-codecs/tests/fixtures/shared-decode-heic/checker-64.heic");
+        let peak = 64 * 64 * 3 * 3;
+        let with = |max_alloc| crate::decode_with(bytes, &crate::DecodeOptions { limits: Limits { max_alloc, ..Default::default() }, ..Default::default() });
+        assert!(matches!(with(peak - 1), Err(CodecError::LimitExceeded(_))));
+        assert_eq!(with(peak).unwrap().dimensions(), (64, 64));
+    }
 
     #[cfg(feature = "heif")]
     #[test]
