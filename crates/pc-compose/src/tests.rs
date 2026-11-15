@@ -334,6 +334,30 @@ fn dissolve_coverage_matches_opacity() {
     assert_eq!(flatten(&d), b);
 }
 
+/// A Color Lookup's bounded output survives full coverage over a huge 32-bit pixel: blending back
+/// as `b + (r - b) * k` lost the small result to f32 rounding (1e8 and 0.5 gave 0).
+#[test]
+fn full_coverage_adjustment_keeps_its_result_over_huge_hdr_values() {
+    for v in [1.0e6_f32, 1.0e8, -1.0e6] {
+        let mut d = Document::new("hdr", Size::new(2, 2), ColorMode::Rgb, SampleType::F32);
+        let mut base = Layer::raster("b", PixelFormat::RGBA32F);
+        base.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 2, 2), &[v, v, v, 1.0]);
+        let look = Adjustment::ColorLookup {
+            name: "half".into(),
+            lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+            size: 2,
+            domain: None,
+            tetrahedral: false,
+            dither: false,
+        };
+        d.layers = vec![base, Layer::new("look", LayerContent::Adjustment(look))];
+        let got = px(&d, 0, 0);
+        for c in &got[..3] {
+            assert!((c - 0.5).abs() < 1e-6, "{v}: {got:?}");
+        }
+    }
+}
+
 /// Dissolve picks the layer or the backdrop per pixel for adjustments and clipped fills, with
 /// coverage from Opacity x Fill; a Normal mix would leave grays.
 #[test]

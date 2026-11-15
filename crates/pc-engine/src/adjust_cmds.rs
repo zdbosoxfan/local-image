@@ -168,7 +168,9 @@ fn process_surface(surf: &mut Surface, selection: Option<&Surface>, f: &mut dyn 
     let mut out = Vec::with_capacity(raw.len());
     for (i, (a, o)) in px.iter().zip(&orig).enumerate() {
         let k = selection.map_or(1.0, |sel| sel.sample_channel(r.x0 + (i % w) as i32, r.y0 + (i / w) as i32, 0));
-        let mixed: [f32; 4] = std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k);
+        // `o·(1−k) + a·k` keeps the edit exact at full coverage, even over huge 32-bit values
+        // whose difference from it would round the edit away.
+        let mixed: [f32; 4] = std::array::from_fn(|c| o[c] * (1.0 - k) + a[c] * k);
         let mut enc = [0.0f32; 8];
         let m = from_rgba_into(&fmt, mixed, &mut enc);
         out.extend_from_slice(&enc[..m]);
