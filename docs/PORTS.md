@@ -1209,5 +1209,6 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`e4efca36aa01`](https://github.com/storytold/photocraft/commit/e4efca36aa0134b9fa0fd5a08e0fb36fbd015b1f) | fix(engine): apply the metadata choice to WebP Quick Export (#11058) | `crates/pc-engine/src/web_cmds.rs`<br>`crates/pc-engine/src/web_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`b49c6c97c574`](https://github.com/storytold/photocraft/commit/b49c6c97c5742f6747658ebf9656fc5d03b21f8c) | fix(export): preserve high-quality JPEG colour detail in Export As (#7985) | `crates/pc-ui-egui/src/export_dialog.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`apps/local-image/src/services.rs` | MIT OR Apache-2.0 |
 
-Adapted: `e4efca36` builds the WebP settings from the Export Preferences metadata choice as upstream does; `web_exif` does not exist here (`optimize` takes no EXIF), so the WebP arm of `quick_export` drops the EXIF block itself unless the choice is "all".
+Adapted: `e4efca36` builds the WebP settings from the Export Preferences metadata choice as upstream does; `web_exif` does not exist here (`optimize` takes no EXIF), so the WebP arm of `quick_export` drops the EXIF block itself unless the choice is "all". `b49c6c97`: `ExportSettings` has no `io_options` here, so the new `jpeg_chroma_subsampling` field is passed to the codec by the two places `apps/local-image/src/services.rs` builds `ExportOptions`; upstream's encode-and-decode tests are not ported, the cutoff is tested on `settings`.

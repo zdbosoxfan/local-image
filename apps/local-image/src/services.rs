@@ -717,6 +717,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             if let Some(q) = settings.jpeg_quality {
                 opts.encode.jpeg_quality = q;
             }
+            opts.encode.jpeg_chroma_subsampling = settings.jpeg_chroma_subsampling;
             opts.encode.webp_lossless = settings.webp_lossless;
             if let Some(q) = settings.webp_quality {
                 opts.encode.webp_quality = q;
@@ -1484,6 +1485,7 @@ pub(crate) fn prepare_document_save(
     if let Some(value) = settings.jpeg_quality {
         options.encode.jpeg_quality = value;
     }
+    options.encode.jpeg_chroma_subsampling = settings.jpeg_chroma_subsampling;
     options.encode.webp_lossless = settings.webp_lossless;
     if let Some(value) = settings.webp_quality {
         options.encode.webp_quality = value;
