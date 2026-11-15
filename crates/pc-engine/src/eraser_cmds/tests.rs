@@ -241,7 +241,6 @@ fn background_eraser_fails_gracefully() {
     assert!(s.execute("paint.backgroundEraser", json!({"points": [[4, 4]]})).is_err());
 }
 
-/// `cargo test --release -p photocraft-engine --lib bench_magic_eraser -- --ignored --nocapture`
 /// On 8-bit RGB the Magic Eraser's Tolerance is the spread of `{0, dR, dG, dB}`: opposite changes
 /// in two channels count double, same-direction changes once (Photoshop's measurement).
 #[test]
@@ -277,6 +276,7 @@ fn magic_eraser_tolerance_counts_opposite_channel_changes_double() {
     assert_eq!(alpha(&s, 30, 10), 0.0);
 }
 
+/// `cargo test --release -p photocraft-engine --lib bench_magic_eraser -- --ignored --nocapture`
 #[test]
 #[ignore]
 fn bench_magic_eraser_24mp() {
