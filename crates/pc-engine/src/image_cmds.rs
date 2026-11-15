@@ -391,6 +391,10 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
     let ext = extension_color(s, p);
     s.edit("Canvas Size", |doc, _| {
         translate_doc(doc, "image.canvasSize", dx, dy)?;
+        // As in Photoshop, a Canvas Size that changes the size drops the selection.
+        if (nw, nh) != (ow as u32, oh as u32) {
+            doc.selection = None;
+        }
         doc.size = Size::new(nw, nh);
         crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes)?;
         let canvas = doc.bounds();
@@ -597,6 +601,8 @@ fn convert_depth(s: &mut Session, depth: SampleType) -> Result<Value> {
 fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let mut doc = (*d.doc).clone();
+    // As in Photoshop, the copy starts without a selection; the source keeps its own.
+    doc.selection = None;
     doc.id = photocraft_doc::DocId::fresh();
     doc.name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("{} copy", d.doc.name));
     if p.get("mergedOnly").and_then(Value::as_bool).unwrap_or(false) {
@@ -1000,6 +1006,30 @@ mod tests {
         let mut s = session();
         s.execute("image.canvasSize", json!({"width": 20, "height": 10, "relative": true, "anchor": "center"})).unwrap();
         assert_eq!(doc(&s).layers[1].surface().unwrap().content_bounds(), Rect::new(20, 10, 30, 20));
+    }
+
+    /// As in Photoshop: a Canvas Size that changes the size drops the selection inside its one
+    /// history step, and Image › Duplicate's copy starts without one.
+    #[test]
+    fn canvas_size_and_duplicate_drop_the_selection() {
+        let mut s = session();
+        s.execute("select.rect", json!({"x": 5, "y": 2, "width": 20, "height": 10})).unwrap();
+        let before = doc(&s).selection.clone();
+        s.execute("image.canvasSize", json!({"width": 40, "height": 20})).unwrap();
+        assert!(doc(&s).selection == before, "an unchanged size keeps the selection");
+        let past = s.active().unwrap().history.past_len();
+        s.execute("image.canvasSize", json!({"width": 60, "height": 30})).unwrap();
+        assert!(doc(&s).selection.is_none());
+        assert_eq!(s.active().unwrap().history.past_len(), past + 1);
+        assert!(s.undo());
+        assert!(before.is_some() && doc(&s).selection == before, "undo restores the selection");
+        for merged in [false, true] {
+            s.set_active(0);
+            s.execute("image.duplicate", json!({"mergedOnly": merged})).unwrap();
+            assert!(doc(&s).selection.is_none(), "merged {merged}");
+            s.set_active(0);
+            assert!(doc(&s).selection == before, "the source keeps its selection");
+        }
     }
 
     #[test]

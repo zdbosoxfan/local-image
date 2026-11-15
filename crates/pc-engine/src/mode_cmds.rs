@@ -69,7 +69,12 @@ fn rotate_arbitrary(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let bg = s.tools.background;
     let interp = Interp::parse(str_or(p, "interpolation", "bicubic"));
-    let size = s.edit("Rotate Canvas", |doc, _| rotate_doc(doc, deg, interp, bg).map(|(size, _)| size))?;
+    let size = s.edit("Rotate Canvas", |doc, _| {
+        let (size, _) = rotate_doc(doc, deg, interp, bg)?;
+        // As in Photoshop, Image Rotation drops the selection; the step's one undo brings it back.
+        doc.selection = None;
+        Ok(size)
+    })?;
     Ok(json!({"width": size.width, "height": size.height}))
 }
 
