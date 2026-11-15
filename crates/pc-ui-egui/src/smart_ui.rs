@@ -134,6 +134,7 @@ pub fn open_editor(app: &mut PhotocraftApp, ctx: &egui::Context, layer: u64, sm:
 /// Hands the open dialog `id` the smart filter's recorded `params` and makes OK update that
 /// filter (`layer.smartFilter.setParams`, see [`confirm_command`]) instead of adding another.
 fn edit_filter(app: &mut PhotocraftApp, id: u64, layer: u64, index: usize, params: &Value) {
+    let mode = app.session.active().map(|s| s.doc.mode);
     if let Some(d) = app.ui.dialog_mut(id) {
         // The live preview would stack a second copy of the filter on the smart object.
         d.fields.remove("__preview");
@@ -144,6 +145,9 @@ fn edit_filter(app: &mut PhotocraftApp, id: u64, layer: u64, index: usize, param
                     d.fields.insert(k.clone(), v.clone());
                 }
             }
+        }
+        if let Some(mode) = mode {
+            crate::adjust_dialog::seed_from_recorded(&mut d.fields, params, mode);
         }
     }
 }
@@ -159,6 +163,52 @@ pub fn confirm_command(fields: &serde_json::Map<String, Value>, command: String,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A smart object with `command` recorded as its one smart filter (as an imported PSD holds
+    /// an adjustment), and its layer id.
+    fn recorded_filter(command: &str, params: Value) -> (PhotocraftApp, u64) {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        let id = s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
+        s.edit("record filter", |doc, _| {
+            let Some(LayerContent::Smart(sm)) = doc.layer_mut(photocraft_doc::LayerId(id)).map(|l| &mut l.content) else { panic!("a smart object") };
+            sm.smart_filters.push(photocraft_doc::SmartFilter {
+                command: command.into(),
+                params,
+                blend: photocraft_doc::BlendMode::Normal,
+                opacity: 1.0,
+                visible: true,
+            });
+            Ok(())
+        })
+        .unwrap();
+        (PhotocraftApp::new(s, crate::Services::default()), id)
+    }
+
+    fn smart_object(app: &PhotocraftApp, id: u64) -> SmartObject {
+        match &app.session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().content {
+            LayerContent::Smart(sm) => sm.clone(),
+            other => panic!("expected a smart object, got {other:?}"),
+        }
+    }
+
+    /// Opening an adjustment smart filter and pressing OK keeps what it renders when a setting
+    /// was recorded under a key the dialog's defaults don't hold: the composite curve as `gray`,
+    /// which the default `points` would otherwise be read over.
+    #[test]
+    fn confirming_an_unedited_adjustment_smart_filter_keeps_what_it_renders() {
+        let recorded = json!({"gray": [[0, 0], [128, 64], [255, 255]]});
+        let (mut app, id) = recorded_filter("image.adjustments.curves", recorded.clone());
+        let sm = smart_object(&app, id);
+        open_editor(&mut app, &egui::Context::default(), id, &sm, 0);
+        let dialog = app.ui.dialogs.last().expect("the Curves editor opened").id;
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        let stored = smart_object(&app, id).smart_filters[0].params.clone();
+        let read = |params: &Value| photocraft_engine::adjust_params::from_params("curves", params, None, photocraft_doc::ColorMode::Rgb).unwrap();
+        assert_eq!(read(&stored), read(&recorded), "stored: {stored}");
+    }
 
     /// An Image › Adjustments recorded on a smart object (Brightness/Contrast…) opens its own
     /// editor from the Smart Filters row, with the recorded settings, and OK updates that filter
