@@ -146,6 +146,43 @@ pub struct LiquifyDialog {
     last_dab: f64,
     /// Last dab + proxy update time (ms), shown in the footer.
     pub dab_ms: f64,
+    /// What OK applies Liquify through, which the preview mixes the same way (#9541).
+    selection: Option<PreviewSelection>,
+}
+
+/// The selection a Liquify preview is shown through, as the engine applies it on OK
+/// (`distort_cmds::mix_by_selection`): the result over the original by its coverage. On a smart
+/// object with a filter mask it is that mask, which the engine shows every filter through.
+struct PreviewSelection {
+    /// Coverage at each proxy pixel (row-major, the proxy's size).
+    proxy: Vec<f32>,
+    /// What shows where the mask hides the result, when that isn't the dialog's source: a filter
+    /// mask shows the smart object's placed pixels, without any filter. The proxy's size.
+    base: Option<ProxyImage>,
+}
+
+impl PreviewSelection {
+    /// `mask` sampled at `proxy`'s pixel centres; `None` when it selects every one.
+    fn new(mask: &photocraft_doc::LayerMask, proxy: &ProxyImage, base: Option<&photocraft_raster::Surface>) -> Option<Self> {
+        let (bx, by, s) = (f64::from(proxy.bounds.x0), f64::from(proxy.bounds.y0), proxy.scale);
+        let mut cov = Vec::with_capacity(proxy.w * proxy.h);
+        for y in 0..proxy.h {
+            let dy = (by + (y as f64 + 0.5) * s).floor() as i32;
+            for x in 0..proxy.w {
+                let dx = (bx + (x as f64 + 0.5) * s).floor() as i32;
+                cov.push(mask.value(dx, dy).clamp(0.0, 1.0));
+            }
+        }
+        if cov.iter().all(|c| *c >= 1.0) {
+            return None;
+        }
+        Some(PreviewSelection { proxy: cov, base: base.map(|b| ProxyImage::new(b, proxy.bounds, PROXY_SIDE)) })
+    }
+}
+
+/// `new` (premultiplied RGBA8) over `old` (premultiplied RGBA, 0..1) by coverage `c`.
+fn mix(new: [u8; 4], old: [f32; 4], c: f32) -> [u8; 4] {
+    std::array::from_fn(|k| (f32::from(new[k]) * c + old[k].clamp(0.0, 1.0) * 255.0 * (1.0 - c) + 0.5).clamp(0.0, 255.0) as u8)
 }
 
 fn union(a: Option<[usize; 4]>, b: [usize; 4]) -> Option<[usize; 4]> {
@@ -300,7 +337,25 @@ impl LiquifyDialog {
     /// Re-renders the dirty proxy pixels into `out` (the texture upload happens in `show`).
     fn render_dirty(&mut self) {
         if let Some(r) = self.dirty {
-            self.proxy.render(&self.field, r, &mut self.out);
+            self.render_proxy(r);
+        }
+    }
+
+    /// Renders proxy pixels `r` through the field, then through the selection.
+    fn render_proxy(&mut self, r: [usize; 4]) {
+        self.proxy.render(&self.field, r, &mut self.out);
+        let Some(sel) = &self.selection else { return };
+        let w = self.proxy.w;
+        let old = sel.base.as_ref().unwrap_or(&self.proxy);
+        for y in r[1]..r[3].min(self.proxy.h) {
+            for x in r[0]..r[2].min(w) {
+                let i = y * w + x;
+                if let (Some(c), Some(old), Some(new)) = (sel.proxy.get(i), old.px.get(i), self.out.get_mut(i))
+                    && *c < 1.0
+                {
+                    *new = mix(*new, *old, *c);
+                }
+            }
         }
     }
 
@@ -308,7 +363,7 @@ impl LiquifyDialog {
         let (w, h) = (self.proxy.w, self.proxy.h);
         match (&mut self.tex, self.dirty.take()) {
             (None, _) => {
-                self.proxy.render(&self.field, [0, 0, w, h], &mut self.out);
+                self.render_proxy([0, 0, w, h]);
                 let img = egui::ColorImage::new([w, h], self.out.iter().map(|p| Color32::from_rgba_premultiplied(p[0], p[1], p[2], p[3])).collect());
                 self.tex = Some(ctx.load_texture("liquify-proxy", img, egui::TextureOptions::LINEAR));
             }
@@ -341,12 +396,27 @@ impl LiquifyDialog {
 
 /// Opens the dialog on the active layer.
 pub fn open(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String> {
-    let (layer, surf, _) = crate::distort_ui::active_pixels(app)?;
+    let (layer, mut surf, _) = crate::distort_ui::active_pixels(app)?;
     let st = app.session.active().ok_or("no document")?;
     let canvas = st.doc.bounds();
     let name = st.doc.layer(layer).map(|l| l.name.clone()).unwrap_or_default();
     let cell = auto_cell(canvas);
+    // A smart object's filter mask shows every filter through it, a new Liquify too, whatever is
+    // selected (`smart_cmds::add_smart_filter`): Liquify edits the filters' output without the
+    // mask, shown over the placed pixels. Otherwise a new Liquify goes through the selection.
+    let mut base = None;
+    let mask = match st.doc.layer(layer).map(|l| &l.content) {
+        Some(photocraft_doc::LayerContent::Smart(sm)) if sm.filter_mask.is_some() => {
+            if let Ok(Some(filtered)) = photocraft_engine::smart_cmds::render_below_filter(&st.doc, sm, sm.smart_filters.len()) {
+                surf = filtered;
+            }
+            base = photocraft_engine::smart_cmds::render_below_filter(&st.doc, sm, 0).ok().flatten();
+            sm.filter_mask.clone()
+        }
+        _ => st.doc.selection.clone().map(|sel| photocraft_doc::LayerMask { surface: sel, ..photocraft_doc::LayerMask::reveal_all() }),
+    };
     let proxy = ProxyImage::new(&surf, canvas, PROXY_SIDE);
+    let selection = mask.and_then(|m| PreviewSelection::new(&m, &proxy, base.as_ref()));
     let out = vec![[0u8; 4]; proxy.w * proxy.h];
     let center = [f64::from(canvas.x0 + canvas.x1) / 2.0, f64::from(canvas.y0 + canvas.y1) / 2.0];
     let mut d = LiquifyDialog {
@@ -373,6 +443,7 @@ pub fn open(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String> 
         hover: None,
         last_dab: 0.0,
         dab_ms: 0.0,
+        selection,
     };
     // A sensible starting brush (about a tenth of the image), then the settings last used, so
     // Liquify opens as it was left (#418). Saved values are clamped; a bad one is skipped.
@@ -957,6 +1028,80 @@ mod tests {
         assert!(bounds.contains_rect(h.get_by_label(&field).rect()));
         assert!(bounds.contains_rect(h.get_by_label("Last dab: 12.50 ms").rect()));
         assert_eq!(h.state().0.session.active().unwrap().doc, before);
+    }
+
+    fn warp_across(app: &mut PhotocraftApp, y: f64) {
+        control(app, &json!({"tool": "forwardWarp", "size": 50})).unwrap();
+        for ev in [
+            ToolEvent::Down { x: 40.0, y, pressure: 1.0 },
+            ToolEvent::Move { x: 60.0, y: y + 2.0, pressure: 1.0 },
+            ToolEvent::Move { x: 80.0, y, pressure: 1.0 },
+            ToolEvent::Up { x: 80.0, y },
+        ] {
+            pointer(app, ev, egui::Modifiers::NONE);
+        }
+    }
+
+    /// Counts proxy pixels: (pixels where `hidden(x)` that match `original`, pixels elsewhere that
+    /// differ from `input`), asserting every hidden pixel matches.
+    fn hidden_and_changed(d: &LiquifyDialog, original: &[[u8; 4]], input: &[[u8; 4]], hidden: impl Fn(f64) -> bool) -> (usize, usize) {
+        let doc_x = |i: usize| f64::from(d.proxy.bounds.x0) + ((i % d.proxy.w) as f64 + 0.5) * d.proxy.scale;
+        let (mut kept, mut changed) = (0, 0);
+        for (i, (a, (b, c))) in d.out.iter().zip(original.iter().zip(input)).enumerate() {
+            if hidden(doc_x(i)) {
+                kept += 1;
+                assert_eq!(a, b, "proxy pixel {i} (x {}) is hidden", doc_x(i));
+            } else if a != c {
+                changed += 1;
+            }
+        }
+        (kept, changed)
+    }
+
+    /// #9541: with a selection the preview changed the whole image, though OK applies Liquify only
+    /// inside the selection. Unselected pixels stay as they were.
+    #[test]
+    fn the_preview_shows_liquify_only_inside_the_selection() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        app.session.execute("select.rect", json!({"x": 0, "y": 0, "width": 60, "height": 80})).unwrap();
+        open(&mut app, &ctx).unwrap();
+        warp_across(&mut app, 40.0);
+        let d = app.distort.liquify.as_mut().unwrap();
+        assert!(d.field.max_displacement() > 3.0);
+        d.render_dirty();
+        let mut original = vec![[0u8; 4]; d.proxy.w * d.proxy.h];
+        d.proxy.render(&LiquifyField::new(d.canvas, d.cell), [0, 0, d.proxy.w, d.proxy.h], &mut original);
+        let (outside, inside_changed) = hidden_and_changed(d, &original, &original, |x| x >= 60.0);
+        assert!(outside > 0 && inside_changed > 0, "outside {outside}, changed inside {inside_changed}");
+    }
+
+    /// On a smart object with a filter mask, Liquify is shown through that mask, as the engine
+    /// applies it (`add_smart_filter` keeps the mask), not through the selection. Where the mask
+    /// hides it the placed pixels show.
+    #[test]
+    fn the_preview_on_a_smart_object_follows_its_filter_mask() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        app.session.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        // The first smart filter, run on the right half, makes that half the filter mask.
+        app.session.execute("select.rect", json!({"x": 60, "y": 0, "width": 60, "height": 80})).unwrap();
+        app.session.execute("filter.blur.gaussianBlur", json!({"radius": 0.5})).unwrap();
+        app.session.execute("select.rect", json!({"x": 0, "y": 0, "width": 60, "height": 80})).unwrap();
+        open(&mut app, &ctx).unwrap();
+        warp_across(&mut app, 40.0);
+        let st = app.session.active().unwrap();
+        let Some(photocraft_doc::LayerContent::Smart(sm)) = st.doc.layer(st.active_layer.unwrap()).map(|l| &l.content) else { panic!("not a smart object") };
+        let placed = photocraft_engine::smart_cmds::render_below_filter(&st.doc, sm, 0).unwrap().unwrap();
+        let d = app.distort.liquify.as_mut().unwrap();
+        d.render_dirty();
+        let placed = ProxyImage::new(&placed, d.canvas, PROXY_SIDE);
+        let mut original = vec![[0u8; 4]; d.proxy.w * d.proxy.h];
+        placed.render(&LiquifyField::new(d.canvas, d.cell), [0, 0, d.proxy.w, d.proxy.h], &mut original);
+        let mut input = vec![[0u8; 4]; d.proxy.w * d.proxy.h];
+        d.proxy.render(&LiquifyField::new(d.canvas, d.cell), [0, 0, d.proxy.w, d.proxy.h], &mut input);
+        let (masked, shown_changed) = hidden_and_changed(d, &original, &input, |x| x < 60.0);
+        assert!(masked > 0 && shown_changed > 0, "masked {masked}, changed inside the mask {shown_changed}");
     }
 
     fn app_with_layer() -> PhotocraftApp {

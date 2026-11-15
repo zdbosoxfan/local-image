@@ -38,6 +38,9 @@ struct Drag {
     incoming: Point,
     pointer: Point,
     moved: bool,
+    /// For a closing drag: whether the knot was smooth when the press began closing, and its far
+    /// handle as the drag last left it (Alt pressed mid-drag keeps it there).
+    far: Option<(bool, Point)>,
 }
 
 /// One complete, cancellable curve. Releases between nodes never edit the Session.
@@ -111,7 +114,7 @@ impl Gesture {
             }
             let si = path.subpaths.len();
             path.subpaths.push(Subpath::polyline(&[(at.x, at.y)]));
-            (si, false, Some(Drag { knot: 0, closing: false, outgoing_only: false, incoming: at, pointer: at, moved: false }))
+            (si, false, Some(Drag { knot: 0, closing: false, outgoing_only: false, incoming: at, pointer: at, moved: false, far: None }))
         };
         let mut auto = vec![false; path.subpaths[subpath].knots.len()];
         if endpoint.is_none() && mode == Mode::Smart {
@@ -173,15 +176,12 @@ impl Gesture {
         let opposite = if self.at_first { sp.knots.len() - 1 } else { 0 };
         if self.mode != Mode::Line && sp.knots.len() >= 2 && distance(at, sp.knots[opposite].anchor) <= tolerance {
             sp.closed = true;
-            self.drag = Some(Drag {
-                knot: opposite,
-                closing: true,
-                outgoing_only: false,
-                incoming: if self.at_first { sp.knots[opposite].in_ctrl } else { sp.knots[opposite].out_ctrl },
-                pointer: at,
-                moved: false,
-            });
+            // Refit first, so the drag keeps the far handle the closed path shows.
             self.smart_handles();
+            let k = self.request.path.subpaths[self.subpath].knots[opposite];
+            let far = if self.at_first { k.in_ctrl } else { k.out_ctrl };
+            self.drag =
+                Some(Drag { knot: opposite, closing: true, outgoing_only: false, incoming: far, pointer: at, moved: false, far: Some((k.smooth, far)) });
         } else if distance(at, sp.knots[end].anchor) <= tolerance {
             let k = &mut sp.knots[end];
             if self.at_first {
@@ -198,6 +198,7 @@ impl Gesture {
                 incoming: if self.at_first { k.out_ctrl } else { k.in_ctrl },
                 pointer: at,
                 moved: false,
+                far: None,
             });
         } else {
             if self.request.path.subpaths.iter().map(|s| s.knots.len()).sum::<usize>() >= MAX_KNOTS {
@@ -215,7 +216,7 @@ impl Gesture {
                 self.auto.push(self.mode == Mode::Smart);
                 sp.knots.len() - 1
             };
-            self.drag = Some(Drag { knot: index, closing: false, outgoing_only: false, incoming: at, pointer: at, moved: false });
+            self.drag = Some(Drag { knot: index, closing: false, outgoing_only: false, incoming: at, pointer: at, moved: false, far: None });
             self.smart_handles();
         }
         self.hover = Some(at);
@@ -260,20 +261,22 @@ impl Gesture {
         drag.moved = true;
         let out = point(constrain(k.anchor, at, mods.shift))?;
         let reflected = point(Point::new(2.0 * k.anchor.x - out.x, 2.0 * k.anchor.y - out.y))?;
-        // Closing drags shape the arriving handle; Alt preserves the first node's
-        // outgoing handle so the already drawn first segment does not change.
-        if drag.closing {
-            if self.at_first {
-                k.out_ctrl = reflected;
-                if !mods.alt {
-                    k.in_ctrl = out;
-                }
-            } else {
-                k.in_ctrl = reflected;
-                if !mods.alt {
-                    k.out_ctrl = out;
-                }
+        // Closing drags shape the arriving handle only. The far handle stays on a corner, so the
+        // drawn first segment keeps its shape, and on a smooth knot turns to stay in line at its
+        // own length; Alt makes a corner and keeps the far handle where the drag left it.
+        if let Some((smooth, far)) = &mut drag.far {
+            let (near_ctrl, far_ctrl) = if self.at_first { (&mut k.out_ctrl, &mut k.in_ctrl) } else { (&mut k.in_ctrl, &mut k.out_ctrl) };
+            *near_ctrl = reflected;
+            let along = distance(k.anchor, reflected);
+            if mods.alt {
+                *far_ctrl = *far;
+            } else if *smooth && along > 1e-9 {
+                let length = distance(k.anchor, *far_ctrl);
+                *far_ctrl =
+                    point(Point::new(k.anchor.x + (k.anchor.x - reflected.x) / along * length, k.anchor.y + (k.anchor.y - reflected.y) / along * length))?;
+                *far = *far_ctrl;
             }
+            k.smooth = *smooth && !mods.alt;
         } else {
             let incoming = if mods.alt || drag.outgoing_only { drag.incoming } else { reflected };
             drag.incoming = incoming;
@@ -284,8 +287,8 @@ impl Gesture {
                 k.out_ctrl = out;
                 k.in_ctrl = incoming;
             }
+            k.smooth = !mods.alt && !drag.outgoing_only;
         }
-        k.smooth = !mods.alt && !drag.outgoing_only;
         self.auto[drag.knot] = false;
         if *k != previous {
             self.generation = self.generation.wrapping_add(1);

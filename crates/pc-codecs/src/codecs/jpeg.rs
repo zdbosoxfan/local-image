@@ -18,6 +18,7 @@ const F: Format = Format::Jpeg;
 const EXIF_HEADER: &[u8] = b"Exif\0\0";
 const XMP_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 const ICC_HEADER: &[u8] = b"ICC_PROFILE\0";
+const EXTENDED_XMP_HEADER: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
 /// Allows four times the ideal one-bit DC code per 8×8 block before rejecting a JPEG scan.
 const MAX_PIXELS_PER_BYTE: u64 = 2048;
 
@@ -217,9 +218,55 @@ fn decode_jpeg_scaled_inner(bytes: &[u8], limits: &Limits, max_size: Option<(u32
     Ok((img, (w, h)))
 }
 
+/// The file without its Extended XMP APP1 segments (`None` when it has none), for `zune-jpeg`.
+///
+/// zune-jpeg keeps every Extended XMP fragment until a GUID's set is complete and re-sorts and
+/// re-checks all pending fragments after every marker it parses, so many small, consistent but
+/// incomplete fragments cost quadratic time before a pixel is decoded. Nothing here reads its
+/// reassembled Extended XMP ([`scan_metadata`] works on the original bytes). The walk stops at the
+/// first scan, as the header parse does, and skips stray bytes to the next `FF` as it does.
+fn without_extended_xmp(b: &[u8]) -> Option<Vec<u8>> {
+    let mut drop: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut i = 2;
+    while let Some(&byte) = b.get(i) {
+        if byte != 0xFF {
+            i += b.get(i..)?.iter().position(|&v| v == 0xFF)?;
+            continue;
+        }
+        let Some(&code) = b.get(i + 1) else { break };
+        match code {
+            0xFF => i += 1,
+            0x01 | 0xD0..=0xD8 => i += 2,
+            0xD9 | 0xDA => break,
+            _ => {
+                let Some(len) = b.get(i + 2..i + 4).and_then(|s| <[u8; 2]>::try_from(s).ok()).map(u16::from_be_bytes) else { break };
+                let end = i.saturating_add(2 + usize::from(len));
+                if code == 0xE1 && b.get(i + 4..).is_some_and(|p| p.starts_with(EXTENDED_XMP_HEADER)) {
+                    drop.push(i..end.min(b.len()));
+                }
+                i = end;
+            }
+        }
+    }
+    if drop.is_empty() {
+        return None;
+    }
+    // Reserve what is kept, not the input: the dropped fragments may be most of it.
+    let kept = b.len().saturating_sub(drop.iter().map(|r| r.end - r.start).sum::<usize>());
+    let mut out = Vec::with_capacity(kept);
+    let mut at = 0;
+    for r in drop {
+        out.extend_from_slice(b.get(at..r.start)?);
+        at = r.end;
+    }
+    out.extend_from_slice(b.get(at..)?);
+    Some(out)
+}
+
 fn decode_zune(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     let options = DecoderOptions::default().set_strict_mode(false).set_max_width(65535).set_max_height(65535);
-    let mut dec = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), options);
+    let stripped = without_extended_xmp(bytes);
+    let mut dec = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(stripped.as_deref().unwrap_or(bytes)), options);
     dec.decode_headers().map_err(err)?;
     let (w, h) = dec.dimensions().ok_or_else(|| err("no dimensions"))?;
     let (w, h) = (w as u32, h as u32);
@@ -554,6 +601,26 @@ mod decode_tests {
         bytes.extend_from_slice(&[0xFF, marker]);
         bytes.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
         bytes.extend_from_slice(payload);
+    }
+
+    /// 20,000 consistent but incomplete Extended XMP fragments right after SOI: zune-jpeg would
+    /// re-sort and re-check the growing pending list after each one.
+    #[test]
+    fn extended_xmp_fragments_stay_out_of_the_backend_parse() {
+        let plain = jpeg(16, 16);
+        let mut hostile = plain[..2].to_vec();
+        for k in 0..20_000u32 {
+            let mut fragment = EXTENDED_XMP_HEADER.to_vec();
+            fragment.extend_from_slice(&[b'A'; 32]);
+            fragment.extend_from_slice(&1_000_000u32.to_be_bytes());
+            fragment.extend_from_slice(&(k * 2).to_be_bytes());
+            fragment.push(b'x');
+            segment(&mut hostile, 0xE1, &fragment);
+        }
+        hostile.extend_from_slice(&plain[2..]);
+        assert!(without_extended_xmp(&plain).is_none());
+        assert_eq!(without_extended_xmp(&hostile).as_deref(), Some(&plain[..]));
+        assert_eq!(decode_zune(&hostile, &Limits::default()).unwrap().dimensions(), (16, 16));
     }
 
     #[test]
