@@ -1210,6 +1210,7 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 |---|---|---|---|
 | [storytold/photocraft@`4001a3092a5be314e2aeda2ff9bc4dc84e2115fb`](https://github.com/storytold/photocraft/commit/4001a3092a5be314e2aeda2ff9bc4dc84e2115fb) | TIFF: open images over 2^30 px, decoded a group of rows at a time into the layer (#8169) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-codecs/src/options.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs`<br>`crates/pc-io/src/flat.rs`<br>`crates/pc-raster/src/lib.rs` | MIT OR Apache-2.0 |
 | [storytold/photocraft@`98bcbfab9005b4915b3143b4daed91df365db107`](https://github.com/storytold/photocraft/commit/98bcbfab9005b4915b3143b4daed91df365db107) | perf(io): build JPEG/PNG tiles straight from the decoded rows, in parallel (#10259) (#10281) | `crates/pc-codecs/src/image.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`dde01384d2ab39995c28d4dbc68ce5c4b297a217`](https://github.com/storytold/photocraft/commit/dde01384d2ab39995c28d4dbc68ce5c4b297a217) | perf(io): stream large PNGs row by row into the layer's tiles (#10259) (#10305) | `crates/pc-codecs/src/codecs/png.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-codecs/tests/it/png_jpeg.rs`<br>`crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
 
 Adapted port of `4001a309`: `Limits::banded` raises the size to 300,000 px a side on top of
 `Limits::desktop_photo` (whose 2 GiB `max_alloc` bounds each group of bands), the banded decode is
@@ -1223,3 +1224,9 @@ document's layout keeps the serial `try_write_interleaved` copy. Not ported: ups
 `Surface::try_write_rows_with` (`pc-raster` has no rayon), the RGB8 to RGBA8 inline loop, the scratch
 pool and the cancellation checks of `import_flat_with` (no `Interrupt` here). Its F16-target alpha fix
 is already covered: `document_format` stores 16-bit float as 32-bit float (`crates/pc-io/src/flat.rs`).
+Partial port of `dde01384`: `codecs::decode_png_rows` (with the PNG decoder split into open, finish
+and extras, which here also carry the container colour hint and source bit depth) and the streamed
+PNG import from 32 MiB decoded. Not ported: the free-memory checks before the tiles exist (no
+`crate::memory` probe here), cancellation and progress (no `Interrupt`), `ImportOptions` decode
+limits (the streamed path uses `Limits::desktop_photo`, as the whole-image path does), and the
+resolution-from-EXIF fallback, which the whole-image PNG path here does not apply either.
