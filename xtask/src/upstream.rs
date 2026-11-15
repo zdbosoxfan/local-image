@@ -67,9 +67,14 @@ fn output_with_stdin(cmd: &mut Command, input: Vec<u8>) -> Result<Output> {
     Ok(out)
 }
 
-/// The full hash of `rev` in the clone `dir`.
+/// The full hash of `rev` in the clone `dir`. A commit the clone lacks stays unknown: without
+/// GIT_NO_LAZY_FETCH a blob-less clone would download any full hash the remote can serve.
 fn resolve_commit(dir: &Path, rev: &str) -> Result<String> {
-    let out = git(dir).args(["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")]).output().context("could not run git")?;
+    let out = git(dir)
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .args(["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])
+        .output()
+        .context("could not run git")?;
     if !out.status.success() {
         bail!("{rev} is not a commit in {}: run `git -C {} fetch origin`", dir.display(), dir.display());
     }
@@ -84,6 +89,12 @@ fn is_ancestor(dir: &Path, ancestor: &str, commit: &str) -> Result<bool> {
         Some(1) => Ok(false),
         _ => bail!("git merge-base {ancestor} {commit} in {}: {}", dir.display(), String::from_utf8_lossy(&out.stderr).trim()),
     }
+}
+
+/// Why `sha` cannot be taken from the clone: its main branch does not contain it. The head of an
+/// unmerged or rejected pull request is such a commit, and nobody upstream accepted it.
+fn off_main(clone: &Path, upstream: &Upstream, sha: &str) -> Result<Option<String>> {
+    Ok((!is_ancestor(clone, sha, "origin/HEAD")?).then(|| format!("{sha} is not on {}'s main branch (origin/HEAD of {})", upstream.name, clone.display())))
 }
 
 /// `md` with its 0-based line `index` replaced by `line`, keeping the line ending.
@@ -145,6 +156,9 @@ pub fn upstream_reviewed(root: &Path, key: &str, rev: &str, upstream_dir: &Path)
     }
     if !is_ancestor(&clone, &marker.sha, &new)? {
         bail!("{new} does not descend from the current cutoff {}: a cutoff only moves forward", marker.sha);
+    }
+    if let Some(why) = off_main(&clone, upstream, &new)? {
+        bail!("{why}");
     }
     std::fs::write(&path, replace_line(&md, marker.line, &format!("| {} | `{new}` |", upstream.name)))?;
     println!("{} reviewed up to {new} (was {})", upstream.name, marker.sha);
@@ -302,6 +316,9 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
         Ok(sha) => sha,
         Err(e) => return refuse(e.to_string()),
     };
+    if let Some(why) = off_main(&clone, upstream, &sha)? {
+        return refuse(why);
+    }
     if git_out(&clone, &["rev-list", "--parents", "-n1", &sha])?.split_whitespace().count() > 2 {
         return refuse(format!("{sha} is a merge commit; port its parents' commits instead"));
     }
@@ -714,6 +731,7 @@ skip = ["docs/"]
                 std::fs::create_dir_all(repo).unwrap();
                 git(repo, &["init", "--quiet"]);
             }
+            git(&fixture.clone, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/main"]);
             fixture.write(&fixture.clone, "crates/algo/src/blur.rs", &blur(&[]));
             fixture.write(&fixture.clone, "crates/cms/src/lib.rs", "cms\n");
             fixture.write(&fixture.clone, "crates/raw/src/lib.rs", "raw\n");
@@ -915,6 +933,13 @@ skip = ["docs/"]
         assert!(f.refused(&merge, PortMode::Apply).contains("is a merge commit"));
         unchanged(&f);
 
+        git(&f.clone, &["checkout", "--quiet", "-b", "pull-request"]);
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(7, "unmerged 7")]));
+        let unmerged = f.commit_upstream("not merged upstream");
+        git(&f.clone, &["checkout", "--quiet", "-"]);
+        assert!(f.refused(&unmerged, PortMode::Apply).contains("is not on PhotoCraft's main branch"));
+        unchanged(&f);
+
         assert_eq!(f.port(&clean, PortMode::Apply), PortStatus::Applied);
         f.commit_ours("port");
         let recorded = f.read("docs/PORTS.md");
@@ -967,6 +992,9 @@ skip = ["docs/"]
         let second = commit("second");
         git(&clone, &["checkout", "--quiet", "-b", "side", &first]);
         let side = commit("side");
+        git(&clone, &["checkout", "--quiet", "-b", "pull-request", &second]);
+        let unmerged = commit("unmerged");
+        git(&clone, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/main"]);
         let lc = "6b2b7e6d1117e683a1701568e56f979d061e4699";
         let md = format!("# Ports\n\n| Upstream | Reviewed up to |\n|---|---|\n| PhotoCraft | `{first}` |\n| LightCraft | `{lc}` |\n\nText.\n");
         let ports = dir.join("ours/docs/PORTS.md");
@@ -977,6 +1005,7 @@ skip = ["docs/"]
         let advanced = std::fs::read_to_string(&ports)?;
         let backward = upstream_reviewed(&dir.join("ours"), "photocraft", &side, &upstream_dir);
         let unknown = upstream_reviewed(&dir.join("ours"), "photocraft", "0123456789abcdef0123456789abcdef01234567", &upstream_dir);
+        let off_main = upstream_reviewed(&dir.join("ours"), "photocraft", &unmerged, &upstream_dir);
         let after_refusals = std::fs::read_to_string(&ports)?;
         std::fs::remove_dir_all(&dir)?;
 
@@ -985,6 +1014,7 @@ skip = ["docs/"]
         assert_eq!(advanced, md.replace(&format!("| PhotoCraft | `{first}` |"), &format!("| PhotoCraft | `{second}` |")));
         assert!(format!("{:#}", backward.expect_err("a side branch is not a descendant")).contains("only moves forward"));
         assert!(format!("{:#}", unknown.expect_err("an unknown commit")).contains("fetch origin"));
+        assert!(format!("{:#}", off_main.expect_err("a commit no main branch has")).contains("is not on PhotoCraft's main branch"));
         assert_eq!(after_refusals, advanced);
         let duplicate = format!("| Upstream | Reviewed up to |\n|---|---|\n| PhotoCraft | `{first}` |\n| photocraft | `{second}` |\n");
         assert!(format!("{:#}", review_markers(&duplicate).expect_err("two cutoffs for one upstream")).contains("line 4"));
