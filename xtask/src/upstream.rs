@@ -161,7 +161,8 @@ pub fn upstream_reviewed(root: &Path, key: &str, rev: &str, upstream_dir: &Path)
         bail!("{why}");
     }
     std::fs::write(&path, replace_line(&md, marker.line, &format!("| {} | `{new}` |", upstream.name)))?;
-    println!("{} reviewed up to {new} (was {})", upstream.name, marker.sha);
+    let passed = git_out(&clone, &["rev-list", "--count", &format!("{}..{new}", marker.sha)])?;
+    println!("{} reviewed up to {new} (was {}): {passed} commit(s) now count as triaged", upstream.name, marker.sha);
     Ok(())
 }
 
@@ -447,9 +448,10 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
         };
         let status = status.chars().next().unwrap_or('?');
         let path = String::from_utf8_lossy(raw).into_owned();
-        // Patch headers quote such paths, and the header rewrite matches them literally.
-        if raw.iter().any(|&b| !(0x20..0x7f).contains(&b) || b == b'"' || b == b'\\') {
-            refused.push(format!("{path}: git quotes this path; port by hand"));
+        // Patch headers quote such paths, or end them with a tab when they hold a space, and the
+        // header rewrite matches them literally.
+        if raw.iter().any(|&b| !(0x21..0x7f).contains(&b) || b == b'"' || b == b'\\') {
+            refused.push(format!("{path}: a path the patch headers cannot carry as it is; port by hand"));
             continue;
         }
         match map.route(&path, &moved_since)? {
@@ -475,7 +477,7 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
     for path in &dropped {
         println!("dropped: {path}");
     }
-    let subject = git_out(&clone, &["log", "-1", "--format=%s", &sha])?;
+    let subject = git_out(&clone, &["show", "-s", "--no-show-signature", "--format=%s", &sha])?;
     let ours: Vec<&str> = if named { options.files.iter().map(String::as_str).collect() } else { changes.iter().map(|c| c.ours.as_str()).collect() };
     let row = commit_row(upstream, &sha, &subject, &ours);
     let recorded = with_commit_row(&md, &row, &sha)?;
@@ -1186,6 +1188,11 @@ skip = ["docs/"]
         f.write(&f.clone, "crates/algo/src/theirs.rs", "two\n");
         let no_file = f.commit_upstream("change it");
         assert!(f.refused(&no_file, PortMode::Apply).contains("crates/algo/src/theirs.rs: we have no crates/pc-algo/src/theirs.rs"));
+        unchanged(&f);
+
+        f.write(&f.clone, "crates/algo/src/two words.rs", "spaced\n");
+        let spaced = f.commit_upstream("a path with a space");
+        assert!(f.refused(&spaced, PortMode::Apply).contains("crates/algo/src/two words.rs: a path the patch headers cannot carry"));
         unchanged(&f);
 
         git(&f.clone, &["checkout", "--quiet", "-b", "side", &clean]);

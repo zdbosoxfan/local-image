@@ -40,11 +40,11 @@ skip = ["docs/", "book/", "README.md", "CHANGELOG.md", "Cargo.lock", ".github/",
 "apps/photocraft/" = "apps/local-image/"
 
 [photocraft.moved]
-"crates/affinity/" = { ours = "crates/pc-affinity/", to = "craft-libs craft-affinity", at = "8c7544ed2" }   # 2026-11-14
-"crates/cms/" = { ours = "crates/pc-cms/", to = "craft-libs craft-cms", at = "2b75a0092" }                  # 2026-11-11
-"crates/codecs/" = { ours = "crates/pc-codecs/", to = "craft-libs craft-image-codecs", at = "b0e0bcc6c" }   # 2026-11-13, PR 14236 merge: the PR branch's own commits are not descendants of it, so they still map here; its deletion commit fails to apply against our copy rather than applying
-"crates/heif/" = { ours = "crates/pc-heif/", to = "craft-libs craft-heif", at = "5d4b68f04" }               # 2026-11-11
-"crates/psd/" = { ours = "crates/pc-psd/", to = "craft-libs craft-psd", at = "74330157c" }                  # 2026-11-12
+"crates/affinity/" = { ours = "crates/pc-affinity/", to = "craft-libs craft-affinity", at = "8c7544ed2a16b33dae8e56fcbe7aa36605fdc23c" }   # 2026-11-14
+"crates/cms/" = { ours = "crates/pc-cms/", to = "craft-libs craft-cms", at = "2b75a0092d9cdefe274082a39fcf389c3b5b53f4" }                  # 2026-11-11
+"crates/codecs/" = { ours = "crates/pc-codecs/", to = "craft-libs craft-image-codecs", at = "b0e0bcc6c470d39a21fac74fcdf966604a000af7" }   # 2026-11-13, PR 14236 (squash commit; removes crates/codecs)
+"crates/heif/" = { ours = "crates/pc-heif/", to = "craft-libs craft-heif", at = "5d4b68f04cfefada1404fb709eb9ca2d3575f303" }               # 2026-11-11
+"crates/psd/" = { ours = "crates/pc-psd/", to = "craft-libs craft-psd", at = "74330157cb601573ae4523a95bb9132822fc3918" }                  # 2026-11-12
 
 [photocraft.unmapped]
 "crates/raw/" = "Local Image reads RAW with lc-raw (LightCraft)"
@@ -76,7 +76,7 @@ skip = ["docs/", "README.md", "CHANGELOG.md", "Cargo.lock", ".github/", "nix/", 
 "crates/ui-egui/" = "crates/lc-ui-egui/"
 
 [lightcraft.moved]
-"crates/tiff/" = { ours = "crates/lc-tiff/", to = "craft-libs craft-tiff", at = "c5d60d2f" }   # 2026-11-11, PR 4088
+"crates/tiff/" = { ours = "crates/lc-tiff/", to = "craft-libs craft-tiff", at = "c5d60d2fa7afa4e0d29bfba25dd30a64e71b62a4" }   # 2026-11-11, PR 4088
 
 [lightcraft.unmapped]
 "crates/color/" = "merged into li-color; port by hand"
