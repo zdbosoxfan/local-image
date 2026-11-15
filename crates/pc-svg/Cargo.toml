@@ -17,14 +17,14 @@ photocraft-compose.workspace = true
 photocraft-export-common.workspace = true
 image.workspace = true
 kurbo.workspace = true
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 serde.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
 flate2.workspace = true
 usvg = { version = "=0.45.1", default-features = false }
 svgtypes = "=0.15.3"
-roxmltree = "=0.21.1"
+roxmltree = "=0.21.2"
 simplecss = "=0.2.2"
 [dev-dependencies]
 photocraft-cms.workspace = true

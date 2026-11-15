@@ -15,12 +15,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # attributions: Cargo.lock and manifests (already in Cargo.lock through the UI crates' build scripts)
 toml = "1"
-base64 = "0.22"
+base64 = "0.23"
 sha2 = { workspace = true }
 hex = { workspace = true }
 flate2 = { workspace = true }
 tar = "0.4"
-zip = { version = "7", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 ureq = { workspace = true }
 rustls = { workspace = true }
 quick-xml = { workspace = true }
