@@ -508,7 +508,7 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
                 "we have no such file"
             }
             (_, Local::Pristine) => "ours is still the upstream's file",
-            (_, Local::Changed) => "ours has local changes: merged three-way, review the result",
+            (_, Local::Changed) => "ours has local changes: three-way merge, review the result",
         };
         println!("{} {} -> {} ({note})", c.status, c.from, c.ours);
     }
