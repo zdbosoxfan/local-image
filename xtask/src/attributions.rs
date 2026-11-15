@@ -28,6 +28,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use crate::upstream::{self, Upstream};
+
 /// The generated file, relative to the repository root.
 pub const OUTPUT: &str = "assets/attributions.json";
 /// The hand-written input.
@@ -293,9 +295,98 @@ pub fn parse_ports(md: &str) -> Vec<PortRow> {
     out
 }
 
+/// One row of a PORTS.md commit table (`Upstream commit | Subject | Our files | Licence`): a whole
+/// upstream commit ported into our files.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommitPort {
+    pub upstream: &'static Upstream,
+    /// The full hash from the commit link.
+    pub commit: String,
+    pub subject: String,
+    /// Our files, separated by ", ".
+    pub ours: String,
+    pub licence: String,
+}
+
+const COMMIT_TABLE: [&str; 4] = ["upstream commit", "subject", "our files", "licence"];
+
+/// The cells of a markdown table row; `\|` is a literal pipe inside a cell.
+pub(crate) fn row_cells(line: &str) -> Vec<String> {
+    let inner = line.trim();
+    let inner = inner.strip_prefix('|').unwrap_or(inner);
+    let inner = inner.strip_suffix('|').unwrap_or(inner);
+    let mut cells = vec![String::new()];
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        let cell = cells.last_mut().expect("cells starts non-empty");
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                cell.push('|');
+                chars.next();
+            }
+            '|' => cells.push(String::new()),
+            c => cell.push(c),
+        }
+    }
+    cells.into_iter().map(|c| c.trim().to_string()).collect()
+}
+
+/// The rows of every commit table in PORTS.md. A row whose commit link is not a storytold commit,
+/// or whose link text is not a prefix of the linked hash, is an error naming its line: a skipped
+/// row would silently drop a port from the attributions.
+pub fn parse_commit_ports(md: &str) -> Result<Vec<CommitPort>> {
+    let mut out = Vec::new();
+    let mut in_table = false;
+    for (i, line) in md.lines().enumerate() {
+        let line = line.trim();
+        if !line.starts_with('|') {
+            in_table = false;
+            continue;
+        }
+        let cells = row_cells(line);
+        if cells.iter().all(|c| c.chars().all(|ch| matches!(ch, '-' | ':' | ' '))) {
+            continue;
+        }
+        if !in_table {
+            in_table = cells.iter().map(|c| plain(c).to_ascii_lowercase()).eq(COMMIT_TABLE);
+            continue;
+        }
+        out.push(commit_port(&cells).with_context(|| format!("docs/PORTS.md line {}: {line}", i + 1))?);
+    }
+    Ok(out)
+}
+
+fn commit_port(cells: &[String]) -> Result<CommitPort> {
+    let [commit, subject, ours, licence] = cells else { bail!("expected 4 cells, found {}", cells.len()) };
+    let (text, url) = first_link(commit).context("the commit cell has no link")?;
+    let (key, sha) = url
+        .strip_prefix("https://github.com/storytold/")
+        .and_then(|rest| rest.split_once("/commit/"))
+        .with_context(|| format!("{url} is not a storytold GitHub commit"))?;
+    let upstream = upstream::by_key(key).with_context(|| format!("unknown upstream `{key}`"))?;
+    if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        bail!("`{sha}` is not a full commit hash");
+    }
+    let short = text.rsplit('@').next().unwrap_or_default();
+    if short.len() < 7 || !sha.starts_with(short) {
+        bail!("link text `{text}` does not match the commit it links to ({sha})");
+    }
+    Ok(CommitPort { upstream, commit: sha.to_string(), subject: plain(subject), ours: plain(&ours.replace("<br>", ", ")), licence: plain(licence) })
+}
+
 fn port_entries(root: &Path) -> Result<Vec<Entry>> {
     let md = std::fs::read_to_string(root.join("docs/PORTS.md")).context("docs/PORTS.md")?;
     let rows = parse_ports(&md);
+    let commits = parse_commit_ports(&md)?.into_iter().map(|c| Entry {
+        name: c.upstream.name.into(),
+        used_for: Some(c.subject),
+        commit: Some(c.commit.clone()),
+        ours: Some(c.ours),
+        licence: c.licence,
+        licence_files: project_licence_files(root, c.upstream.name),
+        url: Some(format!("{}/commit/{}", c.upstream.url, c.commit)),
+        ..Default::default()
+    });
     Ok(rows
         .into_iter()
         .map(|r| {
@@ -322,6 +413,7 @@ fn port_entries(root: &Path) -> Result<Vec<Entry>> {
                 ..Default::default()
             }
         })
+        .chain(commits)
         .collect())
 }
 
@@ -938,6 +1030,106 @@ mod tests {
                 "PORTS.md row {} ({}) is missing from {OUTPUT} — run `cargo xtask attributions`",
                 r.ours,
                 r.project
+            );
+        }
+    }
+
+    fn temp_root(name: &str) -> PathBuf {
+        let dir = crate::upstream::test_support::temp_dir(name);
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::create_dir_all(dir.join("licenses")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn commit_subject_rows_become_port_entries() {
+        let dir = temp_root("commit-rows");
+        std::fs::write(dir.join("licenses/photocraft-NOTICE"), "").unwrap();
+        std::fs::write(dir.join("licenses/vectorcraft-LICENSE-MIT"), "").unwrap();
+        let pc = "bd3b5d9192e6aaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let vc = "4c82749b08575cec1e6a0fe2e2bca1ef157151e7";
+        std::fs::write(
+            dir.join("docs/PORTS.md"),
+            format!(
+                "| Upstream commit | Subject | Our files | Licence |\n|---|---|---|---|\n\
+| [`bd3b5d9192e6`](https://github.com/storytold/photocraft/commit/{pc}) | fix(blur): exact variance | `crates/pc-algo/src/blur.rs`<br>`crates/pc-algo/src/lib.rs` | MIT OR Apache-2.0 |\n\
+| [storytold/vectorcraft@`{vc}`](https://github.com/storytold/vectorcraft/commit/{vc}) | Security: import bounds (#3887) | `crates/pc-affinity/src/geometry.rs` | MIT OR Apache-2.0 |\n"
+            ),
+        )
+        .unwrap();
+        let entries = port_entries(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            entries.unwrap(),
+            vec![
+                Entry {
+                    name: "PhotoCraft".into(),
+                    used_for: Some("fix(blur): exact variance".into()),
+                    commit: Some(pc.into()),
+                    ours: Some("crates/pc-algo/src/blur.rs, crates/pc-algo/src/lib.rs".into()),
+                    licence: "MIT OR Apache-2.0".into(),
+                    licence_files: vec!["licenses/photocraft-NOTICE".into()],
+                    url: Some(format!("https://github.com/storytold/photocraft/commit/{pc}")),
+                    ..Default::default()
+                },
+                Entry {
+                    name: "VectorCraft".into(),
+                    used_for: Some("Security: import bounds (#3887)".into()),
+                    commit: Some(vc.into()),
+                    ours: Some("crates/pc-affinity/src/geometry.rs".into()),
+                    licence: "MIT OR Apache-2.0".into(),
+                    licence_files: vec!["licenses/vectorcraft-LICENSE-MIT".into()],
+                    url: Some(format!("https://github.com/storytold/vectorcraft/commit/{vc}")),
+                    ..Default::default()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn commit_subject_rows_reject_mismatched_links() {
+        let sha = "abcdef1234567890abcdef1234567890abcdef12";
+        let good = format!(
+            "| [`abcdef1`](https://github.com/storytold/lightcraft/commit/{sha}) | a \\| b | `x.rs`, `y.rs` (native methods)<br>`z.rs` | MIT OR Apache-2.0 |"
+        );
+        let file_table = "| Our file | Upstream project | Upstream path | Upstream commit | Licence |\n|---|---|---|---|---|\n| `o.rs` | darktable | `p.c` | 0123456789abcdef | GPL-3.0-or-later |\n";
+        let md = format!("{file_table}\n| Upstream commit | Subject | Our files | Licence |\n|---|---|---|---|\n{good}\n");
+        let rows = parse_commit_ports(&md).unwrap();
+        assert_eq!(
+            rows,
+            vec![CommitPort {
+                upstream: upstream::by_key("lightcraft").unwrap(),
+                commit: sha.into(),
+                subject: "a | b".into(),
+                ours: "x.rs, y.rs (native methods), z.rs".into(),
+                licence: "MIT OR Apache-2.0".into(),
+            }]
+        );
+        for bad in [
+            format!("| [`abcdef2`](https://github.com/storytold/lightcraft/commit/{sha}) | s | `x.rs` | MIT |"),
+            format!("| [`abcdef1`](https://example.com/storytold/lightcraft/commit/{sha}) | s | `x.rs` | MIT |"),
+            format!("| [`abcdef1`](https://github.com/storytold/designcraft/commit/{sha}) | s | `x.rs` | MIT |"),
+        ] {
+            let md = format!("intro\n\n| Upstream commit | Subject | Our files | Licence |\n|---|---|---|---|\n{good}\n{bad}\n");
+            let error = format!("{:#}", parse_commit_ports(&md).expect_err(&bad));
+            assert!(error.contains("docs/PORTS.md line 6:"), "{error}");
+        }
+    }
+
+    /// Every commit-table row of PORTS.md is an entry.
+    #[test]
+    fn every_commit_port_is_attributed() {
+        let md = std::fs::read_to_string(root().join("docs/PORTS.md")).unwrap();
+        let rows = parse_commit_ports(&md).unwrap();
+        assert!(!rows.is_empty());
+        let a = committed();
+        let ports = &a.sections.iter().find(|s| s.id == "ports").unwrap().entries;
+        for r in rows {
+            assert!(
+                ports.iter().any(|e| e.ours.as_deref() == Some(r.ours.as_str()) && e.commit.as_deref() == Some(r.commit.as_str())),
+                "PORTS.md commit row {} ({}) is missing from {OUTPUT} — run `cargo xtask attributions`",
+                r.commit,
+                r.subject
             );
         }
     }
