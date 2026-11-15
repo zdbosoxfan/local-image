@@ -42,7 +42,7 @@ impl DateTime {
             && self.minute < 60
             && self.second < 61
             && self.year > 0
-            && self.offset_minutes.is_none_or(|o| o.abs() <= 18 * 60);
+            && self.offset_minutes.is_none_or(|o| o.unsigned_abs() <= 18 * 60);
         ok.then_some(self)
     }
 
@@ -152,7 +152,7 @@ impl DateTime {
 
     /// The UTC offset as `+HH:MM` / `-HH:MM` (Exif `OffsetTime*`, the ISO 8601 suffix), when known.
     pub fn offset(&self) -> Option<String> {
-        self.offset_minutes.map(|o| format!("{}{:02}:{:02}", if o < 0 { '-' } else { '+' }, o.abs() / 60, o.abs() % 60))
+        self.offset_minutes.map(|o| format!("{}{:02}:{:02}", if o < 0 { '-' } else { '+' }, o.unsigned_abs() / 60, o.unsigned_abs() % 60))
     }
 
     /// Seconds since 1970-01-01T00:00:00 of the civil time (UTC when the offset is known, else "local" seconds).
@@ -203,6 +203,14 @@ mod tests {
         assert_eq!(DateTime::parse_offset("+0930"), Some(570));
         assert_eq!(DateTime::parse_offset("   :  "), None);
         assert_eq!(DateTime::parse_offset("+99:00"), None);
+    }
+
+    #[test]
+    fn extreme_offsets_do_not_overflow() {
+        // `DateTime` deserializes with public fields, so an offset can arrive without passing `valid()`
+        let d = DateTime { offset_minutes: Some(i16::MIN), ..DateTime::parse_iso("2024-06-01T13:45:59").unwrap() };
+        assert_eq!(d.to_iso(), "2024-06-01T13:45:59-546:08");
+        assert_eq!(d.valid(), None);
     }
 
     #[test]
