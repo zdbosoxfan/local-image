@@ -29,7 +29,9 @@ pub mod web;
 
 pub use crate::codecs::jpeg::{JpegPreview, JpegPreviewSource, decode_jpeg_scaled, jpeg_embedded_preview};
 pub use crate::codecs::png::encode_indexed as encode_png_indexed;
-pub use crate::codecs::tiff::{PhotoshopTags as TiffPhotoshopTags, photoshop_tags as tiff_photoshop_tags, writes_little_endian as tiff_writes_little_endian};
+pub use crate::codecs::tiff::{
+    PhotoshopTags as TiffPhotoshopTags, TiffBands, photoshop_tags as tiff_photoshop_tags, writes_little_endian as tiff_writes_little_endian,
+};
 pub use crate::codecs::tiff_ifd::{TiffInfo, TiffPage, TiffPageKind};
 pub use crate::error::CodecError;
 pub use crate::fidelity::{FidelityWarning, fidelity_warnings, fidelity_warnings_with};

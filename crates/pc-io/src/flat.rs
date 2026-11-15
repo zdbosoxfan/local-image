@@ -32,78 +32,135 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
 
 /// Opens one page of a TIFF or BigTIFF file: `None` is the page Photoshop opens (the first
 /// full-resolution one), `Some(i)` an index into [`codecs::tiff_info`]'s pages (every IFD and
-/// SubIFD). A page with Photoshop layer data opens layered.
+/// SubIFD). A page with Photoshop layer data opens layered. Any other page is decoded a group of
+/// rows at a time straight into the layer's tiles, so it opens up to Photoshop's 300,000 px a
+/// side without a second full-size copy.
 pub fn import_tiff_page(name: &str, bytes: &[u8], page: Option<usize>) -> Result<ImportResult, IoError> {
-    // The orientation is applied after the layer check: rotating the composite but not the
-    // layers would misalign them, so a layered TIFF keeps its stored orientation.
+    let bands = codecs::TiffBands::open(bytes, page, &codecs::Limits::banded())?;
+    if bands.meta.photoshop_layers.as_deref().is_some_and(|l| !l.is_empty()) {
+        return import_layered_tiff(name, bytes, page);
+    }
+    tiff_to_document(name, bands.upright())
+}
+
+/// A layered TIFF, decoded whole: its layers are built from the composite.
+fn import_layered_tiff(name: &str, bytes: &[u8], page: Option<usize>) -> Result<ImportResult, IoError> {
+    // The orientation is ignored: rotating the composite but not the layers would misalign
+    // them, so a layered TIFF keeps its stored orientation.
     let keep = codecs::DecodeOptions { keep_orientation: true, limits: codecs::Limits::desktop_photo() };
     let (img, orientation) = match page {
         None => (codecs::decode_with(bytes, &keep)?, codecs::tiff_orientation(bytes)),
         Some(p) => (codecs::decode_tiff_page(bytes, p, &keep)?, codecs::tiff_page_orientation(bytes, p)),
     };
-    if let Some(layers) = img.meta.photoshop_layers.as_deref().filter(|l| !l.is_empty()) {
-        let mut r = crate::tiff_layers::import_layered(name, &img, layers)?;
-        if orientation != 1 {
-            r.warnings.push("the TIFF's orientation tag was ignored so the layers stay aligned with the image".to_string());
-        }
-        return Ok(r);
+    let mut r = crate::tiff_layers::import_layered(name, &img, img.meta.photoshop_layers.as_deref().unwrap_or_default())?;
+    if orientation != 1 {
+        r.warnings.push("the TIFF's orientation tag was ignored so the layers stay aligned with the image".to_string());
     }
-    image_to_document(name, &img.oriented(orientation)?)
+    Ok(r)
+}
+
+/// A flat TIFF page as a single-layer document, decoded a group of rows at a time into the
+/// layer's tiles: only one group exists beside the document.
+fn tiff_to_document(name: &str, mut bands: codecs::TiffBands<'_>) -> Result<ImportResult, IoError> {
+    let f = document_format(bands.layout(), bands.sample_type());
+    let mut s = Surface::new(PixelFormat::new(f.mode, f.depth, true));
+    bands.decode(|x, y, group| write_converted(&mut s, x, y, group, &f))?;
+    s.prune();
+    let mut warnings: Vec<String> = bands.warnings.iter().map(ToString::to_string).collect();
+    warnings.extend(f.warning.clone());
+    let profile = bands.icc.take().map(Arc::new);
+    Ok(single_layer_document(name, bands.dimensions(), &f, s, profile, &bands.meta, warnings))
+}
+
+/// How a decoded image's pixels are kept in a document.
+struct DocumentFormat {
+    mode: ColorMode,
+    depth: SampleType,
+    /// The layer's layout (always with alpha) and sample type, as the codec names them.
+    layout: ChannelLayout,
+    sample: CSample,
+    /// The decoded image has alpha.
+    alpha: bool,
+    /// What the conversion loses.
+    warning: Option<String>,
+}
+
+fn document_format(layout: ChannelLayout, sample: CSample) -> DocumentFormat {
+    let alpha = layout.has_alpha();
+    let (mode, layout) = match layout {
+        ChannelLayout::Gray | ChannelLayout::GrayA => (ColorMode::Grayscale, ChannelLayout::GrayA),
+        ChannelLayout::Rgb | ChannelLayout::Rgba => (ColorMode::Rgb, ChannelLayout::Rgba),
+        ChannelLayout::Cmyk | ChannelLayout::CmykA => (ColorMode::Cmyk, ChannelLayout::CmykA),
+        ChannelLayout::Lab | ChannelLayout::LabA => (ColorMode::Lab, ChannelLayout::LabA),
+    };
+    let (depth, sample, warning) = match sample {
+        CSample::U8 => (SampleType::U8, CSample::U8, None),
+        CSample::U16 => (SampleType::U16, CSample::U16, None),
+        CSample::F16 => (SampleType::F32, CSample::F32, Some("16-bit float samples are stored as 32-bit float".to_string())),
+        CSample::F32 => (SampleType::F32, CSample::F32, None),
+    };
+    DocumentFormat { mode, depth, layout, sample, alpha, warning }
+}
+
+/// Writes `img` into `s` with its top-left pixel at `(x, y)`, converted to the document's
+/// layout and sample type a band of rows at a time: no second full-size copy of the image.
+fn write_converted(s: &mut Surface, x: u32, y: u32, img: &Image, f: &DocumentFormat) -> Result<(), IoError> {
+    let (w, h) = img.dimensions();
+    let (x, y) = (x as i32, y as i32);
+    let rect = |y0: usize, n: usize| Rect::new(x, y + y0 as i32, x + w as i32, y + (y0 + n) as i32);
+    let out_of_memory = |e: photocraft_raster::AllocationError| IoError::Unsupported(format!("not enough memory to open this image: {e}"));
+    if img.layout() == f.layout && img.sample_type() == f.sample {
+        return s.try_write_interleaved(rect(0, h as usize), img.data()).map_err(out_of_memory);
+    }
+    let row = (img.data().len() / (h.max(1) as usize)).max(1);
+    let band = (BAND_BYTES / row).max(1);
+    for (i, rows) in img.data().chunks(row * band).enumerate() {
+        let n = rows.len() / row;
+        let part = Image::from_raw(w, n as u32, img.layout(), img.sample_type(), rows.to_vec())?.convert(f.layout, f.sample);
+        s.try_write_interleaved(rect(i * band, n), part.data()).map_err(out_of_memory)?;
+    }
+    Ok(())
 }
 
 /// A decoded flat image as a single-layer document.
 pub(crate) fn image_to_document(name: &str, img: &Image) -> Result<ImportResult, IoError> {
     // What the decoder noticed (frames or pages left out, data ending early) comes first.
     let mut warnings: Vec<String> = img.warnings.iter().map(ToString::to_string).collect();
-    let (mode, target_layout) = match img.layout() {
-        ChannelLayout::Gray | ChannelLayout::GrayA => (ColorMode::Grayscale, ChannelLayout::GrayA),
-        ChannelLayout::Rgb | ChannelLayout::Rgba => (ColorMode::Rgb, ChannelLayout::Rgba),
-        ChannelLayout::Cmyk | ChannelLayout::CmykA => (ColorMode::Cmyk, ChannelLayout::CmykA),
-        ChannelLayout::Lab | ChannelLayout::LabA => (ColorMode::Lab, ChannelLayout::LabA),
-    };
-    let (depth, csample) = match img.sample_type() {
-        CSample::U8 => (SampleType::U8, CSample::U8),
-        CSample::U16 => (SampleType::U16, CSample::U16),
-        CSample::F16 => {
-            warnings.push("16-bit float samples are stored as 32-bit float".to_string());
-            (SampleType::F32, CSample::F32)
-        }
-        CSample::F32 => (SampleType::F32, CSample::F32),
-    };
-    let (w, h) = img.dimensions();
-    let mut doc = Document::new(name, Size::new(w, h), mode, depth);
-    let fmt = PixelFormat::new(mode, depth, true);
-    let mut s = Surface::new(fmt);
-    if img.layout() == target_layout && img.sample_type() == csample {
-        s.write_interleaved(Rect::new(0, 0, w as i32, h as i32), img.data());
-    } else {
-        // Converted a band of rows at a time: no second full-size copy of the image.
-        let row = img.data().len() / (h.max(1) as usize);
-        let band = (BAND_BYTES / row.max(1)).max(1);
-        for (i, rows) in img.data().chunks(row.max(1) * band).enumerate() {
-            let n = (rows.len() / row.max(1)) as u32;
-            let part = Image::from_raw(w, n, img.layout(), img.sample_type(), rows.to_vec())?.convert(target_layout, csample);
-            let y0 = (i * band) as i32;
-            s.write_interleaved(Rect::new(0, y0, w as i32, y0 + n as i32), part.data());
-        }
-    }
+    let f = document_format(img.layout(), img.sample_type());
+    warnings.extend(f.warning.clone());
+    let mut s = Surface::new(PixelFormat::new(f.mode, f.depth, true));
+    write_converted(&mut s, 0, 0, img, &f)?;
     s.prune();
+    Ok(single_layer_document(name, img.dimensions(), &f, s, decoded_profile(img), &img.meta, warnings))
+}
+
+/// The document of one layer holding `s`, with the image's profile and metadata.
+fn single_layer_document(
+    name: &str,
+    (w, h): (u32, u32),
+    f: &DocumentFormat,
+    s: Surface,
+    profile: Option<Arc<Vec<u8>>>,
+    meta: &codecs::Metadata,
+    mut warnings: Vec<String>,
+) -> ImportResult {
+    let mut doc = Document::new(name, Size::new(w, h), f.mode, f.depth);
     let mut bg = Layer::new("Background", LayerContent::Raster(s));
-    if !img.layout().has_alpha() {
+    if !f.alpha {
         bg.locks.transparency = true;
         bg.locks.position = true;
     }
     doc.layers.push(bg);
-    doc.icc_profile = decoded_profile(img);
-    doc.metadata.exif = img.meta.exif.clone().map(Arc::new);
-    doc.metadata.xmp = img.meta.xmp.clone();
-    if let Some((x, _)) = img.meta.dpi {
+    doc.icc_profile = profile;
+    doc.metadata.exif = meta.exif.clone().map(Arc::new);
+    doc.metadata.xmp = meta.xmp.clone();
+    if let Some((x, _)) = meta.dpi {
         doc.resolution_dpi = x;
     }
-    if !img.meta.text.is_empty() {
-        warnings.push(format!("{} text metadata entries are not kept in the document", img.meta.text.len()));
+    if !meta.text.is_empty() {
+        warnings.push(format!("{} text metadata entries are not kept in the document", meta.text.len()));
     }
-    Ok(ImportResult { document: doc, warnings })
+    ImportResult { document: doc, warnings }
 }
 
 /// Container colour hints must accompany their device samples into a document too.
