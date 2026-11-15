@@ -1203,3 +1203,43 @@ Already covered: `d00df631`'s lossy-JPEG size ceiling by the tile-bounded JPEG h
 Not applicable, the upstream file having no counterpart here as of `6f6d8ed8`: `d00df631`'s and `3022baa8`'s `crates/raw/src/sparse.rs` (no sparse reader), `d00df631`'s `crates/raw/src/vendor/mef.rs` (no MEF decoder) and `crates/raw/src/wb_estimate.rs`, and `d8ceb3a6`'s `crates/meta/src/focus_read.rs` (no focus reader), `crates/denoise/src/reference.rs` and `crates/denoise-core/src/product.rs`. `d8ceb3a6`'s `try_read_exif_with` in `crates/meta/src/exif.rs` exists upstream for that focus reader and has no caller here.
 
 Local limit on a ported guard: the refusal of an Original export under Remove Location Info from `db7e3784` (`crates/lc-engine/src/export/prepared.rs`) only trusts the containers `reads_container` allows (`crates/lc-meta/src/container.rs`). Everything else is refused, including HEIC, HEIF, HIF and JPEG XL, which have no metadata reader here yet. Within those containers `try_extract` refuses a malformed XMP packet in any of them, and any block `Embedded::unread` names: compressed or `zTXt`/`tEXt` PNG XMP, a raw metadata profile, a second Exif block or XMP packet, a cut-off block, and XMP that is not UTF-8. JPEG extended XMP is read, and `Metadata::other_location` adds the location fields `Metadata` has no field for. A local adaptation with no upstream match. This is best-effort, not a guarantee that a copied file holds no location: corrupt Exif outside PSD/PSB reads as no Exif (`try_extract_keeps_non_psd_exif_best_effort`), so a location inside it goes unseen, and nothing looks at JPEG data past the first scan, IPTC past the first APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3 preview boxes, or PNG text chunks under other keywords.
+
+## Upstream commit ports
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`20f92ee405dc`](https://github.com/storytold/photocraft/commit/20f92ee405dc1c195a7a10ed54d2af9ca2ecef06) | codecs: leave Extended XMP fragments out of zune-jpeg's header parse (#10981) | `crates/pc-codecs/src/codecs/jpeg.rs` | MIT OR Apache-2.0 |
+| [`42929264805c`](https://github.com/storytold/photocraft/commit/42929264805c70be29813fabd738c905c5b07460) | Codecs: a PNG's iCCP profile inflates to at most 16.7 MB (#8599) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`acd57a36af62`](https://github.com/storytold/photocraft/commit/acd57a36af62ccba3c21004052113716605bb937) | Codecs: a PNG's iCCP profile also keeps to the caller's allocation limit (#8599) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`d82e166494f9`](https://github.com/storytold/photocraft/commit/d82e166494f95f9805af18d02e2121f29edd5ef5) | codecs: charge dropped PNG text against the metadata budget (#10980) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`4a65ae3fb0b8`](https://github.com/storytold/photocraft/commit/4a65ae3fb0b8a1518f2e1da7051a6285f82af4e5) | codecs: refuse EXR preview attributes larger than their value (#10982) | `crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/src/lib.rs` | MIT OR Apache-2.0 |
+| [`81ce14c1b4ac`](https://github.com/storytold/photocraft/commit/81ce14c1b4ac178efa328f23d88b5a6e18cfc691) | codecs: count TIFF strip/tile scratch against max_alloc | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/options.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`2d3f6dc91a92`](https://github.com/storytold/photocraft/commit/2d3f6dc91a92a6b0b9f9374c968256dfc85fc495) | TIFF: reserve a strip's scratch buffer fallibly in decode_band | `crates/pc-codecs/src/codecs/tiff.rs` | MIT OR Apache-2.0 |
+| [`f4d4524161b2`](https://github.com/storytold/photocraft/commit/f4d4524161b25b432b32537c7a9ea9be2a875349) | codecs: refuse TIFF chunk tables over max_alloc before the decoder opens | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`eef1638eff87`](https://github.com/storytold/photocraft/commit/eef1638eff87d9fef5a6a28ee01acdaf706ee55b) | codecs: bound the TIFF JPEG header walk by the file length | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`f45711c74937`](https://github.com/storytold/photocraft/commit/f45711c74937cb5d723758a81f2cd9e069f4c67f) | codecs: check TIFF structural tags, predicted rows and JPEG chunk frames (#10983) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_regressions.rs` | MIT OR Apache-2.0 |
+| [`129e6aec9000`](https://github.com/storytold/photocraft/commit/129e6aec9000bad90c935ae4b3da62c4708a3040) | Integration: blank Group 4 fax pages pass the TIFF bomb guard (#8536) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`fb04b02893c5`](https://github.com/storytold/photocraft/commit/fb04b02893c55e359ab86f4d0fdcc6165e8b0b47) | fix(codecs): check header dimensions against the file size before allocating | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`c65b7d93d650`](https://github.com/storytold/photocraft/commit/c65b7d93d65027e14a608f3407b9fd99f5cef5b1) | Integration: file-size bound fits DWA EXR, RLE BMP and GIF screens (#8704) | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`3225307e5780`](https://github.com/storytold/photocraft/commit/3225307e57802c76b540ee7a8691b5d635e447d8) | codecs: admit animated GIF screens, sparse RLE BMPs and icon PNG profiles (#10979) | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`ddae31bad466`](https://github.com/storytold/vectorcraft/commit/ddae31bad4662005d2b04a6d85db4217b6173d1e) | TIFF: alpha after another extra sample places and opens as transparency | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`ab4ba9f37cf2`](https://github.com/storytold/photocraft/commit/ab4ba9f37cf2428cba5b28426fde228e5c4d1b04) | fix(codecs): checked sizes in encoders, EXR name lookup, FITS float limit, VP8 plane copies, EXIF thumbnail bytes (#11164) | `crates/pc-codecs/src/codecs/vp8/mod.rs` | MIT OR Apache-2.0 |
+| [`9034223c4b6d`](https://github.com/storytold/photocraft/commit/9034223c4b6d80fe15a12b9e0d173786ac5f7a4c) | TIFF: open YCbCr images as RGB (#10316) (#10319) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/codecs/tiff_ycbcr.rs`<br>`crates/pc-codecs/src/codecs/mod.rs`<br>`crates/pc-codecs/tests/it/main.rs`<br>`crates/pc-codecs/tests/it/tiff_ycbcr.rs` | MIT OR Apache-2.0 |
+
+Codec hostile-input bounds (2026-11-15). Adapted ports: `81ce14c1` charges band-worker scratch,
+the JPEG copy and the chunk tables next to the output, without upstream's extra-sample accounting,
+which this decoder does not have. `eef1638e` takes only the step budget, in our `jpeg_dimensions`
+walk; its working-memory and float-predictor charges extend accounting this decoder does not have.
+`f45711c7` keeps our existing refusal of JPEG chunks larger than their strip or tile, or without
+SOI, and adds the repeated-tag, predictor-row and decoded-frame checks. `129e6aec` sets the Group 4
+ratio on our file-length bound. `fb04b028`, `c65b7d93` and `3225307e` port the image-crate and EXR
+plausibility checks and the ICO profile check; `dimensions` runs the ICO check too. `ddae31ba`
+(VectorCraft) is ported as the TIFF codec reading an alpha that follows an unspecified extra sample,
+where VectorCraft fixed its CMYK document loader. `9034223c` reads its float tags in
+`tiff_ycbcr.rs`, as our directory type comes from `lightcraft-tiff`. Not ported: `fb04b028`'s JPEG
+hunk and `07f91c6d`, whose truncated-file guard was declined in the October parser ports;
+`fb04b028`'s PCX and XPM, `3225307e`'s animated-GIF, `4a65ae3f`'s Cryptomatte and `ab4ba9f3`'s
+FITS, EXR channel-lookup and EXIF-thumbnail hunks, which have no counterpart here; `ab4ba9f3`'s
+checked multiplications in the PNG and web encoders, which cannot overflow on 64-bit targets.
+`d03c23e1` and `f98983ff` are already covered before the first scan, where our walker skips stray
+bytes without counting them; after a scan our walker stops (`DataEnd::Unread`) by design.
