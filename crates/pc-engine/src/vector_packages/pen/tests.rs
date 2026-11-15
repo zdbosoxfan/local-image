@@ -140,6 +140,20 @@ fn pen_close_drag_alt_preserves_first_outgoing_and_close_click_preserves_handles
 }
 
 #[test]
+fn smart_close_drag_alt_keeps_the_far_handle_the_closing_press_fitted() {
+    let s = session();
+    let mut g = begin(&s, Mode::Smart);
+    g.release().unwrap();
+    click(&mut g, p(80., 20.));
+    click(&mut g, p(80., 80.));
+    // Closing refits the first anchor's handles to its new neighbour.
+    g.press(p(21., 21.), Modifiers::default(), 4.).unwrap();
+    let fitted = g.path().subpaths[0].knots[0];
+    g.motion(p(40., 20.), Modifiers { alt: true, shift: false }).unwrap();
+    assert_eq!(g.path().subpaths[0].knots[0].out_ctrl, fitted.out_ctrl);
+}
+
+#[test]
 fn pen_modes_smart_flows_polygon_stays_sharp_line_self_terminates() {
     let s = session();
     for mode in [Mode::Smart, Mode::Polygon, Mode::Line] {

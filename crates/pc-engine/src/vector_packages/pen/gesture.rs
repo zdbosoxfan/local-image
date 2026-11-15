@@ -176,16 +176,12 @@ impl Gesture {
         let opposite = if self.at_first { sp.knots.len() - 1 } else { 0 };
         if self.mode != Mode::Line && sp.knots.len() >= 2 && distance(at, sp.knots[opposite].anchor) <= tolerance {
             sp.closed = true;
-            self.drag = Some(Drag {
-                knot: opposite,
-                closing: true,
-                outgoing_only: false,
-                incoming: if self.at_first { sp.knots[opposite].in_ctrl } else { sp.knots[opposite].out_ctrl },
-                pointer: at,
-                moved: false,
-                far: Some((sp.knots[opposite].smooth, if self.at_first { sp.knots[opposite].in_ctrl } else { sp.knots[opposite].out_ctrl })),
-            });
+            // Refit first, so the drag keeps the far handle the closed path shows.
             self.smart_handles();
+            let k = self.request.path.subpaths[self.subpath].knots[opposite];
+            let far = if self.at_first { k.in_ctrl } else { k.out_ctrl };
+            self.drag =
+                Some(Drag { knot: opposite, closing: true, outgoing_only: false, incoming: far, pointer: at, moved: false, far: Some((k.smooth, far)) });
         } else if distance(at, sp.knots[end].anchor) <= tolerance {
             let k = &mut sp.knots[end];
             if self.at_first {
