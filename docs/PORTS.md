@@ -1219,6 +1219,61 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [`967e987edde4`](https://github.com/storytold/photocraft/commit/967e987edde4bd683077b1e0f3273d32dfa2090f) | Preserve clone canvas coverage for sources without alpha | `crates/pc-engine/src/retouch_cmds/clone_sampling.rs`<br>`crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
 | [`0f205f030bc5`](https://github.com/storytold/photocraft/commit/0f205f030bc52fb484c5bc06b83cc66d7740a830) | Sharpen tool: Protect Detail sharpens gently instead of doing nothing (#12938) | `crates/pc-algo/src/retouch.rs`<br>`crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
 | [`d0b24e1abdad`](https://github.com/storytold/photocraft/commit/d0b24e1abdad2e04eef2d7fe7ad413e9a70bccb8) | Round the Magic Wand's Tolerance field to whole numbers | `crates/pc-ui-egui/src/panels/options_bar.rs`<br>`crates/pc-ui-egui/src/widgets.rs` | MIT OR Apache-2.0 |
+| [`20f92ee405dc`](https://github.com/storytold/photocraft/commit/20f92ee405dc1c195a7a10ed54d2af9ca2ecef06) | codecs: leave Extended XMP fragments out of zune-jpeg's header parse (#10981) | `crates/pc-codecs/src/codecs/jpeg.rs` | MIT OR Apache-2.0 |
+| [`42929264805c`](https://github.com/storytold/photocraft/commit/42929264805c70be29813fabd738c905c5b07460) | Codecs: a PNG's iCCP profile inflates to at most 16.7 MB (#8599) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`acd57a36af62`](https://github.com/storytold/photocraft/commit/acd57a36af62ccba3c21004052113716605bb937) | Codecs: a PNG's iCCP profile also keeps to the caller's allocation limit (#8599) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`d82e166494f9`](https://github.com/storytold/photocraft/commit/d82e166494f95f9805af18d02e2121f29edd5ef5) | codecs: charge dropped PNG text against the metadata budget (#10980) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`4a65ae3fb0b8`](https://github.com/storytold/photocraft/commit/4a65ae3fb0b8a1518f2e1da7051a6285f82af4e5) | codecs: refuse EXR preview attributes larger than their value (#10982) | `crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/src/lib.rs` | MIT OR Apache-2.0 |
+| [`81ce14c1b4ac`](https://github.com/storytold/photocraft/commit/81ce14c1b4ac178efa328f23d88b5a6e18cfc691) | codecs: count TIFF strip/tile scratch against max_alloc | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/options.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`2d3f6dc91a92`](https://github.com/storytold/photocraft/commit/2d3f6dc91a92a6b0b9f9374c968256dfc85fc495) | TIFF: reserve a strip's scratch buffer fallibly in decode_band | `crates/pc-codecs/src/codecs/tiff.rs` | MIT OR Apache-2.0 |
+| [`f4d4524161b2`](https://github.com/storytold/photocraft/commit/f4d4524161b25b432b32537c7a9ea9be2a875349) | codecs: refuse TIFF chunk tables over max_alloc before the decoder opens | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`eef1638eff87`](https://github.com/storytold/photocraft/commit/eef1638eff87d9fef5a6a28ee01acdaf706ee55b) | codecs: bound the TIFF JPEG header walk by the file length | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`f45711c74937`](https://github.com/storytold/photocraft/commit/f45711c74937cb5d723758a81f2cd9e069f4c67f) | codecs: check TIFF structural tags, predicted rows and JPEG chunk frames (#10983) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_regressions.rs` | MIT OR Apache-2.0 |
+| [`129e6aec9000`](https://github.com/storytold/photocraft/commit/129e6aec9000bad90c935ae4b3da62c4708a3040) | Integration: blank Group 4 fax pages pass the TIFF bomb guard (#8536) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`fb04b02893c5`](https://github.com/storytold/photocraft/commit/fb04b02893c55e359ab86f4d0fdcc6165e8b0b47) | fix(codecs): check header dimensions against the file size before allocating | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`c65b7d93d650`](https://github.com/storytold/photocraft/commit/c65b7d93d65027e14a608f3407b9fd99f5cef5b1) | Integration: file-size bound fits DWA EXR, RLE BMP and GIF screens (#8704) | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`3225307e5780`](https://github.com/storytold/photocraft/commit/3225307e57802c76b540ee7a8691b5d635e447d8) | codecs: admit animated GIF screens, sparse RLE BMPs and icon PNG profiles (#10979) | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`ddae31bad466`](https://github.com/storytold/vectorcraft/commit/ddae31bad4662005d2b04a6d85db4217b6173d1e) | TIFF: alpha after another extra sample places and opens as transparency | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`ab4ba9f37cf2`](https://github.com/storytold/photocraft/commit/ab4ba9f37cf2428cba5b28426fde228e5c4d1b04) | fix(codecs): checked sizes in encoders, EXR name lookup, FITS float limit, VP8 plane copies, EXIF thumbnail bytes (#11164) | `crates/pc-codecs/src/codecs/vp8/mod.rs` | MIT OR Apache-2.0 |
+| [`9034223c4b6d`](https://github.com/storytold/photocraft/commit/9034223c4b6d80fe15a12b9e0d173786ac5f7a4c) | TIFF: open YCbCr images as RGB (#10316) (#10319) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/codecs/tiff_ycbcr.rs`<br>`crates/pc-codecs/src/codecs/mod.rs`<br>`crates/pc-codecs/tests/it/main.rs`<br>`crates/pc-codecs/tests/it/tiff_ycbcr.rs` | MIT OR Apache-2.0 |
+| [`cf07f076b502`](https://github.com/storytold/photocraft/commit/cf07f076b502cd167fde951d7bd384edf1ab42d1) | Move tool: a huge layer isn't copied for every frame of a live drag (#6114, #6163) | `crates/pc-ui-egui/src/move_ui.rs` | MIT OR Apache-2.0 |
+| [`f09757e4b6d6`](https://github.com/storytold/photocraft/commit/f09757e4b6d6e6c24d399400cece5e1c164e27a5) | Move: bound the live-drag estimate by the worst case of four written tiles per stored tile; test the limit through preview initialization | `crates/pc-ui-egui/src/move_ui.rs` | MIT OR Apache-2.0 |
+| [`ff0f1ba0c551`](https://github.com/storytold/photocraft/commit/ff0f1ba0c55136b73e96f2fef17c1eece80da79c) | fix(algo): Liquify replays a stroke with an absurd brush size or position without overflowing | `crates/pc-algo/src/liquify.rs`<br>`crates/pc-algo/tests/coverage/liquify_coverage.rs` | MIT OR Apache-2.0 |
+| [`200f38f7b606`](https://github.com/storytold/photocraft/commit/200f38f7b60600096627762f1d6c5f320ad1274a) | Liquify: a huge far-off dab writes no NaN and reports the area it changed | `crates/pc-algo/src/liquify.rs`<br>`crates/pc-algo/tests/coverage/liquify_coverage.rs` | MIT OR Apache-2.0 |
+| [`c2cc5eee54a6`](https://github.com/storytold/photocraft/commit/c2cc5eee54a6cf3cc020cf04da4a92e0752d337a) | fix(ui): the Liquify preview shows the effect only inside the selection (#9541) | `crates/pc-ui-egui/src/liquify_ui.rs` | MIT OR Apache-2.0 |
+| [`d98b9ea17be9`](https://github.com/storytold/photocraft/commit/d98b9ea17be9b1b96aa3e052fb33e981b36928b9) | paint: stop a stroke past a dab-area budget and skip dabs outside the paintable area | `crates/pc-paint/src/render.rs`<br>`crates/pc-paint/src/render/budget_tests.rs` | MIT OR Apache-2.0 |
+| [`efd725cc89aa`](https://github.com/storytold/photocraft/commit/efd725cc89aa0cea7844319d8a6561d914ec92cf) | paint: charge the dual brush apart, skip (not end on) a dab that does not fit the budget | `crates/pc-paint/src/render.rs`<br>`crates/pc-paint/src/render/budget_tests.rs` | MIT OR Apache-2.0 |
+| [`f5e92a6b3d03`](https://github.com/storytold/photocraft/commit/f5e92a6b3d0350a0beb0a99faec87c48a229d8cc) | paint: stream the dab generator's steps and keep non-finite brush values and points out | `crates/pc-paint/src/dynamics.rs`<br>`crates/pc-paint/src/brush.rs` | MIT OR Apache-2.0 |
+| [`af025e18d514`](https://github.com/storytold/photocraft/commit/af025e18d51418ad5569111eddb0a782151368d2) | paint: replace only NaN brush values, test a long pixel-grid segment | `crates/pc-paint/src/dynamics.rs`<br>`crates/pc-paint/src/brush.rs` | MIT OR Apache-2.0 |
+| [`0ff76d6f0c08`](https://github.com/storytold/photocraft/commit/0ff76d6f0c089157ddf9c380abd6381a92946311) | fix(paint): cap the total steps one stroke emits (#11195) | `crates/pc-paint/src/dynamics.rs` | MIT OR Apache-2.0 |
+| [`abeb16c96bb6`](https://github.com/storytold/photocraft/commit/abeb16c96bb6c55c70f11a50f57138d17d546db1) | paint: refuse a sequential-dab stroke whose working copy is too large (#11070) | `crates/pc-paint/src/retouch.rs`<br>`crates/pc-paint/src/mixer.rs`<br>`crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/replace.rs`<br>`crates/pc-engine/src/brush_cmds.rs`<br>`crates/pc-engine/src/eraser_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds.rs` | MIT OR Apache-2.0 |
+| [`acd35e12027d`](https://github.com/storytold/photocraft/commit/acd35e12027dffe870fc04100c70ed8127ebd430) | Guard zero-channel regions and saturate the pick-up bounds in Smudge | `crates/pc-paint/src/retouch.rs` | MIT OR Apache-2.0 |
+| [`22882f690c17`](https://github.com/storytold/photocraft/commit/22882f690c1775a9447715e524a7849da17bea67) | Background Eraser: alpha falls off over the whole Tolerance (#11901) | `crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/bg_erase/graded_alpha_tests.rs` | MIT OR Apache-2.0 |
+| [`6bd3773e0743`](https://github.com/storytold/photocraft/commit/6bd3773e0743d21bb28d76ca7026298462f967ea) | Address CodeRabbit review: match the foreground at the document's precision, pin the protect-off row | `crates/pc-paint/src/bg_erase.rs` | MIT OR Apache-2.0 |
+| [`23f63c685eb3`](https://github.com/storytold/photocraft/commit/23f63c685eb3053f6434cdacc4b27afeb32e39c8) | Background Eraser: Find Edges erases soft edges graded instead of cutting them hard (#11904) | `crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/bg_erase/find_edges_tests.rs` | MIT OR Apache-2.0 |
+| [`6d3fe6f96f4e`](https://github.com/storytold/photocraft/commit/6d3fe6f96f4ee9bb670bf3903a44fc22de0c64d2) | Background Eraser: partly erased pixels lose the sampled colour's tint (#11902) | `crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/bg_erase/decontamination_tests.rs` | MIT OR Apache-2.0 |
+| [`7efd224081a1`](https://github.com/storytold/photocraft/commit/7efd224081a190521f6634e766df02d75de77ab7) | Color Replacement: in Lab, Color keeps L and takes the foreground's a and b (#11922) | `crates/pc-paint/src/replace.rs`<br>`crates/pc-paint/src/replace/lab_tests.rs` | MIT OR Apache-2.0 |
+| [`1cf1e15da568`](https://github.com/storytold/photocraft/commit/1cf1e15da5684388e43a17ecbca5fe179f248c20) | Keep Lab/16 Color Replacement on the RGB blend (CodeRabbit review on crates/paint/src/replace.rs:101) | `crates/pc-paint/src/replace.rs`<br>`crates/pc-paint/src/replace/lab_tests.rs` | MIT OR Apache-2.0 |
+| [`cfd894aad3ba`](https://github.com/storytold/photocraft/commit/cfd894aad3bab1d257238812f944daf359934f74) | security(paint): cap spaced steps and procedural primitives (#8957) | `crates/pc-paint/src/dynamics.rs` | MIT OR Apache-2.0 |
+| [`08ff029ac228`](https://github.com/storytold/vectorcraft/commit/08ff029ac22860f47cf0e0b427a932f7d675003e) | fix(pathops): bound offset path complexity and handle arrangement failure safely (#4145) | `crates/pc-pathops/src/offset.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/budget.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+| [`825620eb6cd1`](https://github.com/storytold/vectorcraft/commit/825620eb6cd17a4298b4fa9041013abe3d35190c) | Clipboard: Linux and BSD reads wait 2 s at most for the app that copied | `apps/local-image/src/services.rs`<br>`apps/local-image/src/services/clipboard.rs` | MIT OR Apache-2.0 |
+| [`29a98b750ac9`](https://github.com/storytold/vectorcraft/commit/29a98b750ac90e530d6bd03b45ea56b8cae2ca72) | Respect quotes and parentheses when splitting SVG CSS declarations | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`2b37302fe5f7`](https://github.com/storytold/vectorcraft/commit/2b37302fe5f7570238836d2aee943843673bf815) | Preserve comment markers inside CSS strings | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`194364304bec`](https://github.com/storytold/vectorcraft/commit/194364304bec7b677a8d8a7118ecaaf6a865fb71) | Strip CSS comments from style attributes and rule declarations | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`89f20c45c45c`](https://github.com/storytold/vectorcraft/commit/89f20c45c45c6b6eb2127d1dbb1ec7f53bb29488) | SVG import: bound selector matching and share the limits with linked and embedded SVGs | `crates/pc-svg/src/import/preflight.rs` | MIT OR Apache-2.0 |
+| [`60267727656f`](https://github.com/storytold/vectorcraft/commit/60267727656f64fc138d66b592c1bc1d0e7d0e76) | Fix #3773: Offset Path offsets a path whose ends meet as a closed shape | `crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`1574dfe7293c`](https://github.com/storytold/vectorcraft/commit/1574dfe7293c3acf0f5d66b47a628e6483a96260) | fix: anchor positions and Simplify measure curves through the guarded arc length | `crates/pc-pathops/src/geom/path.rs`<br>`crates/pc-pathops/src/edit.rs` | MIT OR Apache-2.0 |
+| [`e9510956172c`](https://github.com/storytold/vectorcraft/commit/e9510956172c5e48f555db7a93e2d139d757830f) | Path booleans: refuse out-of-range input, guard the contour pass, cuts report refusals (#5465) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`0a2935cf8f98`](https://github.com/storytold/vectorcraft/commit/0a2935cf8f984ddbfcb1959f4ff44166dd9efcc9) | Booleans: limit of one unit, crop outside shortcut, tests (#5465) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`0e64aca55746`](https://github.com/storytold/vectorcraft/commit/0e64aca557462bb6507f6a2e8e2a50a86122f8db) | Bound work: flattening of huge curves, print layout past the page limit, script-check file names | `crates/pc-pathops/src/geom/bez.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs`<br>`crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`9cd997b9aac0`](https://github.com/storytold/vectorcraft/commit/9cd997b9aac07c8dad19c2f830407a346922d027) | address review: draw a line for curves with far-out start or control points in flatten | `crates/pc-pathops/src/geom/bez.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs`<br>`crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`bc19dd64db45`](https://github.com/storytold/vectorcraft/commit/bc19dd64db458f9b6d6a57c029b73d4ac965fcdc) | Simplify: Convert to Straight Lines keeps the tip of a path that turns back past its end | `crates/pc-pathops/src/edit.rs` | MIT OR Apache-2.0 |
+| [`e6add18663a0`](https://github.com/storytold/vectorcraft/commit/e6add18663a01ce563f19e2698e6084eff6840b4) | Fix #6634: Pen closing drag no longer gives the first anchor symmetric handles | `crates/pc-engine/src/vector_packages/pen/gesture.rs` | MIT OR Apache-2.0 |
+| [`85e0d59bfa88`](https://github.com/storytold/vectorcraft/commit/85e0d59bfa88b145f38658037e96d2a4884e4f9a) | Brushes: Scale Proportionately art grows with the stroke weight | `crates/pc-vecfx/src/brush/warp.rs` | MIT OR Apache-2.0 |
+| [`1ce6431a99fb`](https://github.com/storytold/vectorcraft/commit/1ce6431a99fb188e92d3992c45204a6f59125d2e) | SVG import: raster images follow their EXIF or TIFF orientation | `crates/pc-svg/src/import.rs` | MIT OR Apache-2.0 |
+| [`6725f24a80c6`](https://github.com/storytold/vectorcraft/commit/6725f24a80c697c803b40685510bdc6d4a38d7b0) | Path booleans: check the windings against the operands' areas and resolve the operands when they don't add up (#5478) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`f4a30c1a94d9`](https://github.com/storytold/vectorcraft/commit/f4a30c1a94d9124236f0c7afd2b5b1e2d29ce0ef) | Audit: geometry length measurement refuses coordinates the integrator cannot handle | `crates/pc-pathops/src/geom/path.rs` | MIT OR Apache-2.0 |
+| [`e2a870e60202`](https://github.com/storytold/vectorcraft/commit/e2a870e60202abd5216375de76b5f07e9df41d6c) | Security: bounded flattening, plug-in budgets and caches, loaded textures, Revolve paint copies, color book names and ICC names | `crates/pc-pathops/src/geom/bez.rs` | MIT OR Apache-2.0 |
 
 ## PhotoCraft Magic Wand and Magic Eraser parity (2026-11-15)
 
@@ -1231,3 +1286,80 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [storytold/photocraft@`25d6041ab52d849fca1f3dd12cf2eb63c1cff45f`](https://github.com/storytold/photocraft/commit/25d6041ab52d849fca1f3dd12cf2eb63c1cff45f) | fix(algo): partly transparent colours keep the per-channel limit (#11995) | `crates/pc-algo/src/selection.rs`<br>`crates/pc-engine/src/eraser_cmds/tests.rs` | MIT OR Apache-2.0 |
 
 Adapted ports: `0e0d99d0` adds the `within` mask to our Sample Size wand (`wand_region_within`, which `wand_region_sampled` calls). `e0ca582b` and `25d6041a` add `ColorDistance` as a parameter of that same function instead of a further wrapper; our Magic Eraser fringe is still the 3x3 mask average (`e25be5e7` is not ported), so upstream's colour-distance fringe hunk has no counterpart. `ca005139` and `66cbb2a1` mark a Shift-click press as `Drag::line` and add `smoothing: 0` through `canvas::unsmoothed_line`; retouch `parse_brush` reads `smoothing` as 0..100. Our UI has no live retouch previews, so `66cbb2a1`'s preview hunks do not apply.
+
+Codec hostile-input bounds (2026-11-15). Adapted ports: `81ce14c1` charges band-worker scratch,
+the JPEG copy and the chunk tables next to the output, without upstream's extra-sample accounting,
+which this decoder does not have. `eef1638e` takes only the step budget, in our `jpeg_dimensions`
+walk; its working-memory and float-predictor charges extend accounting this decoder does not have.
+`f45711c7` keeps our existing refusal of JPEG chunks larger than their strip or tile, or without
+SOI, and adds the repeated-tag, predictor-row and decoded-frame checks. `129e6aec` sets the Group 4
+ratio on our file-length bound. `fb04b028`, `c65b7d93` and `3225307e` port the image-crate and EXR
+plausibility checks and the ICO profile check; `dimensions` runs the ICO check too. `ddae31ba`
+(VectorCraft) is ported as the TIFF codec reading an alpha that follows an unspecified extra sample,
+where VectorCraft fixed its CMYK document loader. `9034223c` reads its float tags in
+`tiff_ycbcr.rs`, as our directory type comes from `lightcraft-tiff`. Not ported: `fb04b028`'s JPEG
+hunk and `07f91c6d`, whose truncated-file guard was declined in the October parser ports;
+`fb04b028`'s PCX and XPM, `3225307e`'s animated-GIF, `4a65ae3f`'s Cryptomatte and `ab4ba9f3`'s
+FITS, EXR channel-lookup and EXIF-thumbnail hunks, which have no counterpart here; `ab4ba9f3`'s
+checked multiplications in the PNG and web encoders, which cannot overflow on 64-bit targets.
+`d03c23e1` and `f98983ff` are already covered before the first scan, where our walker skips stray
+bytes without counting them; after a scan our walker stops (`DataEnd::Unread`) by design.
+
+## Partial PhotoCraft paint ports (2026-11-15)
+
+For the paint rows of the table above: `d98b9ea1` brings only the dab-area budget; its clip (skip dabs outside the canvas plus the layer's pixels) is not ported, because it makes `out_of_range_scatter_is_rejected_and_the_maximum_still_paints` fail (a 1000 % scattered dab lands off the 32 px canvas and reports empty damage) and upstream relaxed that test, which needs a human decision. Until then the budget bounds time but not, in practice, memory: coverage tiles are dense `f32`, so dabs that land off the canvas can still allocate up to about 8 GiB of coverage (2^31 px), and as much again under the Dual Brush's separate budget, before the budget refuses; the clip exists to stop those never-read tiles. Under continuous coverage (a local adaptation) the budget is charged per segment and an undrawn segment owes no end cap. `f5e92a6b`/`0ff76d6f` also bring the per-segment step cap of `cfd894aa` (its procedural-primitive caps are not ported); `af025e18`'s pixel-grid test does not apply (we have no pixel-grid walk). `c2cc5eee` ports the proxy half only: our Liquify dialog has no source-resolution crop or smart-filter editing. `6bd3773e` ports the foreground-precision half; the test it re-pins belongs to upstream's distance-faded protection (`a11204c6`), which we do not have. `acd35e12` is adapted to our Smudge pick-up loop, saturating the square positions. `abeb16c9` also builds `apply_dab_stroke`'s halo rectangle (`crates/pc-paint/src/retouch.rs`) with saturating arithmetic, a local hardening upstream does not have.
+
+Partial ports: `89f20c45` brings only the estimate that holds for every `<use>` copy; its per-test
+weighting by attributes scanned and value bytes compared (our `class_work` covers class lists only),
+its counting of `:not()` alternatives and of kept declarations toward the 64 MB, its linked-file
+sharing and its embedded-SVG budget are not ported. `1ce6431a` turns embedded PNG, JPEG and WebP
+only, within one decode allowance shared by every use; its linked files, TIFF data URLs and CMYK
+handling have no counterpart. `e6add186` brings the closing drag; its closing click that retracts
+the incoming handle and makes a corner is not ported (a click still keeps the first anchor's
+handles), and its script `path.close` parameters have no counterpart. `0e64aca5` brings only the
+flatten length cap and `9cd997b9` the far-point checks; the 4 pathops call sites that use the
+wrapper have no upstream hunk, and upstream's brush `track.rs` and `warp.rs`, metafile `wmf.rs`,
+print-layout and script-check hunks are not ported.
+
+Local deviation: `e9510956` and `0a2935cf` refuse a sweep whose tolerance passes one unit; here
+only the coordinate rounding term is capped, so a drawing more than about 1e8 units across still
+sweeps with a tolerance wider than one unit.
+
+## RAW, HEIF and metadata hardening (2026-11-15)
+
+Not ported from `b0c4aa8c`: the distinct-byte allocation bound in `check_image`, because the batch test
+`hundred_megapixel_rgb_hdr_has_bounded_tile_batches` (`crates/lc-raw/src/tiffraw.rs`) plans its image from tiles
+all pointing at one 4096-byte payload, which that bound refuses (whether to keep the test or take the bound is left to Zach); and the sparse planner (no
+sparse reader here). Already covered: `a4a797e2`'s tile-sized lossy JPEG budget by `lossy_jpeg`'s tile-bounded
+header and its Deflate padding bound by `check_image`'s tile-grid bound; `a42ee704`'s alpha-grid tiles by the
+shared extent-read budget; `f786b875`'s XMP path building by `property_key`'s key budget. Not applicable:
+`1c906ea3`'s PEF and SRW halves (PEF never sums strip counts here, no SRW decoder) and `cb86952c`'s CR3 half
+(CR3 goes through rawler) and `f786b875`'s lensdb XML half (lens profiles come from the `lensfun` crate's
+bundled database; we have no lens XML reader). `5d4b68f0`'s craft-heif git dependency is not taken, nor its HEIC colour changes (VUI range and matrix, Apple
+chroma upsampling, VUI-based CICP tagging) or its HDR conversion peak: decoding goes through the heic-rs 0.1.4
+wrapper, and there is no HDR conversion path here. `a4a797e2`'s second budget in `bound_candidates`, on the total
+length of validated ranges, is not ported: candidates stay borrowed slices and only the largest is copied. Not ported
+here: `0352b420`'s decode side (the lone or incoherent ICC chunk refusal in `crates/pc-codecs/src/codecs/jpeg.rs`
+and the IccUnsupported origin for an invalid profile), left to the package that owns pc-codecs. `0133e139` opens the preview only when
+the raw decoder itself reports `RawError::Corrupt`, narrower than upstream's `Malformed`: a raw cut short inside its
+TIFF structure (`RawError::Tiff`) still fails, and an editor load that fails while the raw decodes stays an error.
+Local extension of
+`17248a20`: the Library's embedded-preview paths (`lc-engine` `load_embedded_preview`, `embedded_preview_srgb`) take
+the same EXIF colour-space tag, and a preview with EXIF of its own is read by that EXIF, not the raw's.
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b0c4aa8cc8ac`](https://github.com/storytold/lightcraft/commit/b0c4aa8cc8acac043af6d767b3bfec30d0ab0c0a) | security(raw): linear sparse planning, distinct-byte allocation bound, opcode list budget, ORF strip length (#3679) | `crates/lc-raw/src/opcodes.rs`<br>`crates/lc-raw/src/vendor/orf.rs` | MIT OR Apache-2.0 |
+| [`a42ee7042fee`](https://github.com/storytold/lightcraft/commit/a42ee7042fee0f18e929b0f54e3c9d7a6369cf43) | security(heif): count alpha-grid tiles and bound hvcC parameter sets before heic-rs (#3645) | `crates/pc-heif/src/lib.rs`<br>`crates/pc-heif/src/pps.rs` | MIT OR Apache-2.0 |
+| [`f786b87533e5`](https://github.com/storytold/lightcraft/commit/f786b87533e58c6d31c7f9f2897814904448f39a) | security(meta): linear entity decoding, indexed keyword de-duplication, bounded XMP path building (#3672) | `crates/lc-meta/src/xmp.rs`<br>`crates/lc-meta/src/iptc.rs`<br>`crates/lc-engine/src/preset_luminar.rs` | MIT OR Apache-2.0 |
+| [`a4a797e2f2e3`](https://github.com/storytold/lightcraft/commit/a4a797e2f2e381fcb425d78394c0c4dd4f1ab6a8) | security(raw): shared header-scan budget for tagged previews, tile-sized lossy JPEG budget, bound deflate tile padding (#3695) | `crates/lc-raw/src/preview.rs` | MIT OR Apache-2.0 |
+| [`8b3ce31b665c`](https://github.com/storytold/lightcraft/commit/8b3ce31b665c16983129649ebcab298e8b893ba7) | Never crash: a UTC offset of i16::MIN formats and validates without overflow (#2579) | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`07d1f0ad5d1e`](https://github.com/storytold/lightcraft/commit/07d1f0ad5d1e2ce71ff5d22749e92893f958c994) | LR-META-XMP: reject incomplete ISO timestamps | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`a1e1b4cc0e37`](https://github.com/storytold/lightcraft/commit/a1e1b4cc0e37a8016b933eba099460ed99b00b4c) | LR-META-EXIF-FULL: reject malformed EXIF clocks | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`84951ff57967`](https://github.com/storytold/lightcraft/commit/84951ff57967f3778a6095663892ac59fb010bee) | Never crash: rational tag lists show 16 values like every other list (#2579) | `crates/lc-meta/src/tags.rs` | MIT OR Apache-2.0 |
+| [`1c906ea3db25`](https://github.com/storytold/lightcraft/commit/1c906ea3db250369860ba1357ed1dc50935bbf27) | Never crash: strip byte counts near u64::MAX don't overflow their sum in ORF, SRW, ARW and PEF | `crates/lc-raw/src/vendor/arw.rs`<br>`crates/lc-raw/src/vendor/orf.rs`<br>`crates/lc-raw/src/vendor/mod.rs` | MIT OR Apache-2.0 |
+| [`cb86952cbf24`](https://github.com/storytold/lightcraft/commit/cb86952cbf246b5994f5f1116e94e65db63f05c8) | security(raw): CR3 timed maker notes are parsed once per distinct range under a shared budget; Sony quad tiles' frames may not exceed the tile (#3700) | `crates/lc-raw/src/vendor/arw.rs` | MIT OR Apache-2.0 |
+| [`0352b420a7df`](https://github.com/storytold/lightcraft/commit/0352b420a7dfbaeea5ea67aaaae7808527b25075) | fix(codecs): validate JPEG ICC APP2 chunk sequences | `crates/lc-meta/src/container.rs` | MIT OR Apache-2.0 |
+| [`0133e139bb68`](https://github.com/storytold/photocraft/commit/0133e139bb6857af2d4a2749ffe0ba99a7697e8d) | A raw with damaged sensor data opens its camera JPEG instead of failing | `crates/pc-io/src/raw.rs` | MIT OR Apache-2.0 |
+| [`17248a205dd7`](https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df) | A preview fallback keeps the colour space the raw's EXIF states | `crates/lc-codecs/src/jpeg.rs`<br>`crates/lc-codecs/src/lib.rs`<br>`crates/lc-engine/src/files.rs` | MIT OR Apache-2.0 |
+| [`5d4b68f04cfe`](https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303) | Use craft-heif from craft-libs for HEIC/HEIF (#13076) | `crates/pc-codecs/src/codecs/heif.rs` | MIT OR Apache-2.0 |
