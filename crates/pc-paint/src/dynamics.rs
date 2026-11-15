@@ -895,6 +895,96 @@ mod finite_input_tests {
             .collect()
     }
 
+    /// The walk before the steps were streamed: every step of a point is collected first, then
+    /// built. The streamed walk must produce the same dabs.
+    fn buffered(brush: &BrushSettings, pts: &[StrokePoint]) -> (Vec<Dab>, Vec<Dab>) {
+        let g = DabGenerator::new(brush, 1.0);
+        let (mut smoother, mut spliner, mut walker, mut dual_walker) = (g.smoother, g.spliner, g.walker, g.dual_walker);
+        let (mut builder, mut dual_builder) = (g.builder, g.dual);
+        let mut sm = Vec::new();
+        for p in pts {
+            smoother.push(*p, &mut sm);
+        }
+        smoother.finish(&mut sm);
+        if g.splined {
+            let mut curved = Vec::new();
+            for p in &sm {
+                spliner.push(*p, &mut curved);
+            }
+            spliner.finish(&mut curved);
+            sm = curved;
+        }
+        let (mut dabs, mut dual) = (Vec::new(), Vec::new());
+        for p in sm {
+            let p = apply_pose(&builder.brush, p);
+            let mut steps = Vec::new();
+            walker.push(p, &|q| builder.step_len(q), &mut |s| steps.push(s));
+            for s in &steps {
+                builder.build(s, &mut dabs);
+            }
+            if let (Some(w), Some(db)) = (dual_walker.as_mut(), dual_builder.as_mut()) {
+                let mut steps = Vec::new();
+                w.push(p, &|q| db.step_len(q), &mut |s| steps.push(s));
+                for s in &steps {
+                    db.build(s, &mut dual);
+                }
+            }
+        }
+        let mut steps = Vec::new();
+        walker.finish(&mut |s| steps.push(s));
+        for s in &steps {
+            builder.build(s, &mut dabs);
+        }
+        if let (Some(w), Some(db)) = (dual_walker.as_mut(), dual_builder.as_mut()) {
+            let mut steps = Vec::new();
+            w.finish(&mut |s| steps.push(s));
+            for s in &steps {
+                db.build(s, &mut dual);
+            }
+        }
+        (dabs, dual)
+    }
+
+    fn streamed_in_chunks(brush: &BrushSettings, pts: &[StrokePoint], chunk: usize) -> (Vec<Dab>, Vec<Dab>) {
+        let mut g = DabGenerator::new(brush, 1.0);
+        let (mut dabs, mut dual) = (Vec::new(), Vec::new());
+        for c in pts.chunks(chunk) {
+            g.push(c, &mut dabs, &mut dual);
+        }
+        g.finish(&mut dabs, &mut dual);
+        (dabs, dual)
+    }
+
+    #[test]
+    fn streamed_dabs_equal_the_buffered_walk() {
+        let mut variants: Vec<BrushSettings> = vec![BrushSettings::default()];
+        variants.push(BrushSettings { size: 14.0, spacing: 0.05, ..BrushSettings::default() });
+        variants.push(BrushSettings { size: 1.0, aliased: true, ..BrushSettings::default() });
+        variants.push(BrushSettings { size: 9.0, spacing_enabled: false, ..BrushSettings::default() });
+        variants.push(BrushSettings { size: 12.0, build_up: true, build_up_rate: 40.0, ..BrushSettings::default() });
+        variants.push(BrushSettings { size: 10.0, freehand: true, ..BrushSettings::default() });
+        let mut rich = BrushSettings { size: 18.0, spacing: 0.2, ..BrushSettings::default() };
+        rich.scattering.enabled = true;
+        rich.scattering.scatter.jitter = 0.5;
+        rich.scattering.count = 3;
+        rich.dual_brush.enabled = true;
+        rich.dual_brush.size = 8.0;
+        rich.dual_brush.count = 2;
+        rich.shape_dynamics.enabled = true;
+        rich.shape_dynamics.size.jitter = 0.6;
+        rich.smoothing.amount = 0.5;
+        variants.push(rich);
+        for (n, b) in variants.iter().enumerate() {
+            let (want, want_dual) = buffered(b, &path());
+            assert!(want.len() > 10, "variant {n}: {} dabs", want.len());
+            for chunk in [1, 7, 1000] {
+                let (got, got_dual) = streamed_in_chunks(b, &path(), chunk);
+                assert_eq!(got, want, "variant {n}, chunk {chunk}");
+                assert_eq!(got_dual, want_dual, "variant {n}, chunk {chunk} (dual)");
+            }
+        }
+    }
+
     #[test]
     fn a_nan_opacity_flow_hardness_or_spacing_paints_as_the_default() {
         let pts = path();
