@@ -634,6 +634,26 @@ fn batch_reports_inputs_that_share_an_output_name() {
     assert!(px[0] > 0.99 && px[1] < 0.01, "the first input's result is kept: {px:?}");
 }
 
+/// Saving into the source folder, `a.png` saved as JPEG would replace the source `a.jpg` before
+/// the batch reads it: that input is reported and `a.jpg` is saved over itself.
+#[test]
+fn batch_into_the_source_folder_does_not_replace_an_unread_source() {
+    let dir = tmp("in-place");
+    let red = png(&dir, "a.png", 8, 8, "#ff0000");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "background": "#0000ff"})).unwrap();
+    let blue = join(&dir, "a.jpg");
+    save_doc(doc(&s), &blue, None).unwrap();
+    let r = s.execute("file.automate.batch", json!({"steps": [], "input": [red, blue], "output": dir, "format": "jpg"})).unwrap();
+    let errors = r["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1, "{r}");
+    assert_eq!(errors[0]["file"], json!(red), "{r}");
+    assert_eq!(r["files"], json!([blue]), "{r}");
+    let kept = photocraft_io::import("a.jpg", &std::fs::read(&blue).unwrap()).unwrap().document;
+    let px = photocraft_compose::render(&kept, Rect::new(1, 1, 2, 2)).px[0];
+    assert!(px[2] > 0.9 && px[0] < 0.1, "a.jpg still holds its own image: {px:?}");
+}
+
 /// The editor's open, canvas-drop/Place and linked-source refresh routes all use pc-io's
 /// shared Library developer. No Library host or catalog is required.
 #[test]

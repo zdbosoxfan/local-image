@@ -668,12 +668,16 @@ pub(crate) fn process_files(
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
+    let sources = sources_in_folder(inputs, output);
     for path in inputs {
         let ext =
             if format == "same" { path.rsplit('.').next().unwrap_or("png").to_ascii_lowercase() } else { format.trim_start_matches('.').to_ascii_lowercase() };
         let out = join(output, &format!("{}{suffix}.{ext}", stem(path)));
         let r = (|| -> Result<()> {
             written.check(&out).map_err(EngineError::Other)?;
+            if let Some(source) = sources.get(&file_name(&out).to_lowercase()).filter(|source| **source != path.as_str()) {
+                return Err(EngineError::Other(format!("not written: {out} would replace the source file {source} of this run")));
+            }
             let bytes = read_file(path)?;
             let mut scratch = Session::new();
             let doc = import(&file_name(path), &bytes)?;
@@ -693,6 +697,22 @@ pub(crate) fn process_files(
         }
     }
     json!({"files": files, "errors": errors})
+}
+
+/// The inputs directly inside `output`, by lower-case file name. A run saving into its source
+/// folder must not replace another input before reading it: `a.ARW` saved as JPEG would write
+/// over the source `a.jpg` (upstream VectorCraft 9a05e8ad).
+fn sources_in_folder<'a>(inputs: &'a [String], output: &str) -> std::collections::HashMap<String, &'a str> {
+    let Ok(folder) = std::fs::canonicalize(if output.is_empty() { "." } else { output }) else {
+        return Default::default();
+    };
+    inputs
+        .iter()
+        .filter_map(|path| {
+            let parent = std::path::Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+            (std::fs::canonicalize(parent).ok()? == folder).then(|| (file_name(path).to_lowercase(), path.as_str()))
+        })
+        .collect()
 }
 
 /// The output paths a batch run has written, so a later input whose output name matches an
