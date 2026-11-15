@@ -8,6 +8,15 @@ fn session() -> Session {
     s
 }
 
+/// The growth limit, without building a million-frame document.
+#[test]
+fn frame_growth_stops_at_the_frame_limit() {
+    let limit = crate::timeline_cmds::MAX_DURATION;
+    assert!(check_frame_growth(limit - 1).is_ok());
+    assert!(check_frame_growth(limit).is_err());
+    assert!(check_frame_growth(limit + 1).is_err());
+}
+
 fn frames(s: &Session, id: LayerId) -> usize {
     s.active().unwrap().doc.layer(id).unwrap().video.as_ref().unwrap().frames.len()
 }

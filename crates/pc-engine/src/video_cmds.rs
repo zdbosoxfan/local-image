@@ -117,10 +117,20 @@ fn new_blank(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(json!({"layer": id.0}))
 }
 
+/// A video layer must have room for an added frame.
+fn check_frame_growth(frames: usize) -> Result<()> {
+    let limit = crate::timeline_cmds::MAX_DURATION;
+    if frames >= limit {
+        return Err(EngineError::Other(format!("a video layer is limited to {limit} frames")));
+    }
+    Ok(())
+}
+
 fn insert_blank(s: &mut Session, _p: &Value) -> Result<Value> {
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
     edit_video(s, "Insert Blank Frame", move |v, cur| {
-        let at = (cur + 1).min(v.frames.len());
+        check_frame_growth(v.frames.len())?;
+        let at = cur.saturating_add(1).min(v.frames.len());
         v.frames.insert(at, blank_of(fmt));
         Ok(())
     })
@@ -128,7 +138,9 @@ fn insert_blank(s: &mut Session, _p: &Value) -> Result<Value> {
 
 fn duplicate_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     edit_video(s, "Duplicate Frame", |v, cur| {
-        if let Some(f) = v.frames.get(cur).cloned() {
+        if let Some(f) = v.frames.get(cur) {
+            check_frame_growth(v.frames.len())?;
+            let f = f.clone();
             v.frames.insert(cur + 1, f);
         }
         Ok(())
