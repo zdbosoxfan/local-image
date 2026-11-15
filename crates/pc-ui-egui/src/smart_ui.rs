@@ -134,6 +134,7 @@ pub fn open_editor(app: &mut PhotocraftApp, ctx: &egui::Context, layer: u64, sm:
 /// Hands the open dialog `id` the smart filter's recorded `params` and makes OK update that
 /// filter (`layer.smartFilter.setParams`, see [`confirm_command`]) instead of adding another.
 fn edit_filter(app: &mut PhotocraftApp, id: u64, layer: u64, index: usize, params: &Value) {
+    let mode = app.session.active().map(|s| s.doc.mode);
     if let Some(d) = app.ui.dialog_mut(id) {
         // The live preview would stack a second copy of the filter on the smart object.
         d.fields.remove("__preview");
@@ -145,13 +146,22 @@ fn edit_filter(app: &mut PhotocraftApp, id: u64, layer: u64, index: usize, param
                 }
             }
         }
+        if let Some(mode) = mode {
+            crate::adjust_dialog::seed_from_recorded(&mut d.fields, params, mode);
+        }
     }
 }
 
 /// The command a confirmed filter dialog runs: smart-filter edits update the recorded filter.
 pub fn confirm_command(fields: &serde_json::Map<String, Value>, command: String, params: Value) -> (String, Value) {
     match fields.get("__smartFilter") {
-        Some(sf) => ("layer.smartFilter.setParams".into(), json!({"layer": sf["layer"], "index": sf["index"], "params": params})),
+        Some(sf) => {
+            // An adjustment's dialog opens on all the recorded settings and may remove keys, so OK
+            // replaces them: merged, a removed one stays stored and can override the edit (a stale
+            // Channel Mixer `gray` is read over `red`).
+            let replace = command.starts_with("image.adjustments.");
+            ("layer.smartFilter.setParams".into(), json!({"layer": sf["layer"], "index": sf["index"], "params": params, "replace": replace}))
+        }
         None => (command, params),
     }
 }
@@ -159,6 +169,74 @@ pub fn confirm_command(fields: &serde_json::Map<String, Value>, command: String,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A smart object with `command` recorded as its one smart filter (as an imported PSD holds
+    /// an adjustment), and its layer id.
+    fn recorded_filter(command: &str, params: Value) -> (PhotocraftApp, u64) {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        let id = s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
+        s.edit("record filter", |doc, _| {
+            let Some(LayerContent::Smart(sm)) = doc.layer_mut(photocraft_doc::LayerId(id)).map(|l| &mut l.content) else { panic!("a smart object") };
+            sm.smart_filters.push(photocraft_doc::SmartFilter {
+                command: command.into(),
+                params,
+                blend: photocraft_doc::BlendMode::Normal,
+                opacity: 1.0,
+                visible: true,
+            });
+            Ok(())
+        })
+        .unwrap();
+        (PhotocraftApp::new(s, crate::Services::default()), id)
+    }
+
+    fn smart_object(app: &PhotocraftApp, id: u64) -> SmartObject {
+        match &app.session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().content {
+            LayerContent::Smart(sm) => sm.clone(),
+            other => panic!("expected a smart object, got {other:?}"),
+        }
+    }
+
+    /// Opening an adjustment smart filter and pressing OK keeps what it renders when a setting
+    /// was recorded under a key the dialog's defaults don't hold: the composite curve as `gray`,
+    /// which the default `points` would otherwise be read over.
+    #[test]
+    fn confirming_an_unedited_adjustment_smart_filter_keeps_what_it_renders() {
+        let recorded = json!({"gray": [[0, 0], [128, 64], [255, 255]]});
+        let (mut app, id) = recorded_filter("image.adjustments.curves", recorded.clone());
+        let sm = smart_object(&app, id);
+        open_editor(&mut app, &egui::Context::default(), id, &sm, 0);
+        let dialog = app.ui.dialogs.last().expect("the Curves editor opened").id;
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        let stored = smart_object(&app, id).smart_filters[0].params.clone();
+        let read = |params: &Value| photocraft_engine::adjust_params::from_params("curves", params, None, photocraft_doc::ColorMode::Rgb).unwrap();
+        assert_eq!(read(&stored), read(&recorded), "stored: {stored}");
+    }
+
+    /// The Channel Mixer editor removes `gray` when Monochrome is turned off. Merged over the
+    /// stored params, the old `gray` stayed and was read over the edited Red row.
+    #[test]
+    fn an_adjustment_smart_filter_edit_drops_the_keys_its_editor_removed() {
+        let (mut app, id) = recorded_filter("image.adjustments.channelMixer", json!({"monochrome": true, "gray": [30, 30, 40, 0]}));
+        let sm = smart_object(&app, id);
+        open_editor(&mut app, &egui::Context::default(), id, &sm, 0);
+        let dialog = app.ui.dialogs.last().expect("the Channel Mixer editor opened").id;
+        // What the editor does to its values when Monochrome is turned off and Red is edited.
+        let fields = &mut app.ui.dialog_mut(dialog).unwrap().fields;
+        fields.insert("monochrome".into(), json!(false));
+        fields.remove("gray");
+        fields.insert("red".into(), json!([70, 30, 0, 0]));
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        let params = smart_object(&app, id).smart_filters[0].params.clone();
+        assert!(params.get("gray").is_none(), "the removed gray row is not stored: {params}");
+        let adjustment = photocraft_engine::adjust_params::from_params("channelMixer", &params, None, photocraft_doc::ColorMode::Rgb).unwrap();
+        let photocraft_doc::Adjustment::ChannelMixer { matrix, monochrome } = adjustment else { panic!("Channel Mixer params") };
+        assert!(!monochrome);
+        assert!(matrix[0].iter().zip([0.7, 0.3, 0.0, 0.0]).all(|(a, b)| (a - b).abs() < 1e-5), "the edited Red row renders: {:?}", matrix[0]);
+    }
 
     /// An Image › Adjustments recorded on a smart object (Brightness/Contrast…) opens its own
     /// editor from the Smart Filters row, with the recorded settings, and OK updates that filter

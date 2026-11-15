@@ -43,6 +43,19 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     Some(crate::dialogs::open_document_dialog(app, crate::state::DialogKind::Command, fields))
 }
 
+/// Sets an adjustment dialog's parameters to the complete set `recorded` renders in a `mode`
+/// document, so the controls show it and OK keeps it. Laid over the dialog's defaults instead, a
+/// default can be read over a recorded key that means the same setting (`points` over a Curves
+/// `gray`). Settings the engine can't read are left as they are, for OK to report on.
+pub(crate) fn seed_from_recorded(fields: &mut Map<String, Value>, recorded: &Value, mode: photocraft_doc::ColorMode) {
+    let Some(kind) = fields.get("__adjust").and_then(Value::as_str) else { return };
+    let Ok(adjustment) = photocraft_engine::adjust_params::from_params(kind, recorded, None, mode) else { return };
+    if let Value::Object(values) = photocraft_engine::adjust_params::to_params(&adjustment) {
+        fields.retain(|k, _| k.starts_with("__"));
+        fields.extend(values);
+    }
+}
+
 /// Dialog body: the kind's editor over the fields, then the Preview checkbox.
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String, Value>) {
     let kind = fields.get("__adjust").and_then(Value::as_str).unwrap_or_default().to_string();
