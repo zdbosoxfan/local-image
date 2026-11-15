@@ -53,6 +53,8 @@ pub fn parse_iptc(b: &[u8]) -> Metadata {
             (2, 95) => m.state = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 100) if m.country.is_none() => m.country = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 101) => m.country = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
+            // Content Location Code and Name: IIM's LocationShown.
+            (2, 26) | (2, 27) if !decode(data, utf8).is_empty() => m.other_location = true,
             (2, 80) => m.artist = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 116) => m.copyright = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 120) => m.caption = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
@@ -110,6 +112,18 @@ pub(crate) mod tests {
         assert_eq!(m.copyright.as_deref(), Some("CC0"));
         assert_eq!(m.caption.as_deref(), Some("A caption"));
         assert_eq!(m.capture_time.unwrap().to_iso(), "2021-03-04T10:11:12+01:00");
+    }
+
+    #[test]
+    fn content_location_counts_as_other_location() {
+        for dataset in [26, 27] {
+            let mut v = Vec::new();
+            ds(&mut v, 2, dataset, b"Boston");
+            assert!(parse_iptc(&v).other_location, "2:{dataset}");
+            let mut blank = Vec::new();
+            ds(&mut blank, 2, dataset, b"  ");
+            assert!(!parse_iptc(&blank).other_location, "blank 2:{dataset}");
+        }
     }
 
     #[test]
