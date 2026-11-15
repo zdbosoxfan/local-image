@@ -327,12 +327,6 @@ impl RenderRequest {
         }
     }
 
-    /// Render to a final size calculated from the original photo, even from a source that rounds
-    /// its shape differently.
-    pub fn exact(width: usize, height: usize) -> Self {
-        Self { exact_size: true, ..Self::fit(width, height) }
-    }
-
     /// The output size for `frame`. An exact box stands against a source that only rounds the
     /// photo's shape differently; a source of another shape (a raw's embedded preview) is fitted,
     /// not stretched.
@@ -1143,7 +1137,7 @@ fn plan_keeps_an_exact_box_and_never_stretches_another_shape() {
     let s = DevelopSettings::default();
     let fitted = plan(&src, &info, &s, &RenderRequest::fit(240, 160));
     assert_eq!((fitted.w, fitted.h), (238, 160));
-    let req = RenderRequest::exact(240, 160);
+    let req = RenderRequest { exact_size: true, ..RenderRequest::fit(240, 160) };
     let p = plan(&src, &info, &s, &req);
     assert_eq!((p.w, p.h), (240, 160));
     // an embedded preview of another shape keeps its shape: an exact box must not stretch it
