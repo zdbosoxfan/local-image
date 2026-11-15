@@ -169,6 +169,19 @@ fn open_as_forces_the_decoder() {
     assert!(s.execute("file.openAs", json!({"path": join(&dir, "missing.png")})).is_err());
 }
 
+/// A caller-chosen placement scale cannot ask for an image beyond the render limit.
+#[test]
+fn placing_refuses_a_scale_that_would_exceed_the_pixel_limit() {
+    let dir = tmp("place-huge-scale");
+    let small = png(&dir, "small.png", 200, 100, "#ff0000");
+    let mut s = session(100, 100, 8);
+    // 200 × 100 px passes 2^30 px from about 23171 %.
+    for scale in [1e11, 1e300, 1e308, 2_317_100.0] {
+        assert!(matches!(s.execute("file.placeEmbedded", json!({"path": small, "scale": scale})), Err(EngineError::BadParams { .. })), "{scale}");
+    }
+    assert!(s.execute("file.placeEmbedded", json!({"path": small, "scale": 50})).is_ok());
+}
+
 #[test]
 fn place_embedded_centres_fits_and_embeds() {
     let dir = tmp("place");

@@ -522,6 +522,16 @@ fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Optio
         Some(c) if c.len() == 2 => (c[0].as_f64().unwrap_or(cw / 2.0), c[1].as_f64().unwrap_or(ch / 2.0)),
         _ => (cw / 2.0, ch / 2.0),
     };
+    // `scale` is the caller's: bound the resampled size before allocating it. Resampling rounds the
+    // far edges outward; an unresampled placement keeps its size.
+    let (ow, oh) = if (scale - 1.0).abs() > 1e-9 { ((w * scale).ceil(), (h * scale).ceil()) } else { (w, h) };
+    let scaled = ow * oh;
+    if scaled.is_nan() || scaled > photocraft_compose::MAX_RENDER_PIXELS as f64 {
+        return Err(EngineError::BadParams {
+            cmd: "file.place".into(),
+            msg: format!("scaling {w}×{h} to {} % makes an image too large to place", scale * 100.0),
+        });
+    }
     let (dx, dy) = ((center.0 - w * scale / 2.0).round(), (center.1 - h * scale / 2.0).round());
     let mut px = flattened_checked(&src, fmt, "file.place")?;
     if (scale - 1.0).abs() > 1e-9 {
