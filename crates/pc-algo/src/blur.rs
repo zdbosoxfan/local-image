@@ -53,11 +53,19 @@ pub(crate) fn box_widths(params: &FilterParams) -> Option<Vec<usize>> {
     match *params {
         FilterParams::GaussianBlur { radius } if radius > 4.0 => Some(li_raster::blur::box_radii(radius).iter().map(|r| 2 * r + 1).collect()),
         FilterParams::BoxBlur { radius } => {
-            let r = radius.max(0.0).round() as usize;
+            let r = box_radius(radius);
             (r > 4).then(|| vec![2 * r + 1])
         }
         _ => None,
     }
+}
+
+/// Largest box-blur radius run (Photoshop's largest is 999): the line scratch grows with the
+/// radius, and `2 * r + 1` must not overflow.
+const MAX_BOX_RADIUS: f32 = 16384.0;
+
+fn box_radius(radius: f32) -> usize {
+    radius.clamp(0.0, MAX_BOX_RADIUS).round() as usize
 }
 
 use li_raster::blur::{Scratch, line_passes};
@@ -173,7 +181,7 @@ pub(crate) fn boxed(src: &Image, out: Rect, ctx: &Ctx, radius: f32) -> Vec<f32> 
     match box_widths(&FilterParams::BoxBlur { radius }) {
         Some(boxes) => box_passes(src, out, ctx.alpha, &boxes),
         None => {
-            let r = radius.max(0.0).round() as usize;
+            let r = box_radius(radius);
             let k = vec![1.0 / (2 * r + 1) as f32; 2 * r + 1];
             conv_sep(src, out, &k, &k, ctx.alpha)
         }
@@ -392,6 +400,17 @@ mod tests {
     use super::*;
     use photocraft_color::{ColorMode, PixelFormat, SampleType};
     use photocraft_raster::Surface;
+
+    #[test]
+    fn a_huge_box_blur_radius_is_held_to_its_cap() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        s.fill_rect(Rect::new(0, 0, 8, 8), &[0.2, 0.4, 0.6, 1.0]);
+        s.fill_rect(Rect::new(0, 0, 4, 8), &[1.0, 0.0, 0.0, 1.0]);
+        let canvas = Rect::new(0, 0, 8, 8);
+        let p = FilterParams::BoxBlur { radius: 1.0e30 };
+        let px = crate::apply_in(&s, &p, canvas, canvas, None, canvas).read_region(canvas);
+        assert!(px.iter().all(|v| v.is_finite()));
+    }
 
     #[test]
     fn box_gaussian_matches_exact_kernel() {
