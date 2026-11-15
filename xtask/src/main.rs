@@ -31,6 +31,13 @@
 //! cargo xtask upstream-reviewed <repo> <sha> [--upstream-dir DIR]
 //!     moves a storytold upstream's review cutoff in docs/PORTS.md forward to <sha>: every commit up
 //!     to it has been triaged. DIR holds the clones as DIR/<repo> (default target/upstream).
+//! cargo xtask port <repo> <sha> [--upstream-dir DIR] [--dry-run | --record]
+//!     applies one storytold upstream commit to the current branch at our paths
+//!     (docs/upstream-paths.toml) with a three-way merge, staged but not committed, and appends its
+//!     row to docs/PORTS.md. Exit 0 applied, 1 error, 2 refused (dirty tree, unknown, merge or
+//!     already recorded commit, a path the map cannot place; nothing written), 3 conflicts left in
+//!     the tree (no row). --dry-run prints the mapping, the row and `git apply --check`; --record
+//!     only appends the row, after a port finished by hand and committed.
 //! cargo xtask assets
 //!     audit asset attribution rows and referenced licence files.
 //! cargo xtask tool-icons
@@ -576,6 +583,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   deps-pure
   upstream-check [--offline]
   upstream-reviewed <repo> <sha> [--upstream-dir DIR]
+  port <repo> <sha> [--upstream-dir DIR] [--dry-run | --record]
   assets
   icons
   tool-icons
@@ -586,6 +594,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().any(|a| a == f);
     let value = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).cloned();
+    let positional = |i: usize| args.get(i).filter(|a| !a.starts_with("--"));
     let upstream_dir = || value("--upstream-dir").map_or_else(|| root().join("target").join("upstream"), PathBuf::from);
     match args.first().map(String::as_str) {
         Some("package") => match args.get(1).map(String::as_str) {
@@ -597,8 +606,28 @@ fn main() -> Result<()> {
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
         Some("deps-pure") => deps_pure(),
         Some("upstream-check") => upstream_check(&root(), flag("--offline")),
-        Some("upstream-reviewed") => match (args.get(1), args.get(2)) {
+        Some("upstream-reviewed") => match (positional(1), positional(2)) {
             (Some(repo), Some(sha)) => upstream::upstream_reviewed(&root(), repo, sha, &upstream_dir()),
+            _ => bail!("{USAGE}"),
+        },
+        Some("port") => match (positional(1), positional(2)) {
+            (Some(repo), Some(sha)) if !(flag("--dry-run") && flag("--record")) => {
+                let mode = if flag("--dry-run") {
+                    upstream::PortMode::DryRun
+                } else if flag("--record") {
+                    upstream::PortMode::Record
+                } else {
+                    upstream::PortMode::Apply
+                };
+                let code = match upstream::port(&root(), repo, sha, &upstream_dir(), mode) {
+                    Ok(status) => status.code(),
+                    Err(e) => {
+                        eprintln!("error: {e:#}");
+                        1
+                    }
+                };
+                std::process::exit(code)
+            }
             _ => bail!("{USAGE}"),
         },
         Some("test-fast") => test_lane::fast(),

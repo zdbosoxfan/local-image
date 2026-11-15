@@ -21,6 +21,9 @@ To add a port: add one row per ported upstream file (several rows may share our 
 full commit hash the port was made from (`git log -1 --format=%H -- <upstream path>` in a clone),
 the upstream licence as an SPDX identifier, and the date of the port (YYYY-MM-DD). When a port is
 updated to a newer upstream commit, update its row (commit and date) rather than adding another.
+A whole PhotoCraft, LightCraft or VectorCraft commit is ported with `cargo xtask port <repo> <sha>`,
+which applies it at our paths (`docs/upstream-paths.toml`) and adds its row to the commit table at
+the end of this file.
 
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
 |---|---|---|---|---|---|---|

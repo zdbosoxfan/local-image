@@ -5,13 +5,14 @@
 //! clone or fetch; in a blob-less clone git downloads the file contents it needs on demand.
 
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use crate::attributions::{plain, table_rows};
+use crate::attributions::{self, plain, table_rows};
 
 /// A storytold upstream: `key` is its repository name and the folder of its clone.
 #[derive(Debug, PartialEq)]
@@ -49,6 +50,21 @@ fn git_out(dir: &Path, args: &[&str]) -> Result<String> {
         bail!("git -C {} {}: {}", dir.display(), args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Runs `cmd` with `input` on its stdin and collects its output.
+fn output_with_stdin(cmd: &mut Command, input: Vec<u8>) -> Result<Output> {
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().context("could not run git")?;
+    let mut stdin = child.stdin.take().context("no stdin pipe")?;
+    // A separate writer keeps a large input from blocking while git fills its stdout.
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let out = child.wait_with_output()?;
+    let written = writer.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    // A command that failed may have stopped reading; its own error matters more than the pipe's.
+    if out.status.success() {
+        written?;
+    }
+    Ok(out)
 }
 
 /// The full hash of `rev` in the clone `dir`.
@@ -236,6 +252,238 @@ fn load_path_maps(root: &Path) -> Result<BTreeMap<String, PathMap>> {
     Ok(maps)
 }
 
+// port
+
+/// What `cargo xtask port` does with the commit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PortMode {
+    Apply,
+    /// Print the mapping, the PORTS.md row and whether the patch applies; write nothing.
+    DryRun,
+    /// Only append the PORTS.md row, for a port finished by hand.
+    Record,
+}
+
+/// How `port` ended; `code` is the process exit status (an error exits 1).
+#[derive(Debug, PartialEq)]
+pub enum PortStatus {
+    Applied,
+    Refused,
+    Conflicts,
+}
+
+impl PortStatus {
+    pub fn code(&self) -> i32 {
+        match self {
+            PortStatus::Applied => 0,
+            PortStatus::Refused => 2,
+            PortStatus::Conflicts => 3,
+        }
+    }
+}
+
+const COMMIT_SECTION: &str = "## Upstream commit ports";
+
+/// `cargo xtask port <repo> <sha>`: applies one upstream commit at our paths with a three-way
+/// merge, staged but not committed, and records it in PORTS.md. Refuses, writing nothing, on a
+/// dirty tree, an unknown or merge commit, a commit already recorded, or any path the map cannot
+/// place.
+pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMode) -> Result<PortStatus> {
+    let upstream = by_key(key).with_context(|| format!("unknown upstream `{key}`"))?;
+    let clone = upstream_dir.join(key);
+    git_out(&clone, &["rev-parse", "--git-dir"]).with_context(|| format!("no clone of {} in {}", upstream.name, clone.display()))?;
+    let refuse = |why: String| {
+        eprintln!("refused: {why}");
+        Ok(PortStatus::Refused)
+    };
+    let status = git_out(root, &["status", "--porcelain"])?;
+    if !status.is_empty() {
+        return refuse(format!("the working tree has changes; commit or stash them first:\n{status}"));
+    }
+    let sha = match resolve_commit(&clone, rev) {
+        Ok(sha) => sha,
+        Err(e) => return refuse(e.to_string()),
+    };
+    if git_out(&clone, &["rev-list", "--parents", "-n1", &sha])?.split_whitespace().count() > 2 {
+        return refuse(format!("{sha} is a merge commit; port its parents' commits instead"));
+    }
+    let ports_path = root.join("docs/PORTS.md");
+    let md = std::fs::read_to_string(&ports_path).context("docs/PORTS.md")?;
+    let recorded = attributions::parse_ports(&md).into_iter().map(|r| r.commit).chain(attributions::parse_commit_ports(&md)?.into_iter().map(|c| c.commit));
+    if let Some(c) = recorded.into_iter().find(|c| sha.starts_with(c.as_str())) {
+        return refuse(format!("{sha} is already recorded in docs/PORTS.md (as {c})"));
+    }
+
+    let maps = load_path_maps(root)?;
+    let map = maps.get(key).with_context(|| format!("{PATH_MAP} has no [{key}] table"))?;
+    let touched = git(&clone).args(["diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "--no-renames", "-z", &sha]).output()?;
+    if !touched.status.success() {
+        bail!("git diff-tree {sha}: {}", String::from_utf8_lossy(&touched.stderr).trim());
+    }
+    let moved_since = |at: &str| is_ancestor(&clone, at, &sha);
+    let (mut mapped, mut dropped, mut refused) = (Vec::new(), Vec::new(), Vec::new());
+    for raw in touched.stdout.split(|&b| b == 0).filter(|p| !p.is_empty()) {
+        let path = String::from_utf8_lossy(raw).into_owned();
+        // Patch headers quote such paths, and the header rewrite matches them literally.
+        if raw.iter().any(|&b| !(0x20..0x7f).contains(&b) || b == b'"' || b == b'\\') {
+            refused.push(format!("{path}: git quotes this path; port by hand"));
+            continue;
+        }
+        match map.route(&path, &moved_since)? {
+            Route::To(ours) => mapped.push((path, ours)),
+            Route::Skip => dropped.push(path),
+            Route::Refuse(why) => refused.push(format!("{path}: {why}")),
+        }
+    }
+    if !refused.is_empty() {
+        return refuse(format!("{sha} touches paths that cannot be ported automatically:\n  {}", refused.join("\n  ")));
+    }
+    if mapped.is_empty() {
+        return refuse(format!("{sha} only touches skipped paths"));
+    }
+    for (path, ours) in &mapped {
+        println!("{path} -> {ours}");
+    }
+    for path in &dropped {
+        println!("dropped: {path}");
+    }
+    let subject = git_out(&clone, &["log", "-1", "--format=%s", &sha])?;
+    let ours: Vec<&str> = mapped.iter().map(|(_, o)| o.as_str()).collect();
+    let row = commit_row(upstream, &sha, &subject, &ours);
+
+    if mode == PortMode::Record {
+        append_commit_row(&ports_path, &md, &row)?;
+        println!("recorded in docs/PORTS.md:\n{row}");
+        return Ok(PortStatus::Applied);
+    }
+    let (patch, preimages) = mapped_patch(&clone, &sha, &mapped, &dropped)?;
+    if mode == PortMode::DryRun {
+        println!("{row}");
+        let check = output_with_stdin(git(root).args(["apply", "--check"]), patch)?;
+        if check.status.success() {
+            println!("git apply --check: applies cleanly");
+        } else {
+            println!("git apply --check: does not apply cleanly (a real run merges three-way):\n{}", String::from_utf8_lossy(&check.stderr).trim());
+        }
+        return Ok(PortStatus::Applied);
+    }
+    // Without the upstream preimage blobs, `apply --3way` cannot merge and rejects whole files.
+    for pre in &preimages {
+        let blob = git(&clone).args(["cat-file", "blob", pre]).output()?;
+        if !blob.status.success() {
+            bail!("git cat-file blob {pre}: {}", String::from_utf8_lossy(&blob.stderr).trim());
+        }
+        let id = output_with_stdin(git(root).args(["hash-object", "-w", "--stdin"]), blob.stdout)?;
+        if !id.status.success() || String::from_utf8_lossy(&id.stdout).trim() != pre {
+            bail!("could not import upstream blob {pre}: {}", String::from_utf8_lossy(&id.stderr).trim());
+        }
+    }
+    let applied = output_with_stdin(git(root).args(["apply", "--3way"]), patch)?;
+    let unmerged = git_out(root, &["diff", "--name-only", "--diff-filter=U"])?;
+    if !unmerged.is_empty() {
+        eprintln!("{}", String::from_utf8_lossy(&applied.stderr).trim());
+        println!("conflicts left in the tree:\n{unmerged}\nresolve them, add the regression test, commit, then run `cargo xtask port {key} {sha} --record`");
+        return Ok(PortStatus::Conflicts);
+    }
+    if !applied.status.success() {
+        bail!("git apply --3way: {}", String::from_utf8_lossy(&applied.stderr).trim());
+    }
+    append_commit_row(&ports_path, &md, &row)?;
+    println!("{row}\nstaged; add the regression test, then `cargo xtask attributions`");
+    Ok(PortStatus::Applied)
+}
+
+/// The commit's `format-patch` with `dropped` paths' file blocks removed and the headers of the
+/// others rewritten to our paths, and the preimage blob ids the three-way merge needs.
+fn mapped_patch(clone: &Path, sha: &str, mapped: &[(String, String)], dropped: &[String]) -> Result<(Vec<u8>, Vec<String>)> {
+    let out = git(clone).args(["format-patch", "-1", "--stdout", "--full-index", "--binary", "--no-renames", sha]).output()?;
+    if !out.status.success() {
+        bail!("git format-patch {sha}: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    let (mut patch, mut preimages) = (Vec::new(), Vec::new());
+    // (upstream path, our path) of the current file block; None while skipping a dropped one.
+    let mut block: Option<(&str, &str)> = None;
+    let mut in_header = false;
+    let mut before_first_block = true;
+    for line in out.stdout.split_inclusive(|&b| b == b'\n') {
+        if line.starts_with(b"diff --git ") {
+            let is = |p: &str| line == format!("diff --git a/{p} b/{p}\n").as_bytes();
+            before_first_block = false;
+            in_header = true;
+            if dropped.iter().any(|p| is(p)) {
+                block = None;
+                continue;
+            }
+            let (from, to) = mapped.iter().find(|(p, _)| is(p)).with_context(|| format!("unexpected patch header {}", String::from_utf8_lossy(line).trim()))?;
+            block = Some((from, to));
+            patch.extend_from_slice(format!("diff --git a/{to} b/{to}\n").as_bytes());
+            continue;
+        }
+        if before_first_block {
+            patch.extend_from_slice(line);
+            continue;
+        }
+        let Some((from, to)) = block else { continue };
+        if in_header && (line.starts_with(b"@@") || line == b"GIT binary patch\n") {
+            in_header = false;
+        }
+        if !in_header {
+            patch.extend_from_slice(line);
+        } else if line == format!("--- a/{from}\n").as_bytes() {
+            patch.extend_from_slice(format!("--- a/{to}\n").as_bytes());
+        } else if line == format!("+++ b/{from}\n").as_bytes() {
+            patch.extend_from_slice(format!("+++ b/{to}\n").as_bytes());
+        } else {
+            if let Some(ids) = line.strip_prefix(b"index ") {
+                let pre = String::from_utf8_lossy(ids).split("..").next().unwrap_or_default().to_string();
+                if !pre.bytes().all(|b| b == b'0') {
+                    preimages.push(pre);
+                }
+            }
+            patch.extend_from_slice(line);
+        }
+    }
+    Ok((patch, preimages))
+}
+
+/// A row of the commit table, in the form most existing rows use.
+fn commit_row(upstream: &Upstream, sha: &str, subject: &str, ours: &[&str]) -> String {
+    let files: Vec<String> = ours.iter().map(|p| format!("`{p}`")).collect();
+    format!("| [`{}`]({}/commit/{sha}) | {} | {} | {} |", &sha[..12], upstream.url, subject.replace('|', "\\|"), files.join("<br>"), upstream.licence)
+}
+
+/// Appends `row` to the table of PORTS.md's final `## Upstream commit ports` section, creating the
+/// section if it is missing.
+fn append_commit_row(path: &Path, md: &str, row: &str) -> Result<()> {
+    let parts: Vec<&str> = md.split_inclusive('\n').collect();
+    let mut out = String::new();
+    match parts.iter().position(|l| l.trim() == COMMIT_SECTION) {
+        None => {
+            out.push_str(md);
+            if !md.is_empty() && !md.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&format!("\n{COMMIT_SECTION}\n\n| Upstream commit | Subject | Our files | Licence |\n|---|---|---|---|\n{row}\n"));
+        }
+        Some(heading) => {
+            let is_row = |l: &&str| l.trim_start().starts_with('|');
+            let start =
+                parts[heading..].iter().position(is_row).map(|i| heading + i).with_context(|| format!("docs/PORTS.md has no table under {COMMIT_SECTION}"))?;
+            let end = parts[start..].iter().position(|l| !is_row(l)).map_or(parts.len(), |i| start + i);
+            out.push_str(&parts[..end].concat());
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(row);
+            out.push('\n');
+            out.push_str(&parts[end..].concat());
+        }
+    }
+    attributions::parse_commit_ports(&out).context("the new docs/PORTS.md row does not parse")?;
+    std::fs::write(path, out).context("docs/PORTS.md")?;
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::path::{Path, PathBuf};
@@ -265,6 +513,8 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::test_support::{git, temp_dir};
     use super::*;
 
@@ -314,6 +564,184 @@ skip = ["docs/"]
             }
         }
         Ok(())
+    }
+
+    /// An upstream clone (`upstream/photocraft`: a base commit, then `moved`, the commit that moved
+    /// crates/cms away) and our repository (`ours`) holding the base's blur.rs at its mapped path.
+    struct PortFixture {
+        dir: PathBuf,
+        clone: PathBuf,
+        ours: PathBuf,
+        moved: String,
+    }
+
+    const PORTS_INTRO: &str = "# Ports\n\nIntro.\n";
+
+    fn blur(changes: &[(usize, &str)]) -> String {
+        (1..=20).map(|i| changes.iter().find(|(n, _)| *n == i).map_or(format!("line {i}\n"), |(_, l)| format!("{l}\n"))).collect()
+    }
+
+    impl PortFixture {
+        fn new(name: &str) -> Self {
+            let dir = temp_dir(name);
+            let (clone, ours) = (dir.join("upstream/photocraft"), dir.join("ours"));
+            let mut fixture = PortFixture { dir, clone, ours, moved: String::new() };
+            for repo in [&fixture.clone, &fixture.ours] {
+                std::fs::create_dir_all(repo).unwrap();
+                git(repo, &["init", "--quiet"]);
+            }
+            fixture.write(&fixture.clone, "crates/algo/src/blur.rs", &blur(&[]));
+            fixture.write(&fixture.clone, "crates/cms/src/lib.rs", "cms\n");
+            fixture.write(&fixture.clone, "crates/raw/src/lib.rs", "raw\n");
+            fixture.write(&fixture.clone, "docs/notes.md", "notes\n");
+            fixture.commit_upstream("base");
+            fixture.write(&fixture.clone, "crates/cms/src/lib.rs", "moved\n");
+            fixture.moved = fixture.commit_upstream("Use craft-cms from craft-libs");
+            fixture.write(&fixture.ours, "crates/pc-algo/src/blur.rs", &blur(&[]));
+            fixture.write(&fixture.ours, "docs/PORTS.md", PORTS_INTRO);
+            let map = format!(
+                "[photocraft]\nskip = [\"docs/\"]\n[photocraft.map]\n\"crates/algo/\" = \"crates/pc-algo/\"\n\
+                 [photocraft.moved]\n\"crates/cms/\" = {{ ours = \"crates/pc-cms/\", to = \"craft-libs craft-cms\", at = \"{}\" }}\n\
+                 [photocraft.unmapped]\n\"crates/raw/\" = \"reads RAW elsewhere\"\n",
+                fixture.moved
+            );
+            fixture.write(&fixture.ours, "docs/upstream-paths.toml", &map);
+            fixture.commit_ours("base");
+            fixture
+        }
+
+        fn write(&self, repo: &Path, path: &str, text: &str) {
+            let path = repo.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+
+        fn commit_upstream(&self, message: &str) -> String {
+            git(&self.clone, &["add", "-A"]);
+            git(&self.clone, &["commit", "--quiet", "-m", message]);
+            git(&self.clone, &["rev-parse", "HEAD"])
+        }
+
+        fn commit_ours(&self, message: &str) {
+            git(&self.ours, &["add", "-A"]);
+            git(&self.ours, &["commit", "--quiet", "-m", message]);
+        }
+
+        fn port(&self, sha: &str, mode: PortMode) -> PortStatus {
+            port(&self.ours, "photocraft", sha, &self.dir.join("upstream"), mode).unwrap()
+        }
+
+        fn read(&self, path: &str) -> String {
+            std::fs::read_to_string(self.ours.join(path)).unwrap()
+        }
+
+        fn row(sha: &str, subject: &str) -> String {
+            format!(
+                "| [`{}`](https://github.com/storytold/photocraft/commit/{sha}) | {subject} | `crates/pc-algo/src/blur.rs` | MIT OR Apache-2.0 |\n",
+                &sha[..12]
+            )
+        }
+    }
+
+    impl Drop for PortFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    #[test]
+    fn port_applies_and_records_a_clean_commit() {
+        let f = PortFixture::new("port-clean");
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2")]));
+        f.write(&f.clone, "docs/notes.md", "more notes\n");
+        let sha = f.commit_upstream("fix(blur): exact | variance");
+
+        assert_eq!(f.port(&sha[..9], PortMode::DryRun), PortStatus::Applied);
+        assert_eq!(git(&f.ours, &["status", "--porcelain"]), "");
+        assert_eq!(f.read("docs/PORTS.md"), PORTS_INTRO);
+
+        assert_eq!(f.port(&sha[..9], PortMode::Apply), PortStatus::Applied);
+        assert_eq!(git(&f.ours, &["diff", "--cached", "--name-only"]), "crates/pc-algo/src/blur.rs");
+        assert_eq!(git(&f.ours, &["show", ":crates/pc-algo/src/blur.rs"]), blur(&[(2, "upstream 2")]).trim_end());
+        assert!(!f.ours.join("docs/notes.md").exists());
+        assert_eq!(
+            f.read("docs/PORTS.md"),
+            format!(
+                "{PORTS_INTRO}\n## Upstream commit ports\n\n| Upstream commit | Subject | Our files | Licence |\n|---|---|---|---|\n{}",
+                PortFixture::row(&sha, "fix(blur): exact \\| variance")
+            )
+        );
+    }
+
+    #[test]
+    fn port_leaves_three_way_conflicts_unrecorded() {
+        let f = PortFixture::new("port-conflict");
+        let existing = format!(
+            "{PORTS_INTRO}\n## Upstream commit ports\n\n| Upstream commit | Subject | Our files | Licence |\n|---|---|---|---|\n{}",
+            PortFixture::row(&f.moved, "earlier")
+        );
+        f.write(&f.ours, "docs/PORTS.md", &existing);
+        f.write(&f.ours, "crates/pc-algo/src/blur.rs", &blur(&[(15, "ours 15")]));
+        f.commit_ours("diverge");
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2"), (15, "upstream 15")]));
+        let sha = f.commit_upstream("fix(blur): two hunks");
+
+        assert_eq!(f.port(&sha, PortMode::Apply), PortStatus::Conflicts);
+        let merged = f.read("crates/pc-algo/src/blur.rs");
+        assert!(merged.starts_with("line 1\nupstream 2\nline 3\n"), "{merged}");
+        assert_eq!(merged.matches("<<<<<<< ").count(), 1, "{merged}");
+        let conflict = &merged[merged.find("<<<<<<< ").unwrap()..merged.find(">>>>>>> ").unwrap()];
+        assert!(conflict.contains("ours 15") && conflict.contains("upstream 15") && !conflict.contains("line 14"), "{merged}");
+        assert_eq!(f.read("docs/PORTS.md"), existing);
+
+        f.write(&f.ours, "crates/pc-algo/src/blur.rs", &blur(&[(2, "upstream 2"), (15, "upstream 15")]));
+        f.commit_ours("port by hand");
+        assert_eq!(f.port(&sha, PortMode::Record), PortStatus::Applied);
+        assert_eq!(f.read("docs/PORTS.md"), format!("{existing}{}", PortFixture::row(&sha, "fix(blur): two hunks")));
+    }
+
+    #[test]
+    fn port_refuses_dirty_trees_unmapped_and_moved_paths() {
+        let f = PortFixture::new("port-refuse");
+        let unchanged = |f: &PortFixture| {
+            assert_eq!(git(&f.ours, &["status", "--porcelain"]), "");
+            assert_eq!(f.read("docs/PORTS.md"), PORTS_INTRO);
+        };
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2")]));
+        let clean = f.commit_upstream("clean");
+
+        f.write(&f.ours, "scratch.txt", "untracked");
+        assert_eq!(f.port(&clean, PortMode::Apply), PortStatus::Refused);
+        assert_eq!(f.port(&clean, PortMode::Record), PortStatus::Refused);
+        std::fs::remove_file(f.ours.join("scratch.txt")).unwrap();
+        unchanged(&f);
+
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(3, "upstream 3")]));
+        f.write(&f.clone, "crates/raw/src/lib.rs", "raw 2\n");
+        let unmapped = f.commit_upstream("touches raw");
+        assert_eq!(f.port(&unmapped, PortMode::Apply), PortStatus::Refused);
+        unchanged(&f);
+
+        f.write(&f.clone, "crates/cms/src/lib.rs", "after the move\n");
+        let after_move = f.commit_upstream("cms after the move");
+        assert_eq!(f.port(&after_move, PortMode::Apply), PortStatus::Refused);
+        unchanged(&f);
+
+        git(&f.clone, &["checkout", "--quiet", "-b", "side", &clean]);
+        f.write(&f.clone, "crates/algo/src/other.rs", "side\n");
+        f.commit_upstream("side");
+        git(&f.clone, &["checkout", "--quiet", "-"]);
+        git(&f.clone, &["merge", "--quiet", "--no-ff", "-m", "merge side", "side"]);
+        let merge = git(&f.clone, &["rev-parse", "HEAD"]);
+        assert_eq!(f.port(&merge, PortMode::Apply), PortStatus::Refused);
+        unchanged(&f);
+
+        assert_eq!(f.port(&clean, PortMode::Apply), PortStatus::Applied);
+        f.commit_ours("port");
+        let recorded = f.read("docs/PORTS.md");
+        assert_eq!(f.port(&clean, PortMode::Apply), PortStatus::Refused);
+        assert_eq!(f.port(&clean, PortMode::Record), PortStatus::Refused);
+        assert_eq!(f.read("docs/PORTS.md"), recorded);
     }
 
     #[test]
