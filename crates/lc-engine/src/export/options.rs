@@ -410,7 +410,7 @@ impl ExportOptions {
             sharpen_amount: enm(p, "sharpenAmount").unwrap_or(d.sharpen_amount),
             naming: s("naming").map_or(d.naming, str::to_string),
             start_number: u("startNumber").map_or(d.start_number, |v| v.min(999_999) as u32),
-            subfolder: s("subfolder").map_or(d.subfolder, |v| v.trim().replace(['\\', ':', '\0'], "_")),
+            subfolder: s("subfolder").map_or(d.subfolder, clean_subfolder),
             same_folder: p.get("sameFolder").and_then(Value::as_bool).unwrap_or(d.same_folder),
             conflict: enm(p, "conflict").unwrap_or(d.conflict),
             tiff_compression: match s("tiffCompression").map(str::to_ascii_lowercase).as_deref() {
