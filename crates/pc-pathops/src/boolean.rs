@@ -749,10 +749,92 @@ pub fn try_boolean(a: &PathData, a_rule: FillRule, b: &PathData, b_rule: FillRul
             BoolOp::Union | BoolOp::Intersect => try_normalize(a, a_rule),
         };
     }
-    let arr = Arrangement::new(vec![(abp, a_rule), (bbp, b_rule)])?;
+    let arr = Arrangement::new(vec![(abp.clone(), a_rule), (bbp.clone(), b_rule)])?;
     let c = arr.contours(|m| op.apply(m[0], m[1]))?;
+    // The sweep can give some faces a wrong winding when an operand crosses or touches itself, and
+    // the result then silently gains or loses a region. When the windings don't add up to the
+    // operands' areas, resolve each operand on its own first; when that doesn't add up either,
+    // keep the first result.
+    if !arrangement_adds_up(&arr, [&abp, &bbp])
+        && let Some(r) = resolved_boolean([(&abp, a_rule), (&bbp, b_rule)], op, precision)
+    {
+        return Ok(r);
+    }
     let tidy = Tidy { precision, ..arr.tidy };
     Ok(all_contours_to_path(&c, &tidy))
+}
+
+/// The widest winding (either sign) [`windings_add_up`] checks: one contour pass per level, so a
+/// more tangled input is taken as it is.
+const MAX_CHECKED_WINDING: i32 = 8;
+
+/// Do the windings `arr` gave each input add up to that input's own area? True when it can't tell.
+fn arrangement_adds_up(arr: &Arrangement, inputs: [&BezPath; 2]) -> bool {
+    inputs.iter().enumerate().all(|(tag, p)| windings_add_up(&arr.top, |w: &Multi| w.get(tag), p).unwrap_or(true))
+}
+
+/// Does the winding the sweep `top` gave its faces add up to the signed area of the path `input`
+/// it was made from? The integral of a path's winding number over the plane is its signed area,
+/// and that integral is the sum over k >= 1 of |{w >= k}| - |{w <= -k}|. A face given a wrong
+/// winding puts it off by the face's area. None when it can't tell: windings past
+/// [`MAX_CHECKED_WINDING`], or a contour pass that fails.
+fn windings_add_up(top: &Topology<Multi>, winding: impl Fn(&Multi) -> i32, input: &BezPath) -> Option<bool> {
+    let (mut lo, mut hi) = (0, 0);
+    for s in top.segment_indices() {
+        let h = s.first_half();
+        for w in [top.winding_clockwise(h), top.winding_counter_clockwise(h)] {
+            let k = winding(w);
+            (lo, hi) = (lo.min(k), hi.max(k));
+        }
+    }
+    if hi > MAX_CHECKED_WINDING || lo < -MAX_CHECKED_WINDING {
+        return None;
+    }
+    let region = |pred: &dyn Fn(i32) -> bool| -> Option<f64> {
+        let c = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| top.contours(|w| pred(winding(w))))).ok()?;
+        Some(c.contours().map(|ct| ct.path.area()).sum::<f64>().abs())
+    };
+    let mut integral = 0.0;
+    for k in 1..=hi {
+        integral += region(&|w| w >= k)?;
+    }
+    for k in 1..=-lo {
+        integral -= region(&|w| w <= -k)?;
+    }
+    let want = input.area();
+    // The sweep moves points by up to its tolerance, which moves an area by about that much along
+    // each edge; a misplaced face is far larger.
+    let eps = eps_for([input]).ok()?;
+    let tol = 1e-6 * input.bounding_box().area().abs() + 16.0 * eps * input.perimeter(1e-3) * f64::from(hi - lo).max(1.0);
+    Some((integral - want).abs() <= tol || (integral + want).abs() <= tol)
+}
+
+/// `input` resolved on its own under `rule` into simple contours (outer contours and holes, filled
+/// non-zero), when the windings of that sweep add up.
+fn resolved(input: &BezPath, rule: FillRule) -> Option<BezPath> {
+    let arr = Arrangement::new(vec![(input.clone(), rule)]).ok()?;
+    if !windings_add_up(&arr.top, |w| w.get(0), input)? {
+        return None;
+    }
+    let mut out = BezPath::new();
+    for ct in arr.contours(|m| m[0]).ok()?.contours() {
+        out.extend(ct.path.iter());
+    }
+    Some(out)
+}
+
+/// The boolean of the operands resolved into simple contours first: the result when every
+/// sweep's windings add up, else None.
+fn resolved_boolean(inputs: [(&BezPath, FillRule); 2], op: BoolOp, precision: f64) -> Option<PathData> {
+    let [(pa, a_rule), (pb, b_rule)] = inputs;
+    let (ra, rb) = (resolved(pa, a_rule)?, resolved(pb, b_rule)?);
+    let arr = Arrangement::new(vec![(ra.clone(), FillRule::NonZero), (rb.clone(), FillRule::NonZero)]).ok()?;
+    if !arrangement_adds_up(&arr, [&ra, &rb]) {
+        return None;
+    }
+    let c = arr.contours(|m| op.apply(m[0], m[1])).ok()?;
+    // The refit keeps the operands' own anchors, not only those of their resolved contours.
+    Some(all_contours_to_path(&c, &Tidy::keeping(precision, [pa, pb])))
 }
 
 fn same_boundary(a: &BezPath, b: &BezPath) -> bool {

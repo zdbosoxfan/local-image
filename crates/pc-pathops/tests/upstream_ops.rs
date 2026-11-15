@@ -539,3 +539,19 @@ fn remove_anchor_at_an_end_drops_its_segment_and_rejects_bad_input() {
     assert!(remove_anchor(&mut bad, 1));
     assert_eq!(bad.anchors.len(), 2);
 }
+
+/// #5478: an operand that crosses itself, meeting another along its crossings: union and
+/// intersection must add up to the two operands' areas. The exact areas, under both fill rules.
+#[test]
+fn a_self_crossing_operand_gets_the_exact_areas() {
+    let poly = |pts: &[(f64, f64)]| PathData::single(SubPath::polyline(&pts.iter().map(|&(x, y)| Point::new(x, y)).collect::<Vec<_>>(), true));
+    let a = poly(&[(3.0, 1.0), (3.0, 3.0), (0.0, 1.0)]);
+    let b = poly(&[(3.0, 0.0), (0.0, 2.0), (3.0, 2.0), (0.0, 0.0), (0.0, 1.0)]);
+    for rule in [NZ, FillRule::EvenOdd] {
+        assert!(close(area(&a, rule), 3.0, 1e-9) && close(area(&b, rule), 2.5, 1e-9), "{rule:?}");
+        for (op, want) in [(BoolOp::Union, 4.375), (BoolOp::Intersect, 1.125), (BoolOp::Difference, 1.875), (BoolOp::Xor, 3.25)] {
+            let got = area(&try_boolean(&a, rule, &b, rule, op, DEFAULT_PRECISION).unwrap(), NZ);
+            assert!(close(got, want, 1e-6), "{op:?} {rule:?}: {got}, want {want}");
+        }
+    }
+}
