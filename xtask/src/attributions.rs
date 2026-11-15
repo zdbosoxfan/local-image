@@ -85,7 +85,7 @@ pub struct Attributions {
 // helpers
 
 /// Markdown cell → plain text: links become their text, backticks and emphasis go.
-fn plain(md: &str) -> String {
+pub(crate) fn plain(md: &str) -> String {
     let mut out = String::new();
     let mut rest = md;
     while let Some(open) = rest.find('[') {
@@ -310,8 +310,8 @@ pub struct CommitPort {
 
 const COMMIT_TABLE: [&str; 4] = ["upstream commit", "subject", "our files", "licence"];
 
-/// The cells of a markdown table row; `\|` is a literal pipe inside a cell.
-pub(crate) fn row_cells(line: &str) -> Vec<String> {
+/// The cells of a markdown table row; `\\|` is a literal pipe inside a cell.
+fn row_cells(line: &str) -> Vec<String> {
     let inner = line.trim();
     let inner = inner.strip_prefix('|').unwrap_or(inner);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
@@ -331,10 +331,9 @@ pub(crate) fn row_cells(line: &str) -> Vec<String> {
     cells.into_iter().map(|c| c.trim().to_string()).collect()
 }
 
-/// The rows of every commit table in PORTS.md. A row whose commit link is not a storytold commit,
-/// or whose link text is not a prefix of the linked hash, is an error naming its line: a skipped
-/// row would silently drop a port from the attributions.
-pub fn parse_commit_ports(md: &str) -> Result<Vec<CommitPort>> {
+/// The body rows of every markdown table whose header cells are exactly `header` (lower-case, as
+/// plain text): (0-based line index, line, cells).
+pub(crate) fn table_rows<'a>(md: &'a str, header: &[&str]) -> Vec<(usize, &'a str, Vec<String>)> {
     let mut out = Vec::new();
     let mut in_table = false;
     for (i, line) in md.lines().enumerate() {
@@ -347,13 +346,23 @@ pub fn parse_commit_ports(md: &str) -> Result<Vec<CommitPort>> {
         if cells.iter().all(|c| c.chars().all(|ch| matches!(ch, '-' | ':' | ' '))) {
             continue;
         }
-        if !in_table {
-            in_table = cells.iter().map(|c| plain(c).to_ascii_lowercase()).eq(COMMIT_TABLE);
-            continue;
+        if in_table {
+            out.push((i, line, cells));
+        } else {
+            in_table = cells.iter().map(|c| plain(c).to_ascii_lowercase()).eq(header.iter().copied());
         }
-        out.push(commit_port(&cells).with_context(|| format!("docs/PORTS.md line {}: {line}", i + 1))?);
     }
-    Ok(out)
+    out
+}
+
+/// The rows of every commit table in PORTS.md. A row whose commit link is not a storytold commit,
+/// or whose link text is not a prefix of the linked hash, is an error naming its line: a skipped
+/// row would silently drop a port from the attributions.
+pub fn parse_commit_ports(md: &str) -> Result<Vec<CommitPort>> {
+    table_rows(md, &COMMIT_TABLE)
+        .into_iter()
+        .map(|(i, line, cells)| commit_port(&cells).with_context(|| format!("docs/PORTS.md line {}: {line}", i + 1)))
+        .collect()
 }
 
 fn commit_port(cells: &[String]) -> Result<CommitPort> {
@@ -364,7 +373,7 @@ fn commit_port(cells: &[String]) -> Result<CommitPort> {
         .and_then(|rest| rest.split_once("/commit/"))
         .with_context(|| format!("{url} is not a storytold GitHub commit"))?;
     let upstream = upstream::by_key(key).with_context(|| format!("unknown upstream `{key}`"))?;
-    if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if !upstream::is_full_sha(sha) {
         bail!("`{sha}` is not a full commit hash");
     }
     let short = text.rsplit('@').next().unwrap_or_default();

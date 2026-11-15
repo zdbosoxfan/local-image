@@ -25,7 +25,12 @@
 //!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
 //!     touched its source file since the commit it was ported from — what to review and re-port.
 //!     Clones go to target/upstream/ (blob-less); --offline skips cloning and fetching.
-//!     Reports checked and unchecked rows; any unchecked row makes the command fail.
+//!     Reports checked and unchecked rows; any unchecked row makes the command fail. Rows of the
+//!     commit tables count as checked when their commit is in the clone; then, for each review
+//!     cutoff in PORTS.md, the number of upstream commits since it.
+//! cargo xtask upstream-reviewed <repo> <sha> [--upstream-dir DIR]
+//!     moves a storytold upstream's review cutoff in docs/PORTS.md forward to <sha>: every commit up
+//!     to it has been triaged. DIR holds the clones as DIR/<repo> (default target/upstream).
 //! cargo xtask assets
 //!     audit asset attribution rows and referenced licence files.
 //! cargo xtask tool-icons
@@ -570,6 +575,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   check-icons [file.wxs]
   deps-pure
   upstream-check [--offline]
+  upstream-reviewed <repo> <sha> [--upstream-dir DIR]
   assets
   icons
   tool-icons
@@ -580,6 +586,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().any(|a| a == f);
     let value = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).cloned();
+    let upstream_dir = || value("--upstream-dir").map_or_else(|| root().join("target").join("upstream"), PathBuf::from);
     match args.first().map(String::as_str) {
         Some("package") => match args.get(1).map(String::as_str) {
             Some("macos") => macos::package(flag("--skip-build")),
@@ -590,6 +597,10 @@ fn main() -> Result<()> {
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
         Some("deps-pure") => deps_pure(),
         Some("upstream-check") => upstream_check(&root(), flag("--offline")),
+        Some("upstream-reviewed") => match (args.get(1), args.get(2)) {
+            (Some(repo), Some(sha)) => upstream::upstream_reviewed(&root(), repo, sha, &upstream_dir()),
+            _ => bail!("{USAGE}"),
+        },
         Some("test-fast") => test_lane::fast(),
         Some("assets") => assets::run(&root()),
         Some("icons") => icons::run(&root()),
@@ -859,6 +870,9 @@ fn upstream_check(root: &Path, offline: bool) -> Result<()> {
             println!("! {} — {} commit {short} is not in {}", c.ours, c.upstream.name, dir.display());
         }
     }
+    for line in upstream::commits_since_markers(&md, &cache)? {
+        println!("{line}");
+    }
     let total = ports.len() + commit_ports.len();
     let unchecked = total - checked;
     let summary = format!("{total} port(s): {checked} checked, {unchecked} unchecked, {behind} with upstream changes to review.");
@@ -1018,9 +1032,15 @@ mod tests {
             ),
         )?;
         let result = upstream_check(&dir, true);
+        std::fs::write(cache.join("a.rs"), "b")?;
+        git(&cache, &["commit", "--quiet", "-am", "Second"]);
+        git(&cache, &["update-ref", "refs/remotes/origin/HEAD", "HEAD"]);
+        let since =
+            upstream::commits_since_markers(&format!("| Upstream | Reviewed up to |\n|---|---|\n| PhotoCraft | `{present}` |\n"), &dir.join("target/upstream"));
         std::fs::remove_dir_all(&dir)?;
         let error = result.expect_err("a commit row whose commit is not in the clone must fail").to_string();
         assert!(error.contains("2 port(s): 1 checked, 1 unchecked"), "{error}");
+        assert_eq!(since?, vec![format!("PhotoCraft: 1 commit(s) since reviewed-up-to {}", &present[..12])]);
         Ok(())
     }
 

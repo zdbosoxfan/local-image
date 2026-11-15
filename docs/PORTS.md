@@ -4,6 +4,19 @@ Code in this repository that is a port (a re-implementation, usually in Rust) of
 another project. Each ported file also names its source in its own module documentation, and each
 upstream project has a notice in [`licenses/`](../licenses).
 
+## Upstream review cutoffs
+
+Every commit up to and including this one has been triaged; newer ones have not.
+Move a cutoff with `cargo xtask upstream-reviewed <repo> <sha>`.
+
+| Upstream | Reviewed up to |
+|---|---|
+| PhotoCraft | `2fec95b0d91bcd45a1a17c93196761880af47322` |
+| LightCraft | `6b2b7e6d1117e683a1701568e56f979d061e4699` |
+| VectorCraft | `895e9493d2dada35bca88044e06b6f63883b2405` |
+
+## Ported files
+
 To add a port: add one row per ported upstream file (several rows may share our file), with the
 full commit hash the port was made from (`git log -1 --format=%H -- <upstream path>` in a clone),
 the upstream licence as an SPDX identifier, and the date of the port (YYYY-MM-DD). When a port is
