@@ -760,10 +760,15 @@ fn corner_mods(legacy: bool, hit: Hit, mut mods: egui::Modifiers) -> egui::Modif
 }
 
 /// Skew / Distort / Perspective modes: a handle drag acts as if that gesture's keys were held
-/// (⌘-drag an edge skews, ⌘-drag a corner distorts, ⌘⌥⇧-drag a corner adds perspective).
+/// (⌘-drag an edge skews, ⌘-drag a corner distorts, ⌘⌥⇧-drag a corner adds perspective, and a
+/// Perspective side handle slides its edge along itself, ⌘⇧).
 fn mode_mods(mode: TransformMode, hit: Hit, mut mods: egui::Modifiers) -> egui::Modifiers {
     match (mode, hit) {
         (TransformMode::Skew, Hit::Edge(_)) | (TransformMode::Distort, Hit::Corner(_)) => mods.command = true,
+        (TransformMode::Perspective, Hit::Edge(_)) => {
+            mods.command = true;
+            mods.shift = true;
+        }
         (TransformMode::Perspective, Hit::Corner(_)) => {
             mods.command = true;
             mods.alt = true;
@@ -1976,6 +1981,22 @@ mod tests {
         // Free Transform from the menu switches the live box back.
         crate::menus::invoke(&mut app, &ctx, "edit.freeTransform", json!({})).unwrap();
         assert_eq!(app.ui.transform.as_ref().unwrap().mode, TransformMode::Free);
+    }
+
+    /// Perspective mode's side handles skew: the edge slides along itself and the opposite edge
+    /// stays, as in Photoshop, instead of scaling the box.
+    #[test]
+    fn perspective_mode_side_handles_slide_their_edge() {
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        app.ui.extras.snap = false;
+        let ctx = egui::Context::default();
+        crate::menus::invoke(&mut app, &ctx, "edit.transform.perspective", json!({})).unwrap();
+        let q0 = app.ui.transform.as_ref().unwrap().quad;
+        let top = [(q0[0][0] + q0[1][0]) / 2.0, q0[0][1]];
+        press_drag(&mut app, top, [top[0] + 6.0, top[1] + 9.0], egui::Modifiers::NONE);
+        let q = app.ui.transform.as_ref().unwrap().quad;
+        assert_eq!([q[0], q[1]], [[q0[0][0] + 6.0, q0[0][1]], [q0[1][0] + 6.0, q0[1][1]]], "the top edge slides along itself");
+        assert_eq!([q[2], q[3]], [q0[2], q0[3]], "the bottom edge stays");
     }
 
     #[test]
