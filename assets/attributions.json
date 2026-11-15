@@ -10281,6 +10281,303 @@
           "url": "https://github.com/storytold/vectorcraft/commit/6beb68f934c49f792e2d05560c692e04b3c1af98"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "PSD: drop a kept merged-transparency marker when the composite is opaque",
+          "commit": "a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad",
+          "ours": "crates/pc-io/src/psd_export.rs, crates/pc-io/src/psd_export/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "security(affinity): charge archive names, failed reads, corner arrays, attachments, pages and font names (#9257)",
+          "commit": "b278ff72459cbf9754863365edd822ba2248aa07",
+          "ours": "crates/pc-affinity/src/container.rs, crates/pc-affinity/src/geometry.rs, crates/pc-affinity/src/model.rs, crates/pc-affinity/src/paint.rs, crates/pc-affinity/src/raster.rs, crates/pc-affinity/src/tests.rs, crates/pc-affinity/src/text.rs, crates/pc-affinity/tests/scene/af5.rs, crates/pc-affinity/tests/support/text_fixture.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/b278ff72459cbf9754863365edd822ba2248aa07"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Integration: clip VP clone copy-back to the canvas, paste in the stamp preview (#3281)",
+          "commit": "248972cfa343ef46cee8f06ea16173310b2abba2",
+          "ours": "crates/pc-engine/src/vp_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/248972cfa343ef46cee8f06ea16173310b2abba2"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Integration: Vanishing Point clone dabs stay on the canvas",
+          "commit": "0f8521851eda61b05f9c5a1201e313e2cbb3a199",
+          "ours": "crates/pc-algo/src/vanishing.rs, crates/pc-algo/tests/coverage/vanishing_coverage.rs, crates/pc-engine/src/vp_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/0f8521851eda61b05f9c5a1201e313e2cbb3a199"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Package: never overwrite one link's copy with another, list a missing link once (#9185)",
+          "commit": "1e5b5f76170e7fdfc5cdc8aaa1a9ecfc6e2ca81f",
+          "ours": "crates/pc-engine/src/print_cmds.rs, crates/pc-engine/src/print_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/1e5b5f76170e7fdfc5cdc8aaa1a9ecfc6e2ca81f"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Refuse .pcraft manifests with too many JSON values before parsing (#8893)",
+          "commit": "92a15591381b0967d6276ff2e8b65a8bbd968a18",
+          "ours": "crates/pc-format/src/store.rs, crates/pc-format/tests/it/corruption.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/92a15591381b0967d6276ff2e8b65a8bbd968a18"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Export Data Sets as Files keeps outputs in the chosen folder (#9420)",
+          "commit": "2c4982f2d2981c1685212dd951d7466e4b39fe49",
+          "ours": "crates/pc-engine/src/variables_cmds.rs, crates/pc-engine/src/variables_cmds/tests.rs, crates/pc-engine/src/web_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/2c4982f2d2981c1685212dd951d7466e4b39fe49"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(format): bound ZIP expansion by declared size",
+          "commit": "1121b7979bc61f398619c2951c9ece1fb8c8fc08",
+          "ours": "crates/pc-format/src/zip.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/1121b7979bc61f398619c2951c9ece1fb8c8fc08"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(codecs): bound complete JPEGs by their scan data too",
+          "commit": "8f782cab1cf98fecca7af994ea574cc547e07b8c",
+          "ours": "crates/pc-codecs/src/codecs/jpeg.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/8f782cab1cf98fecca7af994ea574cc547e07b8c"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Plug-ins: refuse a code section with no functions but many bytes instead of panicking (#9679)",
+          "commit": "68c0f034d507d104a3aff2ed46f01bd800a0af6a",
+          "ours": "crates/pc-plugins/src/runtime.rs, crates/pc-plugins/tests/abi.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/68c0f034d507d104a3aff2ed46f01bd800a0af6a"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "sec: bound heic-rs 0.1.4 work around hostile HEIF containers",
+          "commit": "b88f72b9df68f07a080772d7fb16a92d6f7db837",
+          "ours": "crates/pc-heif/src/census.rs, crates/pc-heif/src/lib.rs, crates/pc-heif/src/tests_hardening.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/b88f72b9df68f07a080772d7fb16a92d6f7db837"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "heif: bound iloc item-extent visits before reconstructing in probe",
+          "commit": "178eef790bd8872a6f60f7b1a0fb7b67499acc59",
+          "ours": "crates/pc-heif/src/lib.rs, crates/pc-heif/src/tests_hardening.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/178eef790bd8872a6f60f7b1a0fb7b67499acc59"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(heif): budget every reconstruction before it runs",
+          "commit": "269495cd3867e9feee1876ac641627ba23c7dabb",
+          "ours": "crates/pc-heif/src/lib.rs, crates/pc-heif/src/tests_hardening.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/269495cd3867e9feee1876ac641627ba23c7dabb"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(heif): scan the primary item before heic_rs::probe, the alpha plane, and each thumbnail candidate",
+          "commit": "0c71f75325b5f707bbe8e7ef6324e6e14a8f51e6",
+          "ours": "crates/pc-heif/src/lib.rs, crates/pc-heif/src/tests_hardening.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/0c71f75325b5f707bbe8e7ef6324e6e14a8f51e6"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Security: planar map budgets for booleans, Live Paint, Offset Path and 3D effects",
+          "commit": "cd80d1d859cdefb4f095c362c52c9cae63f41f62",
+          "ours": "crates/pc-pathops/src/budget.rs, crates/pc-pathops/src/boolean.rs, crates/pc-pathops/src/lib.rs (error variant), crates/pc-pathops/src/planar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/cd80d1d859cdefb4f095c362c52c9cae63f41f62"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "security(pathops): signed zeros, reported budget rejections, and a fill-only fallback",
+          "commit": "0eebd533c58c357a1b5b09769b6890066b05d80e",
+          "ours": "crates/pc-pathops/src/budget.rs (signed-zero bounds), crates/pc-engine/src/pathops_cmds.rs (command-boundary regression)",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/0eebd533c58c357a1b5b09769b6890066b05d80e"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "security(pathops): count the sweep budget on the snapped geometry",
+          "commit": "caf10cc5816d5f26bee02837650ce6952b69b878",
+          "ours": "crates/pc-pathops/src/boolean.rs, crates/pc-pathops/src/planar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/commit/caf10cc5816d5f26bee02837650ce6952b69b878"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security/raw: bound hostile-memory paths in raw decoders",
+          "commit": "d00df6319cd382b67c25f2d4bd540b87261318eb",
+          "ours": "crates/lc-raw/src/dngwrite.rs, crates/lc-raw/src/opcodes.rs, crates/lc-raw/src/preview.rs, crates/lc-raw/src/tiffraw.rs, crates/lc-raw/tests/it/dng.rs, crates/lc-tiff/src/image.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/d00df6319cd382b67c25f2d4bd540b87261318eb"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security/meta,merge,raw,tiff,denoise: bound memory sized by attacker-shaped inputs",
+          "commit": "d8ceb3a6af2b5bd86fdcb947eb8a4f5b1c372125",
+          "ours": "crates/lc-meta/src/xmp.rs, crates/lc-tiff/src/makernote.rs, crates/lc-merge/src/lib.rs, crates/lc-merge/src/pano/camera.rs, crates/lc-merge/src/pano/mod.rs, crates/lc-merge/tests/it/pano_coverage.rs, crates/lc-engine/src/merge.rs, crates/lc-engine/src/sidecar.rs, crates/lc-engine/src/preset_import.rs, crates/lc-engine/src/crs.rs, crates/lc-meta/src/xmp_merge.rs, crates/lc-meta/src/file_info.rs, crates/lc-meta/src/exif.rs, crates/lc-meta/src/lib.rs, crates/lc-tiff/src/reader.rs, crates/pc-engine/src/vector_packages/pdf_export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/d8ceb3a6af2b5bd86fdcb947eb8a4f5b1c372125"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(raw,meta): follow-ups from review",
+          "commit": "3022baa8615a2956e239b7febf3fe4ff98289885",
+          "ours": "crates/lc-raw/src/preview.rs, crates/lc-raw/src/tiffraw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/3022baa8615a2956e239b7febf3fe4ff98289885"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "fix(raw): check opcode byte counts without overflow",
+          "commit": "ca69e74b62c819e4dee07fb50eb674ef39b8557a",
+          "ours": "crates/lc-raw/src/opcodes.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/ca69e74b62c819e4dee07fb50eb674ef39b8557a"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Integration: cap MapPolynomial opcodes, finite WhiteLevel, RGB-only JPEG XL preview (#8402)",
+          "commit": "dcf5c61a64716bec507ee79735ef18ce0837fbce",
+          "ours": "crates/lc-raw/src/dng.rs, crates/lc-raw/src/opcodes.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/dcf5c61a64716bec507ee79735ef18ce0837fbce"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
