@@ -2,8 +2,9 @@
 //!
 //! **Write** ([`Session::save_sidecar`], `photo.saveMetadataToFile`, or automatically after every
 //! change when [`XmpPrefs::auto_write`] is on): rating, colour label, title, caption, copyright,
-//! creator, keywords, capture time and GPS in the standard namespaces, plus our complete develop
-//! settings (`lc:settings`, JSON), the pick/reject flag (`lc:flag`) and location (`lc:location`).
+//! creator, keywords (names in `dc:subject`, paths in `lr:hierarchicalSubject`), capture time and GPS
+//! in the standard namespaces, plus our complete develop settings (`lc:settings`, JSON), the
+//! pick/reject flag (`lc:flag`) and location (`lc:location`).
 //!
 //! An existing sidecar is never replaced wholesale (issue #92): LightCraft's properties
 //! ([`OWNED`], [`OWNED_IF_STATED`]) are merged into it ([`lightcraft_meta::merge_xmp`]) and
@@ -259,6 +260,8 @@ impl SidecarData {
 /// label names included, as other editors do).
 pub fn sidecar_packet(p: &Photo, cat: &lightcraft_catalog::Catalog) -> String {
     let nz = |s: &str| (!s.trim().is_empty()).then(|| s.to_string());
+    // names in `dc:subject`, paths in `lr:hierarchicalSubject`
+    let keywords = lightcraft_catalog::keywords::to_file(&p.meta.keywords);
     let meta = lightcraft_meta::Metadata {
         dji: p.meta.dji.clone(),
         software: Some("Local Image".into()),
@@ -276,7 +279,8 @@ pub fn sidecar_packet(p: &Photo, cat: &lightcraft_catalog::Catalog) -> String {
         copyright_url: nz(&p.meta.copyright_url),
         artist: nz(&p.meta.creator),
         creators: p.meta.creators.clone(),
-        keywords: p.meta.keywords.clone(),
+        keywords: keywords.flat,
+        hierarchical_keywords: keywords.hierarchical,
         rating: Some(p.rating.min(5) as i8),
         label: p.label.map(|l| cat.label_name(l)),
         capture_time: p.captured.as_deref().and_then(lightcraft_meta::DateTime::parse_iso),
@@ -307,6 +311,7 @@ pub const OWNED: &[&str] = &[
     "dc:rights",
     "dc:creator",
     "dc:subject",
+    "lr:hierarchicalSubject",
     "Iptc4xmpCore:Location",
     "Iptc4xmpCore:AltTextAccessibility",
     "Iptc4xmpCore:ExtDescrAccessibility",
@@ -619,6 +624,27 @@ mod tests {
         let flat = lightcraft_meta::Metadata { keywords: vec!["a|b".into(), " sea ".into()], ..Default::default() };
         let sc = parse_sidecar(&lightcraft_meta::write_xmp(&flat, None), false).unwrap();
         assert_eq!(sc.keywords, Some(vec!["a|b".to_string(), "sea".to_string()]));
+    }
+
+    /// Saving a sidecar keeps keywords where other applications look for them: names in
+    /// `dc:subject`, never paths, and the paths in `lr:hierarchicalSubject`. Read back, the same
+    /// keywords; and the hierarchical list is ours, so clearing the keywords clears it in a sidecar
+    /// that had it.
+    #[test]
+    fn sidecar_writes_keyword_names_flat_and_paths_hierarchical() {
+        let cat = lightcraft_catalog::Catalog::new();
+        let mut p = photo();
+        p.meta.keywords = vec!["Places|Italy|Rome".into(), "sunset".into()];
+        let written = sidecar_packet(&p, &cat);
+        let lists = lightcraft_meta::parse_xmp(&written).unwrap().metadata;
+        assert_eq!(lists.keywords, ["Places", "Italy", "Rome", "sunset"], "names, not paths, in dc:subject:\n{written}");
+        assert_eq!(lists.hierarchical_keywords, ["Places|Italy|Rome", "sunset"], "{written}");
+        assert_eq!(parse_sidecar(&written, false).unwrap().keywords, Some(p.meta.keywords.clone()), "read back as written");
+
+        p.meta.keywords.clear();
+        let rules = lightcraft_meta::MergeRules { owned: OWNED, owned_if_present: OWNED_IF_STATED };
+        let cleared = lightcraft_meta::merge_xmp(&written, &sidecar_packet(&p, &cat), rules).unwrap();
+        assert!(!cleared.contains("<dc:subject>") && !cleared.contains("<lr:hierarchicalSubject>"), "{cleared}");
     }
 
     #[test]
