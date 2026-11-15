@@ -1209,3 +1209,6 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`20f92ee405dc`](https://github.com/storytold/photocraft/commit/20f92ee405dc1c195a7a10ed54d2af9ca2ecef06) | codecs: leave Extended XMP fragments out of zune-jpeg's header parse (#10981) | `crates/pc-codecs/src/codecs/jpeg.rs` | MIT OR Apache-2.0 |
+| [`b0c4aa8cc8ac`](https://github.com/storytold/lightcraft/commit/b0c4aa8cc8acac043af6d767b3bfec30d0ab0c0a) | security(raw): linear sparse planning, distinct-byte allocation bound, opcode list budget, ORF strip length (#3679) | `crates/lc-raw/src/opcodes.rs`<br>`crates/lc-raw/src/vendor/orf.rs` | MIT OR Apache-2.0 |
+| [`42929264805c`](https://github.com/storytold/photocraft/commit/42929264805c70be29813fabd738c905c5b07460) | Codecs: a PNG's iCCP profile inflates to at most 16.7 MB (#8599) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`acd57a36af62`](https://github.com/storytold/photocraft/commit/acd57a36af62ccba3c21004052113716605bb937) | Codecs: a PNG's iCCP profile also keeps to the caller's allocation limit (#8599) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
