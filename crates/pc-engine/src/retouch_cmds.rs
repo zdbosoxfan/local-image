@@ -11,7 +11,7 @@
 
 use photocraft_algo::inpaint::{self, CompleteParams};
 use photocraft_algo::poisson;
-use photocraft_algo::retouch::{ToneRange, dodge_burn, local_blur, local_sharpen, sponge};
+use photocraft_algo::retouch::{PROTECT_DETAIL_SIGMA, ToneRange, dodge_burn, local_blur, local_sharpen, sponge};
 use photocraft_color::{BlendMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, LayerContent, LayerId};
 use photocraft_geom::Rect;
@@ -690,7 +690,10 @@ fn focus_cmd(s: &mut Session, p: &Value, sharpen: bool) -> Result<Value> {
     let strength = num(p, "strength", 50.0).clamp(1.0, 100.0) / 100.0;
     let protect = flag(p, "protectDetail", true);
     let sigma = (stroke.brush.size * 0.03).clamp(1.0, 4.0);
-    let halo = (sigma * 3.0).ceil() as i32 + 1;
+    // Protect Detail sharpens against its own, wider Gaussian.
+    let gentle = sharpen && protect;
+    let reach = if gentle { PROTECT_DETAIL_SIGMA } else { sigma };
+    let halo = (reach * 3.0).ceil() as i32 + 1;
     let label = if sharpen { "Sharpen Tool" } else { "Blur Tool" };
     let all = sample_all_layers(p);
     let dmg = run_stroke(s, label, id, p, |pre, surf, sel, lock| {
@@ -709,7 +712,9 @@ fn focus_cmd(s: &mut Session, p: &Value, sharpen: bool) -> Result<Value> {
             let rw = r.width() as usize;
             for y in r.y0..r.y1 {
                 for x in r.x0..r.x1 {
-                    let k = per_dab(fp.at(x, y) * strength, sp);
+                    // Protect Detail applies Strength once per dab, so a click at 50 % does half
+                    // of what 100 % does. Spread over the overlapping dabs it did almost nothing.
+                    let k = if gentle { fp.at(x, y) * strength } else { per_dab(fp.at(x, y) * strength, sp) };
                     if k <= 0.0 {
                         continue;
                     }

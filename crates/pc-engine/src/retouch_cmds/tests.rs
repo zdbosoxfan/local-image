@@ -1069,3 +1069,21 @@ fn clone_onto_a_layer_without_alpha_leaves_pixels_whose_source_is_off_the_canvas
     let d = s.active().unwrap();
     assert!(!d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().format().alpha, "the layer keeps its format");
 }
+
+#[test]
+fn sharpen_with_protect_detail_gives_a_step_a_low_halo_that_follows_strength() {
+    // Upstream 0f205f03 (#12938): Protect Detail clamped each pixel to its 3×3 range, which always
+    // holds the pixel itself, so a step did not change. One hard 40 px click on a grey 96 | 160
+    // step; the reference application gives 90 | 164 at the edge at 100 % and 93 | 162 at 50 %.
+    let level = |s: &Session, x: i32| (rgba(s, x, 20)[0] * 255.0).round() as i32;
+    for (strength, dark, light, within) in [(100, 90, 164, 3), (50, 93, 162, 2), (1, 96, 160, 0)] {
+        let mut s = session(80, 40, 8, "rgb");
+        paint_layer(&mut s, |x, _| {
+            let g = if x < 40 { 96.0 / 255.0 } else { 160.0 / 255.0 };
+            [g, g, g, 1.0]
+        });
+        s.execute("paint.sharpen", json!({"points": [[40, 20]], "size": 40, "hardness": 100, "strength": strength})).unwrap();
+        let (d, l) = (level(&s, 39), level(&s, 40));
+        assert!((d - dark).abs() <= within && (l - light).abs() <= within, "{strength} %: {d} | {l}, want {dark} | {light} ± {within}");
+    }
+}
