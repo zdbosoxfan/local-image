@@ -831,6 +831,16 @@ mod tests {
     use crate::geom::{Rect, shapes};
     use proptest::prelude::*;
 
+    #[test]
+    fn interior_point_of_a_curve_with_far_out_handles_is_bounded() {
+        let mut bp = BezPath::new();
+        bp.move_to((0.0, 0.0));
+        bp.curve_to((1e200, 0.0), (-1e200, 1e200), (10.0, 0.0));
+        bp.line_to((10.0, 10.0));
+        bp.close_path();
+        let _ = interior_point(&PathData::from_bezpath(&bp));
+    }
+
     fn line(a: (f64, f64), b: (f64, f64), key: u64) -> Shape {
         Shape::new(PathData::single(SubPath::polyline(&[Point::new(a.0, a.1), Point::new(b.0, b.1)], false)), FillRule::NonZero, key)
     }

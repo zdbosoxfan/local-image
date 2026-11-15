@@ -144,8 +144,19 @@ pub(crate) fn eps_for<'a>(paths: impl IntoIterator<Item = &'a BezPath>) -> Resul
     // Keep the upstream document-scale tolerance; scale its floor for tiny/huge
     // drawings to avoid collapsed tiny contours or excessive root subdivisions.
     let floor = if !(0.01..=1e4).contains(&span) { (span * 1e-8).max(1e-12) } else { 1e-6 };
-    Ok((m * f64::EPSILON * 64.0).max(floor))
+    let rounding = m * f64::EPSILON * 64.0;
+    // Past a document unit, features thinner than the sweep's rounding collapse and the call would
+    // answer `Ok` with part or all of the art gone. Refuse, so callers keep the original. The
+    // floor above scales with the drawing, so it erases nothing a drawing that size keeps.
+    if rounding > MAX_SWEEP_ROUNDING {
+        return Err(PathOpsError::Degenerate);
+    }
+    Ok(rounding.max(floor))
 }
+
+/// The widest rounding tolerance [`eps_for`] accepts: one document unit, reached by coordinates of
+/// about 7e13.
+const MAX_SWEEP_ROUNDING: f64 = 1.0;
 
 fn el_points(el: &kurbo::PathEl) -> impl Iterator<Item = Point> {
     use kurbo::PathEl::*;
@@ -817,6 +828,29 @@ pub fn area(path: &PathData, rule: FillRule) -> f64 {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod dsfix_tests {
     use super::*;
+
+    fn square(x: f64, y: f64, size: f64) -> PathData {
+        PathData::from_bezpath(&kurbo::Rect::new(x, y, x + size, y + size).to_path(0.1))
+    }
+
+    #[test]
+    fn coordinates_wider_than_a_unit_of_tolerance_are_refused_not_emptied() {
+        let near = square(0.0, 0.0, 10.0);
+        let far = square(1e15, 1e15, 10.0);
+        for op in [BoolOp::Union, BoolOp::Intersect, BoolOp::Difference, BoolOp::Xor] {
+            assert_eq!(try_boolean(&near, FillRule::NonZero, &far, FillRule::NonZero, op, DEFAULT_PRECISION), Err(PathOpsError::Degenerate), "{op:?}");
+        }
+        assert_eq!(try_normalize(&far, FillRule::NonZero), Err(PathOpsError::Degenerate));
+        // 100 unit squares: tolerance 0.7 at 5e13 (kept), 1.4 at 1e14 (refused).
+        assert!(try_normalize(&square(5e13, 5e13, 100.0), FillRule::NonZero).is_ok());
+        assert_eq!(try_normalize(&square(1e14, 1e14, 100.0), FillRule::NonZero), Err(PathOpsError::Degenerate));
+        for at in [1e5, 1e7] {
+            let united =
+                try_boolean(&square(at, at, 10.0), FillRule::NonZero, &square(at + 5.0, at, 10.0), FillRule::NonZero, BoolOp::Union, DEFAULT_PRECISION)
+                    .unwrap();
+            assert!((area(&united, FillRule::NonZero) - 150.0).abs() < 1.0, "at {at}");
+        }
+    }
     #[test]
     fn dsfix_fallback_accepts_more_than_1024_chords_and_keeps_a_finite_cap() {
         let ring = |n| {
