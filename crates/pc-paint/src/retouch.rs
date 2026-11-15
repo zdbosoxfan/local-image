@@ -214,7 +214,8 @@ pub fn apply_coverage(
 ///
 /// The working copy covers the stroke bounds grown by `halo` pixels so neighbourhood effects (blur,
 /// sharpen) can read around each dab; only the stroke bounds are written back. With
-/// `lock_transparency`, alpha is preserved. Returns the damaged rectangle.
+/// `lock_transparency`, alpha is preserved. Returns the damaged rectangle, or [`StrokeTooLarge`]
+/// when the working copy would not fit the budget (nothing is painted).
 pub fn apply_dab_stroke(
     target: &mut Surface,
     stroke: &Stroke,
@@ -222,14 +223,19 @@ pub fn apply_dab_stroke(
     lock_transparency: bool,
     halo: i32,
     mut effect: impl FnMut(&mut Region, &Footprint),
-) -> Rect {
+) -> Result<Rect, StrokeTooLarge> {
     let ds = dabs(stroke);
     if ds.is_empty() {
-        return Rect::EMPTY;
+        return Ok(Rect::EMPTY);
     }
     let ctx = crate::BrushContext::new(&stroke.brush);
     let bounds = ds.iter().fold(Rect::EMPTY, |r, d| r.union(&ctx.dab_rect(d, false)));
-    let outer = Rect::new(bounds.x0 - halo, bounds.y0 - halo, bounds.x1 + halo, bounds.y1 + halo);
+    let outer = Rect::new(bounds.x0.saturating_sub(halo), bounds.y0.saturating_sub(halo), bounds.x1.saturating_add(halo), bounds.y1.saturating_add(halo));
+    // The working copy is dense over the whole stroke rectangle, so two distant dabs ask for the
+    // area between them. Refuse before reading it.
+    if !fits_dab_stroke_budget(outer, target.channels()) {
+        return Err(StrokeTooLarge);
+    }
     let orig = Region::read(target, outer);
     let mut work = orig.clone();
     for (i, d) in ds.iter().enumerate() {
@@ -264,7 +270,31 @@ pub fn apply_dab_stroke(
         }
     }
     out.write(target);
-    bounds
+    Ok(bounds)
+}
+
+/// A sequential-dab stroke whose dense working copy would exceed the memory budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrokeTooLarge;
+
+impl std::fmt::Display for StrokeTooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("stroke too large")
+    }
+}
+
+impl std::error::Error for StrokeTooLarge {}
+
+/// Bytes a sequential-dab stroke's dense buffers may take: the original and working copies over the
+/// grown stroke rectangle and the mixed result, `f32` samples.
+const MAX_DAB_STROKE_BYTES: u64 = if cfg!(target_pointer_width = "64") { 4 << 30 } else { 1 << 30 };
+
+/// Whether [`apply_dab_stroke`]'s three `channels`-deep planes over `outer` fit [`MAX_DAB_STROKE_BYTES`].
+fn fits_dab_stroke_budget(outer: Rect, channels: usize) -> bool {
+    u64::from(outer.width())
+        .checked_mul(u64::from(outer.height()))
+        .and_then(|px| px.checked_mul(channels as u64)?.checked_mul(3 * size_of::<f32>() as u64))
+        .is_some_and(|b| b <= MAX_DAB_STROKE_BYTES)
 }
 
 /// `dst ← lerp(dst, src, k)` in premultiplied space (straight in, straight out; `a` = alpha index).
@@ -464,6 +494,19 @@ mod tests {
     }
 
     #[test]
+    fn a_dab_stroke_between_distant_points_is_refused_before_reading() {
+        assert!(fits_dab_stroke_budget(Rect::new(0, 0, 4096, 4096), 4));
+        assert!(!fits_dab_stroke_budget(Rect::new(0, 0, 300_000, 300_000), 1));
+        assert!(!fits_dab_stroke_budget(Rect::new(i32::MIN, i32::MIN, i32::MAX, i32::MAX), usize::MAX));
+        // Two small dabs 40000 px apart on both axes: a 1.6 Gpx working rectangle.
+        let mut s = Surface::new(PixelFormat::GRAY8);
+        let st = stroke(&[(0.0, 0.0), (40_000.0, 40_000.0)], 6.0, 1.0);
+        let mut called = false;
+        assert_eq!(apply_dab_stroke(&mut s, &st, None, false, 2, |_, _| called = true), Err(StrokeTooLarge));
+        assert!(!called);
+    }
+
+    #[test]
     fn dab_stroke_runs_sequentially_and_respects_selection() {
         let mut s = Surface::new(PixelFormat::GRAY8);
         let mut sel = Surface::new(PixelFormat::GRAY8);
@@ -479,7 +522,8 @@ mod tests {
                     }
                 }
             }
-        });
+        })
+        .unwrap();
         assert!(seen.windows(2).all(|w| w[1] == w[0] + 1));
         assert!(s.pixel(20, 10)[0] > 0.1, "dabs accumulate");
         assert_eq!(s.pixel(40, 10)[0], 0.0, "outside the selection untouched");
@@ -493,7 +537,7 @@ mod tests {
             s.fill_rect(Rect::new(0, 0, 30, 40), &[1.0, 0.0, 0.0, 1.0]);
             let st = stroke(&[(20.0, 20.0), (70.0, 20.0)], 12.0, 1.0);
             let mut sm = Smudge::new(0.8, None, 12.0);
-            apply_dab_stroke(&mut s, &st, None, false, 0, |w, fp| sm.dab(w, fp));
+            apply_dab_stroke(&mut s, &st, None, false, 0, |w, fp| sm.dab(w, fp)).unwrap();
             // Red dragged to the right of the edge, fading with distance.
             let g = |x| s.pixel(x, 20)[1];
             assert!(g(35) < 0.5, "{fmt:?} {}", g(35));
@@ -503,7 +547,7 @@ mod tests {
             let mut s2 = Surface::new(fmt);
             s2.fill_rect(Rect::new(0, 0, 100, 40), &[1.0, 1.0, 1.0, 1.0]);
             let mut fg = Smudge::new(0.8, Some(vec![0.0, 0.0, 1.0, 1.0]), 12.0);
-            apply_dab_stroke(&mut s2, &st, None, false, 0, |w, fp| fg.dab(w, fp));
+            apply_dab_stroke(&mut s2, &st, None, false, 0, |w, fp| fg.dab(w, fp)).unwrap();
             assert!(s2.pixel(22, 20)[0] < 0.5);
         }
     }
@@ -516,7 +560,7 @@ mod tests {
             s.fill_rect(Rect::new(0, 0, 30, 40), &[1.0, 0.8, 0.0, 1.0]);
             let st = stroke(&[(20.0, 20.0), (70.0, 20.0)], 12.0, 0.5);
             let mut sm = Smudge::new(0.8, None, 12.0).with_alpha(Some(3));
-            apply_dab_stroke(&mut s, &st, None, false, 0, |w, fp| sm.dab(w, fp));
+            apply_dab_stroke(&mut s, &st, None, false, 0, |w, fp| sm.dab(w, fp)).unwrap();
             let mut smudged = 0;
             for x in 30..80 {
                 for y in 14..27 {
@@ -534,7 +578,7 @@ mod tests {
             let mut st = st.clone();
             st.brush.opacity = 0.5;
             let mut sm = Smudge::new(0.8, None, 12.0).with_alpha(Some(3));
-            apply_dab_stroke(&mut s, &st, None, false, 0, |w, fp| sm.dab(w, fp));
+            apply_dab_stroke(&mut s, &st, None, false, 0, |w, fp| sm.dab(w, fp)).unwrap();
             let p = s.rgba(34, 20);
             assert!(p[3] > 0.02 && p[0] > 0.97, "{fmt:?}: {p:?}");
         }
