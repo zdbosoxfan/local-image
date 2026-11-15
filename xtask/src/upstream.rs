@@ -788,7 +788,7 @@ skip = ["docs/"]
         let sha = f.commit_upstream("fix(blur): exact | variance");
 
         assert_eq!(f.port(&sha[..9], PortMode::DryRun), PortStatus::Applied);
-        assert_eq!(git(&f.ours, &["status", "--porcelain"]), "");
+        assert_eq!(git(&f.ours, &["status", "--porcelain", "--untracked-files=all"]), "");
         assert_eq!(f.read("docs/PORTS.md"), PORTS_INTRO);
 
         assert_eq!(f.port(&sha[..9], PortMode::Apply), PortStatus::Applied);
@@ -844,10 +844,38 @@ skip = ["docs/"]
     }
 
     #[test]
+    fn port_merges_around_a_local_change_when_only_the_upstream_has_the_preimage() {
+        let f = PortFixture::new("port-three-way");
+        f.write(&f.ours, "crates/pc-algo/src/blur.rs", &blur(&[(5, "ours 5")]));
+        f.commit_ours("local change");
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(18, "upstream 18")]));
+        f.commit_upstream("not ported");
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2"), (18, "upstream 18")]));
+        let sha = f.commit_upstream("fix(blur): line 2");
+
+        assert_eq!(f.port(&sha, PortMode::Apply), PortStatus::Applied);
+        assert_eq!(git(&f.ours, &["show", ":crates/pc-algo/src/blur.rs"]), blur(&[(2, "upstream 2"), (5, "ours 5")]).trim_end());
+    }
+
+    #[test]
+    fn port_keeps_our_file_when_the_upstream_adds_one_at_its_path() {
+        let f = PortFixture::new("port-add-add");
+        f.write(&f.ours, "crates/pc-algo/src/new.rs", "ours\n");
+        f.commit_ours("our own file");
+        f.write(&f.clone, "crates/algo/src/new.rs", "upstream\n");
+        let sha = f.commit_upstream("feat: new file");
+
+        assert_eq!(f.port(&sha, PortMode::Apply), PortStatus::Conflicts);
+        let merged = f.read("crates/pc-algo/src/new.rs");
+        assert!(merged.contains("<<<<<<< ") && merged.contains("ours\n") && merged.contains("upstream\n"), "{merged}");
+        assert_eq!(f.read("docs/PORTS.md"), PORTS_INTRO);
+    }
+
+    #[test]
     fn port_refuses_dirty_trees_unmapped_and_moved_paths() {
         let f = PortFixture::new("port-refuse");
         let unchanged = |f: &PortFixture| {
-            assert_eq!(git(&f.ours, &["status", "--porcelain"]), "");
+            assert_eq!(git(&f.ours, &["status", "--porcelain", "--untracked-files=all"]), "");
             assert_eq!(f.read("docs/PORTS.md"), PORTS_INTRO);
         };
         f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2")]));
@@ -858,6 +886,13 @@ skip = ["docs/"]
         assert!(f.refused(&clean, PortMode::Apply).contains("the working tree has changes"));
         assert!(f.refused(&clean, PortMode::Record).contains("the working tree has changes"));
         std::fs::remove_file(f.ours.join("scratch.txt")).unwrap();
+        unchanged(&f);
+        f.write(&f.ours, "crates/pc-algo/src/blur.rs", &blur(&[(9, "ours 9")]));
+        assert!(f.refused(&clean, PortMode::Apply).contains("the working tree has changes"));
+        git(&f.ours, &["add", "-A"]);
+        assert!(f.refused(&clean, PortMode::Apply).contains("the working tree has changes"));
+        assert_eq!(f.read("crates/pc-algo/src/blur.rs"), blur(&[(9, "ours 9")]));
+        git(&f.ours, &["reset", "--quiet", "--hard"]);
         unchanged(&f);
 
         f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(3, "upstream 3")]));
