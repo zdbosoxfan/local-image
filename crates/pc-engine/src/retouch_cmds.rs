@@ -675,7 +675,8 @@ fn focus_cmd(s: &mut Session, p: &Value, sharpen: bool) -> Result<Value> {
     let (stroke, id) = parse_brush(s, p, cmd)?;
     let strength = num(p, "strength", 50.0).clamp(1.0, 100.0) / 100.0;
     let protect = flag(p, "protectDetail", true);
-    let sigma = (stroke.brush.size * 0.03).clamp(1.0, 4.0);
+    // Blur spreads with the brush, so a large brush blurs visibly; Sharpen keeps its fine radius.
+    let sigma = if sharpen { (stroke.brush.size * 0.03).clamp(1.0, 4.0) } else { (stroke.brush.size * 0.15).clamp(1.0, 64.0) };
     let halo = (sigma * 3.0).ceil() as i32 + 1;
     let label = if sharpen { "Sharpen Tool" } else { "Blur Tool" };
     let all = sample_all_layers(p);

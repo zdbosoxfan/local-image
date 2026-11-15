@@ -246,6 +246,24 @@ fn blur_reduces_local_variance_and_sharpen_increases_it() {
     }
 }
 
+/// One dab on a black-to-white step at x = 60: a size-20 brush leaves x = 45 and x = 75 alone,
+/// and a size-60 brush carries the other side's tone that far.
+#[test]
+fn blur_spreads_farther_with_a_larger_brush() {
+    for depth in [8u64, 16] {
+        let run = |size: u32| {
+            let mut s = session(120, 40, depth, "rgb");
+            paint_layer(&mut s, |x, _| if x < 60 { [0.0, 0.0, 0.0, 1.0] } else { [1.0, 1.0, 1.0, 1.0] });
+            s.execute("paint.blur", json!({"points": [[60, 20]], "size": size, "hardness": 100, "strength": 100})).unwrap();
+            (0..120).map(|x| rgba(&s, x, 20)[0]).collect::<Vec<_>>()
+        };
+        let (p20, p60) = (run(20), run(60));
+        assert_eq!((p20[45], p20[75]), (0.0, 1.0), "depth {depth}: outside the size-20 dab");
+        assert!(p60[45] > 0.0 && p60[75] < 1.0, "depth {depth}: size 60 reaches x = 45 and x = 75: {} {}", p60[45], p60[75]);
+        assert!(p60[55] > p20[55], "depth {depth}: size 60 blurs more near the step: {} vs {}", p60[55], p20[55]);
+    }
+}
+
 #[test]
 fn smudge_moves_colour_along_the_stroke() {
     for depth in DEPTHS {
