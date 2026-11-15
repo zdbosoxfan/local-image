@@ -118,6 +118,12 @@ pub fn import_batch_done(s: &mut Session, report: crate::import::ImportReport, m
     Ok(report)
 }
 
+/// The photos an album can hold: an id the catalog doesn't have (named outright, or kept selected
+/// after an undo took its photo away) is dropped before anything changes.
+fn album_targets(s: &Session, targets: Vec<PhotoId>) -> Vec<PhotoId> {
+    targets.into_iter().filter(|id| s.catalog.photo(*id).is_some()).collect()
+}
+
 fn album_param(p: &Value, key: &str, c: &str) -> Result<AlbumId> {
     p.get(key).and_then(Value::as_u64).map(AlbumId).ok_or_else(|| bad(c, format!("missing album `{key}`")))
 }
@@ -410,8 +416,10 @@ pub fn specs() -> Vec<CommandSpec> {
             s.end_interaction()?;
             match mode {
                 "replace" => {
-                    s.selection =
-                        Selection { ids: ids.clone(), active: p.get("active").and_then(Value::as_u64).map(PhotoId).or(ids.first().copied()) };
+                    // a repeated id is one photo: keep the first of each, in the order given
+                    let mut seen = std::collections::HashSet::with_capacity(ids.len());
+                    let ids: Vec<PhotoId> = ids.into_iter().filter(|id| seen.insert(*id)).collect();
+                    s.selection = Selection { active: p.get("active").and_then(Value::as_u64).map(PhotoId).or(ids.first().copied()), ids };
                 }
                 "add" => {
                     for id in ids {
@@ -725,7 +733,7 @@ pub fn specs() -> Vec<CommandSpec> {
             }
             let folder = bool_or(p, "folder", false);
             let parent = p.get("parent").and_then(Value::as_u64).map(AlbumId);
-            let photos = if !folder && bool_or(p, "addSelected", false) { s.selected() } else { vec![] };
+            let photos = if !folder && bool_or(p, "addSelected", false) { album_targets(s, s.selected()) } else { vec![] };
             let id = s.catalog.alloc_album_id();
             let cover = photos.first().copied();
             s.commit(
@@ -820,7 +828,7 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("album.addPhotos", "Add to Album", ["Photo"], None, "{id: albumId, ids?: [photoIds]} (default: selection)", has_selection, |s, p| {
             let id = album_param(p, "id", "album.addPhotos")?;
-            let targets = super::photo_ids(p, "album.addPhotos")?.unwrap_or_else(|| s.selected());
+            let targets = album_targets(s, super::photo_ids(p, "album.addPhotos")?.unwrap_or_else(|| s.selected()));
             let al = s.catalog.album(id).ok_or_else(|| bad("album.addPhotos", "no such album"))?;
             if al.is_smart() || al.folder {
                 return Err(bad("album.addPhotos", "smart albums and folders can't hold photos"));
@@ -833,6 +841,10 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
             }
             let added = photos.len() - before;
+            // every photo was in already, or none was left: no undo step, and redo stays
+            if added == 0 {
+                return Ok(json!({"added": 0}));
+            }
             let cover = al.cover.or(photos.first().copied());
             s.commit("Add to Album", Op::Batch { ops: vec![Op::SetAlbumPhotos { id, photos }, Op::SetAlbumCover { id, cover }] })?;
             Ok(json!({"added": added}))
@@ -842,11 +854,18 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add to Target Album",
             [],
             None,
-            "{ids?} — B: adds the photos to the target album (the Quick Collection unless one is set), or removes them when they're all in it → {album, added}",
+            "{ids?} — B: adds the photos to the target album (the Quick Collection unless one is set), or removes them when they're all in it → {album, added}; ids the library doesn't have are dropped (none left: nothing changes and `added` is null)",
             has_selection,
             |s, p| {
-                let targets = super::photo_ids(p, "album.toggleTarget")?.unwrap_or_else(|| s.selected());
+                let targets = album_targets(s, super::photo_ids(p, "album.toggleTarget")?.unwrap_or_else(|| s.selected()));
                 let target = s.target_album.filter(|a| s.catalog.album(*a).is_some_and(|al| !al.is_smart() && !al.folder));
+                // nothing left to toggle: no album is made or changed
+                if targets.is_empty() {
+                    let al = target.or_else(|| s.catalog.quick_collection()).and_then(|a| s.catalog.album(a));
+                    return Ok(
+                        json!({"album": al.map(|a| a.id.0), "name": al.map(|a| a.name.clone()), "added": null, "count": al.map_or(0, |a| s.catalog.album_count(a.id))}),
+                    );
+                }
                 let id = match target.or_else(|| s.catalog.quick_collection()) {
                     Some(id) => id,
                     None => {
@@ -857,7 +876,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     }
                 };
                 let al = s.catalog.album(id).ok_or_else(|| bad("album.toggleTarget", "no target album"))?;
-                let all_in = !targets.is_empty() && targets.iter().all(|t| al.photos.contains(t));
+                let all_in = targets.iter().all(|t| al.photos.contains(t));
                 let photos: Vec<PhotoId> = if all_in {
                     al.photos.iter().copied().filter(|x| !targets.contains(x)).collect()
                 } else {
