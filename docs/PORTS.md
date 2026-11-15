@@ -1204,7 +1204,7 @@ Not applicable, the upstream file having no counterpart here as of `6f6d8ed8`: `
 
 Local limit on a ported guard: the refusal of an Original export under Remove Location Info from `db7e3784` (`crates/lc-engine/src/export/prepared.rs`) only trusts the containers `reads_container` allows (`crates/lc-meta/src/container.rs`). Everything else is refused, including HEIC, HEIF, HIF and JPEG XL, which have no metadata reader here yet. Within those containers `try_extract` refuses a malformed XMP packet in any of them, and any block `Embedded::unread` names: compressed or `zTXt`/`tEXt` PNG XMP, a raw metadata profile, a second Exif block or XMP packet, a cut-off block, and XMP that is not UTF-8. JPEG extended XMP is read, and `Metadata::other_location` adds the location fields `Metadata` has no field for. A local adaptation with no upstream match. This is best-effort, not a guarantee that a copied file holds no location: corrupt Exif outside PSD/PSB reads as no Exif (`try_extract_keeps_non_psd_exif_best_effort`), so a location inside it goes unseen, and nothing looks at JPEG data past the first scan, IPTC past the first APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3 preview boxes, or PNG text chunks under other keywords.
 
-## Upstream commit ports
+## LightCraft render ports, lc-render (2026-11)
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
