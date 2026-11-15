@@ -54,7 +54,8 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         copyright_url: m.copyright_url.clone().unwrap_or_default(),
         creator: m.artist.clone().unwrap_or_default(),
         creators: m.creators.clone(),
-        keywords: m.keywords.clone(),
+        // paths from `lr:hierarchicalSubject`, names from `dc:subject` that aren't their levels
+        keywords: lightcraft_catalog::keywords::from_file(&m.keywords, &m.hierarchical_keywords),
         regions: m.regions.clone(),
         person_ids: Vec::new(),
     };

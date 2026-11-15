@@ -35,6 +35,17 @@ pub fn reparent(k: &str, from: &str, to: &str) -> String {
     std::iter::once(to).filter(|t| !t.is_empty()).chain(rest).collect::<Vec<_>>().join("|")
 }
 
+/// A file's keywords as a photo carries them: the paths of `lr:hierarchicalSubject`, then the
+/// names of `dc:subject` that aren't levels of those paths (Lightroom Classic writes each keyword's
+/// name, its parents' and synonyms flat besides its path). Each once, cleaned.
+pub fn from_file(flat: &[String], hierarchical: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = hierarchical.iter().map(|k| clean(k)).collect();
+    let levels: std::collections::HashSet<String> = out.iter().flat_map(|path| path.split(SEP)).map(str::to_lowercase).collect();
+    out.extend(flat.iter().map(|k| clean(k)).filter(|k| !levels.contains(&k.to_lowercase())));
+    dedupe(&mut out);
+    out
+}
+
 /// Keep the first of case-insensitively equal keywords.
 fn dedupe(v: &mut Vec<String>) {
     let mut seen = std::collections::HashSet::new();

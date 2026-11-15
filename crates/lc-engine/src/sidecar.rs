@@ -142,7 +142,8 @@ pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, S
         country: m.country.clone(),
         alt_text: m.alt_text.clone(),
         extended_description: m.extended_description.clone(),
-        keywords: (!m.keywords.is_empty()).then(|| m.keywords.clone()),
+        keywords: (!m.keywords.is_empty() || !m.hierarchical_keywords.is_empty())
+            .then(|| lightcraft_catalog::keywords::from_file(&m.keywords, &m.hierarchical_keywords)),
         // A sidecar that has `mwg-rs:Regions` at all (even an empty list) was written by an app that
         // knows about regions, so it's authoritative: its list, empty or not, replaces the catalog's.
         // One without it (most writers, LightCraft's own included, which keeps another app's
@@ -602,6 +603,22 @@ mod tests {
         assert_eq!(p.develop.color.vibrance, 12.0);
         assert_eq!(p.develop.effects.clarity, before.effects.clarity, "crs partial keeps unrelated settings");
         assert_eq!(p.meta.title, "Dune & sky", "fields the sidecar doesn't state are kept");
+    }
+
+    /// A sidecar written by Lightroom Classic (names flat, paths in `lr:hierarchicalSubject`)
+    /// gives the photo its keywords as paths; one without paths, the names as they are.
+    #[test]
+    fn sidecar_keywords_keep_their_hierarchy() {
+        let m = lightcraft_meta::Metadata {
+            keywords: vec!["Lisbon".into(), "PLACES".into(), "beach".into()],
+            hierarchical_keywords: vec!["Places|Lisbon".into()],
+            ..Default::default()
+        };
+        let sc = parse_sidecar(&lightcraft_meta::write_xmp(&m, None), false).unwrap();
+        assert_eq!(sc.keywords, Some(vec!["Places|Lisbon".to_string(), "beach".to_string()]));
+        let flat = lightcraft_meta::Metadata { keywords: vec!["a|b".into(), " sea ".into()], ..Default::default() };
+        let sc = parse_sidecar(&lightcraft_meta::write_xmp(&flat, None), false).unwrap();
+        assert_eq!(sc.keywords, Some(vec!["a|b".to_string(), "sea".to_string()]));
     }
 
     #[test]
