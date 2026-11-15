@@ -1311,3 +1311,21 @@ fn safety_second_copy_move_add_collision_and_failure_keep_source() {
     assert_eq!(std::fs::read(second.join("local.png")).unwrap(), std::fs::read(local).unwrap());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// The library's own folder can't be moved, also when it is named through a link.
+#[cfg(unix)]
+#[test]
+fn the_library_folder_is_protected_from_folder_move_however_its_path_is_spelled() {
+    let root = temp_dir("library-link");
+    let lib = root.join("library");
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    std::os::unix::fs::symlink(&lib, root.join("alias")).unwrap();
+    std::fs::create_dir_all(root.join("elsewhere")).unwrap();
+    let params = json!({"path": root.join("alias").to_string_lossy(), "into": root.join("elsewhere").to_string_lossy()});
+    let err = s.execute("folder.move", &params).unwrap_err().to_string();
+    assert!(err.contains("library's own folders"), "{err}");
+    assert!(lib.is_dir() && !root.join("elsewhere/alias").exists());
+    drop(s);
+    let _ = std::fs::remove_dir_all(&root);
+}
