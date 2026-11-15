@@ -72,6 +72,43 @@ fn unsupported_raw_falls_back_to_the_embedded_preview() {
     assert!(r.warnings.first().is_some_and(|w| w.contains("NEF") && w.contains("embedded")), "{:?}", r.warnings);
 }
 
+/// A DNG whose lossless-JPEG sensor data is zeros (no SOI: damaged) beside an intact camera
+/// JPEG: the JPEG opens instead, saying why. Without the JPEG it stays an error.
+#[test]
+fn damaged_raw_opens_its_camera_jpeg_with_a_warning() {
+    let dng = |with_preview: bool| {
+        let img = Image::from_u8(32, 20, ChannelLayout::Rgb, vec![180; 32 * 20 * 3]).unwrap();
+        let jpeg = photocraft_codecs::encode(&img, Format::Jpeg, &EncodeOptions::default()).unwrap();
+        let mut t = TiffBuilder::default();
+        let strip = t.blob(vec![0; 64]);
+        let mut tags = vec![
+            (254, Val::Long(vec![0])),
+            (256, Val::Long(vec![8])),
+            (257, Val::Long(vec![8])),
+            (258, Val::Short(vec![16])),
+            (259, Val::Short(vec![7])),
+            (262, Val::Short(vec![32803])),
+            (271, Val::Ascii("Synthetic".into())),
+            (273, Val::Blobs(vec![strip])),
+            (277, Val::Short(vec![1])),
+            (279, Val::Long(vec![64])),
+            (33421, Val::Short(vec![2, 2])),
+            (33422, Val::Byte(vec![0, 1, 1, 2])),
+            (50706, Val::Byte(vec![1, 4, 0, 0])),
+        ];
+        if with_preview {
+            let preview = t.blob(jpeg.clone());
+            tags.extend([(513, Val::Blobs(vec![preview])), (514, Val::Long(vec![jpeg.len() as u32]))]);
+        }
+        t.chain = vec![t.ifd(tags)];
+        t.build()
+    };
+    let r = import("shot.dng", &dng(true)).unwrap();
+    assert_eq!((r.document.size.width, r.document.size.height, r.document.depth), (32, 20, SampleType::U8));
+    assert!(r.warnings[0].contains("damaged") && r.warnings[0].contains("8-bit, not the raw sensor data"), "{:?}", r.warnings);
+    assert!(matches!(import("shot.dng", &dng(false)), Err(IoError::Raw(_))));
+}
+
 #[test]
 fn unsupported_raw_without_preview_is_a_clear_error() {
     let mut cr3 = vec![0, 0, 0, 24];

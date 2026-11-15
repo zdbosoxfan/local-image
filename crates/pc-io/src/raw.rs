@@ -12,32 +12,44 @@ pub fn is_raw(bytes: &[u8]) -> bool {
 /// Develop with Library's camera defaults; unsupported variants use its upright preview.
 pub fn import_raw(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
     let format = format!("{:?}", lightcraft_raw::probe(bytes).ok_or(lightcraft_raw::RawError::NotRaw)?).to_uppercase();
-    let (src, info) = decoded_source(bytes, &Default::default()).map_err(|e| {
-        let error = lightcraft_raw::decode(bytes).err().unwrap_or_else(|| lightcraft_raw::RawError::Corrupt(e.to_string()));
-        IoError::Raw(match error {
-            lightcraft_raw::RawError::Unsupported(reason) => lightcraft_raw::RawError::Unsupported(format!("{format}: {reason}")),
-            other => other,
-        })
-    })?;
+    let (src, info) = match decoded_source(bytes, &Default::default()) {
+        Ok(decoded) => decoded,
+        Err(e) => {
+            let error = lightcraft_raw::decode(bytes).err().unwrap_or_else(|| lightcraft_raw::RawError::Corrupt(e.to_string()));
+            return match error {
+                lightcraft_raw::RawError::Unsupported(reason) => Err(IoError::Raw(lightcraft_raw::RawError::Unsupported(format!("{format}: {reason}")))),
+                // Damaged sensor data: the camera's JPEG is often still intact, so the photo opens.
+                lightcraft_raw::RawError::Corrupt(reason) => open_preview(name, bytes, &format!("{format}: the raw sensor data is damaged ({reason})"))
+                    .unwrap_or(Err(IoError::Raw(lightcraft_raw::RawError::Corrupt(reason)))),
+                other => Err(IoError::Raw(other)),
+            };
+        }
+    };
     if !info.raw {
-        let preview = lightcraft_engine::files::embedded_preview_srgb(bytes, usize::MAX)
-            .ok_or_else(|| IoError::Raw(lightcraft_raw::RawError::Unsupported(format!("{format}: no embedded preview"))))?;
-        let img = Image::from_u8(preview.width as u32, preview.height as u32, ChannelLayout::Rgba, preview.data.iter().flatten().copied().collect())?;
-        let mut result = image_to_document(name, &img)?;
         let reason = lightcraft_raw::decode(bytes).err().map(|e| e.to_string()).unwrap_or_else(|| "unsupported raw variant".into());
-        result.warnings.insert(
-            0,
-            format!(
-                "{format}: {reason}; opened the camera's embedded {}x{} JPEG preview instead (8-bit, not the raw sensor data)",
-                preview.width, preview.height
-            ),
-        );
-        return Ok(result);
+        return open_preview(name, bytes, &format!("{format}: {reason}"))
+            .unwrap_or_else(|| Err(IoError::Raw(lightcraft_raw::RawError::Unsupported(format!("{format}: no embedded preview")))));
     }
     let settings = camera_defaults(&info);
     let mut result = render_source(name, bytes, &src, &info, &settings)?;
     result.warnings.push(format!("{format} developed by LightCraft's pipeline (camera defaults, as-shot white balance) into 16-bit ProPhoto RGB"));
     Ok(result)
+}
+
+/// The camera's embedded JPEG opened in place of sensor data that can't be developed, `why` first
+/// among the warnings; `None` without a usable preview.
+fn open_preview(name: &str, bytes: &[u8], why: &str) -> Option<Result<ImportResult, IoError>> {
+    let preview = lightcraft_engine::files::embedded_preview_srgb(bytes, usize::MAX)?;
+    let open = || {
+        let img = Image::from_u8(preview.width as u32, preview.height as u32, ChannelLayout::Rgba, preview.data.iter().flatten().copied().collect())?;
+        let mut result = image_to_document(name, &img)?;
+        result.warnings.insert(
+            0,
+            format!("{why}; opened the camera's embedded {}x{} JPEG preview instead (8-bit, not the raw sensor data)", preview.width, preview.height),
+        );
+        Ok(result)
+    };
+    Some(open())
 }
 
 /// Default development shared with Library's raw open route.
