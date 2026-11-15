@@ -1129,3 +1129,28 @@ EOI follows. A stray EOI inside a scan counts as the end, so a damaged file can 
 Scan bytes are counted in the existing `scan_metadata` walker instead of upstream's `data_end`, and that
 walker keeps skipping stray bytes before the first scan, so header padding never counts. The ZIP reader
 keeps `flate2::read::DeflateDecoder`; upstream's `bufread` decoder comes from 51788e665, which is not ported.
+
+## LightCraft HEIF hardening (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b88f72b9df68`](https://github.com/storytold/lightcraft/commit/b88f72b9df68f07a080772d7fb16a92d6f7db837) | sec: bound heic-rs 0.1.4 work around hostile HEIF containers | `crates/pc-heif/src/census.rs`, `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`178eef790bd8`](https://github.com/storytold/lightcraft/commit/178eef790bd8872a6f60f7b1a0fb7b67499acc59) | heif: bound iloc item-extent visits before reconstructing in probe | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`269495cd3867`](https://github.com/storytold/lightcraft/commit/269495cd3867e9feee1876ac641627ba23c7dabb) | security(heif): budget every reconstruction before it runs | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`0c71f75325b5`](https://github.com/storytold/lightcraft/commit/0c71f75325b5f707bbe8e7ef6324e6e14a8f51e6) | security(heif): scan the primary item before heic_rs::probe, the alpha plane, and each thumbnail candidate | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+
+Partial port into the pinned `heic-rs = 0.1.4` wrapper: `ipma` payloads are capped at 64 KiB in
+aggregate, `iloc` item and extent records at 65,536 each, item extent visits at 4096, coded-item
+reconstruction at the file size, transform properties at 12, and output samples at 2³⁰ even when a
+caller raises `max_pixels`.
+The wrapper has no thumbnail API, so thumbnail-candidate changes do not apply. `heic-rs` already
+checks a grid's actual canvas against the decode limit before allocating the output image.
+
+Local extension: alpha-grid tile extent chains share the 4096-read budget with primary reconstruction.
+Local extension: `iloc` record counts replace upstream's 64 KiB `iloc` payload cap, which is not
+ported: zero-width extents cost no bytes, so payload size did not price the allocation. The census
+walks every `iloc` box as `heic-rs` 0.1.4 parses it and totals the records across all of them, so a
+list cut short or using unknown field widths still pays for every record `heic-rs` builds from it.
+`Context::open` therefore builds at most 65,536 item records and 65,536 extent records; a file
+holding more is refused first. Re-check the census against `heic-rs`'s `iloc` parser when the pin
+moves.

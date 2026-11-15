@@ -14,9 +14,11 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod census;
 use std::borrow::Cow;
 
 use heic_rs::PixelLayout;
+use heic_rs::context::Context;
 
 /// What a HEIF file declares, read from the container alone (no pixel is decoded).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,7 +75,7 @@ pub struct Decoded {
 pub enum Error {
     /// A valid file using something this decoder does not handle (image sequences, overlays…).
     Unsupported(String),
-    /// The image is larger than [`Options::max_pixels`] or holds an oversized box.
+    /// The image exceeds a pixel or decoder-work limit, or carries an oversized metadata box.
     Limit(String),
     /// Broken or truncated data (or a decoder bug, reported the same way).
     Malformed(String),
@@ -118,11 +120,8 @@ pub fn probe(bytes: &[u8]) -> Result<Info, Error> {
 }
 
 fn probe_unguarded(bytes: &[u8]) -> Result<Info, Error> {
-    let info = heic_rs::probe(bytes).map_err(|e| match e {
-        // No `meta` box: no still image, only a `moov` image sequence (a video track).
-        heic_rs::Error::MissingBox("meta") => Error::Unsupported(SEQUENCE.into()),
-        e => err(e),
-    })?;
+    let (ctx, mut visits) = bounded_context(bytes)?;
+    let info = probe_with_context(bytes, &ctx, &mut visits)?;
     Ok(Info {
         width: info.width,
         height: info.height,
@@ -133,27 +132,119 @@ fn probe_unguarded(bytes: &[u8]) -> Result<Info, Error> {
     })
 }
 
+/// Opens the container only after bounding its metadata and the primary item's extent chain.
+fn bounded_context(bytes: &[u8]) -> Result<(Context<'_>, usize), Error> {
+    census::cap(bytes)?;
+    let ctx = Context::open(bytes).map_err(open_error)?;
+    let mut visits = 0;
+    item_visits(&ctx, ctx.meta.primary, 0, &mut visits)?;
+    Ok((ctx, visits))
+}
+
+fn open_error(error: heic_rs::Error) -> Error {
+    match error {
+        heic_rs::Error::MissingBox("meta") => Error::Unsupported(SEQUENCE.into()),
+        error => err(error),
+    }
+}
+
+/// Checks every reconstruction used while probing, including repeated grid references.
+fn probe_with_context(bytes: &[u8], ctx: &Context<'_>, visits: &mut usize) -> Result<heic_rs::ImageInfo, Error> {
+    let id = ctx.meta.primary;
+    let info = heic_rs::probe(bytes).map_err(open_error)?;
+    if let Some(alpha) = ctx.alpha_item(id).map_err(err)? {
+        item_visits(ctx, alpha, 0, visits)?;
+        if let Some((_, tiles)) = ctx.grid(alpha).map_err(err)? {
+            for tile in tiles {
+                item_visits(ctx, tile, 0, visits)?;
+            }
+        }
+    }
+    let mut coded = match ctx.grid(id).map_err(err)? {
+        Some((_, tiles)) => tiles,
+        None => vec![id],
+    };
+    for &item in &coded {
+        if item != id {
+            item_visits(ctx, item, 0, visits)?;
+        }
+    }
+    coded.sort_unstable();
+    coded.dedup();
+    let mut reconstructed = 0_usize;
+    for item in coded {
+        reconstructed = reconstructed.saturating_add(ctx.item_data(item).map_err(err)?.len());
+        if reconstructed > bytes.len() {
+            return Err(Error::Limit(format!("the container holds {reconstructed} bytes of item data, over the {} bytes of the file itself", bytes.len())));
+        }
+    }
+    Ok(info)
+}
+
+/// Counts the item extents a reconstruction follows, before heic-rs visits them.
+fn item_visits(ctx: &Context<'_>, id: u32, depth: u32, visits: &mut usize) -> Result<(), Error> {
+    use heic_rs::meta::iloc::Construction;
+
+    if depth > MAX_ITEM_CHAIN {
+        return Err(Error::Limit(format!("items built from items nest deeper than {MAX_ITEM_CHAIN} levels")));
+    }
+    let Some(location) = ctx.meta.location(id) else {
+        return Ok(());
+    };
+    *visits = visits.saturating_add(location.extents.len().max(1));
+    if *visits > MAX_ITEM_VISITS {
+        return Err(Error::Limit(format!("reconstructing the image takes over {MAX_ITEM_VISITS} item extent reads")));
+    }
+    if location.construction == Construction::Item {
+        for extent in &location.extents {
+            if let Ok(source) = u32::try_from(extent.index)
+                && source != id
+            {
+                item_visits(ctx, source, depth + 1, visits)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// A normal grid needs one visit per tile; repeated references share this limit too.
+const MAX_ITEM_VISITS: usize = 4096;
+// Matches heic-rs's own maximum item-construction recursion depth.
+const MAX_ITEM_CHAIN: u32 = 8;
+// Each transform can rewrite the full decoded image; phone photos use at most one of each kind.
+const MAX_TRANSFORMS: usize = 12;
+// Bound sample work even when a caller opts out of the default pixel ceiling.
+const MAX_OUTPUT_SAMPLES: u64 = 1 << 30;
+
 /// Decodes the primary image, with its metadata.
 pub fn decode(bytes: &[u8], options: &Options) -> Result<Decoded, Error> {
     guarded(|| decode_unguarded(bytes, options))
 }
 
 fn decode_unguarded(bytes: &[u8], options: &Options) -> Result<Decoded, Error> {
-    let info = probe_unguarded(bytes)?;
-    let pixel_layout = match (info.has_alpha, info.sixteen_bit) {
+    let (ctx, mut visits) = bounded_context(bytes)?;
+    let properties = ctx.props(ctx.meta.primary).map_err(err)?;
+    if properties.transforms.len() > MAX_TRANSFORMS {
+        return Err(Error::Limit(format!("the image carries {} transform properties, over the {MAX_TRANSFORMS}-property cap", properties.transforms.len())));
+    }
+    let info = probe_with_context(bytes, &ctx, &mut visits)?;
+    let sixteen_bit = info.bit_depth > 8;
+    let pixel_layout = match (info.has_alpha, sixteen_bit) {
         (true, true) => PixelLayout::Rgba16,
         (true, false) => PixelLayout::Rgba8,
         (false, true) => PixelLayout::Rgb16,
         (false, false) => PixelLayout::Rgb8,
     };
+    let channels = if info.has_alpha { 4 } else { 3 };
+    let max_pixels = options.max_pixels.min(MAX_OUTPUT_SAMPLES / channels);
     let raw = heic_rs::DecodeOptions::default()
         .with_layout(pixel_layout)
-        .with_max_pixels(Some(options.max_pixels))
+        .with_max_pixels(Some(max_pixels))
         .with_transforms(options.apply_transforms)
         .with_alpha(info.has_alpha);
     let decoded = heic_rs::decode(bytes, &raw).map_err(err)?;
     let (icc, exif, xmp) = metadata(bytes);
-    Ok(Decoded { width: decoded.width, height: decoded.height, has_alpha: info.has_alpha, sixteen_bit: info.sixteen_bit, data: decoded.data, icc, exif, xmp })
+    Ok(Decoded { width: decoded.width, height: decoded.height, has_alpha: info.has_alpha, sixteen_bit, data: decoded.data, icc, exif, xmp })
 }
 
 /// The primary image's ICC profile, EXIF (TIFF structure) and XMP packet. Metadata is a
@@ -164,8 +255,12 @@ fn metadata(bytes: &[u8]) -> (Option<Vec<u8>>, Option<Vec<u8>>, Option<String>) 
     };
     let id = ctx.meta.primary;
     let icc = ctx.props(id).ok().and_then(|p| ctx.icc(&p).map(<[u8]>::to_vec));
-    let exif = ctx.exif(id).ok().flatten().map(<[u8]>::to_vec);
-    let xmp = ctx.xmp_item(id).and_then(|x| ctx.item_data(x).ok()).and_then(|d| match d {
+    let mut visits = 0;
+    let exif_item = ctx.exif_item(id);
+    let exif =
+        if exif_item.is_none_or(|item| item_visits(&ctx, item, 0, &mut visits).is_ok()) { ctx.exif(id).ok().flatten().map(<[u8]>::to_vec) } else { None };
+    let xmp_item = ctx.xmp_item(id).filter(|&item| item_visits(&ctx, item, 0, &mut visits).is_ok());
+    let xmp = xmp_item.and_then(|x| ctx.item_data(x).ok()).and_then(|d| match d {
         Cow::Borrowed(b) => String::from_utf8(b.to_vec()).ok(),
         Cow::Owned(b) => String::from_utf8(b).ok(),
     });
@@ -216,3 +311,6 @@ mod tests {
         assert!(Error::Malformed("x".into()).to_string().contains("malformed"));
     }
 }
+
+#[cfg(test)]
+mod tests_hardening;
