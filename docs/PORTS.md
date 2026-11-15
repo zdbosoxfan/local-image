@@ -1210,3 +1210,5 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 |---|---|---|---|
 | [`be7d68167357`](https://github.com/storytold/photocraft/commit/be7d68167357624421baf3add3153914ba23510d) | Free Transform: lift a pixel's coverage up to all of it, as Move does | `crates/pc-engine/src/transform_cmds.rs` | MIT OR Apache-2.0 |
 | [`dce32b66d87a`](https://github.com/storytold/photocraft/commit/dce32b66d87a7bda667c502e55802bd9877eb710) | engine: Free Transform takes soft edges whole after a move (#10461) | `crates/pc-engine/src/transform_cmds.rs` | MIT OR Apache-2.0 |
+| [`1b810052bc3a`](https://github.com/storytold/photocraft/commit/1b810052bc3a876c1eaf1a8766870ffdba9f8a80) | fix(engine): guard trim and duplicate merged against documents exceeding render limits (#7223) | `crates/pc-engine/src/image_cmds.rs` | MIT OR Apache-2.0 |
+| [`baf8e654e886`](https://github.com/storytold/photocraft/commit/baf8e654e8860862d44c8471a52077d0f84317aa) | Keep a layer's place on its board when dragged to another artboard (#10489) | `crates/pc-engine/src/commands.rs`<br>`crates/pc-engine/src/artboard_cmds/tests.rs` | MIT OR Apache-2.0 |
