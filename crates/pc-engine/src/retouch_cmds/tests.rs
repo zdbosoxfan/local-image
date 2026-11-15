@@ -1047,3 +1047,25 @@ fn unaligned_clone_strokes_report_their_offset_without_becoming_the_aligned_pair
         assert!(s.presets.clone.active().anchor.is_none(), "reporting an offset must not start aligned sampling");
     }
 }
+
+#[test]
+fn clone_onto_a_layer_without_alpha_leaves_pixels_whose_source_is_off_the_canvas() {
+    // Upstream 967e987e: a surface without alpha reads as its default colour outside the canvas,
+    // and that colour was cloned as if it were a sample.
+    let mut s = session(64, 64, 8, "rgb");
+    s.edit("no alpha", |doc, active| {
+        let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+        let fmt = PixelFormat::new(surf.format().mode, surf.format().sample, false);
+        let mut opaque = Surface::with_default(fmt, &[0.0, 0.0, 1.0]);
+        opaque.fill_rect(Rect::new(0, 0, 8, 8), &[1.0, 0.0, 0.0]);
+        opaque.fill_rect(Rect::new(24, 24, 40, 40), &[0.0, 1.0, 0.0]);
+        *surf = opaque;
+        Ok(())
+    })
+    .unwrap();
+    s.execute("paint.cloneStamp", json!({"points": [[32, 32]], "source": [0, 0], "size": 12, "hardness": 100})).unwrap();
+    assert_eq!(rgba(&s, 34, 34), [1.0, 0.0, 0.0, 1.0], "a source inside the canvas is cloned");
+    assert_eq!(rgba(&s, 29, 29), [0.0, 1.0, 0.0, 1.0], "a source off the canvas clones nothing");
+    let d = s.active().unwrap();
+    assert!(!d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().format().alpha, "the layer keeps its format");
+}

@@ -266,7 +266,7 @@ fn clone_sample(
         return Err(bad(cmd, "transformed clone source exceeds the sampling budget; increase source scale or reduce the brush"));
     }
     let src = source.sample(pre, id, surf, which, source_rect, cmd)?;
-    Ok(crate::presets::clone_source::resample(&src, rect, map, alpha_index(&surf.format())))
+    Ok(crate::presets::clone_source::resample(&src, rect, map, alpha_index(&source.sample_format(surf))))
 }
 
 /// Result JSON shared by Clone Stamp and Healing Brush: the offset used and where the next stroke
@@ -318,16 +318,17 @@ fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
             // local-image: Seamless: the cloned pixels take the colour around the stroke (mean
             // value coordinates), as GIMP's seamless clone.
             let (g, cov) = pad_coverage(bounds, &cov, 2);
-            let fmt = surf.format();
+            let (fmt, native) = (source.sample_format(surf), surf.format());
             let src = clone_sample(pre, id, surf, which, &source, g, &map, CMD)?;
-            let dst = if which == SampleLayers::Current { Region::read(surf, g) } else { composite_region(pre, id, which, g, fmt) };
+            let dst = if which == SampleLayers::Current { Region::read(surf, g) } else { composite_region(pre, id, which, g, native) };
+            let dst = if fmt.alpha && !native.alpha { clone_sampling::opaque_alpha(dst, native) } else { dst };
             let mask: Vec<bool> = cov.iter().map(|c| *c > 0.0).collect();
             let paint = mvc_region(&fmt, &src, &dst, &mask);
-            return Ok(apply_coverage(surf, g, &cov, stroke.brush.opacity, sel, lock, &paint, mode));
+            return Ok(clone_sampling::apply_clone_coverage(surf, g, &cov, stroke.brush.opacity, sel, lock, &paint, mode));
         }
         // Samples come from the pre-stroke state, so pixels painted earlier in the stroke are never re-cloned.
         let paint = clone_sample(pre, id, surf, which, &source, bounds, &map, CMD)?;
-        Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
+        Ok(clone_sampling::apply_clone_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
     })?;
     crate::presets::clone_source::remember_mapping(s, p, &map);
     Ok(clone_result(dmg, off, aligned, p, &stroke))
@@ -413,14 +414,15 @@ fn healing_brush(s: &mut Session, p: &Value) -> Result<Value> {
     let dmg = run_stroke(s, "Healing Brush", id, p, |pre, surf, sel, lock| {
         let (bounds, cov) = stroke_coverage(&stroke);
         let (g, cov) = pad_coverage(bounds, &cov, 2);
-        let fmt = surf.format();
+        let (fmt, native) = (source.sample_format(surf), surf.format());
         let src = clone_sample(pre, id, surf, which, &source, g, &map, CMD)?;
         // The destination the texture is fitted to: the layer itself, or what the user sees when
         // sampling several layers (so healing onto an empty layer matches the composite).
-        let dst = if which == SampleLayers::Current { Region::read(surf, g) } else { composite_region(pre, id, which, g, fmt) };
+        let dst = if which == SampleLayers::Current { Region::read(surf, g) } else { composite_region(pre, id, which, g, native) };
+        let dst = if fmt.alpha && !native.alpha { clone_sampling::opaque_alpha(dst, native) } else { dst };
         let mask: Vec<bool> = cov.iter().map(|c| *c > 0.0).collect();
         let healed = heal_region(&fmt, &src, &dst, &mask);
-        Ok(apply_coverage(surf, g, &cov, stroke.brush.opacity, sel, lock, &healed, mode))
+        Ok(clone_sampling::apply_clone_coverage(surf, g, &cov, stroke.brush.opacity, sel, lock, &healed, mode))
     })?;
     crate::presets::clone_source::remember_mapping(s, p, &map);
     Ok(clone_result(dmg, off, aligned, p, &stroke))
