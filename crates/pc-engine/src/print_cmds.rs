@@ -422,12 +422,28 @@ fn package(s: &mut Session, p: &Value) -> Result<Value> {
     for (_, _, l) in doc.walk() {
         let LayerContent::Smart(so) = &l.content else { continue };
         let SmartSource::Linked { path } = &so.source else { continue };
+        if missing.contains(path) {
+            continue;
+        }
         let target = match copied.iter().find(|(src, _)| src == path) {
             Some((_, t)) => t.clone(),
             None => {
-                let mut fname = file_name(path);
-                if copied.iter().any(|(_, t)| file_name(t) == fname) {
-                    fname = format!("{}-{}", copied.len(), fname);
+                let base = file_name(path);
+                let taken = |name: &str| {
+                    copied.iter().any(|(_, target)| file_name(target).to_lowercase() == name.to_lowercase())
+                        || std::path::Path::new(&join(&links_dir, name)).exists()
+                        || std::fs::read_dir(&links_dir)
+                            .ok()
+                            .into_iter()
+                            .flatten()
+                            .flatten()
+                            .any(|entry| entry.file_name().to_string_lossy().to_lowercase() == name.to_lowercase())
+                };
+                let mut fname = base.clone();
+                let mut count = copied.len();
+                while taken(&fname) {
+                    fname = format!("{count}-{base}");
+                    count += 1;
                 }
                 let t = join(&links_dir, &fname);
                 match read_file(path).ok().filter(|bytes| crate::file_cmds::import(&fname, bytes).is_ok()) {

@@ -321,6 +321,141 @@ fn repeated_tiny_embedded_documents_share_the_node_allowance() {
     assert!(matches!(photocraft_affinity::read(&bytes, Limits { max_objects: 12, ..Default::default() }), Err(Error::Limit("too many layers"))));
 }
 
+/// One text story of 512 runs, each repeating two 16 KiB font names through a shared object. The
+/// story's own attribute budget keeps about 15.97 MiB of them, just under the document's 16 MiB
+/// cap on font-name bytes, so only a second story can reach that cap.
+fn font_heavy_story(id: u32) -> F {
+    let name = "F".repeat(16 * 1024);
+    let F::Obj(class, fields) = text_fixture::attrs(&name, &name, 400, false, 12.) else { panic!() };
+    let mut runs = vec![text_fixture::run(1, Some(F::Def(id, vec![class], fields)))];
+    runs.extend((2..=512).map(|end| text_fixture::run(end, Some(F::Ref(id)))));
+    let block = text_fixture::block(text_fixture::utf8(&"x".repeat(512)), runs, &[]);
+    text_fixture::text_node(vec![block], false, text_fixture::IDENTITY, [10., 20., 210., 120.], 18.)
+}
+fn font_name_bytes(nodes: &[model::Node]) -> usize {
+    let names = |run: &model::TextRun| run.family.len() + run.postscript.len();
+    nodes
+        .iter()
+        .map(|node| {
+            let own = match &node.kind {
+                model::Kind::Text(text) => text.runs.iter().map(names).sum(),
+                model::Kind::Table(table) => table.cells.iter().flat_map(|cell| &cell.runs).map(names).sum(),
+                _ => 0,
+            };
+            own + font_name_bytes(&node.children)
+        })
+        .sum()
+}
+fn assert_font_names_stop_at_the_budget(bytes: &[u8]) {
+    let doc = photocraft_affinity::read(bytes, Limits::default()).unwrap();
+    let kept = font_name_bytes(&doc.spreads[0].nodes);
+    assert!(kept <= 16 << 20, "kept {kept} bytes of font names");
+    assert!(doc.warnings.iter().any(|w| w.contains("font names beyond the document metadata budget")), "{:?}", doc.warnings);
+}
+
+#[test]
+fn font_name_budget_spans_the_stories_of_a_document() {
+    assert_font_names_stop_at_the_budget(&container(vec![font_heavy_story(42), font_heavy_story(43)], vec![], None, &[]));
+}
+
+#[test]
+fn font_name_budget_spans_embedded_documents() {
+    let mut data = b"EmDc\0\0\0\0".to_vec();
+    data.extend(container(vec![font_heavy_story(42)], vec![], None, &[]));
+    assert_font_names_stop_at_the_budget(&container(vec![embedded("inner"); 2], vec![], None, &[("inner", &data, Method::Stored)]));
+}
+
+/// One table row of `cells` cells whose story is a single run: every cell copies that run's two
+/// 16 KiB font names.
+fn font_heavy_table(cells: usize) -> F {
+    let name = "F".repeat(16 * 1024);
+    let attrs = text_fixture::attrs(&name, &name, 400, false, 12.);
+    let block = text_fixture::block(text_fixture::utf8(&"x\u{1f}".repeat(cells)), vec![text_fixture::run(2 * cells as i32, Some(attrs))], &[]);
+    let positions = |values: &[f64]| F::Obj(tag(b"Posn"), vec![(tag(b"Posn"), text_fixture::array_f64(b"Posn", values))]);
+    let grid = F::Obj(tag(b"Tabl"), vec![(tag(b"CPos"), positions(&(0..=cells).map(|v| v as f64).collect::<Vec<_>>())), (tag(b"RPos"), positions(&[0., 30.]))]);
+    F::Obj(
+        tag(b"TxtT"),
+        vec![
+            (tag(b"StSt"), F::Obj(tag(b"Stry"), vec![(tag(b"Blok"), F::Shared(vec![block]))])),
+            (tag(b"TxtH"), F::Obj(tag(b"TabH"), vec![(tag(b"Tabl"), grid)])),
+        ],
+    )
+}
+
+#[test]
+fn font_name_budget_spans_table_cells_and_keeps_their_text() {
+    let bytes = container(vec![font_heavy_table(1100)], vec![], None, &[]);
+    assert_font_names_stop_at_the_budget(&bytes);
+    let doc = photocraft_affinity::read(&bytes, Limits::default()).unwrap();
+    let model::Kind::Table(table) = &doc.spreads[0].nodes[0].kind else { panic!() };
+    assert!(table.cells.iter().all(|cell| cell.runs.len() == 1 && cell.runs[0].text == "x"));
+    assert_eq!(table.cells[0].runs[0].family.len(), 16 * 1024);
+    assert!(table.cells[1099].runs[0].family.is_empty());
+}
+
+#[test]
+fn font_name_budget_spans_the_scene_copies_of_repeated_master_pages() {
+    let master = F::Def(42, vec![tag(b"Sprd")], vec![(tag(b"SprB"), F::F64s(vec![0., 0., 64., 64.])), (tag(b"Chld"), F::Shared(vec![font_heavy_story(43)]))]);
+    let instance = || F::Obj(tag(b"MPIN"), vec![(tag(b"SLnk"), F::Obj(tag(b"Link"), vec![(tag(b"ILOb"), F::Shared(vec![F::Ref(42)]))]))]);
+    let scene = import(&container(vec![instance(), instance()], vec![master], None, &[]), &ImportOptions::default()).unwrap();
+    let layers = walk(&scene.layers);
+    let texts: Vec<_> = layers.iter().filter_map(|l| if let LayerContent::Text(t) = &l.content { Some(t) } else { None }).collect();
+    let kept: usize = texts
+        .iter()
+        .map(|t| {
+            t.font_family.len() + t.runs.iter().map(|r| r.style.font_family.len() + r.style.postscript_name.as_ref().map_or(0, String::len)).sum::<usize>()
+        })
+        .sum();
+    assert_eq!(texts.iter().map(|t| t.text.len()).collect::<Vec<_>>(), [512, 512]);
+    assert_eq!(texts[0].runs[0].style.font_family.len(), 16 * 1024);
+    assert!(texts[1].runs.last().unwrap().style.font_family.is_empty());
+    assert!(kept <= 16 << 20, "kept {kept} bytes of font names");
+    assert!(scene.warnings.iter().any(|w| w.feature == "font-name-budget"), "{:?}", scene.warnings);
+}
+
+fn paged_document(pages: usize) -> Vec<u8> {
+    let pages = (0..pages).map(|_| vec![(tag(b"rctp"), F::F64s(vec![0., 0., 10., 10.]))]).collect();
+    let spread = F::Def(
+        1,
+        vec![tag(b"Sprd")],
+        vec![
+            (tag(b"SprB"), F::F64s(vec![0., 0., 10., 10.])),
+            (tag(b"SpMd"), F::Obj(tag(b"SpMd"), vec![(tag(b"PagR"), F::Objs(tag(b"Page"), pages))])),
+            (tag(b"Chld"), F::Shared(vec![])),
+        ],
+    );
+    let stream = synth::stream(&[(tag(b"DocR"), F::Obj(tag(b"DocN"), vec![(tag(b"Chld"), F::Shared(vec![spread]))]))]);
+    synth::container(&[("doc.dat", &stream, Method::Stored)], None)
+}
+
+#[test]
+fn page_rectangles_share_a_document_limit() {
+    let limits = Limits { max_objects: 1 << 20, ..Default::default() };
+    assert!(matches!(photocraft_affinity::read(&paged_document((1 << 18) + 1), limits), Err(Error::Limit("too many pages"))));
+}
+
+#[test]
+fn page_limit_spans_embedded_documents() {
+    let mut data = b"EmDc\0\0\0\0".to_vec();
+    data.extend(paged_document(1 << 16));
+    let bytes = container(vec![embedded("inner"); 5], vec![], None, &[("inner", &data, Method::Stored)]);
+    let limits = Limits { max_objects: 1 << 20, ..Default::default() };
+    assert!(matches!(photocraft_affinity::read(&bytes, limits), Err(Error::Limit("too many pages"))));
+}
+
+#[test]
+fn facing_page_counts_share_the_document_limit() {
+    let mut spreads = vec![F::Def(
+        1,
+        vec![tag(b"Sprd")],
+        vec![(tag(b"SprB"), F::F64s(vec![0., 0., 160., 10.])), (tag(b"PagC"), F::I32(16)), (tag(b"Chld"), F::Shared(vec![]))],
+    )];
+    spreads.extend((0..1 << 14).map(|_| F::Ref(1)));
+    let stream = synth::stream(&[(tag(b"DocR"), F::Obj(tag(b"DocN"), vec![(tag(b"Chld"), F::Shared(spreads))]))]);
+    let bytes = synth::container(&[("doc.dat", &stream, Method::Stored)], None);
+    assert!(matches!(photocraft_affinity::read(&bytes, Limits::default()), Err(Error::Limit("too many pages"))));
+}
+
 #[test]
 fn table_cell_product_is_capped_before_expanding_cells() {
     let positions = (0..258).map(|v| v as f64).collect::<Vec<_>>();

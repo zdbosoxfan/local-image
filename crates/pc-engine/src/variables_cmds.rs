@@ -366,14 +366,28 @@ fn export_as_files(s: &mut Session, p: &Value) -> Result<Value> {
     }
     // Filename template: `{name}` (sanitised data-set name), `{index}` (1-based). Default `{name}`.
     let template = p.get("naming").and_then(Value::as_str).unwrap_or("{name}");
-    let doc_stem = original.name.rsplit_once('.').map_or(original.name.as_str(), |(a, _)| a).to_string();
+    let doc_stem: String = original
+        .name
+        .rsplit_once('.')
+        .map_or(original.name.as_str(), |(a, _)| a)
+        .chars()
+        .map(|c| if c.is_control() || "/\\<>:\"|?*".contains(c) { '_' } else { c })
+        .collect();
+    let doc_stem = if matches!(doc_stem.as_str(), "" | "." | "..") { "_".to_string() } else { doc_stem };
     let mut files = Vec::new();
     for (n, set) in sets.iter().enumerate() {
         let mut doc = (*original).clone();
         apply_to_doc(&mut doc, &vars, set)?;
         let safe: String = set.name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
         let stem = template.replace("{name}", &safe).replace("{index}", &format!("{:03}", n + 1)).replace("{document}", &doc_stem);
-        let path = format!("{dir}/{stem}.{format}");
+        let path: String = format!("{stem}.{format}")
+            .split_inclusive(['/', '\\'])
+            .map(|part| {
+                let separator = ["/", "\\"].into_iter().find(|separator| part.ends_with(separator)).unwrap_or("");
+                crate::web_cmds::portable_device_name(part.strip_suffix(separator).unwrap_or(part).to_string()) + separator
+            })
+            .collect();
+        let path = format!("{dir}/{path}");
         // An untrusted session's PSD export embeds no file a linked smart object names.
         let opts = photocraft_io::ExportOptions { read_linked_files: !crate::jobs::authorization_installed(), ..Default::default() };
         let bytes = photocraft_io::export(&doc, format, &opts).map(|r| r.bytes).map_err(|e| EngineError::Other(format!("export `{}`: {e}", set.name)))?;

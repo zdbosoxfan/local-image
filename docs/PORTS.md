@@ -1063,3 +1063,52 @@ The literal/pattern-only method-field adaptations in dc209948 are local: `crates
 `crates/pc-ui-egui/src/vector_packages/appearance.rs`, `crates/pc-ui-egui/tests/gpu/vector_integration.rs`
 and `crates/pc-vector/src/profile_tests.rs`.
 The Smooth measurements retain upstream's black-to-white and red-to-blue rows and two-level tolerance.
+
+## PhotoCraft PSD export safety (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad`](https://github.com/storytold/photocraft/commit/a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad) | PSD: drop a kept merged-transparency marker when the composite is opaque | `crates/pc-io/src/psd_export.rs`<br>`crates/pc-io/src/psd_export/tests.rs` | MIT OR Apache-2.0 |
+
+The opaque-composite export drops preserved `MTrn`, `Mtrn`, `Mt16` and `Mt32` markers, while alpha-bearing composites retain them. The layer-info block placement follows any retained marker.
+
+## PhotoCraft Affinity importer bounds (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b278ff72459cbf9754863365edd822ba2248aa07`](https://github.com/storytold/photocraft/commit/b278ff72459cbf9754863365edd822ba2248aa07) | security(affinity): charge archive names, failed reads, corner arrays, attachments, pages and font names (#9257) | `crates/pc-affinity/src/container.rs`<br>`crates/pc-affinity/src/geometry.rs`<br>`crates/pc-affinity/src/model.rs`<br>`crates/pc-affinity/src/paint.rs`<br>`crates/pc-affinity/src/raster.rs`<br>`crates/pc-affinity/src/tests.rs`<br>`crates/pc-affinity/src/text.rs`<br>`crates/pc-affinity/tests/scene/af5.rs`<br>`crates/pc-affinity/tests/support/text_fixture.rs` | MIT OR Apache-2.0 |
+
+Already covered here: failed archive reads spend the extraction allowance before decoding, attached-mask arrays use `Reader::charge_slots`, and that slot-budget method is already crate-visible. The port adds aggregate archive-name and page limits, a document-wide font-name budget, and accounting for curve-corner, gradient and pixel-state scans. The 16 MiB font-name budget covers every name the model keeps, including each table cell's copy; the imported scene has the same cap on its own copies, which covers repeated master pages. Names past either cap are left empty with a warning. Curve-corner work uses the existing `OutlineBudget`. The existing 16 KiB per-name font limit remains: reducing it to 256 bytes conflicts with existing text tests, so that upstream reduction is flagged for human decision.
+
+## PhotoCraft Vanishing Point canvas clamp (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`248972cfa343ef46cee8f06ea16173310b2abba2`](https://github.com/storytold/photocraft/commit/248972cfa343ef46cee8f06ea16173310b2abba2) | Integration: clip VP clone copy-back to the canvas, paste in the stamp preview (#3281) | `crates/pc-engine/src/vp_cmds.rs` | MIT OR Apache-2.0 |
+| [`0f8521851eda61b05f9c5a1201e313e2cbb3a199`](https://github.com/storytold/photocraft/commit/0f8521851eda61b05f9c5a1201e313e2cbb3a199) | Integration: Vanishing Point clone dabs stay on the canvas | `crates/pc-algo/src/vanishing.rs`<br>`crates/pc-algo/tests/coverage/vanishing_coverage.rs`<br>`crates/pc-engine/src/vp_cmds.rs` | MIT OR Apache-2.0 |
+
+Only canvas clamping is ported: dab rectangles are clipped before surface access, and command copy-back is clipped to the document bounds. The stamp-preview and paste changes are not included.
+
+## PhotoCraft package links (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`1e5b5f76170e7fdfc5cdc8aaa1a9ecfc6e2ca81f`](https://github.com/storytold/photocraft/commit/1e5b5f76170e7fdfc5cdc8aaa1a9ecfc6e2ca81f) | Package: never overwrite one link's copy with another, list a missing link once (#9185) | `crates/pc-engine/src/print_cmds.rs`<br>`crates/pc-engine/src/print_cmds/tests.rs` | MIT OR Apache-2.0 |
+
+Package link names are unique case-insensitively across both the current run and files already in `Links`; repeated missing paths are reported once. Contributor metadata was not part of this code port.
+
+## PhotoCraft native manifest input bound (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`92a15591381b0967d6276ff2e8b65a8bbd968a18`](https://github.com/storytold/photocraft/commit/92a15591381b0967d6276ff2e8b65a8bbd968a18) | Refuse .pcraft manifests with too many JSON values before parsing (#8893) | `crates/pc-format/src/store.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
+
+The existing linear manifest scan now caps the counts of opened arrays/objects and comma-separated values at 4,194,304 before deserializing the JSON tree. The same scanner protects serialized manifests on save.
+
+## PhotoCraft data-set export filenames (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`2c4982f2d2981c1685212dd951d7466e4b39fe49`](https://github.com/storytold/photocraft/commit/2c4982f2d2981c1685212dd951d7466e4b39fe49) | Export Data Sets as Files keeps outputs in the chosen folder (#9420) | `crates/pc-engine/src/variables_cmds.rs`<br>`crates/pc-engine/src/variables_cmds/tests.rs`<br>`crates/pc-engine/src/web_cmds.rs` | MIT OR Apache-2.0 |
+
+Document-derived stems replace path separators, controls and reserved filename characters; empty, `.` and `..` stems become `_`. Each template path component also uses the existing Windows device-name handling from the web asset exporter, preserving file extensions.

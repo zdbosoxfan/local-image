@@ -90,8 +90,8 @@ impl State<'_, '_> {
             text.runs.push(TextRun {
                 len,
                 style: CharStyle {
-                    font_family: r.family.clone(),
-                    postscript_name: Some(r.postscript.clone()),
+                    font_family: self.font_name(&r.family, name),
+                    postscript_name: Some(self.font_name(&r.postscript, name)),
                     weight: r.weight.clamp(100, 900) as u16,
                     italic: r.italic,
                     size_pt: (r.size * pt) as f32,
@@ -139,7 +139,7 @@ impl State<'_, '_> {
             text.shape = TextShape::Box { x: 0., y: 0., width: w as f32, height: h as f32 };
         }
         if let Some(r) = text.runs.first() {
-            text.font_family = r.style.font_family.clone();
+            text.font_family = self.font_name(&r.style.font_family, name);
             text.size_pt = r.style.size_pt;
             text.color = r.style.color;
         }
@@ -153,6 +153,16 @@ impl State<'_, '_> {
             self.warn("font-substitution", name, "Unavailable font substituted; text remains editable.");
         }
         Ok((text, layout))
+    }
+
+    /// A master page converts its text once per instance, so the model's budget can't bound these.
+    fn font_name(&mut self, value: &str, name: &str) -> String {
+        self.font_name_bytes = self.font_name_bytes.saturating_add(value.len());
+        if value.is_empty() || self.font_name_bytes <= model::MAX_FONT_NAME_BYTES {
+            return value.to_owned();
+        }
+        self.warn("font-name-budget", name, "Font names beyond the document metadata budget left empty; text remains editable.");
+        String::new()
     }
 
     fn render_text(&mut self, t: &model::Text, mut text: TextLayer, layout: photocraft_text::TextLayout, name: &str) -> Result<Layer, Error> {

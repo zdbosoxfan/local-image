@@ -146,6 +146,72 @@ fn package_copies_links_and_relinks() {
 }
 
 #[test]
+fn package_link_names_do_not_collide_or_overwrite_existing_files() {
+    let collision_root = tmp("package-collisions");
+    let mut document_session = session("rgb", 8);
+    let mut sources = Vec::new();
+    for (folder, name, color) in [("a", "x.png", "#ff0000"), ("b", "2-x.png", "#00ff00"), ("c", "x.png", "#0000ff"), ("d", "X.PNG", "#ffff00")] {
+        std::fs::create_dir_all(format!("{collision_root}/{folder}")).unwrap();
+        let path = format!("{collision_root}/{folder}/{name}");
+        let mut source = Session::new();
+        source.execute("file.new", json!({"width": 4, "height": 4, "background": color})).unwrap();
+        crate::file_cmds::save_doc(&source.active().unwrap().doc, &path, None).unwrap();
+        sources.push(std::fs::read(&path).unwrap());
+        document_session.execute("file.placeLinked", json!({"path": path})).unwrap();
+    }
+    let result = document_session.execute("file.package", json!({"dir": format!("{collision_root}/pkg")})).unwrap();
+    let copies: Vec<String> = result["links"].as_array().unwrap().iter().map(|path| path.as_str().unwrap().to_string()).collect();
+    let unique_names: std::collections::HashSet<String> = copies.iter().map(|path| path.to_lowercase()).collect();
+    let copy_contents: Vec<Vec<u8>> = copies.iter().map(|path| std::fs::read(path).unwrap()).collect();
+    let unique_contents: std::collections::HashSet<Vec<u8>> = copy_contents.iter().cloned().collect();
+    let copies_preserved =
+        copy_contents.len() == sources.len() && copy_contents.iter().all(|bytes| sources.contains(bytes)) && unique_contents.len() == sources.len();
+
+    let existing_root = tmp("package-existing-link");
+    let existing_links = format!("{existing_root}/Print Me/Links");
+    std::fs::create_dir_all(&existing_links).unwrap();
+    let sentinel = format!("{existing_links}/ART.PNG");
+    std::fs::write(&sentinel, b"keep this file").unwrap();
+    let art = format!("{existing_root}/art.png");
+    let mut source = Session::new();
+    source.execute("file.new", json!({"width": 4, "height": 4, "background": "#ff0000"})).unwrap();
+    crate::file_cmds::save_doc(&source.active().unwrap().doc, &art, None).unwrap();
+    let art_bytes = std::fs::read(&art).unwrap();
+    let mut linked = session("rgb", 8);
+    linked.execute("file.placeLinked", json!({"path": art})).unwrap();
+    let first = linked.execute("file.package", json!({"dir": existing_root})).unwrap();
+    let first_copy = first["links"][0].as_str().unwrap().to_string();
+    let sentinel_preserved = std::fs::read(&sentinel).is_ok_and(|bytes| bytes == b"keep this file");
+    let first_copy_unique = first_copy.to_lowercase() != sentinel.to_lowercase();
+    let second = linked.execute("file.package", json!({"dir": existing_root})).unwrap();
+    let second_copy = second["links"][0].as_str().unwrap().to_string();
+    let repeated_package_preserved = first_copy.to_lowercase() != second_copy.to_lowercase()
+        && std::fs::read(&first_copy).is_ok_and(|bytes| bytes == art_bytes)
+        && std::fs::read(&second_copy).is_ok_and(|bytes| bytes == art_bytes);
+
+    let missing_root = tmp("package-missing-once");
+    let missing = format!("{missing_root}/gone.png");
+    let mut source = Session::new();
+    source.execute("file.new", json!({"width": 4, "height": 4})).unwrap();
+    crate::file_cmds::save_doc(&source.active().unwrap().doc, &missing, None).unwrap();
+    let mut linked = session("rgb", 8);
+    linked.execute("file.placeLinked", json!({"path": missing})).unwrap();
+    linked.execute("file.placeLinked", json!({"path": missing})).unwrap();
+    std::fs::remove_file(&missing).unwrap();
+    let missing_result = linked.execute("file.package", json!({"dir": format!("{missing_root}/pkg")})).unwrap();
+    let missing_once = missing_result["missing"] == json!([missing]);
+
+    assert!(
+        unique_names.len() == sources.len() && copies_preserved && first_copy_unique && sentinel_preserved && repeated_package_preserved && missing_once,
+        "unique names={}, copies preserved={copies_preserved}, first copy unique={first_copy_unique}, sentinel preserved={sentinel_preserved}, repeated package preserved={repeated_package_preserved}, missing once={missing_once}",
+        unique_names.len()
+    );
+    let _ = std::fs::remove_dir_all(collision_root);
+    let _ = std::fs::remove_dir_all(existing_root);
+    let _ = std::fs::remove_dir_all(missing_root);
+}
+
+#[test]
 fn paths_export_as_illustrator_postscript() {
     let mut s = session("rgb", 8);
     assert!(!s.is_enabled("file.export.pathsToIllustrator"));

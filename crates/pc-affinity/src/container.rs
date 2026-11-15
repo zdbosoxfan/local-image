@@ -19,6 +19,8 @@ const DOCUMENT_KIND: &[u8; 4] = b"nsrP";
 
 /// A save appends one table; real files have one to a few hundred.
 const MAX_TABLES: usize = 4096;
+/// Bytes of entry names retained across revisions; each kept name is copied into an entry and map key.
+const MAX_NAME_BYTES: usize = 32 << 20;
 /// zstd window ceiling: real documents use a few MiB; this stops a header from reserving gigabytes.
 const MAX_ZSTD_WINDOW: u64 = 64 << 20;
 
@@ -182,6 +184,7 @@ impl<'a> Archive<'a> {
         // Newest record per id: (table date, table index, record).
         let mut latest: HashMap<u32, (u64, usize, Option<Entry>)> = HashMap::new();
         let mut names: HashMap<u32, String> = HashMap::new();
+        let mut name_bytes = 0usize;
         let mut seen = HashSet::new();
         let mut next = header.fat_offset;
         let mut tables = 0usize;
@@ -252,8 +255,15 @@ impl<'a> Archive<'a> {
                 }
                 if flag == 0 {
                     let len = usize::from(c.u16()?);
-                    let name = String::from_utf8_lossy(c.take(len)?).into_owned();
-                    names.entry(id).or_insert(name);
+                    let raw = c.take(len)?;
+                    if let std::collections::hash_map::Entry::Vacant(slot) = names.entry(id) {
+                        let name = String::from_utf8_lossy(raw).into_owned();
+                        name_bytes = name_bytes.saturating_add(name.len());
+                        if name_bytes > MAX_NAME_BYTES {
+                            return Err(Error::Limit("archive entry names too large"));
+                        }
+                        slot.insert(name);
+                    }
                 }
                 // Equal dates: the first table in the chain (the newest) wins, as in afread.
                 let replace = latest.get(&id).is_none_or(|(d, _, _)| date > *d);

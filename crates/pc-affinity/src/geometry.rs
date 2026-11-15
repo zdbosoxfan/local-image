@@ -171,7 +171,16 @@ fn curves(r: &mut Reader, crvs: ObjId, budget: &mut OutlineBudget) -> Option<Pat
         _ => return None,
     };
     budget.spend(r, count)?;
-    let corners = s.obj(crvs, b"CnrD").and_then(|c| corner_radii(s.positional(c).collect()));
+    let corners = match s.obj(crvs, b"CnrD") {
+        Some(c) => {
+            let fields: Vec<&Value> = s.positional(c).collect();
+            if let Some(Value::Array(indices)) = fields.get(1) {
+                budget.spend(r, indices.len())?;
+            }
+            corner_radii(fields)
+        }
+        None => None,
+    };
     let mut path = Path::default();
     let mut seen = 0usize;
     for index in 0..count {
