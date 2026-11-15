@@ -42,7 +42,7 @@ skip = ["docs/", "book/", "README.md", "CHANGELOG.md", "Cargo.lock", ".github/",
 [photocraft.moved]
 "crates/affinity/" = { ours = "crates/pc-affinity/", to = "craft-libs craft-affinity", at = "8c7544ed2" }   # 2026-11-14
 "crates/cms/" = { ours = "crates/pc-cms/", to = "craft-libs craft-cms", at = "2b75a0092" }                  # 2026-11-11
-"crates/codecs/" = { ours = "crates/pc-codecs/", to = "craft-libs craft-image-codecs", at = "b0e0bcc6c" }   # 2026-11-13, PR 14236
+"crates/codecs/" = { ours = "crates/pc-codecs/", to = "craft-libs craft-image-codecs", at = "b0e0bcc6c" }   # 2026-11-13, PR 14236 merge: the PR branch's own commits are not descendants of it, so they still map here; its deletion commit fails to apply against our copy rather than applying
 "crates/heif/" = { ours = "crates/pc-heif/", to = "craft-libs craft-heif", at = "5d4b68f04" }               # 2026-11-11
 "crates/psd/" = { ours = "crates/pc-psd/", to = "craft-libs craft-psd", at = "74330157c" }                  # 2026-11-12
 
