@@ -4,6 +4,7 @@
 //! Colours are compared in the surface's own colour channels (RGB, CMYK, Gray, Lab… at any depth),
 //! so nothing is converted through RGB; only alpha changes.
 
+use photocraft_color::{SampleType, read_sample, write_sample};
 use photocraft_geom::Rect;
 use photocraft_raster::{Surface, from_rgba};
 use serde::{Deserialize, Serialize};
@@ -67,6 +68,15 @@ fn graded_weight(d: f32, tol: f32) -> f32 {
     (1.0 - (d - d0) / (tol - d0)).clamp(0.0, 1.0)
 }
 
+/// `v` as the document stores it: rounded to the 8- or 16-bit levels, unchanged in 32-bit float.
+/// The sampled colour is read from stored pixels, so the foreground is compared at the same
+/// precision; otherwise a foreground between two levels misses its own stored colour.
+fn at_sample_precision(sample: SampleType, v: f32) -> f32 {
+    let mut bytes = [0u8; 4];
+    write_sample(&mut bytes, sample, 0, v);
+    read_sample(&bytes, sample, 0)
+}
+
 /// Erase along `stroke`. The brush opacity is ignored (Photoshop's Background Eraser has none);
 /// the selection limits the effect. Returns the damaged rectangle; empty when the surface has no
 /// alpha channel.
@@ -78,7 +88,7 @@ pub fn apply_background_eraser(target: &mut Surface, stroke: &Stroke, bs: &BgEra
     let soft = bs.limits != Limits::FindEdges;
     let native = |c: [f32; 4]| -> Vec<f32> { from_rgba(&fmt, [c[0], c[1], c[2], 1.0])[..nc].to_vec() };
     let swatch = native(bs.background);
-    let fg = native(bs.foreground);
+    let fg: Vec<f32> = native(bs.foreground).into_iter().map(|v| at_sample_precision(fmt.sample, v)).collect();
     let mut once: Option<Option<Vec<f32>>> = None;
     let match_w = |d: f32| -> f32 {
         if soft {
@@ -312,5 +322,23 @@ mod tests {
         assert_eq!(alpha(&u, 20, 20), 0.0, "exact match still erased at tolerance 0");
         let mut g = Surface::new(PixelFormat::GRAY8);
         assert!(apply_background_eraser(&mut g, &stroke(&[(5.0, 5.0)]), &bs, None).unwrap().is_empty());
+    }
+
+    /// Mid grey 0.5 lies between two 8-bit (and 16-bit) levels and is stored one level up. A
+    /// foreground set to it must still protect its own stored colour, even at Tolerance 0.
+    #[test]
+    fn the_foreground_is_matched_at_the_documents_precision() {
+        let grey = [0.5, 0.5, 0.5, 1.0];
+        for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+            for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+                let fmt = PixelFormat::new(mode, sample, true);
+                let bs = BgEraseSettings { sampling: Sampling::Once, tolerance: 0.0, protect_foreground: true, foreground: grey, ..Default::default() };
+                let mut s = Surface::new(fmt);
+                s.fill_rect(Rect::new(0, 0, 200, 100), &from_rgba(&fmt, grey));
+                let t = s.clone();
+                apply_background_eraser(&mut s, &stroke(&[(50.0, 50.0), (150.0, 50.0)]), &bs, None).unwrap();
+                assert_eq!(s, t, "{fmt:?}: a foreground stored as the sample erases nothing");
+            }
+        }
     }
 }
