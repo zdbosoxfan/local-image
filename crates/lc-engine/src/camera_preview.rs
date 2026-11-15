@@ -528,12 +528,143 @@ fn fit_tone(mut pairs: Vec<(f64, f64)>) -> Option<CameraTone> {
         }
         i += n;
     }
-    CameraTone::new(knots)
+    CameraTone::new(limit_elasticity(knots, &pairs)?)
+}
+
+/// Largest log-log slope (elasticity, d ln y / d ln x with [`ELASTICITY_BLACK`] added to y) a fitted
+/// tone curve may have between two knots. A much steeper segment is not a camera curve but two pixel
+/// populations the camera renders at different brightness for the same scene luminance (by hue),
+/// joined by a near-vertical step that amplifies the luminance noise of every pixel on it and
+/// renders as contours and blotches. The bound and [`TONE_REPAIR_ELASTICITY`] are the values
+/// upstream LightCraft measured on its fitted looks (issue #1904).
+const MAX_TONE_ELASTICITY: f64 = 4.0;
+/// Log-log slope of a curve end left free by [`limit_elasticity`], so the knots past the step
+/// follow an ordinary camera curve.
+const TONE_REPAIR_ELASTICITY: f64 = 2.0;
+/// Display level added to both ends of a segment's elasticity, so a toe rising from black is not
+/// counted as infinitely steep.
+const ELASTICITY_BLACK: f64 = 0.002;
+
+/// `knots` with every segment steeper than [`MAX_TONE_ELASTICITY`] smoothed. The knots inside the
+/// smallest window around the segment (widened a knot on each side at a time) whose end-to-end
+/// elasticity is under the bound move onto the straight log-log line between the window's ends, so
+/// the step is spread over the scene range of the populations it joined. A window that reaches an
+/// end of the curve is pinned there, which can drag most of the curve onto one line, so it is
+/// weighed against leaving that end free: the knots past the segment on that side move onto
+/// [`TONE_REPAIR_ELASTICITY`] from the segment's other knot instead. Of the two the one closer to
+/// `pairs` (absolute error) is kept. The curve outside the window and its monotonicity are kept.
+/// `None` when nothing brings the curve under the bound.
+fn limit_elasticity(mut knots: [[f32; 2]; 32], pairs: &[(f64, f64)]) -> Option<[[f32; 2]; 32]> {
+    let (bound, repair) = (MAX_TONE_ELASTICITY, TONE_REPAIR_ELASTICITY);
+    let at = |k: &[[f32; 2]; 32], i: usize| (f64::from(k[i][0]).ln(), (f64::from(k[i][1]) + ELASTICITY_BLACK).ln());
+    let slope = |k: &[[f32; 2]; 32], a: usize, b: usize| {
+        let ((ua, va), (ub, vb)) = (at(k, a), at(k, b));
+        (vb - va) / (ub - ua)
+    };
+    let level = |v: f64| (v.exp() - ELASTICITY_BLACK).max(0.0) as f32;
+    let error = |k: &[[f32; 2]; 32]| {
+        let tone = CameraTone::new(*k)?;
+        Some(pairs.iter().map(|&(x, y)| (f64::from(tone.apply(x as f32)) - y).abs()).sum::<f64>())
+    };
+    for _ in 0..64 {
+        let Some(i) = (0..31).find(|&i| slope(&knots, i, i + 1) > bound) else { return Some(knots) };
+        let (mut lo, mut hi) = (i, i + 1);
+        while slope(&knots, lo, hi) > bound && !(lo == 0 && hi == 31) {
+            lo = lo.saturating_sub(1);
+            hi = (hi + 1).min(31);
+        }
+        let mut pinned = knots;
+        let pinned_ok = slope(&knots, lo, hi) <= bound;
+        if pinned_ok {
+            let ((ua, va), (ub, vb)) = (at(&knots, lo), at(&knots, hi));
+            for k in lo + 1..hi {
+                pinned[k][1] = level(va + (vb - va) * (f64::from(knots[k][0]).ln() - ua) / (ub - ua));
+            }
+        }
+        // A window that reaches an end of the curve can leave that end free instead: the knots below
+        // the segment rise onto the repair slope down from knot i + 1, or the knots above it drop
+        // onto it up from knot i.
+        let mut free = None;
+        if lo == 0 || hi == 31 {
+            let mut k2 = knots;
+            if lo == 0 {
+                let (ub, vb) = at(&knots, i + 1);
+                for k in 0..=i {
+                    let (u, v) = at(&knots, k);
+                    k2[k][1] = level(v.max(vb - repair * (ub - u)));
+                }
+            } else {
+                let (ua, va) = at(&knots, i);
+                for k in i + 1..32 {
+                    let (u, v) = at(&knots, k);
+                    k2[k][1] = level(v.min(va + repair * (u - ua)));
+                }
+            }
+            free = Some(k2);
+        }
+        let next = match (pinned_ok, free) {
+            (true, Some(free)) => {
+                if error(&free).unwrap_or(f64::INFINITY) < error(&pinned).unwrap_or(f64::INFINITY) {
+                    free
+                } else {
+                    pinned
+                }
+            }
+            (true, None) => pinned,
+            (false, Some(free)) => free,
+            (false, None) => return None,
+        };
+        if lightcraft_pipeline::profiling() {
+            let moved: Vec<usize> = (0..32).filter(|&k| next[k][1] != knots[k][1]).collect();
+            log::debug!("[profile] camera tone: elasticity {:.1} at scene {:.4}, knots {moved:?} moved", slope(&knots, i, i + 1), knots[i][0]);
+        }
+        if next == knots {
+            return None;
+        }
+        knots = next;
+    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two populations the camera renders at different brightness for the same scene luminance
+    /// (saturated blue at 1x, red at 3x) are not joined by a near-vertical step: the fitted curve
+    /// stays under the bound between its knots (upstream LightCraft 3335fffb, issue #1904).
+    #[test]
+    fn tone_fit_does_not_step_between_two_pixel_populations() {
+        let mut pairs = Vec::new();
+        for i in 0..620 {
+            let x = 0.040 + 0.012 * f64::from(i) / 620.0;
+            pairs.push((x, x));
+        }
+        for i in 0..380 {
+            let x = 0.02 * (10.0f64).powf(f64::from(i) / 380.0);
+            pairs.push((x, 3.0 * x));
+        }
+        // The fit's knots sit at the median scene value of each 32nd of the pairs.
+        let mut xs: Vec<f64> = pairs.iter().map(|p| p.0).collect();
+        xs.sort_by(f64::total_cmp);
+        let knot_x: Vec<f32> = (0..32)
+            .map(|i| {
+                let (a, b) = (i * xs.len() / 32, (i + 1) * xs.len() / 32);
+                xs[a + (b - a) / 2] as f32
+            })
+            .collect();
+        let tone = fit_tone(pairs).unwrap();
+        let level = |x: f32| f64::from(tone.apply(x)) + ELASTICITY_BLACK;
+        let steepest = knot_x.windows(2).map(|w| (level(w[1]) / level(w[0])).ln() / (f64::from(w[1]) / f64::from(w[0])).ln()).fold(0.0, f64::max);
+        assert!(steepest <= MAX_TONE_ELASTICITY + 1e-3, "{steepest}");
+        assert!(knot_x.windows(2).all(|w| tone.apply(w[1]) >= tone.apply(w[0])));
+        // A curve within the bound is left alone.
+        let smooth: [[f32; 2]; 32] = std::array::from_fn(|i| {
+            let x = 0.01 * 1.15f32.powi(i as i32);
+            [x, 0.9 * (x / (x + 0.18))]
+        });
+        assert_eq!(limit_elasticity(smooth, &[]), Some(smooth));
+    }
 
     #[test]
     fn lenscorr_camera_look_proxy_removes_lens_falloff_before_fitting() {
