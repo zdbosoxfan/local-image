@@ -1244,6 +1244,25 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [`7efd224081a1`](https://github.com/storytold/photocraft/commit/7efd224081a190521f6634e766df02d75de77ab7) | Color Replacement: in Lab, Color keeps L and takes the foreground's a and b (#11922) | `crates/pc-paint/src/replace.rs`<br>`crates/pc-paint/src/replace/lab_tests.rs` | MIT OR Apache-2.0 |
 | [`1cf1e15da568`](https://github.com/storytold/photocraft/commit/1cf1e15da5684388e43a17ecbca5fe179f248c20) | Keep Lab/16 Color Replacement on the RGB blend (CodeRabbit review on crates/paint/src/replace.rs:101) | `crates/pc-paint/src/replace.rs`<br>`crates/pc-paint/src/replace/lab_tests.rs` | MIT OR Apache-2.0 |
 | [`cfd894aad3ba`](https://github.com/storytold/photocraft/commit/cfd894aad3bab1d257238812f944daf359934f74) | security(paint): cap spaced steps and procedural primitives (#8957) | `crates/pc-paint/src/dynamics.rs` | MIT OR Apache-2.0 |
+| [`08ff029ac228`](https://github.com/storytold/vectorcraft/commit/08ff029ac22860f47cf0e0b427a932f7d675003e) | fix(pathops): bound offset path complexity and handle arrangement failure safely (#4145) | `crates/pc-pathops/src/offset.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/budget.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+| [`825620eb6cd1`](https://github.com/storytold/vectorcraft/commit/825620eb6cd17a4298b4fa9041013abe3d35190c) | Clipboard: Linux and BSD reads wait 2 s at most for the app that copied | `apps/local-image/src/services.rs`<br>`apps/local-image/src/services/clipboard.rs` | MIT OR Apache-2.0 |
+| [`29a98b750ac9`](https://github.com/storytold/vectorcraft/commit/29a98b750ac90e530d6bd03b45ea56b8cae2ca72) | Respect quotes and parentheses when splitting SVG CSS declarations | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`2b37302fe5f7`](https://github.com/storytold/vectorcraft/commit/2b37302fe5f7570238836d2aee943843673bf815) | Preserve comment markers inside CSS strings | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`194364304bec`](https://github.com/storytold/vectorcraft/commit/194364304bec7b677a8d8a7118ecaaf6a865fb71) | Strip CSS comments from style attributes and rule declarations | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`89f20c45c45c`](https://github.com/storytold/vectorcraft/commit/89f20c45c45c6b6eb2127d1dbb1ec7f53bb29488) | SVG import: bound selector matching and share the limits with linked and embedded SVGs | `crates/pc-svg/src/import/preflight.rs` | MIT OR Apache-2.0 |
+| [`60267727656f`](https://github.com/storytold/vectorcraft/commit/60267727656f64fc138d66b592c1bc1d0e7d0e76) | Fix #3773: Offset Path offsets a path whose ends meet as a closed shape | `crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`1574dfe7293c`](https://github.com/storytold/vectorcraft/commit/1574dfe7293c3acf0f5d66b47a628e6483a96260) | fix: anchor positions and Simplify measure curves through the guarded arc length | `crates/pc-pathops/src/geom/path.rs`<br>`crates/pc-pathops/src/edit.rs` | MIT OR Apache-2.0 |
+| [`e9510956172c`](https://github.com/storytold/vectorcraft/commit/e9510956172c5e48f555db7a93e2d139d757830f) | Path booleans: refuse out-of-range input, guard the contour pass, cuts report refusals (#5465) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`0a2935cf8f98`](https://github.com/storytold/vectorcraft/commit/0a2935cf8f984ddbfcb1959f4ff44166dd9efcc9) | Booleans: limit of one unit, crop outside shortcut, tests (#5465) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`0e64aca55746`](https://github.com/storytold/vectorcraft/commit/0e64aca557462bb6507f6a2e8e2a50a86122f8db) | Bound work: flattening of huge curves, print layout past the page limit, script-check file names | `crates/pc-pathops/src/geom/bez.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs`<br>`crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`9cd997b9aac0`](https://github.com/storytold/vectorcraft/commit/9cd997b9aac07c8dad19c2f830407a346922d027) | address review: draw a line for curves with far-out start or control points in flatten | `crates/pc-pathops/src/geom/bez.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs`<br>`crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`bc19dd64db45`](https://github.com/storytold/vectorcraft/commit/bc19dd64db458f9b6d6a57c029b73d4ac965fcdc) | Simplify: Convert to Straight Lines keeps the tip of a path that turns back past its end | `crates/pc-pathops/src/edit.rs` | MIT OR Apache-2.0 |
+| [`e6add18663a0`](https://github.com/storytold/vectorcraft/commit/e6add18663a01ce563f19e2698e6084eff6840b4) | Fix #6634: Pen closing drag no longer gives the first anchor symmetric handles | `crates/pc-engine/src/vector_packages/pen/gesture.rs` | MIT OR Apache-2.0 |
+| [`85e0d59bfa88`](https://github.com/storytold/vectorcraft/commit/85e0d59bfa88b145f38658037e96d2a4884e4f9a) | Brushes: Scale Proportionately art grows with the stroke weight | `crates/pc-vecfx/src/brush/warp.rs` | MIT OR Apache-2.0 |
+| [`1ce6431a99fb`](https://github.com/storytold/vectorcraft/commit/1ce6431a99fb188e92d3992c45204a6f59125d2e) | SVG import: raster images follow their EXIF or TIFF orientation | `crates/pc-svg/src/import.rs` | MIT OR Apache-2.0 |
+| [`6725f24a80c6`](https://github.com/storytold/vectorcraft/commit/6725f24a80c697c803b40685510bdc6d4a38d7b0) | Path booleans: check the windings against the operands' areas and resolve the operands when they don't add up (#5478) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`f4a30c1a94d9`](https://github.com/storytold/vectorcraft/commit/f4a30c1a94d9124236f0c7afd2b5b1e2d29ce0ef) | Audit: geometry length measurement refuses coordinates the integrator cannot handle | `crates/pc-pathops/src/geom/path.rs` | MIT OR Apache-2.0 |
+| [`e2a870e60202`](https://github.com/storytold/vectorcraft/commit/e2a870e60202abd5216375de76b5f07e9df41d6c) | Security: bounded flattening, plug-in budgets and caches, loaded textures, Revolve paint copies, color book names and ICC names | `crates/pc-pathops/src/geom/bez.rs` | MIT OR Apache-2.0 |
 
 Codec hostile-input bounds (2026-11-15). Adapted ports: `81ce14c1` charges band-worker scratch,
 the JPEG copy and the chunk tables next to the output, without upstream's extra-sample accounting,
@@ -1266,6 +1285,22 @@ bytes without counting them; after a scan our walker stops (`DataEnd::Unread`) b
 ## Partial PhotoCraft paint ports (2026-11-15)
 
 For the paint rows of the table above: `d98b9ea1` brings only the dab-area budget; its clip (skip dabs outside the canvas plus the layer's pixels) is not ported, because it makes `out_of_range_scatter_is_rejected_and_the_maximum_still_paints` fail (a 1000 % scattered dab lands off the 32 px canvas and reports empty damage) and upstream relaxed that test, which needs a human decision. Until then the budget bounds time but not, in practice, memory: coverage tiles are dense `f32`, so dabs that land off the canvas can still allocate up to about 8 GiB of coverage (2^31 px), and as much again under the Dual Brush's separate budget, before the budget refuses; the clip exists to stop those never-read tiles. Under continuous coverage (a local adaptation) the budget is charged per segment and an undrawn segment owes no end cap. `f5e92a6b`/`0ff76d6f` also bring the per-segment step cap of `cfd894aa` (its procedural-primitive caps are not ported); `af025e18`'s pixel-grid test does not apply (we have no pixel-grid walk). `c2cc5eee` ports the proxy half only: our Liquify dialog has no source-resolution crop or smart-filter editing. `6bd3773e` ports the foreground-precision half; the test it re-pins belongs to upstream's distance-faded protection (`a11204c6`), which we do not have. `acd35e12` is adapted to our Smudge pick-up loop, saturating the square positions. `abeb16c9` also builds `apply_dab_stroke`'s halo rectangle (`crates/pc-paint/src/retouch.rs`) with saturating arithmetic, a local hardening upstream does not have.
+
+Partial ports: `89f20c45` brings only the estimate that holds for every `<use>` copy; its per-test
+weighting by attributes scanned and value bytes compared (our `class_work` covers class lists only),
+its counting of `:not()` alternatives and of kept declarations toward the 64 MB, its linked-file
+sharing and its embedded-SVG budget are not ported. `1ce6431a` turns embedded PNG, JPEG and WebP
+only, within one decode allowance shared by every use; its linked files, TIFF data URLs and CMYK
+handling have no counterpart. `e6add186` brings the closing drag; its closing click that retracts
+the incoming handle and makes a corner is not ported (a click still keeps the first anchor's
+handles), and its script `path.close` parameters have no counterpart. `0e64aca5` brings only the
+flatten length cap and `9cd997b9` the far-point checks; the 4 pathops call sites that use the
+wrapper have no upstream hunk, and upstream's brush `track.rs` and `warp.rs`, metafile `wmf.rs`,
+print-layout and script-check hunks are not ported.
+
+Local deviation: `e9510956` and `0a2935cf` refuse a sweep whose tolerance passes one unit; here
+only the coordinate rounding term is capped, so a drawing more than about 1e8 units across still
+sweeps with a tolerance wider than one unit.
 
 ## RAW, HEIF and metadata hardening (2026-11-15)
 
