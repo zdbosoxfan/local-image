@@ -408,6 +408,22 @@ fn symlinks_modes_identity_and_dangling_link_safety() {
     dir.clean();
 }
 
+#[cfg(unix)]
+#[test]
+fn no_follow_replaces_a_symlink_and_leaves_its_target() {
+    use std::os::unix::fs::symlink;
+    let dir = Dir::new();
+    let target = dir.target();
+    fs::write(&target, OLD).unwrap();
+    let link = dir.0.join("link");
+    symlink("document", &link).unwrap();
+    atomic_write_no_follow(&link, b"new").unwrap();
+    assert!(!fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read(&link).unwrap(), b"new");
+    assert_eq!(fs::read(&target).unwrap(), OLD);
+    dir.clean();
+}
+
 #[test]
 fn nested_fault_guards_restore_previous_limit() {
     let dir = Dir::new();

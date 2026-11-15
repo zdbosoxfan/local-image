@@ -30,11 +30,25 @@ fn compress(data: &[u8]) -> Vec<u8> {
     ruzstd::encoding::compress_to_vec(data, ruzstd::encoding::CompressionLevel::Fastest)
 }
 
+/// Smallest zstd window [`decompress_bounded`] accepts, whatever the object's size.
+const MAX_ZSTD_WINDOW_FLOOR: u64 = 8 << 20;
+
 /// Decodes a zstd frame of at most `max` bytes (`LimitExceeded` beyond). With `exact`, the
 /// decoded length must be exactly that (`Corrupt` otherwise).
 fn decompress_bounded(data: &[u8], max: usize, exact: Option<usize>, what: &str) -> Result<Vec<u8>> {
     let zstd = |e: &dyn std::fmt::Display| FormatError::corrupt(format!("{what}: zstd: {e}"));
-    let mut dec = ruzstd::decoding::StreamingDecoder::new(data).map_err(|e| zstd(&e))?;
+    // The decoder allocates its window before any output reaches the length check: hold it to
+    // what this object may decode to (libzstd's default windows stay under 8 MiB), not ruzstd's
+    // 128 MiB default.
+    let window = u64::try_from(exact.unwrap_or(max)).unwrap_or(u64::MAX).max(MAX_ZSTD_WINDOW_FLOOR);
+    let mut dec = match ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, window) {
+        Ok(dec) => dec,
+        // A well-formed frame asking for more window than the object may decode to is over its limit.
+        Err(ruzstd::decoding::errors::FrameDecoderError::WindowSizeTooBig { requested, .. }) => {
+            return Err(FormatError::LimitExceeded(format!("{what}: zstd window of {requested} bytes exceeds {window}")));
+        }
+        Err(e) => return Err(zstd(&e)),
+    };
     let mut out = Vec::with_capacity(exact.unwrap_or(0).min(max).min(64 << 20));
     // `max` may be `usize::MAX`: one byte past it must not overflow.
     let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
@@ -897,6 +911,19 @@ fn gc_target(relative: &str) -> Result<GcDir<'_>> {
 pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     li_fs::atomic_write(path, data)?;
     Ok(())
+}
+
+/// A well-formed zstd frame that asks for a larger window than the object may decode to is over
+/// its limit, not damaged; one within the window decodes.
+#[cfg(test)]
+#[test]
+fn a_zstd_window_past_the_limit_is_a_limit_not_corruption() {
+    // Magic, a header with a window descriptor only, then one empty last raw block.
+    let frame = |window_descriptor: u8| [0x28, 0xB5, 0x2F, 0xFD, 0x00, window_descriptor, 0x01, 0x00, 0x00];
+    // Exponent 15 is a 32 MiB window.
+    let e = decompress_bounded(&frame(15 << 3), 100, None, "tile").unwrap_err();
+    assert!(matches!(e, FormatError::LimitExceeded(_)), "{e}");
+    assert_eq!(decompress_bounded(&frame(0), 100, None, "tile").unwrap(), Vec::<u8>::new());
 }
 
 /// Upstream 2d5a7497: once cleanup has pinned the bundle's directories, swapping `tiles` for a
