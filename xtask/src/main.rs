@@ -25,7 +25,26 @@
 //!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
 //!     touched its source file since the commit it was ported from — what to review and re-port.
 //!     Clones go to target/upstream/ (blob-less); --offline skips cloning and fetching.
-//!     Reports checked and unchecked rows; any unchecked row makes the command fail.
+//!     Reports checked and unchecked rows; any unchecked row makes the command fail. Rows of the
+//!     commit tables count as checked when their commit is in the clone; then, for each review
+//!     cutoff in PORTS.md, the number of upstream commits since it.
+//! cargo xtask upstream-reviewed <repo> <sha> [--upstream-dir DIR]
+//!     moves a storytold upstream's review cutoff in docs/PORTS.md forward to <sha>: every commit up
+//!     to it has been triaged. DIR holds the clones as DIR/<repo> (default target/upstream).
+//! cargo xtask port <repo> <sha> [--upstream-dir DIR] [--dry-run | --allow-delete | --record [--files A,B]]
+//!     applies one storytold upstream commit to the current branch at our paths
+//!     (docs/upstream-paths.toml) with a three-way merge, staged but not committed, and appends its
+//!     row to docs/PORTS.md as an unstaged edit. Prints each file's change and whether ours has
+//!     local changes. Exit 0 applied, 1 error, 2 refused (dirty tree; unknown, merge, unmerged or
+//!     already recorded commit; a path the map cannot place; a deletion of a file of ours without
+//!     --allow-delete or with local changes; nothing written), 3 conflicts left in the tree (no
+//!     row). --dry-run prints the mapping, the row and `git apply --check`. --record only appends
+//!     the row, after a port finished by hand and committed; --files names our files when the map
+//!     cannot place the commit's paths. Unknown arguments are an error.
+//! cargo xtask upstream-drift [--upstream-dir DIR] [--repo R] [--rev REV]
+//!     a markdown table of how each mapped directory of our committed tree differs from the
+//!     upstream at REV (default: its review cutoff): identical, changed and one-sided files, and
+//!     a line count of each side's lines the other lacks. Writes nothing.
 //! cargo xtask assets
 //!     audit asset attribution rows and referenced licence files.
 //! cargo xtask tool-icons
@@ -57,6 +76,7 @@ mod attributions;
 mod icons;
 mod macos;
 mod test_lane;
+mod upstream;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("xtask sits in the workspace").to_path_buf()
@@ -569,6 +589,9 @@ const USAGE: &str = "usage: cargo xtask <task>
   check-icons [file.wxs]
   deps-pure
   upstream-check [--offline]
+  upstream-reviewed <repo> <sha> [--upstream-dir DIR]
+  port <repo> <sha> [--upstream-dir DIR] [--dry-run | --allow-delete | --record [--files A,B]]
+  upstream-drift [--upstream-dir DIR] [--repo R] [--rev REV]
   assets
   icons
   tool-icons
@@ -579,6 +602,8 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().any(|a| a == f);
     let value = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).cloned();
+    let positional = |i: usize| args.get(i).filter(|a| !a.starts_with("--"));
+    let upstream_dir = || value("--upstream-dir").map_or_else(|| root().join("target").join("upstream"), PathBuf::from);
     match args.first().map(String::as_str) {
         Some("package") => match args.get(1).map(String::as_str) {
             Some("macos") => macos::package(flag("--skip-build")),
@@ -589,6 +614,32 @@ fn main() -> Result<()> {
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
         Some("deps-pure") => deps_pure(),
         Some("upstream-check") => upstream_check(&root(), flag("--offline")),
+        Some("upstream-reviewed") => match (positional(1), positional(2)) {
+            (Some(repo), Some(sha)) => upstream::upstream_reviewed(&root(), repo, sha, &upstream_dir()),
+            _ => bail!("{USAGE}"),
+        },
+        Some("upstream-drift") => {
+            print!("{}", upstream::upstream_drift(&root(), &upstream_dir(), value("--repo").as_deref(), value("--rev").as_deref())?);
+            Ok(())
+        }
+        Some("port") => match upstream::PortArgs::parse(&args[1..]) {
+            Ok(a) => {
+                let code = match upstream::port(&root(), &a.repo, &a.sha, &upstream_dir(), a.mode, &a.options) {
+                    Ok(status) => {
+                        if let upstream::PortStatus::Refused(why) = &status {
+                            eprintln!("refused: {why}");
+                        }
+                        status.code()
+                    }
+                    Err(e) => {
+                        eprintln!("error: {e:#}");
+                        1
+                    }
+                };
+                std::process::exit(code)
+            }
+            Err(e) => bail!("{e}\n{USAGE}"),
+        },
         Some("test-fast") => test_lane::fast(),
         Some("assets") => assets::run(&root()),
         Some("icons") => icons::run(&root()),
@@ -707,7 +758,11 @@ struct Port {
 
 /// Where each upstream project's git history lives.
 fn upstream_repo(project: &str) -> Option<&'static str> {
-    match project.to_ascii_lowercase().as_str() {
+    let project = project.to_ascii_lowercase();
+    if let Some(u) = upstream::by_key(&project) {
+        return Some(u.url);
+    }
+    match project.as_str() {
         "darktable" => Some("https://github.com/darktable-org/darktable"),
         "rawtherapee" => Some("https://github.com/RawTherapee/RawTherapee"),
         "art" => Some("https://github.com/artpixls/ART"),
@@ -721,9 +776,6 @@ fn upstream_repo(project: &str) -> Option<&'static str> {
         "darktable-ai" => Some("https://github.com/darktable-org/darktable-ai"),
         "opencv" => Some("https://github.com/opencv/opencv"),
         "lensfun" => Some("https://github.com/lensfun/lensfun"),
-        "photocraft" => Some("https://github.com/storytold/photocraft"),
-        "lightcraft" => Some("https://github.com/storytold/lightcraft"),
-        "vectorcraft" => Some("https://github.com/storytold/vectorcraft"),
         "designcraft" => Some("https://github.com/storytold/designcraft"),
         "visioncortex" => Some("https://github.com/visioncortex/visioncortex"),
         "vtracer" => Some("https://github.com/visioncortex/vtracer"),
@@ -773,13 +825,30 @@ fn parse_ports(md: &str) -> Vec<Port> {
 fn upstream_check(root: &Path, offline: bool) -> Result<()> {
     let md = std::fs::read_to_string(root.join("docs").join("PORTS.md")).context("docs/PORTS.md")?;
     let ports = parse_ports(&md);
-    if ports.is_empty() {
+    let commit_ports = attributions::parse_commit_ports(&md)?;
+    if ports.is_empty() && commit_ports.is_empty() {
         println!("docs/PORTS.md lists no ports with an upstream commit.");
         return Ok(());
     }
     let cache = root.join("target").join("upstream");
     std::fs::create_dir_all(&cache)?;
     let mut fetched = std::collections::HashMap::new();
+    // Clones or fetches each upstream once; offline, whatever is cached counts.
+    let mut fetch = |url: &str, dir: &Path| -> Result<bool> {
+        if offline {
+            return Ok(true);
+        }
+        if let Some(&ok) = fetched.get(dir) {
+            return Ok(ok);
+        }
+        let ok = if dir.join(".git").is_dir() {
+            Command::new("git").args(["-C"]).arg(dir).args(["fetch", "--quiet", "--filter=blob:none", "origin"]).status()?.success()
+        } else {
+            Command::new("git").args(["clone", "--quiet", "--filter=blob:none", "--no-checkout", url]).arg(dir).status()?.success()
+        };
+        fetched.insert(dir.to_path_buf(), ok);
+        Ok(ok)
+    };
     let mut checked = 0;
     let mut behind = 0;
     for p in &ports {
@@ -789,22 +858,9 @@ fn upstream_check(root: &Path, offline: bool) -> Result<()> {
         };
         let name = url.rsplit('/').next().expect("fixed upstream URLs have a repository name");
         let dir = cache.join(name.to_ascii_lowercase());
-        if !offline {
-            let ok = if let Some(&ok) = fetched.get(&dir) {
-                ok
-            } else {
-                let ok = if dir.join(".git").is_dir() {
-                    Command::new("git").args(["-C"]).arg(&dir).args(["fetch", "--quiet", "--filter=blob:none", "origin"]).status()?.success()
-                } else {
-                    Command::new("git").args(["clone", "--quiet", "--filter=blob:none", "--no-checkout", url]).arg(&dir).status()?.success()
-                };
-                fetched.insert(dir.clone(), ok);
-                ok
-            };
-            if !ok {
-                println!("! {}: could not fetch {url}", p.project);
-                continue;
-            }
+        if !fetch(url, &dir)? {
+            println!("! {}: could not fetch {url}", p.project);
+            continue;
         }
         // Git log succeeds with no matches even when a path does not exist at the pinned commit.
         let source = Command::new("git").arg("-C").arg(&dir).args(["--literal-pathspecs", "ls-tree", "--name-only", &p.commit, "--", &p.path]).output()?;
@@ -836,8 +892,29 @@ fn upstream_check(root: &Path, offline: bool) -> Result<()> {
             }
         }
     }
-    let unchecked = ports.len() - checked;
-    let summary = format!("{} port(s): {checked} checked, {unchecked} unchecked, {behind} with upstream changes to review.", ports.len());
+    // A commit row is a whole upstream commit, so there is no file history to list: newer upstream
+    // commits are covered by the review cutoffs.
+    for c in &commit_ports {
+        let dir = cache.join(c.upstream.key);
+        if !fetch(c.upstream.url, &dir)? {
+            println!("! {}: could not fetch {}", c.upstream.name, c.upstream.url);
+            continue;
+        }
+        let short = &c.commit[..12];
+        let found = Command::new("git").arg("-C").arg(&dir).args(["cat-file", "-e", &format!("{}^{{commit}}", c.commit)]).output()?.status.success();
+        if found {
+            checked += 1;
+            println!("✓ {} — {} {short} {}", c.ours, c.upstream.name, c.subject);
+        } else {
+            println!("! {} — {} commit {short} is not in {}", c.ours, c.upstream.name, dir.display());
+        }
+    }
+    for line in upstream::commits_since_markers(&md, &cache)? {
+        println!("{line}");
+    }
+    let total = ports.len() + commit_ports.len();
+    let unchecked = total - checked;
+    let summary = format!("{total} port(s): {checked} checked, {unchecked} unchecked, {behind} with upstream changes to review.");
     println!("{summary}");
     if unchecked != 0 {
         bail!("Incomplete upstream check: {summary}");
@@ -965,6 +1042,44 @@ mod tests {
         complete_result?;
         let error = fetch_result.expect_err("a failed fetch must reject every row, even with cached history").to_string();
         assert!(error.contains("0 checked, 2 unchecked"), "{error}");
+        Ok(())
+    }
+
+    #[test]
+    fn upstream_check_counts_commit_rows() -> Result<()> {
+        use upstream::test_support::{git, temp_dir};
+        let dir = temp_dir("upstream-commit-rows");
+        let cache = dir.join("target/upstream/photocraft");
+        std::fs::create_dir_all(dir.join("docs"))?;
+        std::fs::create_dir_all(&cache)?;
+        git(&cache, &["init", "--quiet"]);
+        std::fs::write(cache.join("a.rs"), "a")?;
+        git(&cache, &["add", "."]);
+        git(&cache, &["commit", "--quiet", "-m", "First"]);
+        let present = git(&cache, &["rev-parse", "HEAD"]);
+        git(&cache, &["update-ref", "refs/remotes/origin/HEAD", "HEAD"]);
+        let missing = "0123456789abcdef0123456789abcdef01234567";
+        let url = "https://github.com/storytold/photocraft/commit";
+        std::fs::write(
+            dir.join("docs/PORTS.md"),
+            format!(
+                "| Upstream commit | Subject | Our files | Licence |\n|---|---|---|---|\n\
+| [`{}`]({url}/{present}) | Present | `a.rs` | MIT OR Apache-2.0 |\n\
+| [`{}`]({url}/{missing}) | Missing | `b.rs` | MIT OR Apache-2.0 |\n",
+                &present[..12],
+                &missing[..12]
+            ),
+        )?;
+        let result = upstream_check(&dir, true);
+        std::fs::write(cache.join("a.rs"), "b")?;
+        git(&cache, &["commit", "--quiet", "-am", "Second"]);
+        git(&cache, &["update-ref", "refs/remotes/origin/HEAD", "HEAD"]);
+        let since =
+            upstream::commits_since_markers(&format!("| Upstream | Reviewed up to |\n|---|---|\n| PhotoCraft | `{present}` |\n"), &dir.join("target/upstream"));
+        std::fs::remove_dir_all(&dir)?;
+        let error = result.expect_err("a commit row whose commit is not in the clone must fail").to_string();
+        assert!(error.contains("2 port(s): 1 checked, 1 unchecked"), "{error}");
+        assert_eq!(since?, vec![format!("PhotoCraft: 1 commit(s) since reviewed-up-to {}", &present[..12])]);
         Ok(())
     }
 
