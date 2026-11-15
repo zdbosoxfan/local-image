@@ -120,14 +120,16 @@ fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
     color[3] *= (p.get("opacity").and_then(Value::as_f64).unwrap_or(100.0) as f32 / 100.0).clamp(0.0, 1.0);
     let location = p.get("location").and_then(Value::as_str).unwrap_or("center").to_string();
     let id = layer_param(s, p)?;
+    // Stroke keeps its layer behaviour for channel views; an explicit mask target edits that mask.
+    let pixels = Value::Null;
+    let target = if crate::commands::is_mask_target(p) { p } else { &pixels };
     s.edit("Stroke", |doc, _| {
         let canvas = doc.bounds();
         let (w, h) = (canvas.width() as usize, canvas.height() as usize);
         let edge = match &doc.selection {
             Some(m) => sel::mask_from_surface(Some(m), canvas),
             None => {
-                let l = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
-                let surf = l.surface().ok_or_else(|| EngineError::Other("not a pixel layer".into()))?;
+                let (surf, _) = crate::channel_cmds::target_surface(doc, Some(id), target)?;
                 let mut px = vec![[0.0f32; 4]; w * h];
                 surf.read_rgba_into(canvas, &mut px);
                 px.iter().map(|p| p[3]).collect()
@@ -140,8 +142,7 @@ fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
         };
         let band: Vec<f32> = outer.iter().zip(&inner).map(|(o, i)| (o - i).clamp(0.0, 1.0)).collect();
         let band = sel::mask_to_surface(&band, canvas);
-        let lock = doc.effective_locks(id).transparency;
-        let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
+        let (surf, lock) = crate::channel_cmds::target_surface(doc, Some(id), target)?;
         let area = band.content_bounds().intersect(&canvas);
         if !area.is_empty() {
             crate::pixels::fill_surface(surf, area, color, Some(&band), lock)?;
@@ -853,6 +854,24 @@ mod tests {
         s.execute("edit.stroke", json!({"width": 3, "color": "#00ff00", "location": "outside"})).unwrap();
         assert_eq!(pixel(&s, 8, 15), vec![0.0, 1.0, 0.0, 1.0]);
         assert_eq!(pixel(&s, 15, 15), vec![0.0, 0.0, 1.0, 1.0]);
+    }
+
+    /// An explicit mask target strokes the layer mask, leaving pixel-locked layer pixels alone.
+    #[test]
+    fn stroke_edits_the_targeted_layer_mask() {
+        let mut s = session(8);
+        paint_square(&mut s, Rect::new(0, 0, 40, 30), [1.0, 1.0, 1.0, 1.0]);
+        s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+        s.execute("layer.setProps", json!({"layer": active(&s).id.0, "locks": {"pixels": true}})).unwrap();
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap();
+        let full = Rect::new(0, 0, 40, 30);
+        let before = active(&s).surface().unwrap().read_region(full);
+        s.execute("edit.stroke", json!({"target": "mask", "width": 2, "color": "#000000", "location": "inside"})).unwrap();
+        let mask = |s: &Session, x, y| active(s).mask.as_ref().unwrap().surface.sample_channel(x, y, 0);
+        assert!(mask(&s, 10, 15) < 0.02, "the band inside the selection edge is painted: {}", mask(&s, 10, 15));
+        assert_eq!((mask(&s, 15, 15), mask(&s, 9, 15)), (1.0, 1.0), "the interior and the outside are untouched");
+        assert!(active(&s).surface().unwrap().read_region(full) == before, "the layer pixels are untouched");
+        assert!(s.execute("edit.stroke", json!({"width": 2})).is_err(), "the pixel lock still applies to pixels");
     }
 
     #[test]
