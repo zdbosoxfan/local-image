@@ -221,6 +221,20 @@ fn malformed_and_oversized_modules_are_refused() {
 }
 
 #[test]
+fn a_code_section_claiming_no_functions_but_many_bytes_is_refused() {
+    let truncated = b"\0asm\x01\0\0\0\x0a\xd0\x0f\x00".to_vec();
+    let mut padded = truncated.clone();
+    padded.resize(padded.len() + 1999, 0);
+    let mut second = b"\0asm\x01\0\0\0\x0a\x01\x00".to_vec();
+    second.extend_from_slice(&padded[8..]);
+    for (name, bytes) in [("truncated", truncated), ("padded", padded), ("second", second)] {
+        assert!(matches!(Plugin::load(&bytes, Limits::default()), Err(Error::Module(_))), "{name}");
+    }
+    let empty = b"\0asm\x01\0\0\0\x0a\x01\x00";
+    assert!(matches!(Plugin::load(empty, Limits::default()), Err(Error::Abi(_))));
+}
+
+#[test]
 fn budgets_stop_runaway_plugins() {
     let spin = ok_module("(loop $l (br $l)) (i32.const 0)");
     // Instruction budget.

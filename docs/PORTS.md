@@ -1112,3 +1112,20 @@ The existing linear manifest scan now caps the counts of opened arrays/objects a
 | [`2c4982f2d2981c1685212dd951d7466e4b39fe49`](https://github.com/storytold/photocraft/commit/2c4982f2d2981c1685212dd951d7466e4b39fe49) | Export Data Sets as Files keeps outputs in the chosen folder (#9420) | `crates/pc-engine/src/variables_cmds.rs`<br>`crates/pc-engine/src/variables_cmds/tests.rs`<br>`crates/pc-engine/src/web_cmds.rs` | MIT OR Apache-2.0 |
 
 Document-derived stems replace path separators, controls and reserved filename characters; empty, `.` and `..` stems become `_`. Each template path component also uses the existing Windows device-name handling from the web asset exporter, preserving file extensions.
+
+## PhotoCraft parser hardening (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`1121b7979bc6`](https://github.com/storytold/photocraft/commit/1121b7979bc61f398619c2951c9ece1fb8c8fc08) | fix(format): bound ZIP expansion by declared size | `crates/pc-format/src/zip.rs` | MIT OR Apache-2.0 |
+| [`8f782cab1cf9`](https://github.com/storytold/photocraft/commit/8f782cab1cf98fecca7af994ea574cc547e07b8c) | fix(codecs): bound complete JPEGs by their scan data too | `crates/pc-codecs/src/codecs/jpeg.rs` | MIT OR Apache-2.0 |
+| [`68c0f034d507`](https://github.com/storytold/photocraft/commit/68c0f034d507d104a3aff2ed46f01bd800a0af6a) | Plug-ins: refuse a code section with no functions but many bytes instead of panicking (#9679) | `crates/pc-plugins/src/runtime.rs`, `crates/pc-plugins/tests/abi.rs` | MIT OR Apache-2.0 |
+
+Local adaptations: 8f782cab1 edits a JPEG frame-size guard from c9892c8f8 and 07f91c6d3, which are not
+ported. Local Image adds only the guard on files whose walk reached an EOI, so a truncated JPEG still
+opens with its warning. Where upstream counts the unread tail of a walk stopped by an odd layout, Local
+Image leaves that file unmeasured (`DataEnd::Unread`), so it opens as before the port, whether or not an
+EOI follows. A stray EOI inside a scan counts as the end, so a damaged file can fail the guard, as upstream.
+Scan bytes are counted in the existing `scan_metadata` walker instead of upstream's `data_end`, and that
+walker keeps skipping stray bytes before the first scan, so header padding never counts. The ZIP reader
+keeps `flate2::read::DeflateDecoder`; upstream's `bufread` decoder comes from 51788e665, which is not ported.

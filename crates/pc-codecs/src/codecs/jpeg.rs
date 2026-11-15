@@ -18,6 +18,8 @@ const F: Format = Format::Jpeg;
 const EXIF_HEADER: &[u8] = b"Exif\0\0";
 const XMP_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 const ICC_HEADER: &[u8] = b"ICC_PROFILE\0";
+/// Allows four times the ideal one-bit DC code per 8×8 block before rejecting a JPEG scan.
+const MAX_PIXELS_PER_BYTE: u64 = 2048;
 
 /// Header metadata collected by the one JPEG marker/entropy-data walker.
 #[derive(Default, Debug)]
@@ -32,6 +34,7 @@ pub(crate) struct JpegMeta {
     precision: u8,
     sof: u8,
     first_scan_components: u8,
+    scan_bytes: u64,
     exif_offset: usize,
     mpf: Option<(usize, Vec<u8>)>,
     end: DataEnd,
@@ -43,6 +46,8 @@ enum DataEnd {
     Complete,
     Truncated,
     Empty,
+    /// The walk stopped at a byte it can't read past, before any end of image.
+    Unread,
 }
 
 /// Walk marker segments and entropy-coded scans together. Segment lengths prevent an embedded
@@ -64,7 +69,7 @@ pub(crate) fn scan_metadata(b: &[u8]) -> JpegMeta {
         if byte != 0xFF {
             // The Library historically accepted padding between header segments.
             if saw_scan {
-                break DataEnd::Complete;
+                break DataEnd::Unread;
             }
             i += 1;
             continue;
@@ -146,6 +151,7 @@ pub(crate) fn scan_metadata(b: &[u8]) -> JpegMeta {
                 i = b.len();
             }
             scan_data |= i > start;
+            m.scan_bytes = m.scan_bytes.saturating_add(u64::try_from(i - start).unwrap_or(u64::MAX));
         }
     };
     if !icc_parts.is_empty() {
@@ -185,6 +191,11 @@ fn decode_jpeg_scaled_inner(bytes: &[u8], limits: &Limits, max_size: Option<(u32
     }
     let (w, h, nc) = meta.frame.ok_or_else(|| err("no frame header"))?;
     limits.check_bytes(w, h, u64::from(nc.max(1)) * if meta.precision > 8 { 2 } else { 1 })?;
+    // Only a file whose end was reached is measured: a truncated one warns about its partial
+    // image, and an unread one may hold scan data the walk never saw.
+    if meta.end == DataEnd::Complete && u64::from(w) * u64::from(h) / MAX_PIXELS_PER_BYTE > meta.scan_bytes {
+        return Err(err("the scan data is too short for the frame it declares"));
+    }
     let scale = max_size.filter(|&(mw, mh)| mw > 0 && mh > 0 && (w >= mw.saturating_mul(2) || h >= mh.saturating_mul(2)));
     // zune-jpeg 0.5 misdecodes subsampled non-interleaved sequential scans. jpeg-decoder also
     // supplies DCT scaling and 12/16-bit lossless JPEG. Full-resolution CMYK/YCCK keeps
@@ -557,6 +568,110 @@ mod decode_tests {
         let mut oracle = jpeg_decoder::Decoder::new(bytes.as_slice());
         oracle.scale(24, 16).unwrap();
         assert_eq!(decoded.data(), oracle.decode().unwrap());
+    }
+
+    #[test]
+    fn app_padding_cannot_admit_a_frame_with_too_little_scan_data() {
+        let small = jpeg(16, 16);
+        let fill = vec![b'p'; 65_533];
+        let mut padded = small[..2].to_vec();
+        for _ in 0..4 {
+            segment(&mut padded, 0xFE, &fill);
+        }
+        padded.extend_from_slice(&small[2..]);
+        let (valid, source) = decode_jpeg_scaled(&padded, &Limits::default(), None).unwrap();
+        assert_eq!((valid.dimensions(), source), ((16, 16), (16, 16)));
+        let meta = scan_metadata(&padded);
+        assert_eq!(meta.end, DataEnd::Complete);
+        let required = u64::from(2048u32) * u64::from(2048u32) / MAX_PIXELS_PER_BYTE;
+        assert!(u64::try_from(padded.len()).unwrap_or(u64::MAX) > required, "padding too small");
+        assert!(meta.scan_bytes < required, "{} scan bytes; need {required}", meta.scan_bytes);
+
+        let sof = padded.windows(2).position(|w| w == [0xFF, 0xC0] || w == [0xFF, 0xC2]).unwrap();
+        let mut oversized = padded;
+        oversized[sof + 5..sof + 9].copy_from_slice(&[0x08, 0x00, 0x08, 0x00]);
+        let error = match decode_jpeg_scaled(&oversized, &Limits::default(), Some((16, 16))) {
+            Err(error) => error,
+            Ok((_, dimensions)) => panic!("decoded frame {dimensions:?} with too little scan data"),
+        };
+        assert!(error.to_string().contains("too short"), "{error}");
+    }
+
+    /// A flat gray frame under optimized tables: a near-minimal scan for a valid JPEG of this size.
+    fn flat_gray_jpeg(w: u16, h: u16, progressive: bool, restart_interval: u16) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut encoder = jpeg_encoder::Encoder::new(&mut out, 95);
+        encoder.set_optimized_huffman_tables(true);
+        encoder.set_progressive(progressive);
+        encoder.set_restart_interval(restart_interval);
+        encoder.encode(&vec![128u8; w as usize * h as usize], w, h, jpeg_encoder::ColorType::Luma).unwrap();
+        out
+    }
+
+    #[test]
+    fn flat_frames_clear_the_scan_bound_in_every_scan_layout() {
+        for (name, progressive, restart_interval) in [("baseline", false, 0), ("restart", false, 64), ("progressive", true, 0)] {
+            let bytes = flat_gray_jpeg(4096, 4096, progressive, restart_interval);
+            let (decoded, source) = decode_jpeg_scaled(&bytes, &Limits::default(), None).unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert_eq!(source, (4096, 4096), "{name}");
+            assert!(decoded.data().iter().all(|&v| v.abs_diff(128) <= 1), "{name}");
+        }
+        let progressive = flat_gray_jpeg(4096, 4096, true, 0);
+        let last_scan = progressive.windows(2).rposition(|w| w == [0xFF, 0xDA]).unwrap();
+        assert!(scan_metadata(&progressive).scan_bytes > (progressive.len() - last_scan) as u64, "every scan counts");
+    }
+
+    /// A 4096x4096 `bytes` decodes, full and scaled, as the decoders do with no guard in front.
+    fn assert_decodes_as_without_the_scan_bound(bytes: &[u8], warnings: Vec<DecodeWarning>) {
+        let (decoded, source) = decode_jpeg_scaled(bytes, &Limits::default(), None).unwrap();
+        assert_eq!(source, (4096, 4096));
+        assert_eq!(decoded.warnings, warnings);
+        assert_eq!(decoded.data(), decode_zune(bytes, &Limits::default()).unwrap().data());
+        let scaled = decode_jpeg_scaled(bytes, &Limits::default(), Some((256, 256))).map(|(image, _)| image.data().to_vec());
+        let direct = decode_jpeg_decoder(bytes, &Limits::default(), 8, Some((256, 256))).map(|image| image.data().to_vec());
+        assert_eq!(scaled.map_err(|error| error.to_string()), direct.map_err(|error| error.to_string()));
+    }
+
+    /// A stray marker stops the walk, so the rest of the file goes unread.
+    #[test]
+    fn stray_marker_after_a_scan_still_decodes() {
+        let small = jpeg(16, 16);
+        let sof = small.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+        let eoi = small.len() - 2;
+        let mut odd = small[..eoi].to_vec();
+        odd[sof + 5..sof + 9].copy_from_slice(&[0x08, 0x00, 0x08, 0x00]);
+        odd.extend_from_slice(&[0xFF, 0x01]);
+        odd.resize(odd.len() + 2 * 2048, 0x55);
+        assert_eq!(scan_metadata(&odd).end, DataEnd::Unread);
+        let (decoded, source) = decode_jpeg_scaled(&odd, &Limits::default(), None).unwrap();
+        assert_eq!((decoded.dimensions(), source), ((2048, 2048), (2048, 2048)));
+    }
+
+    /// A stray marker's length skips bytes the walk never counts, so a cut file proves nothing
+    /// about how much scan data it holds.
+    #[test]
+    fn cut_file_with_a_stray_marker_opens_without_a_warning() {
+        let full = flat_gray_jpeg(4096, 4096, false, 0);
+        let sos = full.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+        let scan = sos + 2 + usize::from(u16::from_be_bytes([full[sos + 2], full[sos + 3]]));
+        let mut cut = full[..scan + 1024].to_vec();
+        cut.extend_from_slice(&[0xFF, 0x02, 0x80, 0x00]);
+        cut.resize(cut.len() + 36_000, 0x55);
+        let meta = scan_metadata(&cut);
+        assert!(meta.scan_bytes < 4096 * 4096 / MAX_PIXELS_PER_BYTE, "{} scan bytes", meta.scan_bytes);
+        assert_decodes_as_without_the_scan_bound(&cut, vec![]);
+    }
+
+    #[test]
+    fn truncated_frame_below_the_scan_bound_still_decodes_with_a_warning() {
+        let full = flat_gray_jpeg(4096, 4096, false, 0);
+        let sos = full.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+        let scan = sos + 2 + usize::from(u16::from_be_bytes([full[sos + 2], full[sos + 3]]));
+        let cut = &full[..scan + 1024];
+        let meta = scan_metadata(cut);
+        assert_eq!(meta.end, DataEnd::Truncated);
+        assert!(meta.scan_bytes < 4096 * 4096 / MAX_PIXELS_PER_BYTE, "{} scan bytes", meta.scan_bytes);
+        assert_decodes_as_without_the_scan_bound(cut, vec![DecodeWarning::Truncated { format: F }]);
     }
 
     #[test]
