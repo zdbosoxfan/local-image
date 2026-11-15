@@ -668,3 +668,39 @@ fn overlapping_jpeg_tiles_are_refused_within_the_file_length() {
         other => panic!("{:?}", other.map(|i| i.data().len())),
     }
 }
+
+/// An all-white CCITT Group 4 strip: one V0 code (a 1 bit) per row, then the EOFB.
+fn blank_g4(h: u32) -> Vec<u8> {
+    let mut bits = vec![true; h as usize];
+    for _ in 0..2 {
+        bits.extend([false; 11]);
+        bits.push(true);
+    }
+    bits.chunks(8).map(|c| c.iter().enumerate().fold(0u8, |a, (i, &b)| a | (u8::from(b) << (7 - i)))).collect()
+}
+
+fn g4_page(w: u32, h: u32, strip: Vec<u8>, compression: u64) -> Dir {
+    let mut d = Dir { entries: base(w, h, 1, 1, 0), chunks: vec![strip], tiled: false }.tag(278, LONG, &[u64::from(h)]);
+    d.entries.retain(|e| e.0 != 259);
+    d.tag(259, SHORT, &[compression])
+}
+
+#[test]
+fn a_blank_fax_page_wider_than_4096_px_passes_the_bomb_guard() {
+    // A blank 600 dpi page (A4 landscape, A3) codes each row in one bit, past 4096:1.
+    for (w, h) in [(7016u32, 4961u32), (7016, 9921)] {
+        let bytes = build(true, false, &[g4_page(w, h, blank_g4(h), 4)], &[0]).bytes;
+        let photo = DecodeOptions { limits: Limits::desktop_photo(), ..Default::default() };
+        let img = decode_with(&bytes, &photo).unwrap_or_else(|e| panic!("{w}x{h}: {e}"));
+        assert_eq!(img.dimensions(), (w, h));
+        assert!(img.data().iter().all(|&v| v == 255), "{w}x{h}: not white");
+    }
+    // Still a bound: 100 bytes of Group 4 can't hold that page (4096:1 for Group 3, which is not decoded).
+    for compression in [4, 3] {
+        let bytes = build(true, false, &[g4_page(7016, 4961, vec![0x80; 100], compression)], &[0]).bytes;
+        match decode_with(&bytes, &DecodeOptions { limits: Limits::desktop_photo(), ..Default::default() }) {
+            Err(CodecError::Malformed { message, .. }) => assert!(message.contains("cannot hold"), "{message}"),
+            other => panic!("compression {compression}: {:?}", other.map(|i| i.dimensions())),
+        }
+    }
+}

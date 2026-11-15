@@ -582,13 +582,17 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     limits.check(w, h, out_layout, out)?;
     // Decompression-bomb guard: no compression method expands data by more than a few thousand
     // times (Deflate at most ~1032:1, LZW ~2730:1, PackBits 128:1), so a file far too small for
-    // its declared size is refused before the image is allocated. Uncompressed data may be up
-    // to three quarters missing (that decodes with a `Truncated` warning).
+    // its declared size is refused before the image is allocated. CCITT Group 4 codes a blank row
+    // of a strip or tile in one bit (a V0 code), so its bound is the chunk width (the decoder
+    // reads at most 65535): a blank landscape A4 page at 600 dpi, 7016 px wide, compresses past
+    // 4096:1 (Groups 3 and 2 are not decoded). Uncompressed data may be up to three quarters
+    // missing (that decodes with a `Truncated` warning).
     let stored = u64::from(w).saturating_mul(u64::from(h)).saturating_mul(spp).saturating_mul(bits).div_ceil(8);
     let compression = f.tag_uint(dir, ifd::TAG_COMPRESSION).unwrap_or(1);
     let ratio: u64 = match compression {
         1 => 4,
         32773 => 130,
+        4 => cw.clamp(4096, 65_535),
         _ => 4096,
     };
     if stored > (f.b.len() as u64).saturating_mul(ratio).saturating_add(1 << 20) {
