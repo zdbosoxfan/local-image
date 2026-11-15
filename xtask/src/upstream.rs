@@ -297,13 +297,51 @@ impl PortStatus {
     }
 }
 
+/// Switches of `cargo xtask port`.
+#[derive(Debug, Default)]
+pub struct PortOptions {
+    /// Let the commit delete files of ours that are still the upstream's files.
+    pub allow_delete: bool,
+}
+
+/// One file of the upstream commit that maps to a path of ours.
+struct Change {
+    /// git's status letter: A added, M modified, D deleted, T type changed.
+    status: char,
+    from: String,
+    ours: String,
+    /// The upstream's blob before the commit; all zeros for an added file.
+    pre: String,
+}
+
+/// How our committed file compares with the upstream's before the commit.
+#[derive(Debug, PartialEq)]
+enum Local {
+    Missing,
+    Pristine,
+    Changed,
+}
+
+fn local_state(root: &Path, ours: &str, pre: &str) -> Result<Local> {
+    let out = git(root).args(["rev-parse", "--verify", "--quiet", &format!("HEAD:{ours}")]).output().context("could not run git")?;
+    Ok(if !out.status.success() {
+        Local::Missing
+    } else if String::from_utf8_lossy(&out.stdout).trim() == pre {
+        Local::Pristine
+    } else {
+        Local::Changed
+    })
+}
+
 const COMMIT_SECTION: &str = "## Upstream commit ports";
 
 /// `cargo xtask port <repo> <sha>`: applies one upstream commit at our paths with a three-way
-/// merge, staged but not committed, and records it in PORTS.md. Refuses, writing nothing, on a
-/// dirty tree, an unknown or merge commit, a commit already recorded, or any path the map cannot
-/// place.
-pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMode) -> Result<PortStatus> {
+/// merge, staged but not committed, and records it in PORTS.md. Says for each file whether ours
+/// has local changes. Refuses, writing nothing to the tree or index, on a dirty tree, an unknown,
+/// merge or unmerged commit, a commit already recorded, any path the map cannot place, and a
+/// deletion of a file of ours that has local changes or that `--allow-delete` did not permit.
+/// The upstream blobs a merge needs are copied into our object store (unreachable until used).
+pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMode, options: &PortOptions) -> Result<PortStatus> {
     let upstream = by_key(key).with_context(|| format!("unknown upstream `{key}`"))?;
     let clone = upstream_dir.join(key);
     git_out(&clone, &["rev-parse", "--git-dir"]).with_context(|| format!("no clone of {} in {}", upstream.name, clone.display()))?;
@@ -332,13 +370,20 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
 
     let maps = load_path_maps(root)?;
     let map = maps.get(key).with_context(|| format!("{PATH_MAP} has no [{key}] table"))?;
-    let touched = git(&clone).args(["diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "--no-renames", "-z", &sha]).output()?;
+    let touched = git(&clone).args(["diff-tree", "-r", "--root", "--no-commit-id", "--raw", "--no-abbrev", "--no-renames", "-z", &sha]).output()?;
     if !touched.status.success() {
         bail!("git diff-tree {sha}: {}", String::from_utf8_lossy(&touched.stderr).trim());
     }
     let moved_since = |at: &str| is_ancestor(&clone, at, &sha);
-    let (mut mapped, mut dropped, mut refused) = (Vec::new(), Vec::new(), Vec::new());
-    for raw in touched.stdout.split(|&b| b == 0).filter(|p| !p.is_empty()) {
+    let (mut changes, mut dropped, mut refused) = (Vec::new(), Vec::new(), Vec::new());
+    // Each entry is `:<modes> <blob before> <blob after> <status>`, then the path.
+    let mut fields = touched.stdout.split(|&b| b == 0).filter(|p| !p.is_empty());
+    while let Some(meta) = fields.next() {
+        let meta = String::from_utf8_lossy(meta);
+        let (Some(raw), [_, _, pre, _, status]) = (fields.next(), &meta.split(' ').collect::<Vec<_>>()[..]) else {
+            bail!("unexpected git diff-tree entry {meta}")
+        };
+        let status = status.chars().next().unwrap_or('?');
         let path = String::from_utf8_lossy(raw).into_owned();
         // Patch headers quote such paths, and the header rewrite matches them literally.
         if raw.iter().any(|&b| !(0x20..0x7f).contains(&b) || b == b'"' || b == b'\\') {
@@ -346,7 +391,7 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
             continue;
         }
         match map.route(&path, &moved_since)? {
-            Route::To(ours) => mapped.push((path, ours)),
+            Route::To(ours) => changes.push(Change { status, from: path, ours, pre: pre.to_string() }),
             Route::Skip => dropped.push(path),
             Route::Refuse(why) => refused.push(format!("{path}: {why}")),
         }
@@ -354,28 +399,60 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
     if !refused.is_empty() {
         return refuse(format!("{sha} touches paths that cannot be ported automatically:\n  {}", refused.join("\n  ")));
     }
-    if mapped.is_empty() {
+    if changes.is_empty() {
         return refuse(format!("{sha} only touches skipped paths"));
-    }
-    for (path, ours) in &mapped {
-        println!("{path} -> {ours}");
     }
     for path in &dropped {
         println!("dropped: {path}");
     }
     let subject = git_out(&clone, &["log", "-1", "--format=%s", &sha])?;
-    let ours: Vec<&str> = mapped.iter().map(|(_, o)| o.as_str()).collect();
+    let ours: Vec<&str> = changes.iter().map(|c| c.ours.as_str()).collect();
     let row = commit_row(upstream, &sha, &subject, &ours);
+    let recorded = with_commit_row(&md, &row, &sha)?;
 
     if mode == PortMode::Record {
-        append_commit_row(&ports_path, &md, &row)?;
+        for c in &changes {
+            println!("{} {} -> {}", c.status, c.from, c.ours);
+        }
+        std::fs::write(&ports_path, recorded).context("docs/PORTS.md")?;
         println!("recorded in docs/PORTS.md:\n{row}");
         return Ok(PortStatus::Applied);
     }
-    let (patch, preimages) = mapped_patch(&clone, &sha, &mapped, &dropped)?;
+    let (mut by_hand, mut deletes) = (Vec::new(), Vec::new());
+    for c in &changes {
+        let note = match (c.status, local_state(root, &c.ours, &c.pre)?) {
+            ('A', Local::Missing) => "new file",
+            ('A', _) => "we already have a file here: expect a conflict",
+            ('D', Local::Pristine) => {
+                deletes.push(c.ours.as_str());
+                "deletes our file, which is still the upstream's"
+            }
+            ('D', Local::Changed) => {
+                by_hand.push(format!("{}: deleted upstream, but our {} has local changes", c.from, c.ours));
+                "deleted upstream; ours has local changes"
+            }
+            (_, Local::Missing) => {
+                by_hand.push(format!("{}: we have no {}", c.from, c.ours));
+                "we have no such file"
+            }
+            (_, Local::Pristine) => "ours is still the upstream's file",
+            (_, Local::Changed) => "ours has local changes: merged three-way, review the result",
+        };
+        println!("{} {} -> {} ({note})", c.status, c.from, c.ours);
+    }
+    if !by_hand.is_empty() {
+        return refuse(format!("{sha} cannot be applied without losing or guessing at our side; port by hand:\n  {}", by_hand.join("\n  ")));
+    }
+    if !deletes.is_empty() && !options.allow_delete {
+        return refuse(format!(
+            "{sha} deletes files of ours (an upstream rename is a deletion and an addition):\n  {}\ncheck that nothing of ours still needs them, then rerun with --allow-delete",
+            deletes.join("\n  ")
+        ));
+    }
+    let patch = mapped_patch(&clone, &sha, &changes, &dropped)?;
     if mode == PortMode::DryRun {
         println!("{row}");
-        let check = output_with_stdin(git(root).args(["apply", "--check"]), patch)?;
+        let check = output_with_stdin(git(root).args(["apply", "--check", "--whitespace=nowarn"]), patch)?;
         if check.status.success() {
             println!("git apply --check: applies cleanly");
         } else {
@@ -384,7 +461,7 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
         return Ok(PortStatus::Applied);
     }
     // Without the upstream preimage blobs, `apply --3way` cannot merge and rejects whole files.
-    for pre in &preimages {
+    for pre in changes.iter().map(|c| &c.pre).filter(|pre| !pre.bytes().all(|b| b == b'0')) {
         let blob = git(&clone).args(["cat-file", "blob", pre]).output()?;
         if !blob.status.success() {
             bail!("git cat-file blob {pre}: {}", String::from_utf8_lossy(&blob.stderr).trim());
@@ -394,32 +471,37 @@ pub fn port(root: &Path, key: &str, rev: &str, upstream_dir: &Path, mode: PortMo
             bail!("could not import upstream blob {pre}: {}", String::from_utf8_lossy(&id.stderr).trim());
         }
     }
-    let applied = output_with_stdin(git(root).args(["apply", "--3way"]), patch)?;
+    let applied = output_with_stdin(git(root).args(["apply", "--3way", "--whitespace=nowarn"]), patch)?;
+    let said = String::from_utf8_lossy(&applied.stderr);
     let unmerged = git_out(root, &["diff", "--name-only", "--diff-filter=U"])?;
     if !unmerged.is_empty() {
-        eprintln!("{}", String::from_utf8_lossy(&applied.stderr).trim());
+        eprintln!("{}", said.trim());
         println!("conflicts left in the tree:\n{unmerged}\nresolve them, add the regression test, commit, then run `cargo xtask port {key} {sha} --record`");
         return Ok(PortStatus::Conflicts);
     }
     if !applied.status.success() {
-        bail!("git apply --3way: {}", String::from_utf8_lossy(&applied.stderr).trim());
+        bail!("git apply --3way: {}", said.trim());
     }
-    append_commit_row(&ports_path, &md, &row)?;
+    // git names here the files it had to merge three-way.
+    if !said.trim().is_empty() {
+        eprintln!("{}", said.trim());
+    }
+    std::fs::write(&ports_path, recorded).context("docs/PORTS.md")?;
     println!("{row}\nthe change is staged and the docs/PORTS.md row is not; add the regression test, then `cargo xtask attributions`");
     Ok(PortStatus::Applied)
 }
 
 /// The commit's diff with `dropped` paths' file blocks removed and the headers of the others
-/// rewritten to our paths, and the preimage blob ids the three-way merge needs. The commit message
-/// is left out: an unindented diff in it would otherwise be applied as part of the patch.
-fn mapped_patch(clone: &Path, sha: &str, mapped: &[(String, String)], dropped: &[String]) -> Result<(Vec<u8>, Vec<String>)> {
+/// rewritten to our paths. The commit message is left out: an unindented diff in it would otherwise
+/// be applied as part of the patch.
+fn mapped_patch(clone: &Path, sha: &str, changes: &[Change], dropped: &[String]) -> Result<Vec<u8>> {
     let out = git(clone)
         .args(["diff-tree", "-p", "--root", "--no-commit-id", "--full-index", "--binary", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", sha])
         .output()?;
     if !out.status.success() {
         bail!("git diff-tree {sha}: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
-    let (mut patch, mut preimages) = (Vec::new(), Vec::new());
+    let mut patch = Vec::new();
     // (upstream path, our path) of the current file block; None while skipping a dropped one.
     let mut block: Option<(&str, &str)> = None;
     let mut in_header = false;
@@ -431,8 +513,9 @@ fn mapped_patch(clone: &Path, sha: &str, mapped: &[(String, String)], dropped: &
                 block = None;
                 continue;
             }
-            let (from, to) = mapped.iter().find(|(p, _)| is(p)).with_context(|| format!("unexpected patch header {}", String::from_utf8_lossy(line).trim()))?;
-            block = Some((from, to));
+            let change = changes.iter().find(|c| is(&c.from)).with_context(|| format!("unexpected patch header {}", String::from_utf8_lossy(line).trim()))?;
+            let to = &change.ours;
+            block = Some((&change.from, to));
             patch.extend_from_slice(format!("diff --git a/{to} b/{to}\n").as_bytes());
             continue;
         }
@@ -447,16 +530,10 @@ fn mapped_patch(clone: &Path, sha: &str, mapped: &[(String, String)], dropped: &
         } else if line == format!("+++ b/{from}\n").as_bytes() {
             patch.extend_from_slice(format!("+++ b/{to}\n").as_bytes());
         } else {
-            if let Some(ids) = line.strip_prefix(b"index ") {
-                let pre = String::from_utf8_lossy(ids).split("..").next().unwrap_or_default().to_string();
-                if !pre.bytes().all(|b| b == b'0') {
-                    preimages.push(pre);
-                }
-            }
             patch.extend_from_slice(line);
         }
     }
-    Ok((patch, preimages))
+    Ok(patch)
 }
 
 /// A row of the commit table, in the form most existing rows use.
@@ -465,9 +542,9 @@ fn commit_row(upstream: &Upstream, sha: &str, subject: &str, ours: &[&str]) -> S
     format!("| [`{}`]({}/commit/{sha}) | {} | {} | {} |", &sha[..12], upstream.url, subject.replace('|', "\\|"), files.join("<br>"), upstream.licence)
 }
 
-/// Appends `row` to the table under PORTS.md's first `## Upstream commit ports` heading, creating
-/// the section at the end of the file if it is missing.
-fn append_commit_row(path: &Path, md: &str, row: &str) -> Result<()> {
+/// `md` with `row` (the port of `sha`) appended to the table under PORTS.md's first
+/// `## Upstream commit ports` heading; the section is created at the end if it is missing.
+fn with_commit_row(md: &str, row: &str, sha: &str) -> Result<String> {
     let parts: Vec<&str> = md.split_inclusive('\n').collect();
     let mut out = String::new();
     match parts.iter().position(|l| l.trim() == COMMIT_SECTION) {
@@ -492,9 +569,11 @@ fn append_commit_row(path: &Path, md: &str, row: &str) -> Result<()> {
             out.push_str(&parts[end..].concat());
         }
     }
-    attributions::parse_commit_ports(&out).context("the new docs/PORTS.md row does not parse")?;
-    std::fs::write(path, out).context("docs/PORTS.md")?;
-    Ok(())
+    let rows = attributions::parse_commit_ports(&out).context("the new docs/PORTS.md row does not parse")?;
+    if !rows.iter().any(|c| c.commit == sha) {
+        bail!("the table under {COMMIT_SECTION} in docs/PORTS.md is not a commit table; the row would not be read back");
+    }
+    Ok(out)
 }
 
 // upstream-drift
@@ -770,7 +849,11 @@ skip = ["docs/"]
         }
 
         fn port(&self, sha: &str, mode: PortMode) -> PortStatus {
-            port(&self.ours, "photocraft", sha, &self.dir.join("upstream"), mode).unwrap()
+            self.port_with(sha, mode, &PortOptions::default())
+        }
+
+        fn port_with(&self, sha: &str, mode: PortMode, options: &PortOptions) -> PortStatus {
+            port(&self.ours, "photocraft", sha, &self.dir.join("upstream"), mode, options).unwrap()
         }
 
         fn refused(&self, sha: &str, mode: PortMode) -> String {
@@ -890,6 +973,57 @@ skip = ["docs/"]
     }
 
     #[test]
+    fn port_deletes_our_file_only_when_allowed_and_unchanged() {
+        let f = PortFixture::new("port-delete");
+        let ours = "crates/pc-algo/src/old.rs";
+        f.write(&f.clone, "crates/algo/src/old.rs", "old\n");
+        f.commit_upstream("add old");
+        f.write(&f.ours, ours, "old\n");
+        f.commit_ours("take old");
+        let pre = git(&f.ours, &["rev-parse", &format!("HEAD:{ours}")]);
+        std::fs::remove_file(f.clone.join("crates/algo/src/old.rs")).unwrap();
+        f.write(&f.clone, "crates/algo/src/blur.rs", &blur(&[(2, "upstream 2")]));
+        let sha = f.commit_upstream("refactor: drop old");
+        let allow = PortOptions { allow_delete: true };
+        let untouched = |f: &PortFixture| {
+            assert_eq!(git(&f.ours, &["status", "--porcelain", "--untracked-files=all"]), "");
+            assert_eq!(f.read("docs/PORTS.md"), PORTS_INTRO);
+        };
+
+        assert_eq!(local_state(&f.ours, ours, &pre).unwrap(), Local::Pristine);
+        assert_eq!(local_state(&f.ours, "crates/pc-algo/src/none.rs", &pre).unwrap(), Local::Missing);
+        for mode in [PortMode::DryRun, PortMode::Apply] {
+            let why = f.refused(&sha, mode);
+            assert!(why.contains(ours) && why.contains("--allow-delete"), "{why}");
+            untouched(&f);
+        }
+
+        f.write(&f.ours, ours, "old\nours\n");
+        f.commit_ours("adapt old");
+        assert_eq!(local_state(&f.ours, ours, &pre).unwrap(), Local::Changed);
+        match f.port_with(&sha, PortMode::Apply, &allow) {
+            PortStatus::Refused(why) => assert!(why.contains("our crates/pc-algo/src/old.rs has local changes"), "{why}"),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        untouched(&f);
+        assert_eq!(f.read(ours), "old\nours\n");
+
+        f.write(&f.ours, ours, "old\n");
+        f.commit_ours("back to the upstream's old");
+        assert_eq!(f.port_with(&sha, PortMode::Apply, &allow), PortStatus::Applied);
+        assert_eq!(git(&f.ours, &["diff", "--cached", "--name-status"]), format!("M\tcrates/pc-algo/src/blur.rs\nD\t{ours}"));
+    }
+
+    #[test]
+    fn commit_rows_land_only_in_a_commit_table() {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let row = commit_row(&UPSTREAMS[0], sha, "subject", &["crates/pc-algo/src/blur.rs"]);
+        let other_table = format!("{COMMIT_SECTION}\n\n| Commit | Why |\n|---|---|\n| a | b |\n");
+        assert!(format!("{:#}", with_commit_row(&other_table, &row, sha).unwrap_err()).contains("is not a commit table"));
+        assert!(format!("{:#}", with_commit_row(&format!("{COMMIT_SECTION}\n\nNo table.\n"), &row, sha).unwrap_err()).contains("has no table"));
+    }
+
+    #[test]
     fn port_refuses_dirty_trees_unmapped_and_moved_paths() {
         let f = PortFixture::new("port-refuse");
         let unchanged = |f: &PortFixture| {
@@ -922,6 +1056,13 @@ skip = ["docs/"]
         f.write(&f.clone, "crates/cms/src/lib.rs", "after the move\n");
         let after_move = f.commit_upstream("cms after the move");
         assert!(f.refused(&after_move, PortMode::Apply).contains("crates/cms/src/lib.rs: moved to craft-libs craft-cms"));
+        unchanged(&f);
+
+        f.write(&f.clone, "crates/algo/src/theirs.rs", "one\n");
+        f.commit_upstream("a file we never took");
+        f.write(&f.clone, "crates/algo/src/theirs.rs", "two\n");
+        let no_file = f.commit_upstream("change it");
+        assert!(f.refused(&no_file, PortMode::Apply).contains("crates/algo/src/theirs.rs: we have no crates/pc-algo/src/theirs.rs"));
         unchanged(&f);
 
         git(&f.clone, &["checkout", "--quiet", "-b", "side", &clean]);

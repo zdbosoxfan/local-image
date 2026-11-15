@@ -628,7 +628,8 @@ fn main() -> Result<()> {
                 } else {
                     upstream::PortMode::Apply
                 };
-                let code = match upstream::port(&root(), repo, sha, &upstream_dir(), mode) {
+                let options = upstream::PortOptions { allow_delete: flag("--allow-delete") };
+                let code = match upstream::port(&root(), repo, sha, &upstream_dir(), mode, &options) {
                     Ok(status) => {
                         if let upstream::PortStatus::Refused(why) = &status {
                             eprintln!("refused: {why}");
