@@ -1477,6 +1477,10 @@ protocol (ours documents the PhotoCraft side) and the parity checklists.
 `c9c3870a`: our primary binding (no params) for Toggle Zoom on Space takes the alias's path in the
 same loop, slideshow pause included; the test sets `shortcut_overrides` (we have no
 `shortcuts::assign`).
+`63b7d076`: the pin code sits in our `panels/detail.rs` (upstream `panels/detail/masks.rs`); its test
+drops upstream's `view.toolOverlay` step, since our pins show whenever Show Pins is on. Our pin drag
+on a shape `moved_shape` cannot move ends in `end_interaction`, which records no step when the
+settings are unchanged. Not ported: upstream's what's-new and parity checklist lines.
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
@@ -1485,3 +1489,4 @@ same loop, slideshow pause included; the test sets `shortcut_overrides` (we have
 | [`abf0caf20170`](https://github.com/storytold/lightcraft/commit/abf0caf2017e79108fa9a7d67efabad27232b269) | KEY-TOGGLEZOOM: hold Space over a tool to pan and click-zoom | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs`<br>`crates/lc-ui-egui/src/control.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
 | [`9e305d642e3e`](https://github.com/storytold/lightcraft/commit/9e305d642e3e091235e8a651079f6dafd798c224) | KEY-TOGGLEZOOM: a click down and up within one frame keeps its zoom on Space's release | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
 | [`c9c3870ab387`](https://github.com/storytold/lightcraft/commit/c9c3870ab38718a63c5faaa7b677b39cbbc002eb) | KEY-TOGGLEZOOM: Toggle Zoom bound to Space in the keymap takes the hand and toggles once | `crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
+| [`63b7d0766e18`](https://github.com/storytold/lightcraft/commit/63b7d0766e18726ba35a2f4be645280acd478984) | LR-MASK-PINS: Object and Describe masks show a pin that selects them | `crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_masking.rs` | MIT OR Apache-2.0 |

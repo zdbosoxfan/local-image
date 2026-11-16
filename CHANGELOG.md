@@ -24,6 +24,9 @@ All notable changes to Local Image are recorded here. The format follows
   pointer to the view, as Lightroom's temporary Hand: a click zooms to the click-zoom ratio at the
   point clicked (or back to Fit), a drag pans the zoomed photo, and the tool gets neither. A quick
   tap still toggles the zoom, on its release.
+- Develop: with Show Pins on, Object and Describe masks show a pin on the photo: an Object at its
+  first click, a Describe mask in the middle of what it selected. Clicking the pin selects the
+  mask; dragging it changes nothing and adds no History step.
 
 ### Changed
 
