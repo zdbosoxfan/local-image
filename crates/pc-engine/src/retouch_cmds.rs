@@ -73,20 +73,19 @@ fn point(p: &Value, k: &str) -> Option<(f64, f64)> {
 const MAX_STROKE_PIXELS: u64 = 67_108_864;
 
 /// Refuse a stroke whose footprint would not fit the coverage budget, from the points and brush
-/// size alone, before anything is allocated for it. The clone, healing, spot healing and history
+/// settings, before anything is allocated for it. The clone, healing, spot healing and history
 /// brushes render a dense coverage (and read a source region) over the stroke's whole box, so a
 /// thin stroke across a huge canvas would still ask for all of it.
 fn reject_huge_stroke(cmd: &str, stroke: &Stroke) -> Result<()> {
-    // Dynamics place dabs beyond the input points, so half the tip is not the whole reach:
-    // Scattering offsets a centre by up to its amount times the tip size, and a Dual Brush dab
-    // reaches its own radius further. Pad by what those can add so this estimate does not fall
-    // short of what the renderer will cover. It is only the cheap early-out; the rendered extent
+    // Scattering places dabs beyond the input points: the renderer moves a centre by up to its
+    // amount (at most 10) times the tip's radius, so the pad adds that reach and no more, and a
+    // stroke that renders within the allowance is not refused here. Dual Brush dabs only mask
+    // the main tip, so they add nothing. This is only the cheap early-out; the rendered extent
     // is admitted for real in `coverage` below.
     let b = &stroke.brush;
     let size = f64::from(b.size.max(1.0));
-    let scatter = if b.scattering.enabled { size * f64::from(b.scattering.scatter.jitter.max(0.0)) } else { 0.0 };
-    let dual = if b.dual_brush.enabled { f64::from(b.dual_brush.size.max(0.0)) * 0.5 } else { 0.0 };
-    let pad = size.mul_add(0.5, 4.0) + scatter + dual;
+    let scatter = if b.scattering.enabled { size * 0.5 * f64::from(b.scattering.scatter.jitter.clamp(0.0, 10.0)) } else { 0.0 };
+    let pad = size.mul_add(0.5, 4.0) + scatter;
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
     for q in &stroke.points {
         min_x = min_x.min(q.x);

@@ -359,6 +359,24 @@ fn the_budget_is_applied_to_the_rendered_extent_not_the_input_points() {
     assert!(super::coverage_within("t", &stroke, rendered).is_ok(), "the rendered extent itself fits");
 }
 
+/// The early estimate pads only as far as the renderer reaches: Scattering moves a dab centre by
+/// at most its amount times the tip's radius, and Dual Brush dabs only mask the main tip. A
+/// one-click stroke that renders well inside the allowance is not refused by the estimate.
+#[test]
+fn the_early_estimate_admits_what_renders_within_the_allowance() {
+    let click = |brush: BrushSettings| Stroke { brush, points: vec![StrokePoint::new(0.0, 0.0, 1.0)] };
+    // Scattering 100 %: the dabs reach at most size (6008 px square, about 36 M px).
+    let mut scattered = BrushSettings { size: 3000.0, ..Default::default() };
+    scattered.scattering.enabled = true;
+    scattered.scattering.scatter.jitter = 1.0;
+    super::reject_huge_stroke("t", &click(scattered)).unwrap();
+    // A 5000 px Dual Brush under a 4000 px tip covers no more than the tip (about 16 M px).
+    let mut dual = BrushSettings { size: 4000.0, ..Default::default() };
+    dual.dual_brush.enabled = true;
+    dual.dual_brush.size = 5000.0;
+    super::reject_huge_stroke("t", &click(dual)).unwrap();
+}
+
 #[test]
 fn history_brush_errors_when_layer_is_new() {
     let mut s = session(20, 20, 8, "rgb");
