@@ -528,16 +528,17 @@ mod tests {
         // Under 2 px a side no pixel centre can sample half a pixel inside: the scale is left alone.
         let lc = LensCorrection { angle: 10.0, ..Default::default() };
         assert_eq!(auto_scale(&lc, Rect::new(0, 0, 1, 50)), lc.scale);
-        // Rotation with distortion and perspective: every border pixel centre samples inside.
-        let frame = Rect::new(0, 0, 301, 199);
-        let lc = LensCorrection { angle: 3.0, distortion: 10.0, vertical: 5.0, ..Default::default() };
+        // Rotation with distortion and both perspectives: here 41 points a side miss the worst border
+        // pixel (x 44.5 on the bottom edge) by about 0.01 px. Every border pixel centre samples inside.
+        let frame = Rect::new(0, 0, 500, 120);
+        let lc = LensCorrection { angle: 3.0, distortion: 80.0, vertical: -40.0, horizontal: 45.0, ..Default::default() };
         let s = auto_scale(&lc, frame);
         let m = LensMap::new(&LensCorrection { scale: s, ..lc }, frame);
         let inside =
-            |x: f64, y: f64| m.sample(x, y).is_some_and(|q| (0.5 - 1e-6..=300.5 + 1e-6).contains(&q.p[0]) && (0.5 - 1e-6..=198.5 + 1e-6).contains(&q.p[1]));
+            |x: f64, y: f64| m.sample(x, y).is_some_and(|q| (0.5 - 1e-6..=499.5 + 1e-6).contains(&q.p[0]) && (0.5 - 1e-6..=119.5 + 1e-6).contains(&q.p[1]));
         assert!(s < 400.0, "{s}");
-        assert!((0..301).all(|i| inside(0.5 + f64::from(i), 0.5) && inside(0.5 + f64::from(i), 198.5)), "{s}");
-        assert!((0..199).all(|j| inside(0.5, 0.5 + f64::from(j)) && inside(300.5, 0.5 + f64::from(j))), "{s}");
+        assert!((0..500).all(|i| inside(0.5 + f64::from(i), 0.5) && inside(0.5 + f64::from(i), 119.5)), "{s}");
+        assert!((0..120).all(|j| inside(0.5, 0.5 + f64::from(j)) && inside(499.5, 0.5 + f64::from(j))), "{s}");
     }
 
     #[test]
