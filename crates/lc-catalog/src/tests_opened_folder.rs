@@ -4,7 +4,6 @@
 //! on Unix.
 #![cfg(unix)]
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::journal::{LOG, SNAPSHOT};
