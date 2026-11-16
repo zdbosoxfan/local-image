@@ -882,9 +882,7 @@ fn convert_to_profile(s: &mut Session, p: &Value) -> Result<Value> {
     if measured && embedded.is_some_and(|e| e.same_colors(&dst)) {
         return Ok(json!({ "profile": dst.description, "mode": format!("{:?}", doc.mode), "intent": intent.id(), "bpc": bpc, "converted": false }));
     }
-    s.edit("Convert to Profile", |doc, _| {
-        if dither { profile_dither::convert(doc, &dst, intent, bpc) } else { convert_document(doc, &dst, intent, bpc) }
-    })?;
+    s.edit("Convert to Profile", |doc, _| if dither { profile_dither::convert(doc, &dst, intent, bpc) } else { convert_document(doc, &dst, intent, bpc) })?;
     let d = &s.active().ok_or(EngineError::NoDocument)?.doc;
     Ok(json!({ "profile": dst.description, "mode": format!("{:?}", d.mode), "intent": intent.id(), "bpc": bpc, "converted": true }))
 }

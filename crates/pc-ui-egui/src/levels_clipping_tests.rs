@@ -216,13 +216,7 @@ fn open_levels(app: &mut PhotocraftApp, params: Value, end: Option<&str>) -> u64
 
 /// A canvas view of the 16×8 document at `zoom` points per pixel (1 pixel per point).
 fn view(zoom: f32) -> ViewXform {
-    ViewXform {
-        rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(16.0 * zoom, 8.0 * zoom)),
-        zoom,
-        center: [8.0, 4.0],
-        flip: false,
-        rotation: 0.0,
-    }
+    ViewXform { rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(16.0 * zoom, 8.0 * zoom)), zoom, center: [8.0, 4.0], flip: false, rotation: 0.0 }
 }
 
 fn paint_view(app: &mut PhotocraftApp, ctx: &egui::Context, xf: &ViewXform) -> Option<Vec<Color32>> {

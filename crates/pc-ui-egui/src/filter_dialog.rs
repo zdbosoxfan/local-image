@@ -824,7 +824,10 @@ mod tests {
                 assert!((0..4).all(|c| (shown[c] - got[c]).abs() < 1.0 / 255.0 + 1e-4), "{depth:?}: preview {shown:?}, OK {got:?}");
                 assert_eq!(st.doc.id, target_id, "source selection must not switch the active target");
                 assert_eq!(st.history.past_len(), 1);
-                assert_eq!(app.session.documents()[0].doc.layers[0].surface().unwrap().read_region(area), reference.layers[0].surface().unwrap().read_region(area));
+                assert_eq!(
+                    app.session.documents()[0].doc.layers[0].surface().unwrap().read_region(area),
+                    reference.layers[0].surface().unwrap().read_region(area)
+                );
                 app.run("edit.undo", json!({})).unwrap();
                 assert_eq!(app.session.active().unwrap().doc.layers[0].surface().unwrap().read_region(area), original);
             }
