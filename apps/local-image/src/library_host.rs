@@ -191,18 +191,7 @@ impl Host {
         editor.raw_opens = editor.host_modes.then(Vec::new);
         // Files opened at launch are shown, not left loading behind the remembered module.
         let launched = !editor.session.documents().is_empty() || !editor.jobs.opens.is_empty();
-        let mode = if editor.host_modes && !launched {
-            editor
-                .session
-                .prefs()
-                .library
-                .get("module")
-                .and_then(serde_json::Value::as_str)
-                .map(|value| module_preference(Some(value)))
-                .unwrap_or(Module::Library)
-        } else {
-            Module::Compositing
-        };
+        let mode = if editor.host_modes && !launched { startup_module(&editor.session.prefs().library) } else { Module::Compositing };
         Self {
             editor,
             library: None,

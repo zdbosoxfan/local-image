@@ -206,6 +206,22 @@ fn bugfix_develop_startup_defaults_to_library_and_restores_develop() {
     assert_eq!(super::module_preference(Some("unknown")), super::Module::Library);
 }
 
+/// Library › Startup › Open in Photo Grid or Loupe starts in the Library even when Develop was
+/// last shown; Last (and older settings without the choice) keeps the remembered module.
+#[test]
+fn startup_view_choice_wins_over_the_remembered_module() {
+    for (view, expected) in [(Some("grid"), Module::Library), (Some("detail"), Module::Library), (Some("last"), Module::Develop), (None, Module::Develop)] {
+        let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        editor.session.edit_prefs(|prefs| {
+            prefs.library.insert("module".into(), json!("develop"));
+            if let Some(view) = view {
+                prefs.library.insert("settings".into(), json!({ "startupView": view }));
+            }
+        });
+        assert_eq!(Host::new(editor).mode, expected, "{view:?}");
+    }
+}
+
 /// A file given at launch is shown in Compositing; a folder goes to the Library's import.
 #[test]
 fn launch_documents_show_in_compositing_and_folders_go_to_the_library_import() {

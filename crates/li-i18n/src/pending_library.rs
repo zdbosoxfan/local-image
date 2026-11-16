@@ -295,4 +295,5 @@ pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
     "Versions are snapshots of your edit that you can restore.",
     "Remove (Spot Removal)",
     "Reset all edits",
+    "Last workspace and view",
 ];
