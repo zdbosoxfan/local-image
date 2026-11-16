@@ -1456,3 +1456,12 @@ the same EXIF colour-space tag, and a preview with EXIF of its own is read by th
 | [`0133e139bb68`](https://github.com/storytold/photocraft/commit/0133e139bb6857af2d4a2749ffe0ba99a7697e8d) | A raw with damaged sensor data opens its camera JPEG instead of failing | `crates/pc-io/src/raw.rs` | MIT OR Apache-2.0 |
 | [`17248a205dd7`](https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df) | A preview fallback keeps the colour space the raw's EXIF states | `crates/lc-codecs/src/jpeg.rs`<br>`crates/lc-codecs/src/lib.rs`<br>`crates/lc-engine/src/files.rs` | MIT OR Apache-2.0 |
 | [`5d4b68f04cfe`](https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303) | Use craft-heif from craft-libs for HEIC/HEIF (#13076) | `crates/pc-codecs/src/codecs/heif.rs` | MIT OR Apache-2.0 |
+
+## LightCraft Develop ports (2026-11-16)
+
+Local adaptations: `47e2c0d2` takes the analysis image from our `analysis_plane`, which keeps the
+small-source resampling of `analyze_lines`; upstream's unused `level_plane` is not ported.
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`47e2c0d248ad`](https://github.com/storytold/lightcraft/commit/47e2c0d248adf7f555163c0efde8d0f4b2d5485f) | LR-CROP-AUTO: Auto straighten reads the vertical vanishing point and the horizon | `crates/lc-pipeline/src/straighten.rs`<br>`crates/lc-pipeline/src/upright.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-pipeline/src/tests_geometry.rs` | MIT OR Apache-2.0 |

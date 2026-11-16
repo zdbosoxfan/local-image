@@ -14,6 +14,12 @@ All notable changes to Local Image are recorded here. The format follows
   header scans, HEIC parameter sets and decode peak memory, oversized Sony lossless tiles, and
   XML references, IPTC keywords and Luminar look settings read in linear time.
 
+### Changed
+
+- Develop: Auto straighten levels a sea or landscape horizon among waves and clouds, and levels
+  a building shot upward by where its verticals converge instead of by their lean. It turns a
+  photo by at most 5° (was 10°).
+
 ### Fixed
 
 - Image decoding refuses hostile files before they can allocate far past their size: PNG colour

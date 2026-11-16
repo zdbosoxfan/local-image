@@ -70,6 +70,7 @@ pub mod profiles;
 pub mod redeye;
 pub mod source_color;
 pub mod spots;
+pub mod straighten;
 pub mod tone;
 pub mod tone2;
 pub mod toneeq;
