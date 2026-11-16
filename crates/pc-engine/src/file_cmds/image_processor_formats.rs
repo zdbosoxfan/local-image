@@ -80,7 +80,8 @@ pub(super) fn run(p: &Value, inputs: &[crate::batch::Input], output: &str) -> Re
     for format in formats {
         let mut result = process_files(inputs, output, format.extension, format.save, &options, None, &|scratch, out| {
             // A PSD or TIFF input in the output folder would otherwise be replaced by its own copy.
-            if inputs.iter().any(|input| li_fs::same_file(std::path::Path::new(&input.path), std::path::Path::new(out))) {
+            let target = std::path::Path::new(out);
+            if target.is_file() && inputs.iter().any(|input| li_fs::same_file(std::path::Path::new(&input.path), target)) {
                 return Err(EngineError::Other(format!("output would replace a source file: {out}")));
             }
             process_image(scratch, format.to_srgb, format.fit.as_ref())?;
