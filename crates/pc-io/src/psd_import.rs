@@ -108,10 +108,33 @@ impl Ctx<'_> {
         if self.fatal.is_some() {
             return false;
         }
-        let cost =
-            w.saturating_add(128).saturating_mul(h.saturating_add(128)).saturating_mul(channels).saturating_mul(self.fmt.sample.bytes()).saturating_mul(3);
+        let cost = self.padded_cost(w, h, channels);
         if cost > self.remaining {
             self.fatal = Some("PSD import exceeds the decoded image memory limit; no document was opened".into());
+            return false;
+        }
+        self.remaining -= cost;
+        true
+    }
+
+    fn padded_cost(&self, w: usize, h: usize, channels: usize) -> usize {
+        w.saturating_add(128).saturating_mul(h.saturating_add(128)).saturating_mul(channels).saturating_mul(self.fmt.sample.bytes()).saturating_mul(3)
+    }
+
+    /// The unfiltered copy of a smart object over `rect`, mixed back over `area`: the scratch
+    /// [`Self::charge`] counts for `area` plus every whole tile the copy's surface keeps (a tiny
+    /// rect on a tile corner keeps four). A copy past the budget is skipped, so the layer keeps
+    /// its stored pixels and the open goes on.
+    fn charge_unfiltered(&mut self, rect: Rect, area: Rect) -> bool {
+        if self.fatal.is_some() {
+            return false;
+        }
+        let tile = i64::from(TILE_SIZE);
+        let span = |a: i32, b: i32| (i64::from(b) - 1).div_euclid(tile) - i64::from(a).div_euclid(tile) + 1;
+        let tiles = if rect.is_empty() { 0 } else { span(rect.x0, rect.x1).saturating_mul(span(rect.y0, rect.y1)) };
+        let kept = usize::try_from(tiles).unwrap_or(usize::MAX).saturating_mul((TILE_SIZE * TILE_SIZE) as usize).saturating_mul(self.fmt.bytes_per_pixel());
+        let cost = self.padded_cost(area.width() as usize, area.height() as usize, self.fmt.channels().saturating_mul(4)).saturating_add(kept);
+        if cost > self.remaining {
             return false;
         }
         self.remaining -= cost;
@@ -372,8 +395,9 @@ impl Ctx<'_> {
                         }
                         let rect = self.filter_effects[index].rect;
                         rect.size().ok()?;
-                        let area = Rect::new(rect.left, rect.top, rect.right, rect.bottom).union(&stored.content_bounds());
-                        if !self.charge(area.width() as usize, area.height() as usize, self.fmt.channels().saturating_mul(4)) {
+                        let rect = Rect::new(rect.left, rect.top, rect.right, rect.bottom);
+                        let area = rect.union(&stored.content_bounds());
+                        if !self.charge_unfiltered(rect, area) {
                             return None;
                         }
                         crate::smart_map::unfiltered_from_item(&self.filter_effects[index], self.fmt)
@@ -1141,6 +1165,48 @@ mod file_input_regressions {
         let (doc, _) = psd_to_document(&file).unwrap();
         let LayerContent::Smart(smart) = &doc.layers[0].content else { panic!("expected a smart object") };
         assert_eq!(smart.cache.as_ref().unwrap().pixel(0, 0), base.pixel(0, 0));
+    }
+
+    /// `smart_mask_file` with an `FEid` item holding unfiltered pixels over `rect` and a black
+    /// filter mask there (the unfiltered pixels show through it once mixed in).
+    fn smart_file_with_unfiltered(rect: Rect) -> (PsdFile, Surface) {
+        use photocraft_psd::filter_effects::FilterEffects;
+        let mut file = smart_mask_file(false);
+        let mut base = Surface::new(PixelFormat::RGBA8);
+        base.fill_rect(rect, &[0.1, 0.2, 0.3, 1.]);
+        let mask = LayerMask { surface: Surface::with_default(PixelFormat::GRAY8, &[0.]), ..LayerMask::reveal_all() };
+        let item = crate::smart_map::feid_item("synthetic-placement", &base, Some(&mask), rect, PixelFormat::RGBA8).unwrap();
+        file.global_blocks.iter_mut().find(|b| &b.key == b"FEid").unwrap().data = FilterEffects { version: 3, items: vec![item] }.to_bytes();
+        (file, base)
+    }
+
+    #[test]
+    fn unfiltered_smart_copy_is_charged_the_whole_tiles_it_keeps() {
+        // A 2x2 copy on the corner of four tiles keeps all four, mixed over the stored layer's
+        // 2x2 at the origin. The layer and the filter mask cost 130 * 130 * (4 + 1) * 3.
+        let (file, base) = smart_file_with_unfiltered(Rect::new(255, 255, 257, 257));
+        let layer_and_mask = 130 * 130 * (4 + 1) * 3;
+        let mix_scratch = (257 + 128) * (257 + 128) * 16 * 3;
+        let tiles = 4 * 256 * 256 * 4;
+        let exact_budget = layer_and_mask + mix_scratch + tiles;
+        let cache = |budget| {
+            let (doc, _) = psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, budget).unwrap();
+            let LayerContent::Smart(smart) = &doc.layers[0].content else { panic!("expected a smart object") };
+            smart.cache.clone().unwrap()
+        };
+        assert_eq!(cache(exact_budget).pixel(256, 256), base.pixel(256, 256));
+        assert_eq!(cache(exact_budget - 1).pixel(256, 256), [0.0; 4]);
+    }
+
+    #[test]
+    fn unfiltered_smart_copy_over_the_budget_keeps_the_stored_pixels() {
+        let (file, base) = smart_file_with_unfiltered(Rect::new(0, 0, 2, 2));
+        // Enough for the layer and its filter mask, not for the unfiltered copy.
+        let (doc, _) = psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, 130 * 130 * (4 + 1) * 3).unwrap();
+        let LayerContent::Smart(smart) = &doc.layers[0].content else { panic!("expected a smart object") };
+        let stored = layered_document().layers[0].surface().unwrap().pixel(0, 0);
+        assert_eq!(smart.cache.as_ref().unwrap().pixel(0, 0), stored);
+        assert_ne!(stored, base.pixel(0, 0));
     }
 
     #[test]

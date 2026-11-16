@@ -1826,6 +1826,14 @@ Adapted port. We already framed and moved several selected layers with no pixel 
 
 Adapted port. Upstream makes `read_jpeg_app1`'s closure `FnMut`; we have no `read_jpeg_app1`, so our own JPEG walk becomes `jpeg_app1`, taking the same `FnMut` pick, and `jpeg_orientation` keeps the first XMP orientation while only an Exif one ends the walk. `file_orientation` keeps opening the original through `li_fs::read`. The TIFF walk's tag-700 packet is read with `parse_whole_xmp`, the parser our whole-file `extract` uses, where upstream calls `parse_xmp`. The test is upstream's, extended in place in `the_file_orientation_is_found_after_the_image_data`; the nine earlier cases keep their expected values.
 
+## PhotoCraft PSD smart-filter staging in whole tiles (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`e6c9ce340bf71f1ea1d0582713ba84de8b25f542`](https://github.com/storytold/photocraft/commit/e6c9ce340bf71f1ea1d0582713ba84de8b25f542) | fix(io): charge importers for the whole tiles surfaces keep (#11144) | `crates/pc-io/src/psd_import.rs` | MIT OR Apache-2.0 |
+
+Partial port, the `psd_import.rs` hunk only (owner-delegated decision 2026-11-16). The unfiltered copy a PSD import stages for a smart object with a masked filter is charged every whole tile its surface keeps, on top of the padded scratch our shared conversion budget already charged for the mix; tiles are counted inline (no `tile_storage_bytes` in `pc-raster`). As upstream, a copy past the budget is skipped and the layer keeps its stored pixels, where ours ended the import; upstream adds no warning for it, so neither do we. Our Affinity and SVG importers already charge whole tiles, and we have no ORA, PDN or XCF importer. Tests: `file_input_regressions::unfiltered_smart_copy_is_charged_the_whole_tiles_it_keeps`, `file_input_regressions::unfiltered_smart_copy_over_the_budget_keeps_the_stored_pixels`.
+
 ## Upstream rows reviewed and not ported (2026-11-16)
 
 Upstream commits triaged as fixes (MUST or SHOULD) or offered as features in the 2026-11 pass and left out, with the reason. None of them is ported, so none has a row in a commit table. A row marked "owner decision" waits for the owner; the others wait for the base named.
@@ -1842,7 +1850,7 @@ Not ported: storytold/photocraft@`ec6a4c1a50` (Save: stop doubling the encoded f
 
 Not ported: storytold/photocraft@`df73ed78f0` (fix(affinity): charge shared text traversal and retained text against a document budget). Already covered: `crates/pc-affinity/src/text.rs` charges traversal slots and retained characters against document-wide budgets (`MAX_CHILD_SLOTS`, `MAX_DOCUMENT_CHARS` in `model.rs`).
 
-Not ported: storytold/photocraft@`e6c9ce340b` (fix(io): charge importers for the whole tiles surfaces keep, #11144). Owner decision: our Affinity and SVG importers already charge whole tiles and we have no ORA, PDN or XCF importer, but the PSD smart-filter staging in `crates/pc-io/src/psd_import.rs` charges padded pixels and can undercharge small rects about 5x. A whole-tile charge there is fatal on failure here and could refuse PSDs that open today; the choice is to accept the bound, charge the larger of the two, or port with upstream's soft fallback.
+Ported: storytold/photocraft@`e6c9ce340b` (fix(io): charge importers for the whole tiles surfaces keep, #11144) is recorded under "PhotoCraft PSD smart-filter staging in whole tiles (2026-11-16)".
 
 Not ported: storytold/photocraft@`b01e6c0270` (Save: a replacement in another group does not widen group access, #11232). Already covered: `preserve_access` in `crates/li-fs/src/lib.rs` keeps the replaced file's group and ACL, and when it cannot it clears mode bits 0o077, stricter than upstream.
 
