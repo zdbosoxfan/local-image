@@ -14,6 +14,13 @@ All notable changes to Local Image are recorded here. The format follows
   header scans, HEIC parameter sets and decode peak memory, oversized Sony lossless tiles, and
   XML references, IPTC keywords and Luminar look settings read in linear time.
 
+### Added
+
+- Develop: holding Alt (Option on macOS) while dragging an Edit slider shows Lightroom's
+  temporary previews: highlight clipping for Exposure, Highlights and Whites, shadow clipping for
+  Shadows and Blacks, greyscale for Sharpening Amount and the detail band for Radius and Detail,
+  as Masking already showed its mask. Settings and the histogram are unchanged.
+
 ### Changed
 
 - Develop: Auto straighten levels a sea or landscape horizon among waves and clouds, and levels

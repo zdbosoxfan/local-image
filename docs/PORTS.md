@@ -1461,7 +1461,14 @@ the same EXIF colour-space tag, and a preview with EXIF of its own is read by th
 
 Local adaptations: `47e2c0d2` takes the analysis image from our `analysis_plane`, which keeps the
 small-source resampling of `analyze_lines`; upstream's unused `level_plane` is not ported.
+`9ac38222` adds only what was missing: Masking's preview, its GPU kernel and `SharpK` existed. The
+detail band is our sharpening's (`detail::detail_band`, from the Radius planes `prep.sharp`, with a
+GPU twin `sharp_detail_preview`), not upstream's texture blur; `sharpen_mask_weight` and
+`texture_sigma` have no counterpart. The UI keeps our per-slider Alt flag (`alt_preview`) instead
+of a global Alt state, so an Alt-drag on the histogram shows no preview. Not ported: `per_pixel`
+(our loupe has no window render to gate) and the unrelated `spots.rs` cleanup.
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`47e2c0d248ad`](https://github.com/storytold/lightcraft/commit/47e2c0d248adf7f555163c0efde8d0f4b2d5485f) | LR-CROP-AUTO: Auto straighten reads the vertical vanishing point and the horizon | `crates/lc-pipeline/src/straighten.rs`<br>`crates/lc-pipeline/src/upright.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-pipeline/src/tests_geometry.rs` | MIT OR Apache-2.0 |
+| [`9ac38222e12e`](https://github.com/storytold/lightcraft/commit/9ac38222e12e9bec2bb171d2a30aa8b69aeb4b9a) | Alt/Option-drag previews for clipping and sharpening | `crates/lc-pipeline/src/visualize.rs`<br>`crates/lc-pipeline/src/detail.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-gpu/src/render.rs`<br>`crates/lc-gpu/src/ctx.rs`<br>`crates/lc-gpu/src/wgsl/detail.wgsl`<br>`crates/lc-gpu/tests/it/equivalence.rs`<br>`crates/lc-ui-egui/src/state.rs`<br>`crates/lc-ui-egui/src/panels/edit.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_panels.rs` | MIT OR Apache-2.0 |

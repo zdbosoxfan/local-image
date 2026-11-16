@@ -193,6 +193,7 @@ const MODULES: &[Module] = &[
             "haze_apply",
             "haze_dark",
             "sharp_preview",
+            "sharp_detail_preview",
         ],
     },
     Module {

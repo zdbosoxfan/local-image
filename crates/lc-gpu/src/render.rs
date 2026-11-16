@@ -1104,6 +1104,11 @@ pub fn render(
         let buf = gpu.buffer(n);
         map(&mut cx, "sharp_preview", n, &[w as u32, h as u32, k.mask_t.to_bits(), k.edge_k.to_bits()], [Some(b2), None, None], &buf);
         Some(Ok(buf))
+    } else if req.overlay == lightcraft_pipeline::Overlay::SharpenDetail {
+        let (b1, b2) = prep.sharp.as_ref().map_or((&prep.log_l, &prep.log_l), |(b1, b2, _)| (b1, b2));
+        let buf = gpu.buffer(n);
+        map(&mut cx, "sharp_detail_preview", n, &[fp.sharp_detail.to_bits()], [Some(&prep.log_l), Some(b1), Some(b2)], &buf);
+        Some(Ok(buf))
     } else {
         req.overlay.mask(s).filter(|m| lightcraft_pipeline::masks::scalar_alpha(m).is_none()).map(|m| {
             let list = s.masks.iter().filter(|m| m.visible && !m.components.is_empty());
@@ -2441,6 +2446,12 @@ fn render_stack(
         let k = lightcraft_pipeline::detail::SharpK::new(0.0, (original.detail.sharpen_masking / 100.0) as f32, sigma);
         let out = cx.gpu.buffer(n);
         map(cx, "sharp_preview", n, &[w as u32, h as u32, k.mask_t.to_bits(), k.edge_k.to_bits()], [Some(b2), None, None], &out);
+        overlay = Some(Arc::new(out));
+    } else if req.overlay == lightcraft_pipeline::Overlay::SharpenDetail {
+        let (b1, b2) = prep.sharp.as_ref().map_or((&prep.log_l, &prep.log_l), |(b1, b2, _)| (b1, b2));
+        let detail = (original.detail.sharpen_detail / 100.0).clamp(0.0, 1.0) as f32;
+        let out = cx.gpu.buffer(n);
+        map(cx, "sharp_detail_preview", n, &[detail.to_bits()], [Some(&prep.log_l), Some(b1), Some(b2)], &out);
         overlay = Some(Arc::new(out));
     }
     if let Some(m) = req.overlay.mask(original).filter(|m| lightcraft_pipeline::masks::scalar_alpha(m).is_none())

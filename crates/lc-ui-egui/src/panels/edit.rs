@@ -36,6 +36,7 @@ pub fn apply_slider_out(
     if out.drag_stopped || out.reset {
         let _ = app.run("develop.endInteraction", json!({}));
         app.ui.dragging_control = None;
+        app.ui.alt_preview = false;
     }
 }
 
@@ -102,8 +103,9 @@ pub(crate) fn control_t(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
         }
         target.set(app, json!({id: v}))
     });
-    if id == "detail.sharpenMasking" && matches!(target, Target::Global) {
-        let preview = app.ui.dragging_control.as_deref() == Some(id) && ui.input(|i| i.modifiers.alt);
+    // Alt while the slider is dragged: its temporary preview (clipping, greyscale, sharpening)
+    if app.ui.dragging_control.as_deref() == Some(id) {
+        let preview = matches!(target, Target::Global) && ui.input(|i| i.modifiers.alt);
         if app.ui.alt_preview != preview {
             app.ui.alt_preview = preview;
             ui.ctx().request_repaint();

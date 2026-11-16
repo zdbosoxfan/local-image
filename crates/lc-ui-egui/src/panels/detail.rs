@@ -862,12 +862,19 @@ fn targeted_drag(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respon
     }
 }
 
-/// The diagnostic overlay the loupe shows (the selected mask, Point Color's visualized range,
-/// Visualize Spots).
+/// The diagnostic overlay the loupe shows (an Alt-drag preview, the selected mask, Point Color's
+/// visualized range, Visualize Spots).
 pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcraft_pipeline::Overlay {
     use lightcraft_pipeline::{MaskView, Overlay};
     if app.ui.fullscreen {
         return Overlay::None;
+    }
+    // Lightroom's temporary previews: clipping, greyscale, sharpening detail / mask
+    if app.ui.right == RightPanel::Edit
+        && app.ui.alt_preview
+        && let Some(o) = app.ui.dragging_control.as_deref().and_then(Overlay::for_control)
+    {
+        return o;
     }
     let skin_key = if app.ui.skin_tone_mask.is_some() { "layer-skinTone" } else { "skinTone" };
     let skin_overlay = Overlay::SkinToneRange(app.ui.skin_tone_mask);
@@ -898,14 +905,6 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
         return Overlay::Spots(app.ui.spots_threshold.clamp(0.0, 100.0).round() as u8);
     }
     let edit = app.ui.right == RightPanel::Edit;
-    if edit
-        && app.ui.alt_preview
-        && app.ui.dragging_control.as_deref() == Some("detail.sharpenMasking")
-        && d.section_enabled("detail")
-        && d.detail.sharpen_amount > 0.0
-    {
-        return Overlay::SharpenMask;
-    }
     // the tone equalizer's mask preview
     if edit && app.ui.flyout_open("toneEqMask") && d.tone_eq.enabled && d.section_enabled("toneEq") {
         return Overlay::ToneEqMask;
