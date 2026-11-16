@@ -38,7 +38,7 @@ pub use crate::format::{
     raw_from_extension, readable_extensions, writable_extensions,
 };
 pub use crate::image::{ChannelLayout, ColorHint, DecodeWarning, DeepChannel, DeepImage, Image, Metadata, SampleType};
-pub use crate::options::{DecodeOptions, EncodeOptions, ExrCompression, Limits, PngCompression, TiffCompression};
+pub use crate::options::{DecodeOptions, EncodeOptions, ExrCompression, Limits, PngCompression, TIFF_PYRAMID_MIN, TiffCompression};
 pub use half::f16;
 
 /// Decode TIFF device samples for a colour-managed caller, keeping associated alpha

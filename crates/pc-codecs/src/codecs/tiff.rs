@@ -1178,6 +1178,8 @@ struct TagSet<'a> {
     alpha: bool,
     photoshop_resources: Option<&'a [u8]>,
     photoshop_layers: Option<&'a [u8]>,
+    /// An image pyramid level: written with `NewSubfileType` 1 (reduced resolution).
+    reduced: bool,
 }
 
 /// Writes one image directory. (The `tiff` encoder only compresses through `write_data`, which
@@ -1211,6 +1213,9 @@ where
         im.y_resolution(dpi_rational(y));
     }
     let d = im.encoder();
+    if tags.reduced {
+        d.write_tag(Tag::Unknown(ifd::TAG_NEW_SUBFILE_TYPE), 1u32)?;
+    }
     if tags.alpha {
         // 2 = unassociated alpha
         d.write_tag(Tag::ExtraSamples, &[2u16][..])?;
@@ -1283,6 +1288,116 @@ fn write_image<K: TiffKind>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>, img:
     }
 }
 
+/// Writes the image pyramid after the full image: each level half the size of the one before
+/// (rounded up), colour and alpha only, until the longer side is at most
+/// [`crate::TIFF_PYRAMID_MIN`]. An image already that small gets no levels.
+fn write_pyramid<K: TiffKind>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>, img: &Image, tags: &TagSet<'_>) -> tiff::TiffResult<()> {
+    let mut level: Option<Image> = None;
+    loop {
+        let prev = level.as_ref().unwrap_or(img);
+        let (w, h) = prev.dimensions();
+        if w.max(h) <= crate::TIFF_PYRAMID_MIN {
+            return Ok(());
+        }
+        let next = half_size(prev).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+        write_image::<K>(enc, &next, tags)?;
+        level = Some(next);
+    }
+}
+
+/// `img` at half its size, rounded up, by averaging each 2×2 block (an odd last row or column
+/// averages what it has). Colour is weighted by alpha, so transparent pixels don't darken
+/// the edges of what they surround. Rows are worked in parallel on native targets.
+fn half_size(img: &Image) -> Result<Image, CodecError> {
+    let (w, h) = img.dimensions();
+    let (nw, nh) = (w.div_ceil(2).max(1), h.div_ceil(2).max(1));
+    let layout = img.layout();
+    let sample = img.sample_type();
+    let ch = layout.channels();
+    let bps = sample.bytes();
+    let src_row = (w as usize).checked_mul(ch).and_then(|n| n.checked_mul(bps)).ok_or_else(|| CodecError::encode(F, "image row size overflows"))?;
+    let out_row = (nw as usize).checked_mul(ch).and_then(|n| n.checked_mul(bps)).ok_or_else(|| CodecError::encode(F, "pyramid row size overflows"))?;
+    let len = out_row.checked_mul(nh as usize).ok_or_else(|| CodecError::encode(F, "pyramid level size overflows"))?;
+    if img.data().len() < src_row.saturating_mul(h as usize) {
+        return Err(CodecError::encode(F, "image buffer is shorter than its dimensions"));
+    }
+    let mut out = zeroed(len)?;
+    let level = Level { data: img.data(), w: w as usize, h: h as usize, ch, sample, src_row, alpha: layout.has_alpha() };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        out.par_chunks_mut(out_row.max(1)).enumerate().for_each(|(y, row)| level.row(y, row));
+    }
+    #[cfg(target_arch = "wasm32")]
+    out.chunks_mut(out_row.max(1)).enumerate().for_each(|(y, row)| level.row(y, row));
+    let mut half = Image::from_raw(nw, nh, layout, sample, out)?;
+    half.icc = img.icc.clone();
+    Ok(half)
+}
+
+/// The source of one [`half_size`] level.
+struct Level<'a> {
+    data: &'a [u8],
+    w: usize,
+    h: usize,
+    ch: usize,
+    sample: SampleType,
+    src_row: usize,
+    /// The last channel is alpha.
+    alpha: bool,
+}
+
+impl Level<'_> {
+    /// Source row `y` as numbers (empty past the bottom).
+    fn samples(&self, y: usize) -> Vec<f64> {
+        let Some(row) = (y < self.h).then(|| self.data.get(y * self.src_row..(y + 1) * self.src_row)).flatten() else { return Vec::new() };
+        match self.sample {
+            SampleType::U8 => row.iter().map(|&v| f64::from(v)).collect(),
+            SampleType::U16 => row.as_chunks::<2>().0.iter().map(|b| f64::from(u16::from_ne_bytes(*b))).collect(),
+            SampleType::F32 => row.as_chunks::<4>().0.iter().map(|b| f64::from(f32::from_ne_bytes(*b))).collect(),
+            SampleType::F16 => row.as_chunks::<2>().0.iter().map(|b| f64::from(f16::from_bits(u16::from_ne_bytes(*b)).to_f32())).collect(),
+        }
+    }
+
+    /// Writes output row `y` into `out`.
+    fn row(&self, y: usize, out: &mut [u8]) {
+        let rows = [self.samples(y * 2), self.samples(y * 2 + 1)];
+        let ch = self.ch;
+        let bps = self.sample.bytes();
+        let mut sums = vec![0f64; ch];
+        for (x, px) in out.chunks_exact_mut(ch * bps).enumerate() {
+            sums.iter_mut().for_each(|s| *s = 0.0);
+            let (mut n, mut weight) = (0f64, 0f64);
+            for row in rows.iter().filter(|r| !r.is_empty()) {
+                for sx in [x * 2, x * 2 + 1].into_iter().filter(|&sx| sx < self.w) {
+                    let Some(p) = row.get(sx * ch..(sx + 1) * ch) else { continue };
+                    let a = if self.alpha { p.last().copied().unwrap_or(1.0) } else { 1.0 };
+                    for (c, (sum, v)) in sums.iter_mut().zip(p).enumerate() {
+                        *sum += if self.alpha && c + 1 == ch { *v } else { v * a };
+                    }
+                    n += 1.0;
+                    weight += a;
+                }
+            }
+            for (c, (sum, dst)) in sums.iter().zip(px.chunks_exact_mut(bps)).enumerate() {
+                let v = if self.alpha && c + 1 == ch {
+                    sum / n.max(1.0)
+                } else if weight > 0.0 {
+                    sum / weight
+                } else {
+                    0.0
+                };
+                match self.sample {
+                    SampleType::U8 => dst.copy_from_slice(&[v.round().clamp(0.0, 255.0) as u8]),
+                    SampleType::U16 => dst.copy_from_slice(&(v.round().clamp(0.0, 65535.0) as u16).to_ne_bytes()),
+                    SampleType::F32 => dst.copy_from_slice(&(v as f32).to_ne_bytes()),
+                    SampleType::F16 => dst.copy_from_slice(&f16::from_f32(v as f32).to_bits().to_ne_bytes()),
+                }
+            }
+        }
+    }
+}
+
 /// Classic TIFF offsets are 32-bit: a file that may grow past this is written as BigTIFF.
 const CLASSIC_LIMIT: u64 = u32::MAX as u64;
 
@@ -1337,6 +1452,19 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
         // Document content, not metadata: written whenever present.
         photoshop_resources: img.meta.photoshop_resources.as_deref().filter(|r| !r.is_empty()),
         photoshop_layers: img.meta.photoshop_layers.as_deref().filter(|l| !l.is_empty()),
+        reduced: false,
+    };
+    // A pyramid level holds the colour and alpha only, with the profile so it shows the same.
+    let level_tags = TagSet {
+        exif: None,
+        icc: tags.icc,
+        xmp: None,
+        dpi: None,
+        text: Vec::new(),
+        alpha: tags.alpha,
+        photoshop_resources: None,
+        photoshop_layers: None,
+        reduced: true,
     };
 
     // BigTIFF when asked, or when the file could pass the 4 GiB a classic TIFF can address. A
@@ -1347,13 +1475,22 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
         if big {
             let mut enc = TiffEncoder::new_big(&mut cursor)?.with_compression(compression).with_predictor(predictor);
             write_image::<TiffKindBig>(&mut enc, &img, &tags)?;
+            if opts.tiff_pyramid {
+                write_pyramid::<TiffKindBig>(&mut enc, &img, &level_tags)?;
+            }
         } else {
             let mut enc = TiffEncoder::new(&mut cursor)?.with_compression(compression).with_predictor(predictor);
             write_image::<TiffKindStandard>(&mut enc, &img, &tags)?;
+            if opts.tiff_pyramid {
+                write_pyramid::<TiffKindStandard>(&mut enc, &img, &level_tags)?;
+            }
         }
         Ok(cursor.into_inner())
     };
-    let big = opts.tiff_bigtiff || estimated_size(&img, &tags) > CLASSIC_LIMIT;
+    let estimate = estimated_size(&img, &tags);
+    // The pyramid adds at most a third of the image (1/4 + 1/16 + …).
+    let estimate = if opts.tiff_pyramid { estimate.saturating_add(img.data().len() as u64 / 3) } else { estimate };
+    let big = opts.tiff_bigtiff || estimate > CLASSIC_LIMIT;
     match write(big) {
         Ok(v) => Ok(v),
         Err(tiff::TiffError::IntSizeError) if !big => write(true).map_err(|e| CodecError::encode(F, e)),
