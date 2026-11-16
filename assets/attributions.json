@@ -10662,6 +10662,266 @@
           "url": "https://github.com/storytold/photocraft/commit/9779daf3577eb1d831fa078e3094a7c70b7b23cf"
         },
         {
+          "name": "LightCraft",
+          "used_for": "LR-EXP-LOCATION: an export subfolder never leaves the destination folder (#2571)",
+          "commit": "4bbeaaa560c4f880b3f8b5a60cccd0ef68c52f1b",
+          "ours": "crates/lc-engine/src/export.rs, crates/lc-engine/src/export/options.rs, crates/lc-engine/src/tests_export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/4bbeaaa560c4f880b3f8b5a60cccd0ef68c52f1b"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(engine): Find Missing Photos hashes only regular files, no further than their size (#3704)",
+          "commit": "a93172c2f7c6b570669281c6b106208463cf46f2",
+          "ours": "crates/lc-engine/src/cmd/missing.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/a93172c2f7c6b570669281c6b106208463cf46f2"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Match renamed missing files by content when size is unknown (#3852)",
+          "commit": "081190c92f4f74340a7fc4125fce1fe6d2b60ed9",
+          "ours": "crates/lc-engine/src/cmd/missing.rs, crates/lc-engine/src/tests_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/081190c92f4f74340a7fc4125fce1fe6d2b60ed9"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(engine): sidecar copies, backups and version checks read regular files only (#3677)",
+          "commit": "9eb7b25e317b6e66beb6b9c8f862da73f3de0aae",
+          "ours": "crates/lc-engine/src/rename.rs, crates/lc-engine/src/import_move.rs, crates/lc-engine/src/import_move/tests.rs, crates/lc-engine/src/sidecar.rs, crates/lc-engine/src/tests_xmp.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/9eb7b25e317b6e66beb6b9c8f862da73f3de0aae"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(engine): one unpack budget across a preset zip's packs; linear comment skipping; small zip errors (#3675)",
+          "commit": "7e409a3706eca1007eb774213d91f42b8ba0e1ed",
+          "ours": "crates/lc-engine/src/preset_import.rs, crates/lc-engine/src/preset_luminar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/7e409a3706eca1007eb774213d91f42b8ba0e1ed"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "A library's files were written by path, so a path that came to lead somewhere else (a share mounted over the folder, the folder moved away and another put in its place) made the session write into that other folder: its catalog.snap and catalog.log were replaced, and dropping the lock removed the owner note of the program that had the library open.",
+          "commit": "0d2dd9a974134877f3930c2efc61e58ca99bde89",
+          "ours": "crates/lc-catalog/src/opened_folder.rs, crates/lc-catalog/src/lock.rs, crates/lc-catalog/src/store.rs, crates/lc-catalog/src/lib.rs, crates/lc-catalog/src/tests_opened_folder.rs, crates/lc-engine/src/library.rs, crates/lc-engine/src/tests_library.rs, crates/lc-preview/src/disk.rs, crates/lc-preview/src/lib.rs, crates/lc-preview/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/0d2dd9a974134877f3930c2efc61e58ca99bde89"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "fix(catalog): verify staging identity after streamed writes",
+          "commit": "690f6cfb5857c90719a0898dc102998558bfaef9",
+          "ours": "crates/lc-catalog/src/store.rs, crates/lc-catalog/src/tests_opened_folder.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/690f6cfb5857c90719a0898dc102998558bfaef9"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "fix(catalog): reopen fallback appends in the accepted folder",
+          "commit": "19985a3f19adc3a91eb5cf51e61e9f03a4fe51e8",
+          "ours": "crates/lc-catalog/src/store.rs, crates/lc-catalog/src/tests_opened_folder.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/19985a3f19adc3a91eb5cf51e61e9f03a4fe51e8"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "fix(catalog): refuse gaps in synchronous fallback logs",
+          "commit": "e689453e578a9f3dd4cb3cbec69cb83957f4a4b0",
+          "ours": "crates/lc-catalog/src/store.rs, crates/lc-catalog/src/tests_opened_folder.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/e689453e578a9f3dd4cb3cbec69cb83957f4a4b0"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "fix(catalog): bind log recovery to observed files",
+          "commit": "5c5981898c57114fd48c95b6df5a437da91a26f2",
+          "ours": "crates/lc-catalog/src/store.rs, crates/lc-catalog/src/tests_opened_folder.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/5c5981898c57114fd48c95b6df5a437da91a26f2"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "fix(catalog): make held caller logs writable for rollback",
+          "commit": "d7372407bb5a335ad97575f2ab8b7105fda8cdf4",
+          "ours": "crates/lc-catalog/src/store.rs, crates/lc-catalog/src/tests_opened_folder.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/d7372407bb5a335ad97575f2ab8b7105fda8cdf4"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LC-SAFETY: Refuse to create a library photo's XMP sidecar",
+          "commit": "1aea62dde04c96912b690f6ed481e166870f81b6",
+          "ours": "crates/lc-engine/src/originals.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/1aea62dde04c96912b690f6ed481e166870f81b6"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LRC-LIB-FOLDERS: folder.rename and folder.move refuse the home folder and its standard places",
+          "commit": "d39550486e93f8880f1ed8edb47767344434dd3a",
+          "ours": "crates/lc-engine/src/cmd/browse.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/d39550486e93f8880f1ed8edb47767344434dd3a"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LRC-LIB-FOLDERS: the protected-places check reads relative paths, linked parents and volume case",
+          "commit": "9b4c38fd7fa0581248f3b31d7b477c6df55a7f7c",
+          "ours": "crates/lc-engine/src/cmd/browse.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/9b4c38fd7fa0581248f3b31d7b477c6df55a7f7c"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LRC-LIB-FOLDERS: the protected-places check also compares the folder itself",
+          "commit": "d0a64f8e3043531ee82fe13dc56a4ad6564379ca",
+          "ours": "crates/lc-engine/src/cmd/browse.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/d0a64f8e3043531ee82fe13dc56a4ad6564379ca"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(engine): the library folder is protected from folder.move however its path is spelled (#3676)",
+          "commit": "1c5cbce83520d36cf77003f8bc1f70e718689645",
+          "ours": "crates/lc-engine/src/cmd/browse.rs, crates/lc-engine/src/tests_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/1c5cbce83520d36cf77003f8bc1f70e718689645"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security: staging and probe files are created new, never written through an existing entry (#3673)",
+          "commit": "f618fc06a7551156d7c249eda5ab4dae20c99e26",
+          "ours": "crates/lc-engine/src/smart.rs, crates/lc-engine/src/cmd/lut_profiles.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/f618fc06a7551156d7c249eda5ab4dae20c99e26"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(engine): read user-named files through the opened regular file under a byte cap (#3703)",
+          "commit": "d6ae2e9e7e7717a58dad8b160d19e81945d26486",
+          "ours": "crates/lc-engine/src/cmd/manage.rs, crates/lc-engine/src/export/watermark.rs, crates/lc-engine/src/tests_libops.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/d6ae2e9e7e7717a58dad8b160d19e81945d26486"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security: bound token expansion, sanitize the name fallback, regular-file sidecar reads, recased sidecar guard",
+          "commit": "49c9d4e0ca545bb4c5df6a36d66b80791a776f55",
+          "ours": "crates/lc-engine/src/export/options.rs, crates/lc-engine/src/export/tests.rs, crates/lc-engine/src/rename.rs, crates/lc-engine/src/sidecar.rs, crates/lc-engine/src/originals.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/49c9d4e0ca545bb4c5df6a36d66b80791a776f55"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "security(meta): bound namespace declarations in scope while parsing XMP",
+          "commit": "0d88706ec55147cb7a7e481bc706ba31e29003ca",
+          "ours": "crates/lc-meta/src/xmp.rs, crates/lc-meta/src/xmp_merge.rs, crates/lc-engine/src/sidecar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/0d88706ec55147cb7a7e481bc706ba31e29003ca"
+        },
+        {
           "name": "PhotoCraft",
           "used_for": "Free Transform: lift a pixel's coverage up to all of it, as Move does",
           "commit": "be7d68167357624421baf3add3153914ba23510d",
@@ -10786,6 +11046,412 @@
             "licenses/photocraft-NOTICE"
           ],
           "url": "https://github.com/storytold/photocraft/commit/9891eaeb2efcae43002d7829438ba092c0c15711"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(engine): guard trim and duplicate merged against documents exceeding render limits (#7223)",
+          "commit": "1b810052bc3a876c1eaf1a8766870ffdba9f8a80",
+          "ours": "crates/pc-engine/src/image_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/1b810052bc3a876c1eaf1a8766870ffdba9f8a80"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Render Video: cap the total an animated GIF keeps staged (#6103)",
+          "commit": "f4adb8fb9b9a0608dae983338467b3a0c66658e2",
+          "ours": "crates/pc-engine/src/video_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/f4adb8fb9b9a0608dae983338467b3a0c66658e2"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(cms): charge decoded CLUT values against a per-profile budget (#11055)",
+          "commit": "c6a71929efd1163418a287d21749aa9444b6e916",
+          "ours": "crates/pc-cms/src/profile.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/c6a71929efd1163418a287d21749aa9444b6e916"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(algo): Filter Gallery reach no longer overflows on out-of-range stored effect values",
+          "commit": "7f5e103ff1e9fd02fe700f3c04a6df4a90152129",
+          "ours": "crates/pc-algo/src/artistic.rs, crates/pc-algo/src/artistic_fx.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/7f5e103ff1e9fd02fe700f3c04a6df4a90152129"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(algo): Filter Gallery draws pixels from the same clamped values as its reach",
+          "commit": "4777b390c9bbfb8cc8f882b8f2343f11930cfdc8",
+          "ours": "crates/pc-algo/src/artistic_fx.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/4777b390c9bbfb8cc8f882b8f2343f11930cfdc8"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(algo): hold raw filter parameters to their ranges (Water Paper, Box Blur, Lanczos, Camera Raw noise) (#11199)",
+          "commit": "3b43cb451a667a17cfcb14870abeeefa676df01c",
+          "ours": "crates/pc-algo/src/blur.rs, crates/li-raster/src/resample.rs, crates/pc-algo/src/artistic_fx.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/3b43cb451a667a17cfcb14870abeeefa676df01c"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(algo): bound EXIF text decoding, warp scans, gallery windows, inpaint sizes, pyramid depth (#11161)",
+          "commit": "648d742a508c77b935952c90ce42c26802a87205",
+          "ours": "crates/pc-algo/src/inpaint.rs, crates/pc-algo/src/warp.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/648d742a508c77b935952c90ce42c26802a87205"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(blur): Gaussian Blur radii below 1 blur by the radius asked for",
+          "commit": "ce304774e0701019495f224ab574fb26b0d46ce0",
+          "ours": "crates/pc-algo/src/blur.rs, crates/pc-algo/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/ce304774e0701019495f224ab574fb26b0d46ce0"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(blur): exact variance right up to radius 1",
+          "commit": "eb1c6d291fd3dc3929d646cf20c3caacdcde9489",
+          "ours": "crates/pc-algo/src/blur.rs, crates/pc-algo/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/eb1c6d291fd3dc3929d646cf20c3caacdcde9489"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(blur): one kernel width for every Gaussian radius below 1",
+          "commit": "9a570c5ed5c98748f210c515386abc1b92087d83",
+          "ours": "crates/pc-algo/src/blur.rs, crates/pc-algo/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/9a570c5ed5c98748f210c515386abc1b92087d83"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Image: Trim (Transparent Pixels) ignores alpha that rounds to 0 at the document's depth (#9299)",
+          "commit": "e01fa8ba4e208c20212c1758d298477bcf1483ae",
+          "ours": "crates/pc-engine/src/image_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/e01fa8ba4e208c20212c1758d298477bcf1483ae"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Crop W x H budgets the hidden pixels it resamples (#9212)",
+          "commit": "b2b402939a8cfe3fd2969ab42918a04f8ac27d12",
+          "ours": "crates/pc-engine/src/image_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/b2b402939a8cfe3fd2969ab42918a04f8ac27d12"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Crop with Delete Cropped Pixels off turns the Background into Layer 0 (#10867)",
+          "commit": "945cf2218d67b6c748329bd463c352c0c00198f4",
+          "ours": "crates/pc-engine/src/image_cmds.rs, crates/pc-engine/src/extra_cmds.rs, crates/pc-engine/src/eraser_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/945cf2218d67b6c748329bd463c352c0c00198f4"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Bound Photomerge memory and safely reject out-of-budget jobs (#7851) (#10463)",
+          "commit": "316e00a97eab730e60584df578c295b5c2539d95",
+          "ours": "crates/pc-engine/src/photo_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/316e00a97eab730e60584df578c295b5c2539d95"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Photomerge: merging the open documents no longer scans the dialog's folder (#13580)",
+          "commit": "ab033734d22dbb7730e263dc4849441b4f6222ed",
+          "ours": "crates/pc-engine/src/photo_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/ab033734d22dbb7730e263dc4849441b4f6222ed"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Photomerge: the first source is the top layer (#14092)",
+          "commit": "6f5e9e9d343374615e74f592b9e9002cd7547c62",
+          "ours": "crates/pc-engine/src/photo_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/6f5e9e9d343374615e74f592b9e9002cd7547c62"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(layers): refuse to ungroup the sole empty layer group (#11118) (#11163)",
+          "commit": "bf5c479d29dfb35f706e9a84e5b41eeb1274e148",
+          "ours": "crates/pc-engine/src/extra_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/bf5c479d29dfb35f706e9a84e5b41eeb1274e148"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Place: refuse a scale that makes the placed image exceed the render pixel limit (#11229)",
+          "commit": "5a935b2830c2eb48842e8bfa999c19dea817eba4",
+          "ours": "crates/pc-engine/src/file_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/5a935b2830c2eb48842e8bfa999c19dea817eba4"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Handle edited Stack Modes and cap video frame growth",
+          "commit": "b6bb43bc1975848efea4e63252b2625de0f7c91c",
+          "ours": "crates/pc-engine/src/video_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/b6bb43bc1975848efea4e63252b2625de0f7c91c"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Rotate Canvas: the selection is dropped, one undo brings it back (#14507)",
+          "commit": "d3cd28f14bffaf49d41c9cf9d984ce05c17aaf6e",
+          "ours": "crates/pc-engine/src/mode_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/d3cd28f14bffaf49d41c9cf9d984ce05c17aaf6e"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Canvas Size: the selection is dropped, one undo brings it back (#14539)",
+          "commit": "d1fcc176fa4e167dab68a377d36900ba7aea1b87",
+          "ours": "crates/pc-engine/src/image_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/d1fcc176fa4e167dab68a377d36900ba7aea1b87"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Image > Duplicate: the copy starts without a selection (#14593)",
+          "commit": "bfd9a2f0c5c5e2247e727ab968a48cdee91ca41f",
+          "ours": "crates/pc-engine/src/image_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/bfd9a2f0c5c5e2247e727ab968a48cdee91ca41f"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "lens: Auto Scale keeps the border pixels clear of the Edge fill",
+          "commit": "1c606fddfd92e14ed4a9860caea6230ac774e2c9",
+          "ours": "crates/pc-algo/src/lens.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/1c606fddfd92e14ed4a9860caea6230ac774e2c9"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "perf(gpu): NVIDIA's own memory on Linux, so many-layer documents stay off the CPU budget penalty",
+          "commit": "0efeadc1ee0408ec8f88f463e975d65291beff14",
+          "ours": "crates/li-gpu/src/memory.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/0efeadc1ee0408ec8f88f463e975d65291beff14"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Integration: bound the nvidia-smi query, smallest of same-id cards (#9042)",
+          "commit": "ffd4d480bb7ca1a411debdebae3f9be59537dc7c",
+          "ours": "crates/li-gpu/src/memory.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/ffd4d480bb7ca1a411debdebae3f9be59537dc7c"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Respect mask targets in Fill and Stroke dialogs",
+          "commit": "57a8691fb3a15450a941fd747d4d0975077f47c8",
+          "ours": "crates/pc-engine/src/extra_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/57a8691fb3a15450a941fd747d4d0975077f47c8"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(engine): keep missing-font type pixels through Image Size (#8860)",
+          "commit": "78b69911243ef6c7e38f512e7e1543bb25bef842",
+          "ours": "crates/pc-engine/src/canvas_geom.rs, crates/pc-engine/src/mode_cmds.rs, crates/pc-engine/src/type_extra_cmds.rs, crates/pc-engine/src/image_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/78b69911243ef6c7e38f512e7e1543bb25bef842"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(engine): bound sparse remap, scaled clone sources, path reads, export format, name lookups (#11181)",
+          "commit": "dd19c295d1e58fba692445bdf1ff8568d60e29d5",
+          "ours": "crates/pc-engine/src/pixels.rs, crates/pc-engine/src/retouch_cmds.rs, crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/adjust_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/dd19c295d1e58fba692445bdf1ff8568d60e29d5"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Engine: check dense working buffers against a budget before expanding sparse content (#10964)",
+          "commit": "f7771c8545a5a3a8e9694e3af42b4ad8082731b6",
+          "ours": "crates/pc-engine/src/allocation.rs, crates/pc-engine/src/adjust_cmds.rs, crates/pc-engine/src/align_cmds.rs, crates/pc-engine/src/channel_cmds.rs, crates/pc-engine/src/distort_cmds.rs, crates/pc-engine/src/float_cmds.rs, crates/pc-engine/src/layer_menu_cmds.rs, crates/pc-engine/src/multichannel_cmds.rs, crates/pc-engine/src/filters.rs, crates/pc-engine/src/image_cmds.rs, crates/pc-engine/src/dense_budget_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/f7771c8545a5a3a8e9694e3af42b4ad8082731b6"
         },
         {
           "name": "PhotoCraft",
