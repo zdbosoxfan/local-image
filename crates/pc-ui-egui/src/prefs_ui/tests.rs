@@ -549,6 +549,16 @@ fn preferences_dialog_round_trip() {
     assert_eq!(app.session.prefs().performance.history_states, 50);
 }
 
+#[test]
+fn hosted_raw_defaults_opens_the_library_import_page() {
+    let (mut app, _) = app_with_store();
+    let ctx = egui::Context::default();
+    app.host_preferences_pages = &[("library.import", "Import")];
+    let r = crate::menus::invoke(&mut app, &ctx, "edit.preferences.rawDefaults", json!({})).unwrap();
+    let id = r["dialog"].as_u64().unwrap();
+    assert_eq!(app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["section"], "library.import");
+}
+
 /// local-image: Performance › Processing shows the automatic values and stores the optional
 /// overrides (thread count, background priority, memory share); out-of-range values set by path
 /// are refused.
