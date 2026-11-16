@@ -23,6 +23,9 @@ pub enum Drag {
     RulerNew,
     /// Moving a ruler handle: 0 start, 1 end, 2 protractor end.
     RulerHandle(u8),
+    /// Moving the whole ruler, grabbed on its line or a protractor's vertex: where the press was
+    /// and the ruler then; it follows the pointer by the drag delta.
+    RulerMove([f64; 2], Ruler),
     /// Moving count marker (group, index) from where it was.
     Count(usize, usize, [f64; 2]),
     /// Moving note `index`: grab offset from its position.
@@ -206,6 +209,26 @@ fn tolerance(app: &PhotocraftApp) -> f64 {
     7.0 / f64::from(app.current_zoom().max(0.01))
 }
 
+/// The Ruler's grab radius: ±8 screen px around a ruler end and its line. The Count and Note
+/// tools keep [`tolerance`].
+fn ruler_tolerance(app: &PhotocraftApp) -> f64 {
+    8.0 / f64::from(app.current_zoom().max(0.01))
+}
+
+/// Is `p` within the ±`tol` square around `q`? A ruler end is hit in a 17 × 17 px square at 100 %
+/// zoom.
+fn within(p: [f64; 2], q: [f64; 2], tol: f64) -> bool {
+    (p[0] - q[0]).abs() <= tol && (p[1] - q[1]).abs() <= tol
+}
+
+/// Distance from `p` to the segment `a`–`b`.
+fn segment_dist(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 > 0.0 { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    dist(p, [a[0] + t * dx, a[1] + t * dy])
+}
+
 fn dist(a: [f64; 2], b: [f64; 2]) -> f64 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
@@ -235,10 +258,13 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
     let tol = tolerance(app);
     match (tool, ev) {
         (Tool::Ruler, ToolEvent::Down { x, y, .. }) => {
+            let tol = ruler_tolerance(app);
             let p = [x, y];
             let cur = doc.measurement.ruler;
-            let near = |q: [f64; 2]| dist(p, q) <= tol;
+            let near = |q: [f64; 2]| within(p, q, tol);
             match cur {
+                // A protractor's vertex moves the whole protractor, with or without ⌥.
+                Some(r) if r.protractor.is_some() && near(r.start) => app.ui.analysis.drag = Some(Drag::RulerMove(p, r)),
                 // ⌥-drag from an end point starts the protractor arm at that vertex.
                 Some(mut r) if mods.alt && (near(r.start) || near(r.end)) => {
                     if near(r.end) && !near(r.start) {
@@ -251,6 +277,9 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
                 Some(r) if r.protractor.is_some_and(near) => app.ui.analysis.drag = Some(Drag::RulerHandle(2)),
                 Some(r) if near(r.end) => app.ui.analysis.drag = Some(Drag::RulerHandle(1)),
                 Some(r) if near(r.start) => app.ui.analysis.drag = Some(Drag::RulerHandle(0)),
+                // On the line, away from the ends: the whole ruler moves. A protractor's arm lines
+                // are not measured and keep starting a new ruler.
+                Some(r) if r.protractor.is_none() && segment_dist(p, r.start, r.end) <= tol => app.ui.analysis.drag = Some(Drag::RulerMove(p, r)),
                 _ => {
                     set_ruler(app, Ruler { start: p, end: p, protractor: None });
                     app.ui.analysis.drag = Some(Drag::RulerNew);
@@ -260,6 +289,11 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
         (Tool::Ruler, ToolEvent::Move { x, y, .. }) => {
             let (Some(drag), Some(mut r)) = (app.ui.analysis.drag, doc.measurement.ruler) else { return true };
             match drag {
+                Drag::RulerMove(from, at_press) => {
+                    let (dx, dy) = (x - from[0], y - from[1]);
+                    let shift = |q: [f64; 2]| [q[0] + dx, q[1] + dy];
+                    r = Ruler { start: shift(at_press.start), end: shift(at_press.end), protractor: at_press.protractor.map(shift) };
+                }
                 Drag::RulerNew | Drag::RulerHandle(1) => r.end = constrain(r.start, [x, y], mods.shift),
                 Drag::RulerHandle(0) => r.start = constrain(r.end, [x, y], mods.shift),
                 Drag::RulerHandle(_) => r.protractor = Some(constrain(r.start, [x, y], mods.shift)),
@@ -953,6 +987,94 @@ pub(crate) mod tests {
         up(&mut app, 150.0, 80.0);
         assert!(ruler(&app).is_none());
         assert_eq!(app.session.active().unwrap().history.past_len(), 0, "the ruler adds no history");
+    }
+
+    /// A 600 × 400 document at 100 % with the Ruler from 100,100 to 300,250 and the Ruler tool active.
+    fn ruler_app(protractor: Option<[f64; 2]>) -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 600, "height": 400})).unwrap();
+        app.run("image.analysis.rulerTool", json!({"start": [100, 100], "end": [300, 250], "protractor": protractor})).unwrap();
+        app.ui.tool = Tool::Ruler;
+        assert_eq!(app.current_zoom(), 1.0, "100 %: screen px are document px");
+        app
+    }
+
+    fn history_len(app: &PhotocraftApp) -> usize {
+        app.session.active().unwrap().history.past_len()
+    }
+
+    /// A press at `from`, a move and a release at `to`.
+    fn drag(app: &mut PhotocraftApp, [x, y]: [f64; 2], [tx, ty]: [f64; 2], m: egui::Modifiers) {
+        down(app, x, y, m);
+        mv(app, tx, ty, m);
+        crate::canvas::tool_event(app, ToolEvent::Up { x: tx, y: ty }, m);
+    }
+
+    /// The point `d` px off the line's middle, perpendicular to it.
+    fn off_line(d: f64) -> [f64; 2] {
+        // The line 100,100 → 300,250 runs along (0.8, 0.6); (-0.6, 0.8) is across it.
+        [200.0 - 0.6 * d, 175.0 + 0.8 * d]
+    }
+
+    #[test]
+    fn ruler_drag_on_the_line_moves_the_whole_ruler() {
+        let mut app = ruler_app(None);
+        let before = history_len(&app);
+        drag(&mut app, [200.0, 175.0], [220.0, 205.0], egui::Modifiers::NONE);
+        assert_eq!(ruler(&app), Some(Ruler { start: [120.0, 130.0], end: [320.0, 280.0], protractor: None }));
+        assert_eq!(history_len(&app), before, "no history step");
+    }
+
+    #[test]
+    fn ruler_line_is_hit_within_8_px_and_a_new_ruler_starts_from_9() {
+        let mut app = ruler_app(None);
+        let from = off_line(7.0);
+        drag(&mut app, from, [from[0] + 10.0, from[1] - 10.0], egui::Modifiers::NONE);
+        assert_eq!(ruler(&app), Some(Ruler { start: [110.0, 90.0], end: [310.0, 240.0], protractor: None }), "7 px off the line moves it");
+        let mut app = ruler_app(None);
+        let from = off_line(9.0);
+        drag(&mut app, from, [from[0] + 10.0, from[1] - 10.0], egui::Modifiers::NONE);
+        let r = ruler(&app).unwrap();
+        assert_eq!(r.start, from, "9 px off the line: a new ruler from the press");
+        assert_eq!(r.end, [from[0] + 10.0, from[1] - 10.0]);
+    }
+
+    #[test]
+    fn ruler_ends_are_hit_in_8_px_squares_and_move_alone() {
+        let mut app = ruler_app(None);
+        // 7,7 px off the end: inside the 17 × 17 square (a 7 px circle missed it before).
+        drag(&mut app, [307.0, 257.0], [350.0, 260.0], egui::Modifiers::NONE);
+        assert_eq!(ruler(&app), Some(Ruler { start: [100.0, 100.0], end: [350.0, 260.0], protractor: None }), "the end goes to the pointer");
+        let mut app = ruler_app(None);
+        drag(&mut app, [93.0, 108.0], [80.0, 90.0], egui::Modifiers::NONE);
+        let r = ruler(&app).unwrap();
+        assert_eq!(r.start, [80.0, 90.0], "the start too");
+        assert_eq!(r.end, [300.0, 250.0]);
+        // 9 px past the end, along the line: neither the end nor the line, so a new ruler.
+        let mut app = ruler_app(None);
+        drag(&mut app, [309.0, 250.0], [330.0, 250.0], egui::Modifiers::NONE);
+        assert_eq!(ruler(&app).unwrap().start, [309.0, 250.0]);
+    }
+
+    #[test]
+    fn ruler_protractor_vertex_moves_the_whole_protractor_with_or_without_alt() {
+        for m in [egui::Modifiers::NONE, egui::Modifiers::ALT] {
+            let mut app = ruler_app(Some([100.0, 300.0]));
+            let before = history_len(&app);
+            drag(&mut app, [100.0, 100.0], [120.0, 130.0], m);
+            let r = ruler(&app);
+            assert_eq!(r, Some(Ruler { start: [120.0, 130.0], end: [320.0, 280.0], protractor: Some([120.0, 330.0]) }), "{m:?}: all three points");
+            assert_eq!(history_len(&app), before, "{m:?}: no history step");
+        }
+    }
+
+    #[test]
+    fn ruler_protractor_arm_ends_still_move_alone() {
+        let mut app = ruler_app(Some([100.0, 300.0]));
+        drag(&mut app, [300.0, 250.0], [310.0, 260.0], egui::Modifiers::NONE);
+        assert_eq!(ruler(&app), Some(Ruler { start: [100.0, 100.0], end: [310.0, 260.0], protractor: Some([100.0, 300.0]) }));
+        drag(&mut app, [100.0, 300.0], [90.0, 310.0], egui::Modifiers::NONE);
+        assert_eq!(ruler(&app).unwrap().protractor, Some([90.0, 310.0]));
     }
 
     #[test]

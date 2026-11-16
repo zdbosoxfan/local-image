@@ -1456,3 +1456,11 @@ the same EXIF colour-space tag, and a preview with EXIF of its own is read by th
 | [`0133e139bb68`](https://github.com/storytold/photocraft/commit/0133e139bb6857af2d4a2749ffe0ba99a7697e8d) | A raw with damaged sensor data opens its camera JPEG instead of failing | `crates/pc-io/src/raw.rs` | MIT OR Apache-2.0 |
 | [`17248a205dd7`](https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df) | A preview fallback keeps the colour space the raw's EXIF states | `crates/lc-codecs/src/jpeg.rs`<br>`crates/lc-codecs/src/lib.rs`<br>`crates/lc-engine/src/files.rs` | MIT OR Apache-2.0 |
 | [`5d4b68f04cfe`](https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303) | Use craft-heif from craft-libs for HEIC/HEIF (#13076) | `crates/pc-codecs/src/codecs/heif.rs` | MIT OR Apache-2.0 |
+
+## PhotoCraft Ruler and Info panel (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`498c310ec13ac0b936ab3804fae7d07dac4d77f6`](https://github.com/storytold/photocraft/commit/498c310ec13ac0b936ab3804fae7d07dac4d77f6) | Ruler: a drag on the line or a protractor's vertex moves the whole ruler; ±8 px end zones (#11981) | `crates/pc-ui-egui/src/analysis_ui.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `498c310e` keeps our payload-free `Drag::RulerNew` and reads the zoom from `current_zoom`. We have no `near_end` or `ruler_end_at` (the ⌥ pointer of #12037 is not ported), so the ±8 px square test replaces the end checks inline in the Ruler press arm; upstream's `analysis_ruler_move_tests.rs` lives in `analysis_ui.rs`'s `mod tests`.
