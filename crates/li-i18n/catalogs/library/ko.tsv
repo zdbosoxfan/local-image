@@ -23,7 +23,7 @@
 	AHD	AHD
 	AI	AI
 	AI Remove	AI 제거
-	AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.	AI 제거에는 AI 엔진이 필요합니다. 편집 › 환경 설정 › 로컬 AI에서 설정하세요.
+	AI Remove needs the AI engine. Set it up in Compositing › Local AI.	AI 제거에는 AI 엔진이 필요합니다. 합성 › Local AI에서 설정하세요.
 	About Local Image	Local Image 정보
 	Activity	활동
 	Actual size	실제 크기
@@ -429,7 +429,7 @@
 	Don't enlarge	확대하지 않음
 	Done	완료
 	Download Model	모델 다운로드
-	Download the Smart Sort model in Edit › Preferences › Local AI	편집 › 환경 설정 › 로컬 AI에서 Smart Sort 모델 다운로드
+	Download the Smart Sort model in Compositing ▸ Local AI	Compositing ▸ Local AI에서 Smart Sort 모델 다운로드
 	Downloading	다운로드 중
 	Drag along the horizon to straighten; double-click for Auto.	수평선을 따라 드래그하여 수평을 맞추십시오. 자동은 두 번 클릭.
 	Drag along the horizon; double-click for Auto	수평선을 따라 드래그; 자동은 두 번 클릭

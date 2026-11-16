@@ -23,7 +23,7 @@
 	AHD	AHD
 	AI	IA
 	AI Remove	Suppression IA
-	AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.	Suppression IA nécessite le moteur IA. Configurez-le dans Édition › Préférences › IA locale.
+	AI Remove needs the AI engine. Set it up in Compositing › Local AI.	Suppression IA nécessite le moteur IA. Configurez-le dans Composition › IA locale.
 	About Local Image	À propos de Local Image
 	Activity	Activité
 	Actual size	Taille réelle
@@ -429,7 +429,7 @@
 	Don't enlarge	Ne pas agrandir
 	Done	Terminé
 	Download Model	Télécharger le modèle
-	Download the Smart Sort model in Edit › Preferences › Local AI	Télécharger le modèle Smart Sort dans Édition › Préférences › IA locale
+	Download the Smart Sort model in Compositing ▸ Local AI	Télécharger le modèle Smart Sort dans Compositing ▸ Local AI
 	Downloading	Téléchargement
 	Drag along the horizon to straighten; double-click for Auto.	Faites glisser le long de l'horizon pour redresser ; double-cliquez pour Auto.
 	Drag along the horizon; double-click for Auto	Faites glisser le long de l'horizon ; double-cliquez pour Auto.

@@ -1340,7 +1340,7 @@
 	Remove Layer Area	Remover área da camada
 	Draw around a distraction to remove it.	Contorne uma distração para removê-la.
 	Paint over a distraction to remove it.	Pinte sobre uma distração para removê-la.
-	AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.	A remoção com IA precisa do mecanismo de IA. Configure-o em Editar › Preferências › IA local.
+	AI Remove needs the AI engine. Set it up in Compositing › Local AI.	A remoção com IA precisa do mecanismo de IA. Configure-o em Composição › IA local.
 	The photo's geometry changed since this was generated: Regenerate to match.	A geometria da foto mudou desde que isto foi gerado: gere novamente para ajustar.
 	The generated pixels are missing from the library: Regenerate them.	Os pixels gerados não estão na biblioteca: gere-os novamente.
 	This removal was made on another photo and isn't applied here.	Esta remoção foi feita em outra foto e não é aplicada aqui.
@@ -1535,7 +1535,7 @@
 	Couldn't read	Não foi possível ler
 	Current view	Visualização atual
 	Destination root	Pasta de destino
-	Download the Smart Sort model in Edit › Preferences › Local AI	Baixe o modelo de classificação em Editar › Preferências › IA local
+	Download the Smart Sort model in Compositing ▸ Local AI	Baixe o modelo de classificação em Composição ▸ IA local
 	Edit Settings…	Editar configurações…
 	Export as:	Exportar como:
 	First matching folder only	Somente a primeira pasta correspondente

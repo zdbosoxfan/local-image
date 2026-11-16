@@ -23,7 +23,7 @@
 	AHD	AHD
 	AI	AI
 	AI Remove	Hapus AI
-	AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.	Hapus AI memerlukan mesin AI. Atur di Edit › Preferensi › AI Lokal.
+	AI Remove needs the AI engine. Set it up in Compositing › Local AI.	Hapus AI memerlukan mesin AI. Atur di Compositing › Local AI.
 	About Local Image	Tentang Local Image
 	Activity	Aktivitas
 	Actual size	Ukuran Aktual
@@ -429,7 +429,7 @@
 	Don't enlarge	Jangan perbesar
 	Done	Selesai
 	Download Model	Unduh Model
-	Download the Smart Sort model in Edit › Preferences › Local AI	Unduh model Smart Sort di Edit › Preferensi › AI Lokal
+	Download the Smart Sort model in Compositing ▸ Local AI	Unduh model Smart Sort di Compositing ▸ Local AI
 	Downloading	Mengunduh
 	Drag along the horizon to straighten; double-click for Auto.	Seret sepanjang horizon untuk meluruskan; klik dua kali untuk Otomatis.
 	Drag along the horizon; double-click for Auto	Seret sepanjang horizon; klik dua kali untuk Otomatis

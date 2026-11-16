@@ -23,7 +23,7 @@
 	AHD	AHD
 	AI	KI
 	AI Remove	KI-Entfernen
-	AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.	KI-Entfernen benötigt die KI-Engine. Richten Sie sie unter Bearbeiten › Voreinstellungen › Lokale KI ein.
+	AI Remove needs the AI engine. Set it up in Compositing › Local AI.	KI-Entfernen benötigt die KI-Engine. Richten Sie sie unter Compositing › Lokale KI ein.
 	About Local Image	Über Local Image
 	Activity	Aktivität
 	Actual size	Originalgröße
@@ -428,7 +428,7 @@
 	Don't enlarge	Nicht vergrößern
 	Done	Fertig
 	Download Model	Modell herunterladen
-	Download the Smart Sort model in Edit › Preferences › Local AI	Laden Sie das Smart Sort-Modell unter Bearbeiten › Voreinstellungen › Lokale KI herunter.
+	Download the Smart Sort model in Compositing ▸ Local AI	Laden Sie das Smart Sort-Modell in Compositing ▸ Local AI herunter.
 	Downloading	Wird heruntergeladen
 	Drag along the horizon to straighten; double-click for Auto.	Ziehen Sie entlang des Horizonts, um zu begradigen; doppelklicken Sie für Automatisch.
 	Drag along the horizon; double-click for Auto	Entlang des Horizonts ziehen; doppelklicken für Automatisch

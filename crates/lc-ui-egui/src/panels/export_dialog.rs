@@ -824,7 +824,7 @@ fn sizing(ui: &mut Ui, dlg: &mut Dialog) {
                         _ => "Adds detail with SeedVR2. The result may change textures.",
                     },
                 );
-                dim(ui, "AI enlargement uses local models. Download them in Edit › Preferences › Local AI. Up to 4×; model input is sRGB 8-bit.");
+                dim(ui, "AI enlargement uses local models. Download them in Settings › Local AI. Up to 4×; model input is sRGB 8-bit.");
             }
         }
     }

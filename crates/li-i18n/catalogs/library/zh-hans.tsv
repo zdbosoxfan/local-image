@@ -1329,7 +1329,7 @@
 	Remove Layer Area	移除图层区域
 	Draw around a distraction to remove it.	圈出干扰物以将其移除。
 	Paint over a distraction to remove it.	涂抹干扰物以将其移除。
-	AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.	AI 移除需要 AI 引擎。请在“编辑 › 首选项 › 本地 AI”中设置。
+	AI Remove needs the AI engine. Set it up in Compositing › Local AI.	AI 移除需要 AI 引擎。请在“合成 › 本地 AI”中设置。
 	The photo's geometry changed since this was generated: Regenerate to match.	生成后照片的几何已更改：请重新生成以匹配。
 	The generated pixels are missing from the library: Regenerate them.	图库中缺少生成的像素：请重新生成。
 	This removal was made on another photo and isn't applied here.	此移除是在另一张照片上生成的，不会在此应用。
@@ -1535,7 +1535,7 @@
 	Couldn't read	无法读取
 	Current view	当前视图
 	Destination root	目标根目录
-	Download the Smart Sort model in Edit › Preferences › Local AI	请在编辑 › 首选项 › 本地 AI 中下载智能分类模型
+	Download the Smart Sort model in Compositing ▸ Local AI	请在合成 ▸ 本地AI中下载智能分类模型
 	Edit Settings…	编辑设置…
 	Export as:	导出为：
 	First matching folder only	仅第一个匹配的文件夹

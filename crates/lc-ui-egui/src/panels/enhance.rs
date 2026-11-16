@@ -84,7 +84,7 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
             ui.add_space(6.0);
         }
         if engines.is_empty() {
-            dim(ui, "AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.");
+            dim(ui, "AI Remove needs the AI engine. Set it up in Compositing › Local AI.");
             return;
         }
         if !engines.iter().any(|e| e.key == app.ui.remove_engine) {
@@ -371,7 +371,7 @@ pub(crate) fn denoise_download(app: &mut LightcraftApp, ui: &mut egui::Ui, famil
                     app.toast_error(ui.ctx(), error);
                 }
             } else {
-                app.toast(ui.ctx(), "Model downloads are available in Edit › Preferences › Local AI.");
+                app.toast(ui.ctx(), "Model downloads are available in Settings › Local AI.");
             }
         }
     }
