@@ -18,9 +18,11 @@ pub const USAGE: &str = "\
 local-image-cli: headless Local Image
 
 USAGE:
-  local-image-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tiff-compression <none|lzw|zip>]
+  local-image-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tiff-compression <none|lzw|zip>]
       [--tiff-transparency <on|off>] [--tiff-pyramid]
       Convert between formats (.pcraft, .psd, .png, .jpg, .tif, .webp, .exr, …).
+      An <out> that is the <in> file is refused, as the result would replace the original;
+      --in-place allows it.
       TIFF output is flat unless --tiff-layers keeps the layers (Photoshop layer data). TIFF Options:
       --tiff-compression (default zip), --tiff-transparency off composites the image over white (on,
       the default, keeps the transparency), --tiff-pyramid also writes half-size copies after the image.
@@ -120,7 +122,7 @@ const SUBCOMMANDS: &[Subcommand] = &[
     Subcommand {
         name: "convert",
         values: &["--format", "--quality", "--tiff-compression", "--tiff-transparency"],
-        bare: &["--tiff-layers", "--tiff-pyramid"],
+        bare: &["--in-place", "--tiff-layers", "--tiff-pyramid"],
         run: Run::Plain(convert),
     },
     Subcommand { name: "info", values: &[], bare: &["--compact"], run: Run::Plain(|a, out, _| info(a, out)) },
@@ -337,11 +339,23 @@ fn automation_workspace(args: &Args) -> Result<AuthorizedWorkspace, String> {
         .map_err(|error| error.to_string())
 }
 
+/// An output that is the input file itself, however it is spelt (relative, with `./`, through a
+/// hard or symbolic link), would replace the original, and a lossy re-encode can't be undone: it
+/// is refused unless `--in-place` asks for it, as `batch` refuses an `--out` that is its `--in`
+/// folder.
+fn refuse_overwriting_input(a: &Args, input: &str, output: &str) -> R {
+    if !a.has("--in-place") && li_fs::same_file(Path::new(input), Path::new(output)) {
+        return Err(format!("{output} is the input file, so the result would replace the original: choose another output, or pass --in-place to overwrite it"));
+    }
+    Ok(())
+}
+
 fn convert(a: &Args, _out: &mut dyn Write, err: &mut dyn Write) -> R {
     let [input, output] = a.positional.as_slice() else {
         return Err("convert needs <in> <out>".into());
     };
     let opts = export_opts(a)?;
+    refuse_overwriting_input(a, input, output)?;
     let o = files::open(Path::new(input)).map_err(|e| e.to_string())?;
     warn_all(err, &o.warnings);
     let ws = files::save(&o.document, Path::new(output), a.get("--format"), &opts, None).map_err(|e| e.to_string())?;

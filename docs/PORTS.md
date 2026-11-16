@@ -1925,6 +1925,14 @@ Follow-up to the `69147701` + `0a209116` bundle. Taken as upstream wrote it; the
 
 Adapted port, a follow-up to `be32a7c6` (#5612, which committed only on Layers-panel row clicks). Our type tool has no `commit_with`, Type Mask session or `type_transform`, so the home-document wrapper is our `commit` around the old body (`commit_here`), and a closed document's edit is simply dropped (no transform to reset, no return tool to clear). The existing tests' `TextEdit` literals gain `document: None` only. Not ported: upstream's `a_type_mask_session_goes_on_while_its_layer_is_active` test (we have no Type Mask tool) and the literal updates in test files we do not have (`hold_keys`, `input_tests`, `spring_tools`, `swatches_ui`, `type_font_picker_tests`).
 
+## PhotoCraft CLI refuses to write over its input (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4f0876958db142b61c790f1a23139e2cd5bd1854`](https://github.com/storytold/photocraft/commit/4f0876958db142b61c790f1a23139e2cd5bd1854) | CLI convert: refuse to write over the input file unless --in-place (#7437) | `apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs`<br>`apps/local-image-cli/Cargo.toml` | MIT OR Apache-2.0 |
+
+Adapted port by hand (upstream's `apps/photocraft-cli` is unmapped), the CLI half of #7437 after `502d055c`. `refuse_overwriting_input` compares the files with `li_fs::same_file`, as our `502d055c` port does, in place of upstream's `file_cmds::same_file`, so `local-image-cli` now depends on the workspace's `li-fs`. The usage text keeps our TIFF Options flags.
+
 ## Upstream rows reviewed and not ported (2026-11-16)
 
 Upstream commits triaged as fixes (MUST or SHOULD) or offered as features in the 2026-11 pass and left out, with the reason. Apart from the two marked "Ported" below, which have their own sections, none of them is ported, so none has a row in a commit table. A row marked "owner decision" waits for the owner; the others wait for the base named.

@@ -4323,6 +4323,7 @@ name = "local-image-cli"
 version = "0.8.0-alpha"
 dependencies = [
  "li-ai",
+ "li-fs",
  "lightcraft-raw",
  "lightcraft-sysmem",
  "lightcraft-tiff",
