@@ -11,6 +11,38 @@ use crate::{Ctx, FilterParams, RadialMethod};
 
 pub(crate) use li_raster::blur::gaussian_kernel;
 
+/// Half-width of Gaussian Blur's kernel for every radius below 1 (`gaussian_kernel`'s at radius 1).
+pub(crate) const SMALL_GAUSSIAN_HALF: i32 = 3;
+
+/// Gaussian Blur's kernel for `radius` (its standard deviation). Sampling the curve at whole
+/// pixels leaves a small radius almost no blur (at 0.3 the neighbour weight is a tenth of the
+/// spread asked for). Below 1 the sampling width is instead chosen so the kernel has exactly the
+/// variance `radius²`, at one fixed half-width so the variance rises steadily with the width and
+/// the blur grows without dips; from 1 up the sampled kernel is within about 0.4% of it.
+pub(crate) fn gaussian_blur_kernel(radius: f32) -> Vec<f32> {
+    if !(0.05..1.0).contains(&radius) {
+        return gaussian_kernel(radius);
+    }
+    let variance = |k: &[f32]| k.iter().zip(-SMALL_GAUSSIAN_HALF..).map(|(w, i)| w * (i * i) as f32).sum::<f32>();
+    let sampled = |width: f32| {
+        let k: Vec<f32> = (-SMALL_GAUSSIAN_HALF..=SMALL_GAUSSIAN_HALF).map(|i| (-(i * i) as f32 / (2.0 * width * width)).exp()).collect();
+        let s: f32 = k.iter().sum();
+        k.into_iter().map(|v| v / s).collect::<Vec<f32>>()
+    };
+    let target = radius * radius;
+    // The sampled kernel's variance only falls short of sigma², so the width lies above `radius`.
+    let (mut lo, mut hi) = (radius, radius + 1.0);
+    for _ in 0..40 {
+        let mid = 0.5 * (lo + hi);
+        if variance(&sampled(mid)) < target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    sampled(0.5 * (lo + hi))
+}
+
 /// Separable convolution of `src` (premultiplied internally) for `out`.
 /// `src` must cover `out` grown by the kernel radii.
 pub(crate) fn conv_sep(src: &Image, out: Rect, kx: &[f32], ky: &[f32], alpha: bool) -> Vec<f32> {
@@ -41,7 +73,7 @@ pub(crate) fn gaussian(src: &Image, out: Rect, ctx: &Ctx, radius: f32) -> Vec<f3
     match box_widths(&FilterParams::GaussianBlur { radius }) {
         Some(boxes) => box_passes(src, out, ctx.alpha, &boxes),
         None => {
-            let k = gaussian_kernel(radius);
+            let k = gaussian_blur_kernel(radius);
             conv_sep(src, out, &k, &k, ctx.alpha)
         }
     }
@@ -53,11 +85,19 @@ pub(crate) fn box_widths(params: &FilterParams) -> Option<Vec<usize>> {
     match *params {
         FilterParams::GaussianBlur { radius } if radius > 4.0 => Some(li_raster::blur::box_radii(radius).iter().map(|r| 2 * r + 1).collect()),
         FilterParams::BoxBlur { radius } => {
-            let r = radius.max(0.0).round() as usize;
+            let r = box_radius(radius);
             (r > 4).then(|| vec![2 * r + 1])
         }
         _ => None,
     }
+}
+
+/// Largest box-blur radius run (Photoshop's largest is 999): the line scratch grows with the
+/// radius, and `2 * r + 1` must not overflow.
+const MAX_BOX_RADIUS: f32 = 16384.0;
+
+fn box_radius(radius: f32) -> usize {
+    radius.clamp(0.0, MAX_BOX_RADIUS).round() as usize
 }
 
 use li_raster::blur::{Scratch, line_passes};
@@ -173,7 +213,7 @@ pub(crate) fn boxed(src: &Image, out: Rect, ctx: &Ctx, radius: f32) -> Vec<f32> 
     match box_widths(&FilterParams::BoxBlur { radius }) {
         Some(boxes) => box_passes(src, out, ctx.alpha, &boxes),
         None => {
-            let r = radius.max(0.0).round() as usize;
+            let r = box_radius(radius);
             let k = vec![1.0 / (2 * r + 1) as f32; 2 * r + 1];
             conv_sep(src, out, &k, &k, ctx.alpha)
         }
@@ -392,6 +432,76 @@ mod tests {
     use super::*;
     use photocraft_color::{ColorMode, PixelFormat, SampleType};
     use photocraft_raster::Surface;
+
+    /// Gaussian Blur spreads a hard edge for every radius from 0.05, growing smoothly with the
+    /// radius (no dead zone up to 0.3, then a jump, nor dips at 1/3 and 2/3); from 1 up the kernel is
+    /// unchanged, and small radii stay tile independent.
+    #[test]
+    fn small_gaussian_radii_blur_smoothly() {
+        let spread = |k: &[f32]| {
+            let r = (k.len() / 2) as f32;
+            k.iter().enumerate().map(|(i, w)| w * (i as f32 - r).powi(2)).sum::<f32>()
+        };
+        let edge = |r: f32| {
+            let k = gaussian_blur_kernel(r);
+            k[k.len() / 2 + 1..].iter().sum::<f32>()
+        };
+        let mut last = 0.0f32;
+        for step in 1..=20 {
+            let radius = step as f32 * 0.05;
+            let k = gaussian_blur_kernel(radius);
+            assert!((k.iter().sum::<f32>() - 1.0).abs() < 1e-5, "normalised at {radius}");
+            if radius < 1.0 {
+                assert!((spread(&k) - radius * radius).abs() < 1e-4, "variance at {radius}: {}", spread(&k));
+            }
+            assert!(edge(radius) > last, "radius {radius}: edge {} after {last}", edge(radius));
+            if radius > 0.1 {
+                assert!(edge(radius) - last < 0.05, "radius {radius}: jump from {last}");
+            }
+            last = edge(radius);
+        }
+        assert!((edge(0.999) - edge(1.0)).abs() < 0.005, "{} vs {}", edge(0.999), edge(1.0));
+        for pair in [(0.33f32, 0.34f32), (0.66, 0.67)] {
+            assert!(edge(pair.1) > edge(pair.0), "edge falls from {} to {}", pair.0, pair.1);
+        }
+        for radius in [0.98f32, 0.995, 0.998, 0.9995] {
+            let k = gaussian_blur_kernel(radius);
+            assert!((spread(&k) - radius * radius).abs() < 2e-5, "variance at {radius}: {}", spread(&k));
+        }
+        for radius in [1.0, 1.5, 3.0, 4.0] {
+            assert_eq!(gaussian_blur_kernel(radius), gaussian_kernel(radius), "{radius}");
+        }
+        assert_eq!(gaussian_blur_kernel(0.0), vec![1.0]);
+
+        let canvas = Rect::new(0, 0, 24, 24);
+        let s = noisy(PixelFormat::RGBA32F, canvas, 7);
+        let p = FilterParams::GaussianBlur { radius: 0.1 };
+        let whole = crate::apply_tiled(&s, &p, canvas, canvas, None, 64, None).read_region(canvas);
+        let tiled = crate::apply_tiled(&s, &p, canvas, canvas, None, 5, None).read_region(canvas);
+        assert!(whole == tiled, "tiles of a 0.1 px blur match the whole image");
+    }
+
+    /// Unsharp Mask and Smart Sharpen blur through `gaussian`, so at every radius they read as far
+    /// past a tile as Gaussian Blur does (below 1 its kernel has a fixed half-width).
+    #[test]
+    fn sharpeners_read_as_far_past_a_tile_as_their_blur() {
+        for radius in [0.1f32, 0.3, 0.5, 0.9, 1.0, 2.5] {
+            let blur = FilterParams::GaussianBlur { radius }.halo();
+            assert_eq!(FilterParams::UnsharpMask { amount: 100.0, radius, threshold: 0.0 }.halo(), blur, "Unsharp Mask at {radius}");
+            assert_eq!(FilterParams::SmartSharpen { amount: 100.0, radius, reduce_noise: 0.0 }.halo(), blur, "Smart Sharpen at {radius}");
+        }
+    }
+
+    #[test]
+    fn a_huge_box_blur_radius_is_held_to_its_cap() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        s.fill_rect(Rect::new(0, 0, 8, 8), &[0.2, 0.4, 0.6, 1.0]);
+        s.fill_rect(Rect::new(0, 0, 4, 8), &[1.0, 0.0, 0.0, 1.0]);
+        let canvas = Rect::new(0, 0, 8, 8);
+        let p = FilterParams::BoxBlur { radius: 1.0e30 };
+        let px = crate::apply_in(&s, &p, canvas, canvas, None, canvas).read_region(canvas);
+        assert!(px.iter().all(|v| v.is_finite()));
+    }
 
     #[test]
     fn box_gaussian_matches_exact_kernel() {

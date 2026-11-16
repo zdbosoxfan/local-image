@@ -147,7 +147,8 @@ pub(super) fn art(a: &ArtBrush, ts: &[Track], stroke: &StrokeItem) -> Result<Vec
         let cross = f64::from(stroke.base.width) * a.width;
         let (along, cross) = match a.scale {
             ArtScale::Stretch => (AlongMap::linear(w, 0., l), cross),
-            ArtScale::Proportional => (AlongMap::linear(w, 0., l), l / w * a.width),
+            // Scaled across as much as along, times the stroke weight and the Width, as Stretch is.
+            ArtScale::Proportional => (AlongMap::linear(w, 0., l), l / w * cross),
             ArtScale::BetweenGuides { start, end } => {
                 let (g0, g1) = (start * w, end * w);
                 let fixed = (g0 + w - g1) * cross;

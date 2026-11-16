@@ -42,7 +42,7 @@ impl DateTime {
             && self.minute < 60
             && self.second < 61
             && self.year > 0
-            && self.offset_minutes.is_none_or(|o| o.abs() <= 18 * 60);
+            && self.offset_minutes.is_none_or(|o| o.unsigned_abs() <= 18 * 60);
         ok.then_some(self)
     }
 
@@ -55,6 +55,9 @@ impl DateTime {
             return None;
         }
         let tp: Vec<&str> = if t.is_empty() { vec![] } else { t.split(':').collect() };
+        if tp.len() > 3 {
+            return None;
+        }
         let g = |v: &Vec<&str>, i: usize| v.get(i).map(|x| num(x.trim())).unwrap_or(Some(0));
         DateTime {
             year: num(dp[0])?.try_into().ok()?,
@@ -104,7 +107,11 @@ impl DateTime {
     /// ISO 8601 (XMP date): `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-MM-DDThh:mm[:ss[.s+]][TZD]`.
     pub fn parse_iso(s: &str) -> Option<DateTime> {
         let s = s.trim();
-        let (d, t) = s.split_once('T').unwrap_or((s, ""));
+        let (d, t) = match s.split_once('T') {
+            Some((_, "")) => return None,
+            Some(parts) => parts,
+            None => (s, ""),
+        };
         let dp: Vec<&str> = d.split('-').collect();
         let year = num(dp.first()?)?.try_into().ok()?;
         let month = dp.get(1).map(|m| num(m)).unwrap_or(Some(1))?.try_into().ok()?;
@@ -119,12 +126,20 @@ impl DateTime {
                 None => (t, None),
             };
             let cp: Vec<&str> = clock.split(':').collect();
+            if cp.len() > 3 {
+                return None;
+            }
             dt.hour = num(cp.first()?)?.try_into().ok()?;
             dt.minute = num(cp.get(1)?)?.try_into().ok()?;
             if let Some(sec) = cp.get(2) {
                 let (whole, frac) = sec.split_once('.').unwrap_or((sec, ""));
                 dt.second = num(whole)?.try_into().ok()?;
-                dt = dt.with_subsec(frac);
+                if sec.contains('.') {
+                    if frac.is_empty() || !frac.bytes().all(|b| b.is_ascii_digit()) {
+                        return None;
+                    }
+                    dt = dt.with_subsec(frac);
+                }
             }
             if let Some(o) = off {
                 dt.offset_minutes = Some(Self::parse_offset(o)?);
@@ -152,7 +167,7 @@ impl DateTime {
 
     /// The UTC offset as `+HH:MM` / `-HH:MM` (Exif `OffsetTime*`, the ISO 8601 suffix), when known.
     pub fn offset(&self) -> Option<String> {
-        self.offset_minutes.map(|o| format!("{}{:02}:{:02}", if o < 0 { '-' } else { '+' }, o.abs() / 60, o.abs() % 60))
+        self.offset_minutes.map(|o| format!("{}{:02}:{:02}", if o < 0 { '-' } else { '+' }, o.unsigned_abs() / 60, o.unsigned_abs() % 60))
     }
 
     /// Seconds since 1970-01-01T00:00:00 of the civil time (UTC when the offset is known, else "local" seconds).
@@ -195,6 +210,20 @@ mod tests {
         assert_eq!(DateTime::parse_exif("2024:06:01 13:45:59").unwrap().with_subsec("0123").millis, 12);
     }
 
+    /// Only the first three clock fields were read, so a malformed `DateTimeOriginal` became a plausible capture
+    /// time and kept the later EXIF and XMP dates from being used.
+    #[test]
+    fn exif_clock_rejects_extra_components() {
+        for value in
+            ["2026:01:01 12:34:56:99", "2026:01:01 12:34:56:junk", "2026:01:01 12:34:56:", "2026:01:01 12:34:56::", "2026:01:01 12:34:56:99:junk"]
+        {
+            assert!(DateTime::parse_exif(value).is_none(), "accepted malformed EXIF clock {value:?}");
+        }
+        for (value, expected) in [("2026:01:01 12", "2026-01-01T12:00:00"), ("2026:01:01 12:34", "2026-01-01T12:34:00")] {
+            assert_eq!(DateTime::parse_exif(value).map(|date| date.to_iso()).as_deref(), Some(expected), "{value:?}");
+        }
+    }
+
     #[test]
     fn offsets() {
         assert_eq!(DateTime::parse_offset("+02:00"), Some(120));
@@ -203,6 +232,14 @@ mod tests {
         assert_eq!(DateTime::parse_offset("+0930"), Some(570));
         assert_eq!(DateTime::parse_offset("   :  "), None);
         assert_eq!(DateTime::parse_offset("+99:00"), None);
+    }
+
+    #[test]
+    fn extreme_offsets_do_not_overflow() {
+        // `DateTime` deserializes with public fields, so an offset can arrive without passing `valid()`
+        let d = DateTime { offset_minutes: Some(i16::MIN), ..DateTime::parse_iso("2024-06-01T13:45:59").unwrap() };
+        assert_eq!(d.to_iso(), "2024-06-01T13:45:59-546:08");
+        assert_eq!(d.valid(), None);
     }
 
     #[test]
@@ -229,6 +266,26 @@ mod tests {
         assert_eq!(DateTime::parse_iso("2019-07-04T10:11").unwrap().minute, 11);
         assert!(DateTime::parse_iso("nonsense").is_none());
         assert!(DateTime::parse_iso("2019-07-04Tab:cd").is_none());
+    }
+
+    /// An incomplete or unconsumed clock was read as its valid prefix (`2026-01-01T` as midnight), so a wrong
+    /// capture time entered the catalog or matched a tracklog point.
+    #[test]
+    fn iso_rejects_incomplete_or_unconsumed_clock_text() {
+        for value in [
+            "2026-01-01T",
+            "2026-01-01T12:34:56:99Z",
+            "2026-01-01T12:34:56.Z",
+            "2026-01-01T12:34:56.123junkZ",
+            "2026-01-01T12:34:56.1.2Z",
+            "2026-01-01T12:34:56.12 3Z",
+            "2026-01-01T12::34Z",
+        ] {
+            assert!(DateTime::parse_iso(value).is_none(), "accepted malformed timestamp {value:?}");
+        }
+        assert_eq!(DateTime::parse_iso("2019-07-04T10:11:12.123456Z").unwrap().millis, 123);
+        assert_eq!(DateTime::parse_iso(" 2019-07-04T10:11:12.5Z ").unwrap().millis, 500);
+        assert_eq!(DateTime::parse_iso("2019-07-04T10:11:60Z").unwrap().second, 60);
     }
 
     #[test]

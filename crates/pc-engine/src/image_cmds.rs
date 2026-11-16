@@ -129,7 +129,7 @@ fn auto_resample(r: Option<&str>, enlarging: bool) -> Option<Resample> {
 }
 
 /// The largest raster Image Size resamples to: the decoders' default allocation budget.
-const MAX_RESAMPLE_BYTES: u64 = if cfg!(target_pointer_width = "64") { 8 << 30 } else { 2 << 30 };
+pub(crate) const MAX_RESAMPLE_BYTES: u64 = if cfg!(target_pointer_width = "64") { 8 << 30 } else { 2 << 30 };
 
 /// Image → Image Size.
 fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
@@ -167,6 +167,7 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
         if (sx - 1.0).abs() < 1e-12 && (sy - 1.0).abs() < 1e-12 {
             return Ok(());
         }
+        check_hidden_resample_budget("image.imageSize", doc, sx, sy)?;
         // Content that reaches the canvas edge keeps it: a Background stays opaque to the border.
         let canvas = Rect::new(0, 0, ow as i32, oh as i32);
         for_each_surface(&mut doc.layers, true, &mut |surf, is_mask| {
@@ -215,6 +216,47 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(())
     })?;
     Ok(json!({ "width": nw, "height": nh }))
+}
+
+/// The new canvas is budgeted before Image Size starts, but every surface's pixels outside the
+/// canvas (a crop that didn't delete them, a layer moved off the canvas) are scaled too: refuse
+/// when the largest surface would grow past the budget, at its own bytes per pixel.
+fn check_hidden_resample_budget(cmd: &str, doc: &mut Document, sx: f64, sy: f64) -> Result<()> {
+    let canvas = doc.bounds();
+    let bytes = |(w, h, bpp): (u32, u32, u64)| u64::from(w).saturating_mul(u64::from(h)).saturating_mul(bpp);
+    let mut largest = (0u32, 0u32, 1u64);
+    let mut visit = |surf: &Surface| {
+        let r = surf.content_bounds();
+        // What lies within the canvas scales to within the new canvas, already budgeted.
+        if r.is_empty() || canvas.union(&r) == canvas {
+            return;
+        }
+        // The output's extent, as `resize_surface_in_canvas` lays it out.
+        let side = |a: i32, b: i32, k: f64| ((f64::from(b) * k).ceil() - (f64::from(a) * k).floor()).clamp(0.0, f64::from(u32::MAX)) as u32;
+        let next = (side(r.x0, r.x1, sx), side(r.y0, r.y1, sy), surf.format().bytes_per_pixel().max(1) as u64);
+        if bytes(next) > bytes(largest) {
+            largest = next;
+        }
+    };
+    for_each_surface(&mut doc.layers, true, &mut |surf, _| visit(surf));
+    for ch in doc.channels.iter().chain(doc.quick_mask.as_ref()) {
+        visit(&ch.surface);
+    }
+    if let Some(sel) = &doc.selection {
+        visit(sel);
+    }
+    if bytes(largest) <= MAX_RESAMPLE_BYTES {
+        return Ok(());
+    }
+    let (w, h, bpp) = largest;
+    Err(bad(
+        cmd,
+        format!(
+            "{w} x {h} px is {} megapixels; resampling at this bit depth is limited to {} megapixels. The pixels outside the canvas are resampled too: choose a smaller size, or delete them first (Crop with Delete Cropped Pixels)",
+            u64::from(w) * u64::from(h) / 1_000_000,
+            MAX_RESAMPLE_BYTES / bpp / 1_000_000
+        ),
+    ))
 }
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
@@ -349,6 +391,10 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
     let ext = extension_color(s, p);
     s.edit("Canvas Size", |doc, _| {
         translate_doc(doc, "image.canvasSize", dx, dy)?;
+        // As in Photoshop, a Canvas Size that changes the size drops the selection.
+        if (nw, nh) != (ow as u32, oh as u32) {
+            doc.selection = None;
+        }
         doc.size = Size::new(nw, nh);
         crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes)?;
         let canvas = doc.bounds();
@@ -379,7 +425,26 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
 const MAX_CROP_SIDE: i32 = 300_000;
 
 fn crop(s: &mut Session, p: &Value) -> Result<Value> {
+    crop_with(s, p, false)
+}
+
+/// Image › Reveal All's crop: as `image.crop` with Delete Cropped Pixels off, but the Background
+/// stays a Background.
+pub(crate) fn crop_keeping_background(s: &mut Session, p: &Value) -> Result<Value> {
+    crop_with(s, p, true)
+}
+
+/// A crop with Delete Cropped Pixels off turns the Background into a normal layer ("Layer 0"), as
+/// in Photoshop: it keeps the pixels past the canvas, and an extension is transparent.
+fn unlock_background_for_crop(doc: &mut Document) {
+    if let Some(bg) = doc.layers.first_mut() {
+        crate::eraser_cmds::unlock_background(bg);
+    }
+}
+
+fn crop_with(s: &mut Session, p: &Value, keep_background: bool) -> Result<Value> {
     let delete = p.get("deleteCroppedPixels").and_then(Value::as_bool).unwrap_or(true);
+    let unlock = !delete && !keep_background;
     // Values beyond i32 would wrap through the narrowing casts into a rectangle unrelated to
     // the numbers passed; reject them (see `commands::int_i32`).
     let explicit = match (
@@ -422,6 +487,10 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
         let interp = photocraft_algo::transform::Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
         let mut out = r;
         s.edit("Crop", |doc, _| {
+            // Unlocked first, the Background turns like the other layers: transparent corners.
+            if unlock {
+                unlock_background_for_crop(doc);
+            }
             let (_, a) = crate::mode_cmds::rotate_doc(doc, -angle, interp, bg)?;
             let (cx, cy) = ((f64::from(r.x0) + f64::from(r.x1)) / 2.0, (f64::from(r.y0) + f64::from(r.y1)) / 2.0);
             let (nx, ny) = (a.m[0] * cx + a.m[2] * cy + a.m[4], a.m[1] * cx + a.m[3] * cy + a.m[5]);
@@ -436,6 +505,9 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(json!({ "x": out.x0, "y": out.y0, "width": out.width(), "height": out.height(), "angle": angle }));
     }
     s.edit("Crop", |doc, _| {
+        if unlock {
+            unlock_background_for_crop(doc);
+        }
         crop_doc(doc, "image.crop", r, delete)?;
         doc.selection = None;
         Ok(())
@@ -443,11 +515,20 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "x": r.x0, "y": r.y0, "width": r.width(), "height": r.height() }))
 }
 
+/// Flatten `doc`, refusing a canvas past the compositor's render limit (which flattens to nothing).
+fn flatten_within_render_limit(doc: &Document, op: &str) -> Result<photocraft_compose::Buffer> {
+    let bounds = doc.bounds();
+    if u64::from(bounds.width()) * u64::from(bounds.height()) > photocraft_compose::MAX_RENDER_PIXELS {
+        return Err(EngineError::Other(format!("the document is too large to {op}")));
+    }
+    Ok(photocraft_compose::flatten(doc))
+}
+
 /// Image → Trim.
 fn trim(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let canvas = d.doc.bounds();
-    let buf = photocraft_compose::flatten(&d.doc);
+    let buf = flatten_within_render_limit(&d.doc, "trim")?;
     let based = p.get("basedOn").and_then(Value::as_str).unwrap_or("transparent");
     let w = canvas.width() as usize;
     let reference = match based {
@@ -455,8 +536,14 @@ fn trim(s: &mut Session, p: &Value) -> Result<Value> {
         "bottomRight" => buf.px.last().copied(),
         _ => None,
     };
+    // Transparency is judged on the image as stored at its depth: alpha under half a step rounds to 0.
+    let half_step = match d.doc.depth {
+        SampleType::U8 => Some(0.5 / 255.0),
+        SampleType::U16 => Some(0.5 / 65535.0),
+        SampleType::F32 => None,
+    };
     let differs = |q: [f32; 4]| match reference {
-        None => q[3] > 0.0,
+        None => half_step.map_or(q[3] > 0.0, |h| q[3] >= h),
         Some(r) => (0..4).any(|c| (q[c] * q[3] - r[c] * r[3]).abs() > 0.5 / 255.0 || (c == 3 && (q[3] - r[3]).abs() > 0.5 / 255.0)),
     };
     let mut b = Rect::EMPTY;
@@ -514,10 +601,12 @@ fn convert_depth(s: &mut Session, depth: SampleType) -> Result<Value> {
 fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let mut doc = (*d.doc).clone();
+    // As in Photoshop, the copy starts without a selection; the source keeps its own.
+    doc.selection = None;
     doc.id = photocraft_doc::DocId::fresh();
     doc.name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("{} copy", d.doc.name));
     if p.get("mergedOnly").and_then(Value::as_bool).unwrap_or(false) {
-        let buf = photocraft_compose::flatten(&doc);
+        let buf = flatten_within_render_limit(&doc, "duplicate merged")?;
         let fmt = doc.pixel_format();
         let mut surf = Surface::new(fmt);
         let vals: Vec<f32> = buf.px.iter().flat_map(|q| photocraft_raster::from_rgba(&fmt, *q)).collect();
@@ -574,7 +663,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "image.crop",
             "Crop",
             ["Image"],
-            r##"{"x":px,"y":px,"width":px,"height":px,"angle":-45..45=0 (straighten: the frame's clockwise tilt on the image),"deleteCroppedPixels":bool=true}"##,
+            r##"{"x":px,"y":px,"width":px,"height":px,"angle":-45..45=0 (straighten: the frame's clockwise tilt on the image),"deleteCroppedPixels":bool=true (false keeps the pixels past the frame and turns the Background into Layer 0)}"##,
             has_doc,
             crop
         ),
@@ -919,6 +1008,57 @@ mod tests {
         assert_eq!(doc(&s).layers[1].surface().unwrap().content_bounds(), Rect::new(20, 10, 30, 20));
     }
 
+    /// As in Photoshop: a Canvas Size that changes the size drops the selection inside its one
+    /// history step, and Image › Duplicate's copy starts without one.
+    #[test]
+    fn canvas_size_and_duplicate_drop_the_selection() {
+        let mut s = session();
+        s.execute("select.rect", json!({"x": 5, "y": 2, "width": 20, "height": 10})).unwrap();
+        let before = doc(&s).selection.clone();
+        s.execute("image.canvasSize", json!({"width": 40, "height": 20})).unwrap();
+        assert!(doc(&s).selection == before, "an unchanged size keeps the selection");
+        let past = s.active().unwrap().history.past_len();
+        s.execute("image.canvasSize", json!({"width": 60, "height": 30})).unwrap();
+        assert!(doc(&s).selection.is_none());
+        assert_eq!(s.active().unwrap().history.past_len(), past + 1);
+        assert!(s.undo());
+        assert!(before.is_some() && doc(&s).selection == before, "undo restores the selection");
+        for merged in [false, true] {
+            s.set_active(0);
+            s.execute("image.duplicate", json!({"mergedOnly": merged})).unwrap();
+            assert!(doc(&s).selection.is_none(), "merged {merged}");
+            s.set_active(0);
+            assert!(doc(&s).selection == before, "the source keeps its selection");
+        }
+    }
+
+    /// Type in a font that isn't installed keeps its own pixels, resampled, through Image Size
+    /// instead of re-rendering in a substitute face. Type in an installed font still re-renders.
+    #[test]
+    fn image_size_keeps_the_pixels_of_type_in_a_missing_font() {
+        for (font, kept) in [("No Such Font 8860", true), ("", false)] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+            let cache = s
+                .edit("type", |doc, active| {
+                    let mut t = photocraft_doc::TextLayer { text: "Hello!".into(), font_family: font.into(), size_pt: 26.0, ..Default::default() };
+                    t.transform = photocraft_geom::Affine::translate(10.0, 60.0);
+                    // Deliberately not what the text engine would draw, so a re-render shows.
+                    let fmt = doc.pixel_format();
+                    let mut cache = Surface::new(fmt);
+                    cache.fill_rect(Rect::new(10, 20, 90, 60), &photocraft_raster::from_rgba(&fmt, [0.4, 0.2, 0.6, 1.0]));
+                    t.cache = Some(cache.clone());
+                    *active = Some(doc.insert_above(None, Layer::new("Hello!", LayerContent::Text(t))));
+                    Ok(cache)
+                })
+                .unwrap();
+            s.execute("image.imageSize", json!({"width": 50, "height": 50, "resample": "bilinear"})).unwrap();
+            let LayerContent::Text(t) = &doc(&s).layers.last().unwrap().content else { panic!("type layer") };
+            let resampled = resize_surface_in_canvas(&cache, 0.5, 0.5, Resample::Bilinear, Rect::from_xywh(0, 0, 100, 100));
+            assert_eq!(t.cache.as_ref() == Some(&resampled), kept, "font {font:?}");
+        }
+    }
+
     #[test]
     fn crop_to_selection_and_trim() {
         let mut s = session();
@@ -1042,5 +1182,84 @@ mod tests {
         s.execute("image.crop", json!({"x": 15, "y": 0, "width": 25, "height": 20})).unwrap();
         assert!(matches!(doc(&s).layers[1].content, LayerContent::Smart(_)) && matches!(doc(&s).layers[2].content, LayerContent::Text(_)));
         assert_eq!(bounds(&s), before.iter().map(|b| b.translate(-15, 0)).collect::<Vec<_>>());
+    }
+
+    /// As in Photoshop, a crop with Delete Cropped Pixels off turns the Background into "Layer 0",
+    /// straight or turned, in the crop's one step: it keeps its pixels past the frame and an
+    /// extension is transparent. Reveal All keeps the Background.
+    #[test]
+    fn crop_with_delete_off_turns_the_background_into_layer_0() {
+        for angle in [0.0, 10.0] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 40, "height": 40})).unwrap();
+            let past = s.active().unwrap().history.past_len();
+            s.execute("image.crop", json!({"x": -10, "y": 0, "width": 30, "height": 20, "angle": angle, "deleteCroppedPixels": false})).unwrap();
+            let l = &doc(&s).layers[0];
+            assert_eq!((l.name.as_str(), l.locks.transparency, l.locks.position), ("Layer 0", false, false), "{angle}");
+            assert_eq!(s.active().unwrap().history.past_len(), past + 1, "{angle}");
+            if angle == 0.0 {
+                let surf = l.surface().unwrap();
+                assert_eq!(surf.pixel(2, 5)[3], 0.0, "the extension is transparent");
+                assert_eq!(surf.content_bounds(), Rect::new(0, 0, 40, 40).translate(10, 0), "the hidden pixels stay");
+            }
+        }
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 40})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.edit("paint", |doc, active| {
+            let l = doc.layer_mut(active.unwrap()).unwrap();
+            l.surface_mut().unwrap().fill_rect(Rect::new(-5, 0, 10, 10), &[1.0, 0.0, 0.0, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("image.revealAll", json!({})).unwrap();
+        assert_eq!(doc(&s).layers[0].name, "Background");
+    }
+
+    /// Image Size resamples the pixels outside the canvas as well. After a non-deleting crop to
+    /// 10 px, 20000 px (400 MP, within the budget) scales the hidden 100 px Background x2000.
+    #[test]
+    fn image_size_budgets_the_hidden_pixels_it_resamples() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+        s.execute("image.crop", json!({"x": 0, "y": 0, "width": 10, "height": 10, "deleteCroppedPixels": false})).unwrap();
+        let past = s.active().unwrap().history.past_len();
+        let err = s.execute("image.imageSize", json!({"width": 20000, "height": 20000})).unwrap_err().to_string();
+        assert!(err.contains("200000 x 200000 px is 40000 megapixels"), "{err}");
+        assert_eq!((doc(&s).size, s.active().unwrap().history.past_len()), (Size::new(10, 10), past));
+    }
+
+    #[test]
+    fn trim_transparent_drops_alpha_that_rounds_to_zero_at_the_depth() {
+        // A faint pixel at (0, 0) on a 40 % layer: one alpha step × 0.4 rounds to 0 at 8 and 16 bits,
+        // so Trim keeps only the opaque square. 1/255 is about 103 steps at 16 bits, and any alpha
+        // is content at 32 bits: kept.
+        for (depth, faint, keeps) in [(8, 1.0 / 255.0, false), (16, 1.0 / 65535.0, false), (16, 1.0 / 255.0, true), (32, 1.0 / 65535.0, true)] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 100, "height": 100, "depth": depth, "background": "transparent"})).unwrap();
+            s.edit("paint", |doc, _| {
+                let surf = doc.layers[0].surface_mut().unwrap();
+                surf.fill_rect(Rect::new(40, 40, 50, 50), &[1.0, 0.0, 0.0, 1.0]);
+                surf.fill_rect(Rect::new(0, 0, 1, 1), &[1.0, 0.0, 0.0, faint]);
+                Ok(())
+            })
+            .unwrap();
+            s.execute("layer.setProps", json!({"layer": doc(&s).layers[0].id.0, "opacity": 0.4})).unwrap();
+            let r = s.execute("image.trim", json!({"basedOn": "transparent"})).unwrap();
+            let want = if keeps { json!({"x": 0, "y": 0, "width": 50, "height": 50}) } else { json!({"x": 40, "y": 40, "width": 10, "height": 10}) };
+            assert_eq!(r, want, "{depth}-bit, faint alpha {faint}");
+        }
+    }
+
+    #[test]
+    fn trim_and_duplicate_merged_refuse_documents_past_the_render_limit() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40000, "height": 30000, "background": "transparent"})).unwrap();
+        let (bounds, rev, docs) = (doc(&s).bounds(), s.active().unwrap().revision, s.documents().len());
+        let err = s.execute("image.trim", json!({"basedOn": "topLeft"})).unwrap_err().to_string();
+        assert!(err.contains("too large"), "{err}");
+        let err = s.execute("image.duplicate", json!({"mergedOnly": true})).unwrap_err().to_string();
+        assert!(err.contains("too large"), "{err}");
+        assert_eq!((doc(&s).bounds(), s.active().unwrap().revision, s.documents().len()), (bounds, rev, docs));
     }
 }

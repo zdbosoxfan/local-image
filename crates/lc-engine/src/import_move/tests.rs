@@ -285,3 +285,21 @@ fn destination_sync_failures_restore_the_source_for_link_and_copy_moves() {
         }
     }
 }
+
+/// The path check alone can be outrun by a swap for a link: the opened handle must be the entry
+/// checked, or nothing is copied.
+#[cfg(unix)]
+#[test]
+fn a_link_swapped_in_after_the_check_is_not_copied() {
+    let f = Fixture::new();
+    let (file, other, link) = (f.0.join("source/a.xmp"), f.0.join("source/secret"), f.0.join("source/link.xmp"));
+    fs::write(&file, b"x").unwrap();
+    fs::write(&other, b"secret").unwrap();
+    let checked = fs::symlink_metadata(&file).unwrap();
+    fs::remove_file(&file).unwrap();
+    std::os::unix::fs::symlink(&other, &link).unwrap();
+    fs::rename(&link, &file).unwrap();
+    let dst = f.0.join("destination/a.xmp");
+    assert!(copy_verified_owned(&file, &dst, None, Some(&checked)).is_err());
+    assert!(!dst.exists());
+}
