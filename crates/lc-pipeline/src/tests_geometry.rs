@@ -518,12 +518,12 @@ fn upright_auto_leaves_natural_scenes_nearly_alone() {
     }
 }
 
-/// Sign convention for Auto straighten: a horizon descending 6° to the right needs crop angle −6°,
+/// Sign convention for Auto straighten: a horizon descending 4° to the right needs crop angle −4°,
 /// which `level_degrees` must report (the crop panel uses it as the crop angle directly).
 #[test]
 fn level_degrees_sign_matches_crop_angle() {
     let (w, h) = (900usize, 600usize);
-    let t = 6f32.to_radians().tan();
+    let t = 4f32.to_radians().tan();
     let src = RgbFrame::from_fn(w, h, |x, y| {
         let yh = h as f32 / 2.0 + (x as f32 - w as f32 / 2.0) * t;
         if (y as f32) < yh {
@@ -535,7 +535,7 @@ fn level_degrees_sign_matches_crop_angle() {
         }
     });
     let deg = crate::upright::level_degrees(&src, &SourceInfo::default(), &DevelopSettings::default()).expect("lines found");
-    assert!((deg + 6.0).abs() < 0.5, "{deg}");
+    assert!((deg + 4.0).abs() < 0.5, "{deg}");
 }
 
 #[test]
