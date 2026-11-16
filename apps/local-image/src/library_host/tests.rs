@@ -750,6 +750,30 @@ fn save_and_return_shows_the_edit_in_the_library() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A saved `-Edit.psd` selected in the Library comes back to Compositing with its layers: from
+/// Develop, and once its tab is closed (as after a restart), never as a flattened Develop layer.
+#[test]
+fn a_saved_edit_psd_returns_to_compositing_with_its_layers() {
+    let (dir, path, lib, orig) = library_with_photo("edit-layers");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    photocraft_ui_egui::menus::invoke(&mut host.editor, &ctx, develop_layer::SAVE_RETURN_ID, json!({})).unwrap();
+    host.take_library_saves(Some(&ctx));
+    let saved = dir.join("photo-Edit.psd").to_string_lossy().to_string();
+    assert_eq!(catalog(&host).active(), photo_at_path(catalog(&host), &saved));
+    let layers = host.editor.session.active().unwrap().doc.layers.len();
+    host.switch(&ctx, Module::Develop);
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.session.documents().len(), 1, "the saved document comes forward");
+    host.editor.run("file.close", json!({})).unwrap();
+    host.switch(&ctx, Module::Library);
+    host.switch(&ctx, Module::Compositing);
+    let doc = host.editor.session.active().expect("the saved file opened");
+    assert_eq!(doc.path.as_deref(), Some(saved.as_str()));
+    assert_eq!(doc.doc.layers.len(), layers, "its layers, not one Develop layer");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Unsaved work in Compositing shows in the Library (its loupe and grid), and goes away once
 /// saved.
 #[test]

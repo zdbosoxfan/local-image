@@ -1073,13 +1073,19 @@ impl Host {
                 self.sync_develop_layers();
                 let photo = self.active_photo();
                 let changed = photo.as_ref().map(|p| p.0) != self.left_compositing_with || self.editor.session.documents().is_empty();
-                if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop)
-                    // a file open in Compositing (a saved `-Edit.psd`) comes forward as it is
-                    && (from == Module::Develop || !self.focus_library_document(id))
-                    && let Err(e) = self.open_editor_photo(id, &path, &settings, &name)
-                {
-                    self.editor.ui.status = e;
-                    self.editor.ui.status_error = true;
+                if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop) {
+                    // A layered document (a saved `-Edit.psd`) opens with its layers, or comes
+                    // forward if open; a Develop layer of it would flatten the retouch.
+                    if opens_with_layers(&path) {
+                        if !self.focus_library_document(id) {
+                            self.editor.open_paths(&[path]);
+                        }
+                    } else if (from == Module::Develop || !self.focus_library_document(id))
+                        && let Err(e) = self.open_editor_photo(id, &path, &settings, &name)
+                    {
+                        self.editor.ui.status = e;
+                        self.editor.ui.status_error = true;
+                    }
                 }
             }
         }
@@ -1156,6 +1162,12 @@ fn consume_host_chord(ctx: &egui::Context, modifiers: egui::Modifiers, key: egui
             .retain(|event| !matches!(event,egui::Event::Key{key:pressed,pressed:true,modifiers:mods,..} if *pressed==key && mods.matches_exact(modifiers)));
         before != i.events.len()
     })
+}
+
+/// A Library photo Compositing opens as the document it is. TIFF is left out: most TIFFs in a
+/// catalog are flat photos that come across with their Develop settings.
+fn opens_with_layers(path: &str) -> bool {
+    std::path::Path::new(path).extension().and_then(|e| e.to_str()).is_some_and(|e| ["psd", "psb", "pcraft"].iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
 fn library_module(lib: &LightcraftApp) -> Module {

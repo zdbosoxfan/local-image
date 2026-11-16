@@ -31,6 +31,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Cropping or rotating a photo in Develop no longer leaves its Compositing document at the old canvas size. A document that is still just the photo takes the new size; one with retouching keeps the photo as it was and says so, so its layers stay lined up.
 - Cancelling the unsaved-changes prompt after quitting from Library or Develop goes back to that module instead of leaving Compositing on screen.
 - A Camera Raw Filter session keeps its edits when another module is picked or the window is closed: the module switch asks to finish with OK or Cancel first, and cancelling the quit prompt returns to the session.
+- A saved `-Edit.psd` selected in the Library opens in Compositing with its layers, also when coming from Develop or after a restart, instead of as a second, flattened document.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.
