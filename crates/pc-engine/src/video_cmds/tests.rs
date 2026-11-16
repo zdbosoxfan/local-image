@@ -8,15 +8,6 @@ fn session() -> Session {
     s
 }
 
-/// The growth limit, without building a million-frame document.
-#[test]
-fn frame_growth_stops_at_the_frame_limit() {
-    let limit = crate::timeline_cmds::MAX_DURATION;
-    assert!(check_frame_growth(limit - 1).is_ok());
-    assert!(check_frame_growth(limit).is_err());
-    assert!(check_frame_growth(limit + 1).is_err());
-}
-
 fn frames(s: &Session, id: LayerId) -> usize {
     s.active().unwrap().doc.layer(id).unwrap().video.as_ref().unwrap().frames.len()
 }
@@ -36,6 +27,27 @@ fn new_blank_insert_duplicate_delete_frames() {
     s.execute("layer.videoLayers.deleteFrame", json!({})).unwrap();
     assert_eq!(frames(&s, id), start + 1);
     assert!(s.active().unwrap().doc.timeline.as_ref().unwrap().duration >= frames(&s, id));
+}
+
+/// Insert Blank Frame and Duplicate Frame refuse a frame past the timeline's limit and leave the
+/// layer as it was.
+#[test]
+fn frame_growth_stops_at_the_frame_limit() {
+    let mut s = session();
+    let r = s.execute("layer.videoLayers.newBlankVideoLayer", json!({})).unwrap();
+    let id = LayerId(r["layer"].as_u64().unwrap());
+    let limit = crate::timeline_cmds::MAX_DURATION;
+    s.edit("setup", |doc, _| {
+        // Empty sparse frames keep a full stack small.
+        let fmt = doc.pixel_format();
+        doc.layer_mut(id).unwrap().video.as_mut().unwrap().frames = vec![blank_of(fmt); limit];
+        Ok(())
+    })
+    .unwrap();
+    for cmd in ["layer.videoLayers.insertBlankFrame", "layer.videoLayers.duplicateFrame"] {
+        assert!(s.execute(cmd, json!({})).is_err(), "{cmd}");
+        assert_eq!(frames(&s, id), limit, "{cmd}");
+    }
 }
 
 #[test]
