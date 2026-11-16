@@ -86,7 +86,7 @@
 	File Info…	Informace o souboru…
 	Print…	Tisk…
 	Print One Copy	Vytisknout jednu kopii
-	Exit	Ukončit
+	Quit Local Image	Ukončit Local Image
 	Undo	Zpět
 	Redo	Znovu
 	Toggle Last State	Přepnout poslední stav
@@ -2620,6 +2620,8 @@ ai	New	Nové
 	Float Panel Group	Uvolnit skupinu panelů
 	Save and Return to Library	Uložit a vrátit se do Knihovny
 	Added your new Develop edits as layer {name}	Vaše nové úpravy z modulu Vyvolat byly přidány jako vrstva {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Ořez nebo velikost fotografie se v modulu Vyvolat změnily, proto {name} nebyl aktualizován
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Jeho vrstvy by už nelícovaly s novou fotografií, proto si ponechává fotografii v původní podobě.
 	Open the Library to save into it	Pro uložení do Knihovny ji nejprve otevřete
 	The layers below are unchanged; hide or delete the new layer to go back.	Spodní vrstvy zůstaly beze změny; chcete-li se vrátit, novou vrstvu skryjte nebo smažte.
 # Attributions page (li-attributions)

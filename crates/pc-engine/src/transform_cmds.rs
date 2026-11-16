@@ -170,6 +170,28 @@ pub fn target_bounds(doc: &Document, surf: &Surface) -> Rect {
     }
 }
 
+/// The layers Free Transform moves with the Layers panel's selection (upstream #6501): with
+/// several layers selected, each one with its linked layers that no moving group carries, but
+/// not the Background. With one layer selected (or only the Background besides it), the active
+/// layer.
+pub fn selection_targets(st: &crate::DocState) -> Vec<LayerId> {
+    let selected = st.selected_layers();
+    if selected.len() < 2 {
+        return st.active_layer.into_iter().collect();
+    }
+    let ids: Vec<LayerId> = crate::layer_multi_cmds::move_targets(&st.doc, &selected)
+        .into_iter()
+        .filter(|id| !st.doc.layer(*id).is_some_and(crate::extra_cmds::is_background))
+        .collect();
+    if ids.is_empty() { st.active_layer.into_iter().collect() } else { ids }
+}
+
+/// Does `l` move whole under a selection? Groups, type, shapes, smart objects and symbols do;
+/// only pixel layers move just their selected pixels (#205).
+pub fn moves_whole(l: &Layer) -> bool {
+    matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Symbol(_))
+}
+
 /// The locks `id` inherits from the groups around it.
 pub(crate) fn group_locks(doc: &Document, id: LayerId) -> Locks {
     doc.path_of(id).and_then(|p| Some(doc.locks_at(p.split_last()?.1))).unwrap_or_default()
@@ -244,9 +266,7 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
     }
     // With a selection only the selected pixels move, and so only the same region of a linked
     // mask (#205). Groups, type, shapes, smart objects and symbols move whole.
-    let mask_sel = doc_sel.filter(|_| {
-        !matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Symbol(_))
-    });
+    let mask_sel = doc_sel.filter(|_| !moves_whole(l));
     match &mut l.content {
         LayerContent::Group(g) => {
             for c in g.children.iter_mut() {
@@ -548,6 +568,12 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         .transpose()?;
     let id = roots.as_ref().and_then(|ids| ids.first().copied()).or_else(|| p.get("layer").and_then(Value::as_u64).map(LayerId)).or(st.active_layer);
     let lone = lone_target(&st.doc, id, p)?;
+    // Given neither `layer` nor `layers`, the box moves the selected layers (upstream #6501).
+    let roots = match roots {
+        None if lone.is_none() && p.get("layer").is_none() => Some(selection_targets(st)).filter(|ids| ids.as_slice() != st.active_layer.as_slice()),
+        roots => roots,
+    };
+    let id = roots.as_ref().and_then(|ids| ids.first().copied()).or(id);
     let id = match (id, lone.is_some() && crate::channel_cmds::is_channel_target(p)) {
         (_, true) => None,
         (Some(id), false) => Some(id),
@@ -604,7 +630,7 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         (m[6].abs() < 1e-12 && m[7].abs() < 1e-12).then(|| Affine { m: [m[0] / m[8], m[3] / m[8], m[1] / m[8], m[4] / m[8], m[2] / m[8], m[5] / m[8]] });
     let interp = Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
     let lone = lone.is_some();
-    s.edit("Free Transform", |doc, _| {
+    let moved = s.edit("Free Transform", |doc, _| {
         let sel = doc.selection.clone();
         if let Some(sel) = &sel {
             check_budget(sel.content_bounds(), &h, "selection")?;
@@ -620,7 +646,7 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
             if let Some(sel) = &doc.selection {
                 doc.selection = Some(warp_gray(sel, &h, Interp::Bilinear)).filter(|s| !s.content_bounds().is_empty());
             }
-            return Ok(());
+            return Ok(Vec::new());
         }
         let ids = match &roots {
             Some(ids) => ids.clone(),
@@ -634,7 +660,7 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         }
         // Type layers re-render from their new transform.
         let snapshot = doc.clone();
-        for id in ids {
+        for &id in &ids {
             if let Some(l) = doc.layer_mut(id) {
                 refresh_text(&snapshot, l)?;
             }
@@ -643,9 +669,9 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(sel) = &doc.selection {
             doc.selection = Some(warp_gray(sel, &h, Interp::Bilinear)).filter(|s| !s.content_bounds().is_empty());
         }
-        Ok(())
+        Ok(ids.iter().map(|id| id.0).collect::<Vec<u64>>())
     })?;
-    Ok(json!({"rect": rect}))
+    Ok(json!({"rect": rect, "layers": moved}))
 }
 
 /// Free Transform with a folded quad ([`QuadMap::Folded`]): pixel layers, groups, masks,
@@ -706,7 +732,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Free Transform",
         menu: &[],
         shortcut: None,
-        params: r##"{"layer":id?,"layers":[id]? (transform these layers together, with linked layers),"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left; a concave or folded quad draws as two triangles),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
+        params: r##"{"layer":id?,"layers":[id]? (transform these layers together, with linked layers; default with neither = the selected layers but the Background),"rect":[x0,y0,x1,y1]? (source frame; default = the layers' content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left; a concave or folded quad draws as two triangles),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
         enabled: has_layer,
         journal: true,
         run: transform,
@@ -912,6 +938,80 @@ mod tests {
         let result = s.execute("edit.transform", json!({"layers":[a.0],"quad":[[10,10],[30,10],[10,20],[30,20]]}));
         assert!(result.is_ok(), "{result:?}");
         assert!(s.active().unwrap().doc.layer(other).unwrap().surface().unwrap().content_bounds().is_empty());
+    }
+
+    /// The red block of [`session`] and a type layer beside it, both selected, the type active.
+    fn block_and_type_selected() -> (Session, LayerId, LayerId) {
+        let mut s = session();
+        let block = s.active().unwrap().active_layer.unwrap();
+        let text = LayerId(s.execute("type.create", json!({"x": 50, "y": 70, "text": "Hi", "size": 20})).unwrap()["layer"].as_u64().unwrap());
+        s.execute("layer.select", json!({"layer": block.0})).unwrap();
+        s.execute("layer.select", json!({"layer": text.0, "mode": "add"})).unwrap();
+        (s, block, text)
+    }
+
+    fn layer_bounds(s: &Session, id: LayerId) -> Rect {
+        s.active().unwrap().doc.layer(id).unwrap().surface().unwrap().content_bounds()
+    }
+
+    fn text_matrix(s: &Session, id: LayerId) -> [f64; 6] {
+        let LayerContent::Text(t) = &s.active().unwrap().doc.layer(id).unwrap().content else { panic!("not a type layer") };
+        t.transform.m
+    }
+
+    /// Upstream #6501: with several layers selected, Free Transform moved only the active one.
+    #[test]
+    fn free_transform_moves_every_selected_layer_in_one_step() {
+        let (mut s, block, text) = block_and_type_selected();
+        let m0 = text_matrix(&s, text);
+        let steps = s.active().unwrap().history.past_len();
+        let r = s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 30, 40], "interpolation": "nearest"})).unwrap();
+        assert_eq!(r["layers"], json!([block.0, text.0]));
+        assert_eq!(layer_bounds(&s, block), Rect::new(40, 50, 60, 60));
+        assert_eq!(text_matrix(&s, text)[4..], [m0[4] + 30.0, m0[5] + 40.0], "the type keeps its transform");
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1, "one history step");
+        s.undo();
+        assert_eq!((layer_bounds(&s, block), text_matrix(&s, text)), (Rect::new(10, 10, 30, 20), m0), "one Undo takes both back");
+    }
+
+    #[test]
+    fn the_background_stays_out_of_a_selection_of_several() {
+        let (mut s, block, text) = block_and_type_selected();
+        let bg = s.active().unwrap().doc.layers[0].id;
+        let before = s.active().unwrap().doc.layer(bg).unwrap().clone();
+        s.execute("layer.select", json!({"layer": bg.0, "mode": "add"})).unwrap();
+        let r = s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 3, 0], "interpolation": "nearest"})).unwrap();
+        assert_eq!(r["layers"], json!([block.0, text.0]));
+        assert_eq!(*s.active().unwrap().doc.layer(bg).unwrap(), before, "still the Background, unmoved");
+    }
+
+    #[test]
+    fn a_selection_limits_the_pixels_of_every_selected_layer() {
+        let (mut s, block, text) = block_and_type_selected();
+        let m0 = text_matrix(&s, text);
+        // The left half of the block: only those pixels move; the type moves whole.
+        s.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 100})).unwrap();
+        s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 0, 50], "interpolation": "nearest"})).unwrap();
+        let st = s.active().unwrap();
+        let surf = st.doc.layer(block).unwrap().surface().unwrap();
+        assert_eq!(surf.pixel(15, 15)[3], 0.0, "the selected part left");
+        assert_eq!(surf.pixel(25, 15)[3], 1.0, "the rest stayed");
+        assert_eq!(surf.pixel(15, 65)[3], 1.0, "and landed below");
+        assert_eq!(text_matrix(&s, text)[5], m0[5] + 50.0);
+    }
+
+    /// Transform Again frames the selected layers together, so an empty active layer among them
+    /// no longer refuses with "nothing to transform".
+    #[test]
+    fn transform_again_repeats_on_the_selected_layers() {
+        let mut s = session();
+        let block = s.active().unwrap().active_layer.unwrap();
+        s.execute("edit.transform", json!({"rect": [10, 10, 30, 20], "quad": [[20, 10], [40, 10], [40, 20], [20, 20]], "interpolation": "nearest"})).unwrap();
+        let empty = LayerId(s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap());
+        s.execute("layer.select", json!({"layer": block.0})).unwrap();
+        s.execute("layer.select", json!({"layer": empty.0, "mode": "add"})).unwrap();
+        s.execute("edit.transform.again", json!({})).unwrap();
+        assert_eq!(layer_bounds(&s, block), Rect::new(30, 10, 50, 20));
     }
 
     #[test]

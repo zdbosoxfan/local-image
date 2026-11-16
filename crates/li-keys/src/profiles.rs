@@ -8,7 +8,7 @@ pub const GLOBAL_SHORTCUTS: &[(&str, &str, &str)] = &[
     ("edit.preferences.general", "Preferences", "Cmd+K"),
     ("edit.undo", "Undo", "Cmd+Z"),
     ("edit.redo", "Redo", "Cmd+Shift+Z"),
-    ("view.screenMode.cycle", "Screen mode", "F"),
+    ("view.screenMode.cycle", "Screen mode / Full Screen Preview", "F"),
     ("global.fullscreen", "Full screen", "Cmd+Shift+F"),
     ("host.library", "Library workspace", "Cmd+Alt+1"),
     ("host.develop", "Develop workspace", "Cmd+Alt+2"),

@@ -107,7 +107,7 @@ impl PointerGuard {
 }
 
 /// Add this capture to the existing rasterization dialog at open; the app calls the paired check
-/// before its existing rasterize-and-paint confirmation. All metadata stays out of UI text.
+/// before its existing rasterize confirmation. All metadata stays out of UI text.
 pub fn capture_rasterize_prompt(app: &PhotocraftApp, fields: &mut serde_json::Map<String, Value>) -> Result<(), String> {
     let target = GestureTarget::capture(app).ok_or_else(|| tl!("No document").to_string())?;
     fields.insert(

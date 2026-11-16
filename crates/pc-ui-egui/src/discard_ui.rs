@@ -115,6 +115,11 @@ pub fn guard_window_close(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
+/// Whether the prompt is up, or waiting on a save it started.
+pub fn asking(app: &PhotocraftApp) -> bool {
+    app.discard.is_some()
+}
+
 /// Moves on to the next document, or runs the parked action once none are left.
 fn advance(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(mut p) = app.discard.take() else { return };

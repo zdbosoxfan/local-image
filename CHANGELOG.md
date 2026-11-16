@@ -47,8 +47,33 @@ All notable changes to Local Image are recorded here. The format follows
   header scans, HEIC parameter sets and decode peak memory, oversized Sony lossless tiles, and
   XML references, IPTC keywords and Luminar look settings read in linear time.
 
+### Added
+
+- Develop: holding Alt (Option on macOS) while dragging an Edit slider shows Lightroom's
+  temporary previews: highlight clipping for Exposure, Highlights and Whites, shadow clipping for
+  Shadows and Blacks, greyscale for Sharpening Amount and the detail band for Radius and Detail,
+  as Masking already showed its mask. Settings and the histogram are unchanged.
+- Develop: with Crop, Masking, Remove, Red Eye or a picker on the photo, holding Space lends the
+  pointer to the view, as Lightroom's temporary Hand: a click zooms to the click-zoom ratio at the
+  point clicked (or back to Fit), a drag pans the zoomed photo, and the tool gets neither. A quick
+  tap still toggles the zoom, on its release.
+- Develop: with Show Pins on, Object and Describe masks show a pin on the photo: an Object at its
+  first click, a Describe mask in the middle of what it selected. Clicking the pin selects the
+  mask; dragging it changes nothing and adds no History step.
+
+### Changed
+
+- Develop: Auto straighten levels a sea or landscape horizon among waves and clouds, and levels
+  a building shot upward by where its verticals converge instead of by their lean. It turns a
+  photo by at most 5° (was 10°).
+- Develop: Auto Settings applies to every selected photo, each measured on its own source, as
+  one undo step. The photos are decoded in the background, with progress and Cancel in the task
+  panel; a photo that can't be read is skipped and counted, and a result that arrives after an
+  edit or undo is not applied.
+
 ### Fixed
 
+- Develop: holding Space no longer toggles the zoom over and over as the key repeats.
 - Image decoding refuses hostile files before they can allocate far past their size: PNG colour
   profiles and dropped text, EXR previews and header sizes, TIFF strip scratch, chunk tables,
   repeated structural tags, predictor rows and JPEG chunks, GIF, BMP, TGA, ICO and QOI header sizes,
@@ -59,7 +84,52 @@ All notable changes to Local Image are recorded here. The format follows
 - A raw's embedded preview is read in Adobe RGB when the raw's EXIF says the camera was set to it.
 - Incomplete ISO and EXIF timestamps no longer become capture times, so the next valid date is used. A JPEG ICC profile whose chunks are missing, repeated or cut off is dropped from metadata.
 - RAW/TIFF imports bound hostile tile, opcode, and maker-note work before it can multiply memory or CPU use. Truncated Deflate tiles are rejected, and non-finite DNG WhiteLevel uses the bit-depth default.
+- Answering OK to the "Rasterize?" prompt that a brush or pencil opens on a type, shape, Smart
+  Object or fill layer only rasterizes the layer, as in Photoshop. The click that opened the prompt
+  no longer paints; the next click does.
+- The Magnetic Lasso snaps to the edges of the visible image in an RGB document, whichever layer is
+  active; hidden layers add none. Other colour modes still follow the active layer's own pixels.
+- Magic Wand and Magic Eraser Anti-alias keep the matched region fully selected and soften only
+  the pixels just outside it, by how close their colour is to the tolerance, as in Photoshop. A
+  shape next to a clearly different colour or transparency gets a hard edge.
+- Select > Subject looks at the selected layer's pixels; it uses the whole image only when no pixel
+  layer is selected or Sample All Layers is asked for.
+- Select and Mask's Shift Edge moves only soft borders, as in Photoshop: a hard selection edge
+  stays where it is, and a feathered edge is pulled in or pushed out along a fixed coverage curve
+  (at -100% a half-selected pixel drops to 2%, at +100% it rises to 98%).
+- Saving a PSD chooses PSB by the size of the file actually written, not by the uncompressed pixels:
+  a document that packs to well under 2 GB stays a PSD. A file over 2 GB is still saved as PSB
+  automatically; if it can't be, the save warns.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
+- A Develop layer in Compositing renders as the Library does: with the photo's AI Denoise result, and without AI Remove patches made from another photo.
+- Cropping or rotating a photo in Develop no longer leaves its Compositing document at the old canvas size. A document that is still just the photo takes the new size; one with retouching keeps the photo as it was and says so, so its layers stay lined up.
+- Cancelling the unsaved-changes prompt after quitting from Library or Develop goes back to that module instead of leaving Compositing on screen.
+- A Camera Raw Filter session keeps its edits when another module is picked or the window is closed: the module switch asks to finish with OK or Cancel first, and cancelling the quit prompt returns to the session.
+- A saved `-Edit.psd` selected in the Library opens in Compositing with its layers, also when coming from Develop or after a restart, instead of as a second, flattened document.
+- Closing the window from Compositing when the Library couldn't save its catalog now shows the Library's Try Saving Again / Quit Anyway prompt instead of doing nothing.
+- Undoing an update from Develop in Compositing lasts: switching modules no longer puts it back. A Library edit made outside a Develop session entered from a retouched document (Sync, Paste, a preset) no longer adds a Develop layer over the retouching; a notice says the Library's edit is newer, and opening Develop from that document brings it in.
+- A file opened from the file manager or the command line is shown in Compositing instead of loading out of sight behind the Library, and a folder opened the same way is scanned for the Library's import instead of failing to open.
+- Develop's AI Remove keeps what was painted when the removal can't start, Remove is disabled while the chosen engine reports a problem, and a Camera Raw Filter session no longer offers the AI mode it can't run.
+- Crash recovery keeps autosaving Compositing documents while Library or Develop is shown, instead of pausing until Compositing is back.
+- Export's After Export "Open in Other Application" with no application given opens the exported files in the system's default application, as its hint says, instead of opening every file in Compositing.
+- A raw the Library has, opened in Compositing with File › Open, Open Recent, a drop, the filmstrip or the command line, opens as a Develop layer with its Develop edits instead of at camera defaults, and its saves join the Library.
+- Documents recovered after a crash are announced as a notice, so the count shows in the Library and Develop as well as in the Compositing status bar.
+- Ctrl/Cmd+Alt+1/2/3 no longer switches modules past an open Library dialog, Smart Sort or People, or past a running filter's progress window, which left the job without its Cancel.
+- Switching from Library to Compositing keeps the document being worked on in front instead of opening the last photo clicked in Library over it. The Library photo still comes across into an empty Compositing, and Develop still carries its photo.
+- Coming back from Compositing keeps the Library selection when it holds the edited photo, which becomes the active one, instead of collapsing it to that photo.
+- Opening Info or Keywords from Develop's tool strip keeps Develop in the title bar and as the module to start in, instead of switching both to Library.
+- Library Settings › Startup › Open in Photo Grid or Loupe now starts in the Library even when Develop or Compositing was last shown. The remembering choice is now called "Last workspace and view".
+- Photo › Edit In… (Cmd+E) with no other application named opens the photo in Compositing as a Develop layer, linked to Develop, instead of writing a stacked 16-bit TIFF copy every time. Naming an application in Settings › External Editor still sends it a TIFF copy.
+- A Library export, proof sheet or Develop AI result that finishes while Compositing is shown completes there (Show in Folder, Add to Library and the other After Export steps included) and its message shows as a Compositing notice, instead of waiting until the Library is opened again.
+- Develop and Compositing use one AI Remove engine choice: picking an engine in either one sets it in both, and both offer the same engines.
+- Preferences opened in Compositing no longer opens the Library's catalog first, so it doesn't wait on a slow or unreachable Library folder. The catalog opens when one of the Library's own pages is shown.
+- Cmd+Alt+Shift+K opens Keyboard Shortcuts in Library and Develop as well, the same chord as in Compositing.
+- Edit › Preferences › Raw Defaults… opens Library & Develop › Import, where the raw defaults Local Image uses are set, instead of an empty page. The empty Camera Raw Defaults row is gone from the Compositing list.
+- Edit › Search in Compositing also finds Library and Develop, and running one switches to that module.
+- A Library photo opened in Compositing carries its Library title, caption, copyright, creator, keywords and location in the document's metadata, the saved `-Edit` file's Library entry gets the same title, caption, copyright, creator and location where the file has none of its own. Export As still starts with Metadata: None; choose All to embed them.
+- AI Denoise that can't use the GPU because AI work holds its memory now says so and points to waiting for AI jobs or to Eject in Compositing's status bar, instead of asking to retry after other GPU work finishes.
+- Compositing's File › Exit is now Quit Local Image, as in Library and Develop. Library and Develop messages and shortcut lists name Compositing and "Library & Develop" instead of "the editor" and "Library", and the Global shortcut F reads "Screen mode / Full Screen Preview".
+- Blend modes in Develop's and the Library's Layers list read as in Compositing's Layers panel; German showed "Überlagerung" for Overlay instead of "Überlagern".
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.

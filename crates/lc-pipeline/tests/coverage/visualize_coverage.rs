@@ -80,8 +80,8 @@ fn overlay_mask_parts_non_finite_or_negative_returns_none() {
 #[test]
 fn overlay_from_parts_unknown_kind_returns_none() {
     assert_eq!(Overlay::from_parts(0, 0.0), Overlay::None);
-    // Kind 6 is the Skin Tone range; retain the unknown-kind assertion on 7.
-    assert_eq!(Overlay::from_parts(7, 42.0), Overlay::None);
+    // Kinds 6-10 are Skin Tone, clipping, grayscale and sharpen detail; 11 is the first unknown kind.
+    assert_eq!(Overlay::from_parts(11, 42.0), Overlay::None);
     assert_eq!(Overlay::from_parts(255, 1.0), Overlay::None);
 }
 

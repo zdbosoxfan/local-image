@@ -205,7 +205,134 @@ fn bugfix_develop_startup_defaults_to_library_and_restores_develop() {
     assert_eq!(super::module_preference(Some("editor")), super::Module::Compositing);
     assert_eq!(super::module_preference(Some("unknown")), super::Module::Library);
 }
+
+/// Library › Startup › Open in Photo Grid or Loupe starts in the Library even when Develop was
+/// last shown; Last (and older settings without the choice) keeps the remembered module.
+#[test]
+fn startup_view_choice_wins_over_the_remembered_module() {
+    for (view, expected) in [(Some("grid"), Module::Library), (Some("detail"), Module::Library), (Some("last"), Module::Develop), (None, Module::Develop)] {
+        let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        editor.session.edit_prefs(|prefs| {
+            prefs.library.insert("module".into(), json!("develop"));
+            if let Some(view) = view {
+                prefs.library.insert("settings".into(), json!({ "startupView": view }));
+            }
+        });
+        assert_eq!(Host::new(editor).mode, expected, "{view:?}");
+    }
+}
+
+/// Startup › Open in Loupe after quitting in Develop stays in the Library once it draws: the
+/// saved develop tool panel does not pull it back to Develop.
+#[test]
+fn startup_in_loupe_after_quitting_in_develop_stays_in_the_library() {
+    let (dir, _, library, _) = library_with_photo("startup-loupe");
+    let location = library.ui.settings.library_path.clone();
+    drop(library);
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.session.edit_prefs(|prefs| {
+        prefs.library.insert("module".into(), json!("develop"));
+        prefs.library.insert("view".into(), json!("detail"));
+        prefs.library.insert("right".into(), json!("edit"));
+        prefs.library.insert("settings".into(), json!({ "libraryPath": location, "startupView": "detail" }));
+    });
+    let host = Host::new(editor);
+    assert_eq!(host.mode, Module::Library);
+    let mut h = RoundTripUi::new(host);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert_eq!(h.host.mode, Module::Library);
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A file given at launch is shown in Compositing; a folder goes to the Library's import.
+#[test]
+fn launch_documents_show_in_compositing_and_folders_go_to_the_library_import() {
+    let dir = std::env::temp_dir().join(format!("li-launch-args-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("shoot")).unwrap();
+    image::RgbImage::new(2, 2).save(dir.join("photo.png")).unwrap();
+    let file = dir.join("photo.png").to_string_lossy().to_string();
+    let folder = dir.join("shoot").to_string_lossy().to_string();
+    assert_eq!(super::split_launch_paths(&[file.clone(), folder.clone()]), (vec![file.clone()], vec![folder.clone()]));
+
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    // Stands in for a document crash recovery reopened before the host starts.
+    editor.run("file.new", serde_json::json!({"width": 8, "height": 8})).unwrap();
+    let mut host = Host::new(editor);
+    assert_eq!(host.mode, Module::Library, "a recovered document keeps the remembered module");
+    host.editor.services.import = Some(Box::new(|name, bytes| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())));
+    host.open_at_launch(&[file]);
+    assert_eq!(host.mode, Module::Compositing, "a launch document is shown, not the remembered module");
+
+    let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));
+    host.editor.host_modes = true;
+    host.mode = Module::Compositing;
+    host.import_at_launch(vec![folder.clone()]);
+    assert_eq!(host.mode, Module::Library, "only a folder: the Library shows its import");
+    let (library_dir, _, library, _) = library_with_photo("launch-folder");
+    host.library = Some(library);
+    host.start_launch_import(&egui::Context::default());
+    assert!(host.launch_folders.is_empty());
+    assert!(host.library.as_ref().unwrap().scan.is_some(), "the folder is scanned for the import review");
+    let _ = std::fs::remove_dir_all(library_dir);
+    let _ = std::fs::remove_dir_all(dir);
+}
 use super::*;
+
+/// A raw the Library has, opened from Compositing (File › Open, Open Recent, a drop, the filmstrip
+/// or a launch argument), opens as a Develop layer with the photo's settings, not at camera
+/// defaults.
+#[test]
+fn a_catalogued_raw_opened_in_compositing_keeps_its_develop_edits() {
+    let (dir, png, mut lib, _) = library_with_photo("raw-open");
+    // PNG bytes under a raw name: the decoders read the content, the routing reads the name.
+    let raw = dir.join("photo.dng").to_string_lossy().to_string();
+    std::fs::copy(&png, &raw).unwrap();
+    let id = lib.session.catalog.alloc_photo_id();
+    let photo = lightcraft_catalog::Photo::new(id, lightcraft_catalog::Source::File { path: raw.clone() }, "photo.dng", "DNG", 40, 30, "2026-11-16");
+    lib.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    lib.run("library.select", json!({"ids": [id.0], "active": id.0})).unwrap();
+    lib.run("develop.set", json!({"control": "light.exposure", "value": 1.5})).unwrap();
+    let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));
+    host.library = Some(lib);
+    host.mode = Module::Compositing;
+    host.editor.open_path(&raw).unwrap();
+    assert!(host.editor.session.documents().is_empty(), "the raw waits for the host");
+    host.open_queued_raws();
+    let doc = &host.editor.session.active().expect("the raw opened").doc;
+    assert_eq!(develop_layer::original_of(doc), Some((id.0, raw)), "a Develop layer on the Library photo");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The filmstrip knows a catalogued raw the host opened for it: picking it again shows its tab,
+/// and stepping on goes to the next file instead of back to the first.
+#[test]
+fn the_filmstrip_steps_on_from_a_catalogued_raw() {
+    use photocraft_ui_egui::filmstrip_ui;
+    let (dir, png, mut lib, _) = library_with_photo("raw-strip");
+    let raw = dir.join("photo.dng").to_string_lossy().to_string();
+    std::fs::copy(&png, &raw).unwrap();
+    let id = lib.session.catalog.alloc_photo_id();
+    let photo = lightcraft_catalog::Photo::new(id, lightcraft_catalog::Source::File { path: raw.clone() }, "photo.dng", "DNG", 40, 30, "2026-11-16");
+    lib.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    lib.run("library.select", json!({"ids": [id.0], "active": id.0})).unwrap();
+    let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));
+    host.editor.raw_opens = Some(Vec::new());
+    host.editor.services.import = Some(Box::new(|name, bytes| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())));
+    host.library = Some(lib);
+    host.mode = Module::Compositing;
+    filmstrip_ui::set_folder(&dir, vec![PathBuf::from(&raw), PathBuf::from(&png)]);
+    filmstrip_ui::open(&mut host.editor, std::path::Path::new(&raw));
+    host.open_queued_raws();
+    filmstrip_ui::open(&mut host.editor, std::path::Path::new(&raw));
+    assert_eq!(host.editor.raw_opens, Some(Vec::new()), "the open raw's tab is shown, not queued again");
+    assert!(filmstrip_ui::step(&mut host.editor, 1));
+    assert_eq!(host.editor.session.active().and_then(|d| d.path.clone()), Some(png));
+    let _ = std::fs::remove_dir_all(dir);
+}
 
 /// LightCraft e2d35de: Library › Add Photos offers everything the folder scan imports and
 /// shows DSC_0001.NEF / IMG_0001.JPG / .CR3 on Linux.
@@ -760,6 +887,31 @@ fn save_and_return_shows_the_edit_in_the_library() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A saved `-Edit.psd` selected in the Library comes back to Compositing with its layers: from
+/// Develop, and once its tab is closed (as after a restart), never as a flattened Develop layer.
+#[test]
+fn a_saved_edit_psd_returns_to_compositing_with_its_layers() {
+    let (dir, path, lib, orig) = library_with_photo("edit-layers");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    photocraft_ui_egui::menus::invoke(&mut host.editor, &ctx, develop_layer::SAVE_RETURN_ID, json!({})).unwrap();
+    host.take_library_saves(Some(&ctx));
+    let saved = dir.join("photo-Edit.psd").to_string_lossy().to_string();
+    assert_eq!(catalog(&host).active(), photo_at_path(catalog(&host), &saved));
+    let layers = host.editor.session.active().unwrap().doc.layers.len();
+    host.editor.services.import = Some(Box::new(|name, bytes| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())));
+    host.switch(&ctx, Module::Develop);
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.session.documents().len(), 1, "the saved document comes forward");
+    host.editor.run("file.close", json!({})).unwrap();
+    host.switch(&ctx, Module::Library);
+    host.switch(&ctx, Module::Compositing);
+    let doc = host.editor.session.active().expect("the saved file opened");
+    assert_eq!(doc.path.as_deref(), Some(saved.as_str()));
+    assert_eq!(doc.doc.layers.len(), layers, "its layers, not one Develop layer");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Unsaved work in Compositing shows in the Library (its loupe and grid), and goes away once
 /// saved.
 #[test]
@@ -787,6 +939,29 @@ fn the_library_shows_unsaved_compositing_work() {
     host.switch(&ctx, Module::Library);
     host.update_composites(&ctx);
     assert_eq!(shown(&host), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Edit In with no other editor named opens the photo in Compositing as a Develop layer, beside
+/// the work already open there, instead of stacking a baked TIFF copy.
+#[test]
+fn edit_in_with_no_editor_named_opens_the_photo_in_compositing() {
+    let (dir, _, library, photo) = library_with_photo("edit-in-own");
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    let mut host = Host::new(editor);
+    host.editor.host_modes = true;
+    host.library = Some(library);
+    host.mode = Module::Library;
+    let lib = host.library();
+    lib.run("library.select", json!({"ids": [photo.0], "active": photo.0})).unwrap();
+    lib.run("photo.editInExternal", json!({})).unwrap();
+    host.open_composite(&egui::Context::default());
+    assert_eq!(host.mode, Module::Compositing);
+    assert_eq!(host.editor.session.documents().len(), 2, "the photo opens beside the open document");
+    assert_eq!(photocraft_ui_egui::develop_layer::active_photo(&host.editor), Some(photo.0));
+    assert_eq!(catalog(&host).catalog.photos().count(), 1, "no TIFF copy is stacked");
+    assert!(!dir.join("photo-Edit.tif").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -886,6 +1061,74 @@ fn quitting_from_the_library_asks_about_unsaved_work() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A Camera Raw Filter session keeps its edits: the module switch asks for OK or Cancel instead
+/// of cancelling it, and quitting with unsaved documents leaves it open behind the prompt.
+#[test]
+fn camera_raw_session_survives_module_switches_and_the_quit_prompt() {
+    let (dir, _path, library, _photo) = library_with_photo("camera-raw-session");
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.run("file.new", json!({"width":32,"height":24,"background":"transparent"})).unwrap();
+    editor.run("edit.fill", json!({"color":"#3366cc"})).unwrap();
+    let mut host = Host::new(editor);
+    host.editor.host_modes = true;
+    host.library = Some(library);
+    host.mode = Module::Compositing;
+    let ctx = egui::Context::default();
+    photocraft_ui_egui::develop_filter_ui::open(&mut host.editor, &ctx, None, Some(false)).unwrap();
+    host.start_camera_raw(&ctx);
+    assert_eq!(host.mode, Module::Develop);
+    assert!(host.camera_raw.is_some());
+    for to in [Module::Library, Module::Compositing] {
+        host.switch(&ctx, to);
+        assert_eq!(host.mode, Module::Develop, "{to:?}");
+        assert!(host.camera_raw.is_some() && host.editor.develop_filter.in_session(), "{to:?}");
+    }
+    let toast = host.library.as_ref().and_then(|lib| lib.ui.toast.as_ref()).map(|(text, _)| text.as_str());
+    assert_eq!(toast, Some("Finish Camera Raw Filter with OK or Cancel first"));
+    assert!(host.editor.has_unsaved());
+    let mut raw = egui::RawInput::default();
+    raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+    let mut out = ctx.run_ui(raw, |ui| {
+        assert!(host.quit_review(ui.ctx()));
+    });
+    out.textures_delta.clear();
+    assert!(host.camera_raw.is_some() && host.editor.develop_filter.in_session(), "the prompt can still be cancelled");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Cancel in the quit prompt goes back to the Library the quit started from, with the work kept.
+#[test]
+fn cancelling_the_quit_prompt_returns_to_the_library() {
+    let (dir, path, lib, orig) = library_with_photo("quit-cancel");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    PhotocraftApp::setup_context(&ctx, host.editor.ui.theme);
+    host.switch(&ctx, Module::Library);
+    let mut raw = egui::RawInput::default();
+    raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+    let mut out = ctx.run_ui(raw, |ui| {
+        let ctx = ui.ctx().clone();
+        assert!(host.quit_review(&ctx));
+        photocraft_ui_egui::discard_ui::guard_window_close(&mut host.editor, &ctx);
+    });
+    out.textures_delta.clear();
+    assert_eq!(host.mode, Module::Compositing, "the prompt is in Compositing");
+    assert!(photocraft_ui_egui::discard_ui::asking(&host.editor));
+    let escape = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+    for events in [vec![], vec![escape]] {
+        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| photocraft_ui_egui::discard_ui::show(&mut host.editor, ui.ctx()));
+        out.textures_delta.clear();
+    }
+    assert!(!photocraft_ui_egui::discard_ui::asking(&host.editor), "Esc cancelled the prompt");
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        assert!(!host.quit_review(ui.ctx()));
+    });
+    out.textures_delta.clear();
+    assert_eq!(host.mode, Module::Library);
+    assert!(host.editor.has_unsaved(), "the work is still there");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Library → Develop (new edits) → Compositing: the edits arrive as a new Develop layer on
 /// top of a document with compositing work; its existing layers stay as they were.
 #[test]
@@ -908,6 +1151,89 @@ fn new_develop_edits_come_back_as_a_new_layer() {
     host.switch(&ctx, Module::Library);
     host.switch(&ctx, Module::Compositing);
     assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 3);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A plain switch from Library keeps the document being worked on in front: another photo
+/// clicked in Library does not open over it.
+#[test]
+fn a_plain_switch_to_compositing_keeps_the_open_document() {
+    let (dir, path, lib, orig) = library_with_photo("plain-switch-keeps-document");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    let doc = host.editor.session.active().unwrap().doc.id;
+    let other = dir.join("other.png");
+    image::RgbImage::from_pixel(8, 6, image::Rgb([20, 40, 60])).save(&other).unwrap();
+    host.switch(&ctx, Module::Library);
+    let lib = host.library();
+    lib.session.execute("library.import", &json!({ "paths": [other.to_string_lossy()] })).unwrap();
+    let other = lib.session.catalog.photos().map(|p| p.id).find(|id| *id != orig).unwrap();
+    lib.run("library.select", json!({"ids": [other.0], "active": other.0})).unwrap();
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.session.documents().len(), 1, "nothing opened over the retouch");
+    assert_eq!(host.editor.session.active().unwrap().doc.id, doc);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Back from Compositing, a Library selection that holds the edited photo stays selected; the
+/// photo becomes the active one.
+#[test]
+fn return_from_compositing_keeps_the_library_selection() {
+    let (dir, path, lib, orig) = library_with_photo("return-keeps-selection");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    let lib = host.library();
+    lib.run("photo.virtualCopy", json!({"ids": [orig.0]})).unwrap();
+    let copy = lib.session.catalog.photos().map(|p| p.id).find(|id| *id != orig).unwrap();
+    lib.run("library.select", json!({"ids": [copy.0, orig.0], "active": copy.0})).unwrap();
+    host.switch(&ctx, Module::Library);
+    let selection = &catalog(&host).selection;
+    assert_eq!(selection.ids, [copy, orig]);
+    assert_eq!(selection.active, Some(orig));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Undoing the new Develop layer lasts: the next trip to the Library and back does not add it again.
+#[test]
+fn undone_develop_edits_stay_undone_after_a_module_switch() {
+    let (dir, path, lib, orig) = library_with_photo("develop-undo");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    host.switch(&ctx, Module::Library);
+    host.switch(&ctx, Module::Develop);
+    host.library().run("develop.set", json!({ "control": "light.exposure", "value": 1.0 })).unwrap();
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 3);
+    assert!(host.editor.session.undo());
+    assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 2);
+    host.switch(&ctx, Module::Library);
+    host.switch(&ctx, Module::Compositing);
+    let layers = &host.editor.session.active().unwrap().doc.layers;
+    assert_eq!(layers.len(), 2, "{:?}", layers.iter().map(|l| &l.name).collect::<Vec<_>>());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A Library edit (Sync, Paste, a preset) made outside a Develop session entered from a retouched
+/// document leaves that document as it is and says so once; Develop entered from it brings the edit in.
+#[test]
+fn library_edits_wait_for_develop_from_a_retouched_document() {
+    let (dir, path, lib, orig) = library_with_photo("develop-library-edit");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    host.switch(&ctx, Module::Library);
+    host.library().run("develop.set", json!({ "control": "light.exposure", "value": 1.0, "ids": [orig.0] })).unwrap();
+    let notices = host.editor.ui.notices.len();
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 2, "retouched document keeps its layers");
+    assert_eq!(host.editor.ui.notices.len(), notices + 1, "one notice about the newer Library edit");
+    host.switch(&ctx, Module::Library);
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.ui.notices.len(), notices + 1, "the same edit is not announced again");
+    host.switch(&ctx, Module::Develop);
+    host.switch(&ctx, Module::Compositing);
+    let layers = &host.editor.session.active().unwrap().doc.layers;
+    assert_eq!(layers.len(), 3, "{:?}", layers.iter().map(|l| &l.name).collect::<Vec<_>>());
+    assert_eq!(layers[2].name, "Develop 2");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -993,6 +1319,26 @@ fn module_shortcuts_cannot_hide_custom_filter_modals() {
         photocraft_ui_egui::distort_ui::menu(&mut h.host.editor, &ctx, command, &json!({"ui":{"cancel":true}})).unwrap().unwrap();
         assert!(photocraft_ui_egui::native_menu::commands_available(&h.host.editor));
     }
+}
+
+#[test]
+fn module_shortcuts_wait_for_an_open_library_dialog() {
+    let (dir, host) = workflow_host("module-keys-under-library-dialog");
+    let mut h = RoundTripUi::new(host);
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Library);
+    for _ in 0..4 {
+        h.step(vec![]);
+    }
+    h.host.library.as_mut().unwrap().run("dialog.export", json!({})).unwrap();
+    h.step(vec![]);
+    h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+    assert_eq!(h.host.mode, Module::Library);
+    assert!(h.host.library.as_ref().unwrap().ui.dialog.is_some(), "the half-filled dialog stays open");
+    let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+    drop(h);
+    previews.retire();
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -2105,6 +2451,55 @@ fn derived_edit_inherits_organization_without_reusing_source_develop_or_dimensio
     assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
     std::fs::remove_dir_all(dir).unwrap();
 }
+#[test]
+fn derived_edit_inherits_iptc_text_from_its_source() {
+    let (dir, _path, mut lib, original) = library_with_photo("derived-iptc");
+    let fields = json!({"ids":[original.0],"title":"Hero","caption":"Kitchen at dusk","copyright":"(c) Studio","creator":"Photographer",
+        "location":"Lake house","city":"Town","state":"NH","country":"USA"});
+    lib.session.execute("photo.setMeta", &fields).unwrap();
+    let saved = dir.join("derivative-iptc.png");
+    image::RgbaImage::from_pixel(7, 5, image::Rgba([100u8, 60, 30, 255])).save(&saved).unwrap();
+    let Some(LibraryUpdate::Added { id, .. }) = add_saved_file(&mut lib.session, &saved.to_string_lossy(), Some(original.0), false).unwrap() else {
+        panic!("new derivative")
+    };
+    let m = &lib.session.catalog.photo(id).unwrap().meta;
+    assert_eq!(
+        [&m.title, &m.caption, &m.copyright, &m.creator, &m.location, &m.city, &m.state, &m.country],
+        ["Hero", "Kitchen at dusk", "(c) Studio", "Photographer", "Lake house", "Town", "NH", "USA"]
+    );
+    drop(lib);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn derived_edit_keeps_its_own_iptc_text() {
+    let (dir, _path, mut lib, original) = library_with_photo("derived-own-iptc");
+    lib.session.execute("photo.setMeta", &json!({"ids":[original.0],"title":"Hero","creator":"Photographer","city":"Town"})).unwrap();
+    let saved = dir.join("derivative-own.png");
+    image::RgbaImage::from_pixel(7, 5, image::Rgba([100u8, 60, 30, 255])).save(&saved).unwrap();
+    let own = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Retouched</rdf:li></rdf:Alt></dc:title>
+<dc:creator><rdf:Seq><rdf:li>Retoucher</rdf:li></rdf:Seq></dc:creator>
+</rdf:Description></rdf:RDF></x:xmpmeta>"#;
+    std::fs::write(dir.join("derivative-own.xmp"), own).unwrap();
+    let Some(LibraryUpdate::Added { id, .. }) = add_saved_file(&mut lib.session, &saved.to_string_lossy(), Some(original.0), false).unwrap() else {
+        panic!("new derivative")
+    };
+    let m = &lib.session.catalog.photo(id).unwrap().meta;
+    assert_eq!([&m.title, &m.creator, &m.city], ["Retouched", "Retoucher", "Town"]);
+    drop(lib);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn compositing_document_carries_the_library_title_and_copyright() {
+    let (dir, path, mut lib, photo) = library_with_photo("document-iptc");
+    lib.session.execute("photo.setMeta", &json!({"ids":[photo.0],"title":"Hero","copyright":"(c) Studio"})).unwrap();
+    let host = host_with_round_trip(lib, photo, &path);
+    let xmp = host.editor.session.documents()[0].doc.metadata.xmp.clone().unwrap_or_default();
+    assert!(xmp.contains("Hero") && xmp.contains("(c) Studio"), "{xmp}");
+    drop(host);
+    std::fs::remove_dir_all(dir).unwrap();
+}
 fn workflow_theme(host: &mut Host, kind: photocraft_ui_egui::theme::ThemeKind) {
     host.editor.ui.theme = kind;
     host.editor.run("prefs.set", json!({"values":{"interface.theme":kind.id()}})).unwrap();
@@ -2122,6 +2517,24 @@ fn workflow_host(tag: &str) -> (PathBuf, Host) {
     assert!(!host.editor.has_unsaved(), "theme fixture has no user edits to bypass");
     (dir, host)
 }
+
+/// A close the Library held back while Compositing was shown brings the Library forward, where
+/// its prompt says the catalog wasn't saved.
+#[test]
+fn a_held_back_close_shows_the_library_prompt_from_compositing() {
+    let (dir, host) = workflow_host("held-close");
+    let mut h = RoundTripUi::new(host);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert_eq!(h.host.mode, Module::Compositing);
+    h.host.library.as_mut().unwrap().quit_prompt = Some("1 change couldn't be written to disk".into());
+    h.step(vec![]);
+    assert_eq!(h.host.mode, Module::Library);
+    drop(h);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn host_theme_union_survives_real_module_switches() {
     use photocraft_ui_egui::theme::{ThemeKind, Tokens as EditorTokens};
@@ -2625,6 +3038,28 @@ fn library_navigation_history_versions_keep_module_and_footer_bounds() {
     previews.retire();
     std::fs::remove_dir_all(dir).unwrap();
 }
+/// Info and Keywords from Develop's tool strip keep the title bar on Develop.
+#[test]
+fn develop_info_and_keywords_keep_the_develop_module() {
+    let (dir, host) = workflow_host("develop-info");
+    let mut h = RoundTripUi::new(host);
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Develop);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    for command in ["panel.info", "panel.keywords"] {
+        h.host.library.as_mut().unwrap().run(command, json!({})).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        assert_eq!(h.host.mode, Module::Develop, "{command}");
+    }
+    let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+    drop(h);
+    previews.retire();
+    std::fs::remove_dir_all(dir).unwrap();
+}
 #[test]
 fn library_navigation_toast_overlay_contrast_light_and_classic() {
     use photocraft_ui_egui::theme::ThemeKind;
@@ -2961,6 +3396,40 @@ fn lrc_one_preferences_shell_drafts_apply_cancel_and_one_store_in_every_module()
     drop(h);
     std::fs::remove_dir_all(dir).unwrap();
 }
+/// Preferences opened in Compositing leaves the Library's catalog closed until one of the
+/// Library's own pages is shown.
+#[test]
+fn compositing_preferences_open_the_library_only_for_its_pages() {
+    let (dir, _, library, _) = library_with_photo("lazy-preferences");
+    let location = library.ui.settings.library_path.clone();
+    drop(library);
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.session.edit_prefs(|prefs| {
+        prefs.library.insert("settings".into(), json!({ "libraryPath": location }));
+    });
+    let mut host = Host::new(editor);
+    host.editor.host_modes = true;
+    host.mode = Module::Compositing;
+    let mut h = RoundTripUi::new(host);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert!(h.host.library.is_none());
+    photocraft_ui_egui::prefs_ui::open_preferences(&mut h.host.editor, "general");
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert!(h.host.library.is_none(), "Compositing's pages do not open the catalog");
+    photocraft_ui_egui::prefs_ui::open_preferences(&mut h.host.editor, "library.general");
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert_eq!(h.host.library.as_ref().map(|lib| lib.ui.settings.library_path.clone()), Some(location));
+    assert!(!h.host.editor.ui.dialogs[0].fields["hostValues"].is_null(), "the Library page drafts from the opened Library");
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn lrc_module_picker_right_edge_matches_library_develop_pixel_and_vector_personas() {
     let (dir, host) = workflow_host("lrc-picker");
@@ -3057,6 +3526,27 @@ fn lrc_shared_interface_language_and_library_language_commands_use_one_preferenc
     h.step(vec![]);
     assert_eq!(h.host.editor.session.prefs().interface.language, "fr");
     assert_eq!(h.host.library.as_ref().unwrap().ui.language, li_i18n::Lang::Fr);
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Develop and Compositing share one AI Remove engine choice: a pick in either is used by both.
+#[test]
+fn ai_remove_engine_choice_is_shared_by_develop_and_compositing() {
+    let (dir, host) = workflow_host("shared-remove-engine");
+    let mut h = RoundTripUi::new(host);
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Develop);
+    for _ in 0..4 {
+        h.step(vec![]);
+    }
+    h.host.editor.ui.ai.remove_engine = "qwen-int8".into();
+    h.step(vec![]);
+    assert_eq!(h.host.library.as_ref().unwrap().ui.remove_engine, "qwen-int8", "Develop follows Compositing");
+    h.host.library.as_mut().unwrap().ui.remove_engine = "lama".into();
+    h.step(vec![]);
+    assert_eq!(h.host.editor.ui.ai.remove_engine, "lama", "Compositing follows Develop");
+    assert_eq!(h.host.library.as_ref().unwrap().ui.remove_engine, "lama");
     drop(h);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -3392,6 +3882,39 @@ fn shared_shell_capture_retains_existing_library_dialog_and_field_drafts() {
     previews.retire();
     std::fs::remove_dir_all(dir).unwrap();
 }
+/// A Library export that ends while Compositing is shown completes there and its result shows as
+/// a Compositing notice.
+#[test]
+fn library_export_finishes_and_reports_while_compositing_is_shown() {
+    let (dir, mut host) = workflow_host("export-in-compositing");
+    let output = dir.join("exported");
+    std::fs::create_dir(&output).unwrap();
+    host.library.as_mut().unwrap().services.write_shared = Some(std::sync::Arc::new(lightcraft_engine::export::write_file));
+    let mut h = RoundTripUi::new(host);
+    // The Library is drawn once, as in the app, before its background work runs unseen.
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Library);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    h.host.switch(&ctx, Module::Compositing);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert_eq!(h.host.mode, Module::Compositing);
+    let photo = catalog(&h.host).catalog.photos().next().unwrap().id;
+    h.host.library.as_mut().unwrap().run("app.export", json!({"ids":[photo.0],"dir":output.to_string_lossy(),"format":"png","background":true})).unwrap();
+    assert!(h.host.library.as_ref().unwrap().export.is_some(), "the export runs in the background");
+    h.wait_for(|host| host.library.as_ref().unwrap().export.is_none());
+    assert_eq!(h.host.mode, Module::Compositing);
+    assert!(h.host.library.as_ref().unwrap().last_export_result.is_some());
+    assert!(h.host.editor.ui.notices.iter().any(|notice| notice.title.starts_with("Exported 1 of 1") && !notice.error), "{:?}", h.host.editor.ui.notices);
+    let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+    drop(h);
+    previews.retire();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn shared_shell_background_export_completes_while_capture_owns_input() {
     use std::sync::{

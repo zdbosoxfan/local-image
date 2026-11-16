@@ -1,4 +1,5 @@
-//! ⌘K command palette: fuzzy search over every menu command and tool.
+//! Edit › Search command palette: fuzzy search over every menu command and tool, plus the
+//! module switches when hosted.
 
 use egui::{Align2, Color32, CornerRadius, RichText, Sense, Stroke, vec2};
 
@@ -108,6 +109,15 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             hits.push((s + 2, format!("tool:{tool:?}"), tl!(tool.label()).into(), Some(format!("Tool   {}", tool.key())), true));
                         }
                     }
+                    if app.host_modes {
+                        for module in crate::Module::ALL.into_iter().filter(|m| *m != app.current_module) {
+                            let label = li_i18n::tr(lang, module.label());
+                            if let Some(s) = fuzzy_score(&q, &format!("{label} {}", module.label())) {
+                                let key = crate::shortcuts::pretty(&format!("Cmd+Alt+{}", module.digit()));
+                                hits.push((s + 2, format!("module:{module:?}"), label.to_string(), Some(key), true));
+                            }
+                        }
+                    }
                     hits.sort_by(|a, b| b.0.cmp(&a.0).then(a.2.cmp(&b.2)));
                     hits.truncate(12);
                     let sel_id = egui::Id::new("palette-sel");
@@ -178,6 +188,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             if let Some(t) = crate::state::Tool::from_name(tool) {
                 app.ui.tool = t;
             }
+        } else if let Some(name) = id.strip_prefix("module:") {
+            app.switch_module = crate::Module::ALL.into_iter().find(|m| format!("{m:?}") == name);
         } else if let Err(e) = crate::menus::invoke(app, ctx, &id, serde_json::json!({})) {
             app.ui.status = e;
         }
@@ -210,6 +222,22 @@ mod tests {
             })
             .collect();
         assert_eq!(interrupts, [None, Some(false), Some(false), Some(false)]);
+    }
+
+    #[test]
+    fn hosted_palette_switches_module() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.host_modes = true;
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        app.ui.palette_open = true;
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("palette-query"), "develop".to_string()));
+        let mut raw = egui::RawInput::default();
+        raw.events.push(Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
+        ctx.run_ui(raw, |ui| super::show(&mut app, ui.ctx())).textures_delta.clear();
+        assert_eq!(app.switch_module, Some(crate::Module::Develop));
+        assert!(!app.ui.palette_open);
     }
 
     #[test]

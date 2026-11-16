@@ -86,6 +86,14 @@ pub fn sharp_mask_at(b2: &[f32], w: usize, h: usize, x: usize, y: usize, k: &Sha
     smooth(0.5 * k.mask_t, k.mask_t, e)
 }
 
+/// The detail band sharpening amplifies (EV) at a pixel of log luminance `l` with its blurs `b1`,
+/// `b2`: the unsharp mask, towards the deconvolution-like 2·h1 − blur(h1) with Detail.
+#[inline]
+pub fn detail_band(k: &SharpK, l: f32, b1: f32, b2: f32) -> f32 {
+    let h1 = l - b1;
+    h1 + k.detail * (h1 - (b1 - b2))
+}
+
 /// Sharpening's log2 gain at `(x, y)` for `amount` (Amount / 100; negative, from a local
 /// Sharpness below 0, blurs towards the first blur), on log luminance `l` with its blurs `b1`,
 /// `b2`.
@@ -98,9 +106,7 @@ pub fn sharpen_at(amount: f32, k: &SharpK, l: &[f32], b1: &[f32], b2: &[f32], w:
     if amount < 0.0 {
         return amount.max(-1.0) * h1;
     }
-    // unsharp mask, towards the deconvolution-like 2·h1 − blur(h1) with Detail
-    let hb = b1[i] - b2[i];
-    let det = h1 + k.detail * (h1 - hb);
+    let det = detail_band(k, lc, b1[i], b2[i]);
     let (x0, x1, y0, y1) = (x.saturating_sub(1), (x + 1).min(w - 1), y.saturating_sub(1), (y + 1).min(h - 1));
     let (mut mn, mut mx) = (lc, lc);
     for yy in y0..=y1 {
@@ -128,4 +134,11 @@ pub fn sharp_mask_plane(b2: &GrayFrame, k: &SharpK) -> GrayFrame {
         }
     });
     out
+}
+
+/// The detail band as a plane (the Alt-drag preview of Radius and Detail,
+/// [`crate::Overlay::SharpenDetail`]), from log luminance `l` and its blurs `b1`, `b2`.
+pub fn sharp_detail_plane(l: &GrayFrame, b1: &GrayFrame, b2: &GrayFrame, k: &SharpK) -> GrayFrame {
+    let data = l.data.iter().zip(&b1.data).zip(&b2.data).map(|((l, b1), b2)| detail_band(k, *l, *b1, *b2)).collect();
+    GrayFrame { width: l.width, height: l.height, data }
 }

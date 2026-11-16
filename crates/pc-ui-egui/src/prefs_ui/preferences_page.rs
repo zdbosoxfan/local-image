@@ -120,7 +120,7 @@ pub(super) fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map
                     crate::widgets::hairline(ui);
                     crate::widgets::section_label(ui, "Compositing");
                     for (id, title) in SECTIONS {
-                        if ["general", "interface", "performance", "integrations"].contains(&id) {
+                        if ["general", "interface", "performance", "integrations", "rawDefaults"].contains(&id) {
                             continue;
                         }
                         if ui.push_id(id, |ui| prefs_nav_row(ui, tl!(title), section == id, !has_visible_fields(&values, id))).inner {
