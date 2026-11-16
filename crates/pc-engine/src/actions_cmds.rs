@@ -493,8 +493,11 @@ mod tests {
         s.actions.script_steps = crate::automate_cmds::MAX_SCRIPT_STEPS - 3;
         s.actions.list.push(Action { name: "queries".into(), steps: vec![("actions.list".to_string(), json!({})); 3] });
         let r = s.execute("file.scripts.browse", json!({"steps": [["actions.play", {"action": "queries"}]]})).unwrap();
-        assert_eq!(r["results"][0]["result"]["ran"], 2, "{r}");
-        assert!(r["results"][0]["result"]["failed"]["error"].as_str().unwrap().contains("steps in all"), "{r}");
+        // The play ran and then failed at the limit (the script reports it as a failed play),
+        // rather than being refused before any step ran.
+        let error = r["results"][0]["error"].as_str().unwrap();
+        assert!(error.starts_with("actions.play failed:") && error.contains("steps in all"), "{r}");
+        assert_eq!(s.actions.script_steps, crate::automate_cmds::MAX_SCRIPT_STEPS, "the script step and the two steps that ran");
     }
 
     #[test]
