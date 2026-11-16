@@ -6,7 +6,7 @@
 //!   soft transitions (hair, blur) inside a band of `radius` pixels around the selection edge.
 //!   "Smart radius" adapts the band per pixel to the transition width observed in the image.
 //! * Then, in Photoshop's order: Smooth, Feather (Gaussian, σ = feather / 2), Contrast and
-//!   Shift Edge (grey dilation / erosion).
+//!   Shift Edge (a curve on each pixel's coverage).
 //! * **Decontaminate colours** replaces fringe colours by the normalised-convolution average of
 //!   nearby fully selected pixels, blended by `amount` and the fringe's transparency.
 //!
@@ -307,7 +307,7 @@ mod tests {
             hash(&alpha),
             hash(&fg.px.iter().flatten().copied().collect::<Vec<_>>()),
         ];
-        assert_eq!(actual, [415457246788219432, 2673089081770112874, 4217930111347877778, 7289351520849440030, 6249743762746608584]);
+        assert_eq!(actual, [415457246788219432, 2673089081770112874, 4243238287844847825, 7289351520849440030, 6249743762746608584]);
     }
 
     /// Horizontal blend from `a` (left) to `b` (right) across a Gaussian-blurred edge at x = 40.
@@ -377,12 +377,30 @@ mod tests {
         assert!(f[5 * w + 29] > 0.5 && f[5 * w + 29] < 0.8 && f[5 * w + 31] > 0.1);
         let c = refine_buffer(None, &f, w, h, &RefineParams { contrast: 100.0, ..Default::default() });
         assert!(c[5 * w + 29] == 1.0 && c[5 * w + 31] == 0.0);
-        let grown = refine_buffer(None, &m, w, h, &RefineParams { shift_edge: 100.0, ..Default::default() });
-        assert_eq!(grown[5 * w + 33], 1.0);
-        assert_eq!(grown[5 * w + 34], 0.0);
-        let shrunk = refine_buffer(None, &m, w, h, &RefineParams { shift_edge: -50.0, ..Default::default() });
-        assert_eq!(shrunk[5 * w + 27], 1.0);
-        assert_eq!(shrunk[5 * w + 28], 0.0);
+        // Shift Edge leaves a hard edge where it is, at any amount: only soft coverage moves.
+        for shift_edge in [-100.0, -50.0, 50.0, 100.0] {
+            let s = refine_buffer(None, &m, w, h, &RefineParams { shift_edge, ..Default::default() });
+            assert_eq!(s, m, "Shift Edge {shift_edge}% moved a hard edge");
+        }
+        // Coverage before → after, read off the reference application's feathered edges.
+        for (shift_edge, before, after) in [
+            (-100.0, 0.898, 0.153),
+            (-100.0, 0.612, 0.031),
+            (-100.0, 0.965, 0.357),
+            (-50.0, 0.537, 0.141),
+            (-50.0, 0.898, 0.557),
+            (100.0, 0.102, 0.847),
+            (100.0, 0.388, 0.969),
+        ] {
+            let flat = vec![before; w * h];
+            let s = refine_buffer(None, &flat, w, h, &RefineParams { shift_edge, ..Default::default() });
+            assert!((s[5 * w + 30] - after).abs() < 0.01, "{shift_edge}%: {before} became {}, expected {after}", s[5 * w + 30]);
+        }
+        // So a feathered edge moves: at −100% its half-covered point lands where it was 98%.
+        let soft = refine_buffer(None, &m, w, h, &RefineParams { feather: 6.0, ..Default::default() });
+        let pulled = refine_buffer(None, &m, w, h, &RefineParams { feather: 6.0, shift_edge: -100.0, ..Default::default() });
+        let half = |v: &[f32]| (0..w).find(|x| v[5 * w + x] < 0.5).unwrap_or(w);
+        assert!(half(&pulled) < half(&soft), "−100% did not pull the soft edge in");
         let sm = refine_buffer(None, &m, w, h, &RefineParams { smooth: 50.0, ..Default::default() });
         assert!(sm[5 * w + 10] == 1.0 && sm[5 * w + 50] == 0.0);
     }

@@ -14089,6 +14089,90 @@
         },
         {
           "name": "PhotoCraft",
+          "used_for": "fix(ui-egui): the rasterize prompt no longer replays the click that opened it (#8806)",
+          "commit": "54515f94b34786dc4c3d04a57cb8d66f838ea59f",
+          "ours": "crates/pc-ui-egui/src/rasterize_prompt.rs, crates/pc-ui-egui/src/rasterize_prompt_tests.rs, crates/pc-ui-egui/src/vector_packages/persona.rs, docs/control-protocol.md",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/54515f94b34786dc4c3d04a57cb8d66f838ea59f"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Magnetic Lasso: the edge comes from the visible composite, not the active layer (#11686)",
+          "commit": "70e6b0e7b15c8c3bac05c14fa821c57011cc1b3c",
+          "ours": "crates/pc-engine/src/magnetic_cmds.rs, crates/pc-engine/src/magnetic_cmds/tests.rs, crates/pc-ui-egui/src/magnetic_lasso_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/70e6b0e7b15c8c3bac05c14fa821c57011cc1b3c"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Magic Wand: Anti-alias keeps the region whole and softens only near-matching neighbours (#11776)",
+          "commit": "e25be5e77bfc440cd21e7c8577a2a0a264d54b2a",
+          "ours": "crates/pc-algo/src/selection.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/e25be5e77bfc440cd21e7c8577a2a0a264d54b2a"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Selecting subject now automatically applies to selected layer, and uses sampleAllLayers only when no layer is selected",
+          "commit": "375d4894a119b6cd5933d53e8fe7f506d2783392",
+          "ours": "crates/pc-engine/src/smartselect_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/375d4894a119b6cd5933d53e8fe7f506d2783392"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Select and Mask: Shift Edge is a curve on coverage, so hard edges stay put",
+          "commit": "bf80e2d2fa6a565f9d5d4bc53271fb9597adaa39",
+          "ours": "crates/li-matte/src/matting.rs, crates/pc-algo/src/matting.rs, crates/pc-algo/tests/coverage/matting_coverage.rs, crates/pc-engine/src/smartselect_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/bf80e2d2fa6a565f9d5d4bc53271fb9597adaa39"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "PSD save: choose PSB by the encoded size, not the raw estimate (#5285)",
+          "commit": "1e076433dce771aad46d10f4530745acfb5547a7",
+          "ours": "crates/pc-psd/src/compression.rs, crates/pc-psd/src/file.rs, crates/pc-psd/src/resources.rs, crates/pc-io/src/psd_export.rs, crates/pc-io/src/psd_export/tests.rs, crates/pc-io/src/multichannel_map.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/1e076433dce771aad46d10f4530745acfb5547a7"
+        },
+        {
+          "name": "PhotoCraft",
           "used_for": "Expose Content-Aware Fill scale and mirror options",
           "commit": "4875f94ebbd13b3f9f3c244ba28a13c8785008c9",
           "ours": "crates/pc-engine/src/fill_cmds.rs, crates/pc-engine/src/commands.rs",
