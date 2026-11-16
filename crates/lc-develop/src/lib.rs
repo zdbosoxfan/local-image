@@ -78,6 +78,22 @@ impl DevelopSettings {
         Ok(settings)
     }
 
+    /// [`Self::from_json`] for settings from outside the app, such as a sidecar's `lc:settings`:
+    /// every slider clamped through its control spec and the crop angle kept within ±45° (not
+    /// finite: 0). The crop rect is bounded where the photo's size is known
+    /// (`CropGeometry::bounded`, applied by the pipeline).
+    pub fn from_untrusted_json(v: &Value) -> Result<DevelopSettings, serde_json::Error> {
+        let mut s = DevelopSettings::from_json(v)?;
+        for c in controls::CONTROLS {
+            if let Some(v) = controls::get(&s, c.id) {
+                controls::set(&mut s, c.id, v);
+            }
+        }
+        let g = &mut s.crop.geometry;
+        g.angle = if g.angle.is_finite() { g.angle.clamp(-45.0, 45.0) } else { 0.0 };
+        Ok(s)
+    }
+
     /// Merge a partial JSON object into these settings (fields not mentioned are kept).
     pub fn merged(&self, partial: &Value) -> Result<DevelopSettings, serde_json::Error> {
         let mut v = self.to_json();
@@ -148,9 +164,15 @@ impl DevelopSettings {
         }
     }
 
-    /// Next free mask id.
+    /// Next free mask id: one past the highest, or, when that is `u32::MAX` (ids come from files,
+    /// pastes and agents), the lowest one no mask uses.
     pub fn next_mask_id(&self) -> u32 {
-        self.masks.iter().map(|m| m.id).max().map_or(1, |m| m + 1)
+        let used = |id: u32| self.masks.iter().any(|m| m.id == id);
+        match self.masks.iter().map(|m| m.id).max() {
+            None => 1,
+            // fewer masks than ids: one of the first `masks.len() + 1` is free
+            Some(max) => max.checked_add(1).or_else(|| (1..=u32::MAX).find(|&id| !used(id))).unwrap_or(0),
+        }
     }
 }
 
@@ -161,6 +183,70 @@ mod tests_ai;
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Settings with one colour-range mask of `n` distinct samples (built in code, so not capped).
+    fn color_range_settings(n: usize) -> DevelopSettings {
+        let samples = (0..n).map(|i| [i as f64 / 1000.0, 0.1, -0.1]).collect();
+        let mut s = DevelopSettings::default();
+        s.masks.push(Mask {
+            id: 1,
+            components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::ColorRange { samples, refine: 50.0 } }],
+            ..Default::default()
+        });
+        s
+    }
+
+    fn color_range_samples(s: &DevelopSettings) -> &[[f64; 3]] {
+        match s.masks.first().and_then(|m| m.components.first()).map(|c| &c.shape) {
+            Some(MaskShape::ColorRange { samples, .. }) => samples,
+            other => panic!("expected a colour range, got {other:?}"),
+        }
+    }
+
+    /// A sidecar's `lc:settings`, a preset, `develop.merge` or a catalog / history load took any
+    /// number of colour-range samples (render cost is pixels x samples). Every load keeps the first
+    /// [`MAX_COLOR_RANGE_SAMPLES`], in order.
+    #[test]
+    fn color_range_samples_are_capped_however_settings_load() {
+        let big = color_range_settings(1000);
+        let want = &color_range_samples(&big)[..MAX_COLOR_RANGE_SAMPLES];
+        let v = big.to_json();
+        let loaded = DevelopSettings::from_json(&v).unwrap();
+        assert_eq!(color_range_samples(&loaded), want);
+        let from_str: DevelopSettings = serde_json::from_str(&v.to_string()).unwrap();
+        assert_eq!(color_range_samples(&from_str), want);
+        let merged = DevelopSettings::default().merged(&json!({"masks": v["masks"]})).unwrap();
+        assert_eq!(color_range_samples(&merged), want);
+        let preset = presets::Preset {
+            id: "p".into(),
+            name: "P".into(),
+            group: "G".into(),
+            settings: json!({"masks": v["masks"]}),
+            favorite: false,
+            builtin: false,
+        };
+        assert_eq!(color_range_samples(&preset.apply(&DevelopSettings::default(), 1.0)), want);
+        // a capped list round-trips, and a short one is unchanged
+        assert_eq!(DevelopSettings::from_json(&loaded.to_json()).unwrap(), loaded);
+        let few = color_range_settings(2);
+        assert_eq!(DevelopSettings::from_json(&few.to_json()).unwrap(), few);
+        // a list that isn't samples is still refused
+        let mut bad = v.clone();
+        bad["masks"][0]["components"][0]["shape"]["samples"] = json!([[0.1, 0.2]]);
+        assert!(DevelopSettings::from_json(&bad).is_err());
+    }
+
+    #[test]
+    fn next_mask_id_after_the_highest_id_is_unused() {
+        // ids come from files, pastes and agents: one at the limit must not overflow (a panic in
+        // debug builds) or wrap to an id another mask has
+        let mut s = DevelopSettings::default();
+        assert_eq!(s.next_mask_id(), 1);
+        s.masks = vec![Mask { id: u32::MAX, ..Default::default() }, Mask { id: 1, ..Default::default() }];
+        let next = s.next_mask_id();
+        assert!(!s.masks.iter().any(|m| m.id == next), "{next}");
+        assert_eq!(next, 2);
+    }
 
     #[test]
     fn sections_reset_to_the_photos_own_defaults() {

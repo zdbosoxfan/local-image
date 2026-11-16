@@ -677,6 +677,36 @@ fn psb_import_retains_capture_time_and_all_metadata() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// A photo's Exif Make, Model and LensMake reach an exported JPEG apart, as stitching tools read
+/// them (upstream LightCraft a856df5f).
+#[test]
+fn export_writes_camera_make_and_lens_make_to_exif() {
+    let dir = temp_dir("export-make-exif");
+    let src = dir.join("Shot.jpg");
+    let metadata = lightcraft_meta::Metadata {
+        make: Some("Maker".into()),
+        model: Some("Body X2".into()),
+        lens_make: Some("LensCo".into()),
+        lens_model: Some("24-105mm F4".into()),
+        ..Default::default()
+    };
+    let exif = lightcraft_meta::write_exif(&metadata);
+    let img = li_raster::Rgba8::from_fn(48, 32, |x, y| [(x * 5) as u8, (y * 7) as u8, 120, 255]);
+    let meta = lightcraft_codecs::EncodeMeta { exif: Some(&exif), ..Default::default() };
+    std::fs::write(&src, lightcraft_codecs::encode_jpeg(&lightcraft_codecs::EncodeImage::rgba8(&img), 90, Default::default(), &meta).unwrap())
+        .unwrap();
+    let mut s = Session::new().with_fs();
+    s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    let id = s.catalog.photos().next().unwrap().id;
+    let e = export_photo(&mut s, id, &ExportOptions::from_json(&json!({"format": "jpeg", "metadata": "all"})), 1).unwrap();
+    let back = lightcraft_meta::extract(&e.bytes);
+    assert_eq!(back.make.as_deref(), Some("Maker"), "Exif Make: {back:?}");
+    assert_eq!(back.model.as_deref(), Some("Body X2"), "Exif Model holds the model alone: {back:?}");
+    assert_eq!(back.lens_make.as_deref(), Some("LensCo"), "Exif LensMake: {back:?}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn remove_location_refuses_a_psd_that_embeds_gps() {
     let dir = temp_dir("export-noloc-psd");
@@ -1111,4 +1141,17 @@ fn library_exports_keep_fields_past_the_xmp_retention_budget() {
     let back = lightcraft_meta::extract(&exported.bytes);
     assert_eq!((back.copyright, back.artist, back.city), (metadata.copyright, metadata.artist, metadata.city));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// An absurd render or export size is refused, not a multiply overflow.
+#[test]
+fn huge_output_size_is_an_error() {
+    use lightcraft_pipeline::{OutputDepth, OutputSpace};
+    let mut s = Session::with_demo();
+    let id = s.active().unwrap();
+    let huge = usize::MAX >> 8;
+    assert!(s.render_export(id, huge, huge, OutputSpace::Srgb, OutputDepth::U8).is_err());
+    assert!(s.render_export(id, 70_000, 10, OutputSpace::Srgb, OutputDepth::U8).is_err());
+    assert!(s.render_now(id, huge, huge).is_err());
+    assert!(s.render_now(id, 10, 70_000).is_err());
 }

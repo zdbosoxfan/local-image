@@ -379,3 +379,32 @@ fn minified_panorama_filters_fine_gratings() {
     let rms = (squared / f64::from(count)).sqrt();
     assert!(rms < 0.06, "aliased grating RMS {rms}");
 }
+
+/// A few frames can settle the fitted focal length below the lens's, and a canvas sized from it
+/// holds fewer pixels than the photos. EXIF's focal length sets the native scale (upstream
+/// LightCraft fe632e05).
+#[test]
+fn the_lens_focal_length_sets_the_native_scale() {
+    let e = env();
+    let f = 800.0; // what the frames were shot with: the fit settles near it
+    let lens = 960.0; // what EXIF says, on an 800-pixel long edge
+    let shots = [
+        Shot { yaw: -22.0, pitch: 0.5, roll: 0.3, gain: 1.0 },
+        Shot { yaw: 0.0, pitch: -0.4, roll: 0.0, gain: 1.0 },
+        Shot { yaw: 21.0, pitch: 0.8, roll: -0.4, gain: 1.0 },
+    ];
+    let frames: Vec<Frame> = shots
+        .iter()
+        .map(|s| {
+            let mut frame = shoot(&e, &rot(s.yaw, s.pitch, s.roll), f, 800, 600, s.gain);
+            frame.metadata.focal_length_35mm = Some(lens / 800.0 * 36.0);
+            frame
+        })
+        .collect();
+    let res = stitch(frames, &PanoOptions { projection: Projection::Spherical, ..Default::default() }, &no_progress).unwrap();
+    assert_eq!(res.used.len(), 3, "all three frames must connect: {:?}", res.used);
+    assert!((res.focal / lens - 1.0).abs() < 0.01, "output focal {} for a {lens} px lens", res.focal);
+    // a spherical canvas is the field of view at the output focal length
+    let native = res.fov.0.to_radians() * lens;
+    assert!((res.image.width as f64 / native - 1.0).abs() < 0.02, "canvas {} px wide for {native} px at the lens's focal length", res.image.width);
+}

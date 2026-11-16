@@ -19,7 +19,7 @@ Use explicit colour domains:
   clamping and extrapolation policies.
 
 `lutfile::parse_with_domain` reads Cube, 3DL and unmasked baked Look tables, retaining Cube
-input domains. Nonlinear 3DL shapers and masked Look files are rejected explicitly. Use
+input domains. 3DL shapers are applied before the table; masked Look files are rejected explicitly. Use
 `lut::{normalize_domain,sample_rgb}` for table evaluation. Tetrahedral accumulation rounds
 once from f64; trilinear remains available for existing document choices. GPU execution uses
 the corresponding native-f32 shader implementation.
