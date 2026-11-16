@@ -35,8 +35,8 @@ use tiff::encoder::colortype::{self, ColorType as TiffColorType};
 use tiff::encoder::{Rational, TiffEncoder, TiffKind, TiffKindBig, TiffKindStandard, TiffValue};
 use tiff::tags::{PhotometricInterpretation, ResolutionUnit, SampleFormat, Tag, Type};
 
-use super::tiff_exif;
 use super::tiff_ifd::{self as ifd, File, Ifd};
+use super::{tiff_exif, tiff_ycbcr};
 use crate::Format;
 use crate::error::CodecError;
 use crate::fidelity::Plan;
@@ -312,6 +312,8 @@ struct Layout {
     invert: bool,
     /// Associated (premultiplied) alpha to turn straight.
     premultiplied: bool,
+    /// The sample the alpha is read from, when it is not the one after the colour samples.
+    alpha_sample: Option<usize>,
     /// Palette images: the colour map (16-bit RGB per index).
     palette: Option<Vec<[u16; 3]>>,
     /// Upper bound for one chunk's scratch buffer.
@@ -322,6 +324,13 @@ impl Layout {
     fn out_channels(&self) -> usize {
         self.out_layout.channels()
     }
+    /// The sample in the file that output channel `k` is read from.
+    fn sample_of(&self, k: usize) -> usize {
+        match self.alpha_sample {
+            Some(at) if k + 1 == self.out_channels() => at,
+            _ => k,
+        }
+    }
     fn out_row(&self) -> usize {
         self.w * self.out_channels() * self.out.bytes()
     }
@@ -331,7 +340,7 @@ impl Layout {
     }
     /// Chunk rows are output rows: copied without conversion.
     fn copyable(&self) -> bool {
-        !self.planar && self.palette.is_none() && self.src.is_identity() && self.chunk_spp == self.out_channels()
+        self.alpha_sample.is_none() && !self.planar && self.palette.is_none() && self.src.is_identity() && self.chunk_spp == self.out_channels()
     }
 }
 
@@ -340,20 +349,33 @@ fn is_eof(e: &tiff::TiffError) -> bool {
     matches!(e, tiff::TiffError::IoError(io) if io.kind() == io::ErrorKind::UnexpectedEof)
 }
 
-/// Read SOF without allocating, including abbreviated JPEG with external tables.
-fn jpeg_dimensions(data: &[u8]) -> Result<(u16, u16), CodecError> {
+/// Steps [`jpeg_dimensions`] may take per strip or tile beyond the file's length: room to read
+/// again the few header segments of chunks that share one stream.
+const JPEG_HEADER_STEPS_PER_CHUNK: u64 = 64;
+
+/// Read SOF (width, height, components) without allocating, including abbreviated JPEG with
+/// external tables. Each fill byte
+/// and marker takes one of `steps` (a segment's body is jumped over), so the walks of chunks that
+/// do not overlap fit in the file's length; running out refuses the image.
+fn jpeg_dimensions(data: &[u8], steps: &mut u64) -> Result<(u16, u16, u8), CodecError> {
     if !data.starts_with(&[0xff, 0xd8]) {
         return Err(err("JPEG chunk header"));
     }
+    let mut step = || -> Result<(), CodecError> {
+        *steps = steps.checked_sub(1).ok_or_else(|| err("the JPEG headers of the strips or tiles are longer than the file (they overlap)"))?;
+        Ok(())
+    };
     let mut at = 2usize;
     while at < data.len() {
         if data.get(at) != Some(&0xff) {
             return Err(err("JPEG chunk marker"));
         }
         while data.get(at) == Some(&0xff) {
+            step()?;
             at += 1;
         }
         let marker = *data.get(at).ok_or_else(|| err("JPEG chunk header"))?;
+        step()?;
         at += 1;
         if matches!(marker, 0xd9 | 0xda) {
             break;
@@ -370,7 +392,7 @@ fn jpeg_dimensions(data: &[u8]) -> Result<(u16, u16), CodecError> {
             if w == 0 || h == 0 {
                 return Err(err("JPEG chunk dimensions"));
             }
-            return Ok((w, h));
+            return Ok((w, h, sof[5]));
         }
         at = end;
     }
@@ -383,6 +405,14 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     // neither allocated nor read.
     if let Some(e) = dir.entries.iter().find(|e| ifd::STRUCTURAL_TAGS.contains(&e.tag) && f.data(e).is_none()) {
         return Err(err(format!("tag {} points past the end of the file", e.tag)));
+    }
+    // This parser reads the first entry of a tag and the `tiff` crate the last, so a repeated
+    // structural tag (a small SamplesPerPixel first, a large one last) would be checked here with
+    // one value and sized by the crate with another.
+    let mut structural: Vec<u16> = dir.entries.iter().map(|e| e.tag).filter(|t| ifd::STRUCTURAL_TAGS.contains(t)).collect();
+    structural.sort_unstable();
+    if let Some(w) = structural.windows(2).find(|w| w[0] == w[1]) {
+        return Err(err(format!("tag {} appears more than once", w[0])));
     }
     let need = |tag: u16, name: &str| f.tag_uint(dir, tag).ok_or_else(|| err(format!("missing or unreadable {name}")));
     let w = u32::try_from(need(ifd::TAG_WIDTH, "ImageWidth")?).map_err(|_| err("ImageWidth out of range"))?;
@@ -429,16 +459,21 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     if counts != (Some(expected), Some(expected)) {
         return Err(err(format!("{expected} strips or tiles expected, the tables list {counts:?}")));
     }
+    // The largest frame a JPEG chunk declares, in decoded bytes: the `tiff` crate decodes each
+    // chunk into a whole JPEG image of that size, with no limits, before taking its bytes.
+    let mut jpeg_frame_bytes = 0u64;
     if f.tag_uint(dir, 259) == Some(7) {
+        let mut steps = (f.b.len() as u64).saturating_add(expected.saturating_mul(JPEG_HEADER_STEPS_PER_CHUNK));
         for i in 0..expected {
             let offset = dir.get(offsets_tag).and_then(|e| f.uint(e, i)).ok_or_else(|| err("JPEG chunk offset"))?;
             let count = dir.get(counts_tag).and_then(|e| f.uint(e, i)).ok_or_else(|| err("JPEG chunk length"))?;
             let data =
                 offset.checked_add(count).and_then(|end| f.b.get(offset as usize..usize::try_from(end).ok()?)).ok_or_else(|| err("JPEG chunk outside file"))?;
-            let (jw, jh) = jpeg_dimensions(data)?;
+            let (jw, jh, components) = jpeg_dimensions(data, &mut steps)?;
             if u64::from(jw) > cw || u64::from(jh) > ch {
                 return Err(err("JPEG dimensions exceed TIFF chunk"));
             }
+            jpeg_frame_bytes = jpeg_frame_bytes.max(u64::from(jw) * u64::from(jh) * u64::from(components.max(1)));
         }
     }
     let src = match (format, bits) {
@@ -474,6 +509,24 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     if lab && (spp < 3 || !matches!(src, Src::U8 | Src::U16)) {
         return Err(CodecError::unsupported(F, format!("Lab image with {spp} samples of {bits} bits")));
     }
+    // YCbCr, as scanners and cameras write it (usually JPEG-compressed with subsampled chroma):
+    // the `tiff` crate decodes and upsamples the samples, and they are turned into RGB after
+    // decoding.
+    let ycbcr = photometric == 6;
+    if ycbcr && (spp != 3 || !matches!(src, Src::U8 | Src::U16)) {
+        return Err(CodecError::unsupported(F, format!("YCbCr image with {spp} samples of {bits} bits")));
+    }
+    // TIFF 6.0 gives each extra sample its own ExtraSamples value, so the alpha may follow an
+    // unspecified extra sample. The `tiff` crate only returns an alpha that comes first: for a
+    // later one it is asked for every sample (as multiband gray) and the alpha is picked here.
+    let color: u64 = match photometric {
+        2 | 8 | 9 => 3,
+        5 => 4,
+        _ => 1,
+    };
+    let alpha_at = extra.iter().position(|&e| matches!(e, 1 | 2));
+    let later_alpha = alpha_at.filter(|&a| a > 0 && palette.is_none() && color + (a as u64) < spp).map(|a| color as usize + a);
+    let alpha_kind = alpha_at.and_then(|a| extra.get(a)).copied();
     let mut patches: Vec<(u64, Vec<u8>)> = Vec::new();
     let encode_u = |v: u64, len: usize| -> Vec<u8> {
         let b = if f.le { v.to_le_bytes() } else { v.to_be_bytes() };
@@ -488,16 +541,26 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     // The directory is seen as the last of its chain: the chain was walked already, and a
     // cycle through it must not fail this page.
     patches.push((dir.next_at, vec![0; if f.big { 8 } else { 4 }]));
-    if invert || palette.is_some() || lab {
+    if invert || palette.is_some() || lab || later_alpha.is_some() {
         let e = photometric_entry.ok_or_else(|| err("missing PhotometricInterpretation"))?;
         let len = match e.ty {
             3 if e.count == 1 => 2,
             4 if e.count == 1 => 4,
             _ => return Err(err("malformed PhotometricInterpretation")),
         };
-        patches.push((e.value_at, encode_u(if lab { 2 } else { 1 }, len)));
+        patches.push((e.value_at, encode_u(if lab && later_alpha.is_none() { 2 } else { 1 }, len)));
     }
 
+    // Opening the directory reads both chunk tables with the `tiff` crate's default limits
+    // (`with_limits` applies only once it is open): tables that alone are over `max_alloc` (as
+    // every band worker holds them) are refused before they are read.
+    let table_bytes = expected.saturating_mul(DECODER_BYTES_PER_CHUNK);
+    if table_bytes > limits.max_alloc {
+        return Err(CodecError::LimitExceeded(format!(
+            "the strip or tile tables of a {w}x{h} image ({expected} chunks) need {table_bytes} bytes, exceeding max_alloc {}",
+            limits.max_alloc
+        )));
+    }
     let tl = {
         let mut l = tiff::decoder::Limits::default();
         l.decoding_buffer_size = limits.alloc_usize();
@@ -515,11 +578,22 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let gray_alpha = alpha_first || (extra.is_empty() && spp == 2);
     let (out_layout, chunk_spp) = match ct {
         _ if palette.is_some() => (ChannelLayout::Rgb, 1),
+        tiff::ColorType::Multiband { num_samples, .. } if later_alpha.is_some() => (
+            if color == 1 {
+                ChannelLayout::GrayA
+            } else if color == 4 {
+                ChannelLayout::CmykA
+            } else {
+                ChannelLayout::Rgba
+            },
+            usize::from(num_samples),
+        ),
         tiff::ColorType::Gray(_) => (ChannelLayout::Gray, 1),
         tiff::ColorType::Multiband { num_samples, .. } if photometric <= 1 => {
             (if gray_alpha { ChannelLayout::GrayA } else { ChannelLayout::Gray }, usize::from(num_samples))
         }
         tiff::ColorType::RGB(_) => (ChannelLayout::Rgb, 3),
+        tiff::ColorType::YCbCr(_) if ycbcr => (ChannelLayout::Rgb, 3),
         tiff::ColorType::RGBA(_) => (ChannelLayout::Rgba, 4),
         tiff::ColorType::CMYK(_) => (ChannelLayout::Cmyk, 4),
         tiff::ColorType::CMYKA(_) => (ChannelLayout::CmykA, 5),
@@ -546,12 +620,17 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     limits.check(w, h, out_layout, out)?;
     // Decompression-bomb guard: no compression method expands data by more than a few thousand
     // times (Deflate at most ~1032:1, LZW ~2730:1, PackBits 128:1), so a file far too small for
-    // its declared size is refused before the image is allocated. Uncompressed data may be up
-    // to three quarters missing (that decodes with a `Truncated` warning).
+    // its declared size is refused before the image is allocated. CCITT Group 4 codes a blank row
+    // of a strip or tile in one bit (a V0 code), so its bound is the chunk width (the decoder
+    // reads at most 65535): a blank landscape A4 page at 600 dpi, 7016 px wide, compresses past
+    // 4096:1 (Groups 3 and 2 are not decoded). Uncompressed data may be up to three quarters
+    // missing (that decodes with a `Truncated` warning).
     let stored = u64::from(w).saturating_mul(u64::from(h)).saturating_mul(spp).saturating_mul(bits).div_ceil(8);
-    let ratio: u64 = match f.tag_uint(dir, ifd::TAG_COMPRESSION).unwrap_or(1) {
+    let compression = f.tag_uint(dir, ifd::TAG_COMPRESSION).unwrap_or(1);
+    let ratio: u64 = match compression {
         1 => 4,
         32773 => 130,
+        4 => cw.clamp(4096, 65_535),
         _ => 4096,
     };
     if stored > (f.b.len() as u64).saturating_mul(ratio).saturating_add(1 << 20) {
@@ -578,7 +657,19 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         .and_then(|s| s.checked_mul(src.bytes()))
         .ok_or_else(|| CodecError::LimitExceeded("tile size".into()))?;
     let scratch_cap = chunk_bytes.saturating_mul(2).max(64 << 20).min(limits.alloc_usize());
-    let lay = Layout {
+    // The floating-point predictor makes the `tiff` crate read each row of a tile at its full
+    // stored width (TileWidth, not clipped to the image) into a buffer of its own, outside the
+    // scratch buffer: that row must fit the same cap.
+    if f.tag_uint(dir, 317) == Some(3) {
+        let stored_row = cw.checked_mul(chunk_spp).and_then(|n| n.checked_mul(src.bytes()));
+        if stored_row.is_none_or(|n| n > scratch_cap) {
+            return Err(CodecError::LimitExceeded(format!("a {cw} sample wide predicted tile row")));
+        }
+    }
+    if jpeg_frame_bytes > scratch_cap as u64 {
+        return Err(CodecError::LimitExceeded(format!("a {jpeg_frame_bytes} byte JPEG strip or tile")));
+    }
+    let mut lay = Layout {
         w: wu,
         src,
         out,
@@ -590,20 +681,48 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         across,
         chunks_per_plane,
         invert: invert && palette.is_none(),
-        premultiplied: !keep_associated && out_layout.has_alpha() && extra.first() == Some(&1),
+        premultiplied: !keep_associated && out_layout.has_alpha() && alpha_kind == Some(1),
+        alpha_sample: later_alpha,
         palette,
         scratch_cap,
     };
+    // The decode's working memory shares `max_alloc` with the output: each band worker holds an
+    // open decoder (its chunk tables) and, unless strips decode in place, one chunk's scratch
+    // buffer (for JPEG the `tiff` crate also holds a decoded copy of the chunk). The first chunk
+    // of a plane is the largest in it (the others are the same size or clipped at the image's
+    // edge), and no chunk may ask for more than that. As many workers run at once as fit beside
+    // the output; when not even one does, the image is refused before anything is allocated.
+    let out_row = lay.out_row();
+    let band_bytes = out_row.checked_mul(ch.min(hu)).ok_or_else(|| CodecError::LimitExceeded("band size".into()))?;
+    let first = dec.image_chunk_buffer_layout(0).map_err(map_err)?;
+    let mut largest = first.len;
+    if planes_in_file > 1 {
+        let plane1 = u32::try_from(chunks_per_plane).map_err(|_| err("too many tiles"))?;
+        largest = largest.max(dec.image_chunk_buffer_layout(plane1).map_err(map_err)?.len);
+    }
+    let in_place = lay.direct() && first.len == band_bytes && first.row_stride.map(|s| s.get()) == Some(out_row);
+    let scratch = if in_place { 0 } else { largest };
+    if scratch > lay.scratch_cap {
+        return Err(CodecError::LimitExceeded(format!("a {scratch} byte strip or tile")));
+    }
+    lay.scratch_cap = scratch;
+    let tables = u64::from(total).saturating_mul(DECODER_BYTES_PER_CHUNK);
+    let jpeg_copy = if matches!(compression, 6 | 7) { largest as u64 } else { 0 };
+    let per_worker = (scratch as u64).saturating_add(jpeg_copy).saturating_add(tables);
+    let len = out_row.checked_mul(hu).ok_or_else(|| CodecError::LimitExceeded("image size".into()))?;
+    // The output and the first decoder (kept open next to the workers).
+    let held = (len as u64).saturating_add(tables);
+    let workers = budget_workers(held, per_worker, limits.max_alloc, worker_threads())?;
 
     // The output, allocated once and fallibly.
-    let out_row = lay.out_row();
-    let len = out_row.checked_mul(hu).ok_or_else(|| CodecError::LimitExceeded("image size".into()))?;
     let mut data = zeroed(len)?;
-    let band_bytes = out_row.checked_mul(ch.min(hu)).ok_or_else(|| CodecError::LimitExceeded("band size".into()))?;
-
-    let tally = decode_bands(&lay, &mut data, band_bytes, &mut dec, &open)?;
+    let tally = decode_bands(&lay, &mut data, band_bytes, workers, &mut dec, &open)?;
     if tally.decoded == 0 && tally.missing > 0 {
         return Err(err("the image data is missing (cut off or past the end of the file)"));
+    }
+    if ycbcr {
+        let max = if out == SampleType::U16 { 65535.0 } else { 255.0 };
+        tiff_ycbcr::YCbCr::of(f, dir, compression, max).convert(&mut data, out_layout.channels(), out);
     }
     if lab {
         convert_ab(&mut data, out_layout.channels(), out, photometric == 8, false);
@@ -611,7 +730,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let mut img = Image::from_raw(w, h, out_layout, out, data)?;
     img.source_bit_depth = Some(bits as u8);
     img.source_float = Some(format == 3);
-    img.associated_alpha = keep_associated && out_layout.has_alpha() && extra.first() == Some(&1);
+    img.associated_alpha = keep_associated && out_layout.has_alpha() && alpha_kind == Some(1);
     if tally.missing > 0 {
         img.warnings.push(DecodeWarning::Truncated { format: F });
     }
@@ -649,21 +768,62 @@ impl std::ops::Add for Tally {
     }
 }
 
+/// Bytes an open `tiff` decoder keeps per chunk: its offset and its byte count, as `u64`s.
+const DECODER_BYTES_PER_CHUNK: u64 = 16;
+
+/// Threads the band decode may run on.
+fn worker_threads() -> usize {
+    #[cfg(not(target_arch = "wasm32"))]
+    return rayon::current_num_threads().max(1);
+    #[cfg(target_arch = "wasm32")]
+    return 1;
+}
+
+/// How many band workers, each holding `per_worker` bytes, fit in `max_alloc` beside the `held`
+/// bytes already allocated (at most `threads`, at least one), or a limit error when none does.
+fn budget_workers(held: u64, per_worker: u64, max_alloc: u64, threads: usize) -> Result<usize, CodecError> {
+    let threads = threads.max(1);
+    let room = max_alloc.saturating_sub(held);
+    let fit = room.checked_div(per_worker).map_or(threads, |n| usize::try_from(n).unwrap_or(usize::MAX));
+    if fit == 0 {
+        return Err(CodecError::LimitExceeded(format!(
+            "decoding needs {per_worker} bytes of strip or tile scratch beside {held} bytes of image, exceeding max_alloc {max_alloc}"
+        )));
+    }
+    Ok(fit.min(threads))
+}
+
+/// Bands each parallel task decodes, one after the other: one band per task when every thread
+/// may hold a worker, else the bands split into `workers` runs so that no more than `workers`
+/// decoders and scratch buffers are ever alive at once.
+fn bands_per_task(bands: usize, workers: usize, threads: usize) -> usize {
+    if workers >= threads { 1 } else { bands.div_ceil(workers.max(1)).max(1) }
+}
+
 /// Decodes every band into `data`, in parallel on native targets (one decoder and scratch
-/// buffer per worker).
+/// buffer per worker, at most `workers` of them at once).
 #[cfg(not(target_arch = "wasm32"))]
-fn decode_bands<'a, O>(lay: &Layout, data: &mut [u8], band_bytes: usize, _first: &mut Decoder<Patched<'a>>, open: &O) -> Result<Tally, CodecError>
+fn decode_bands<'a, O>(
+    lay: &Layout,
+    data: &mut [u8],
+    band_bytes: usize,
+    workers: usize,
+    _first: &mut Decoder<Patched<'a>>,
+    open: &O,
+) -> Result<Tally, CodecError>
 where
     O: Fn() -> Result<Decoder<Patched<'a>>, CodecError> + Sync,
 {
     use rayon::prelude::*;
-    data.par_chunks_mut(band_bytes.max(1))
+    let band_bytes = band_bytes.max(1);
+    let per_task = bands_per_task(data.len().div_ceil(band_bytes), workers, worker_threads());
+    data.par_chunks_mut(band_bytes.saturating_mul(per_task))
         .enumerate()
         .map_init(
             || open().map(|d| (d, Vec::new())).map_err(|e| e.to_string()),
-            |worker, (b, band)| {
+            |worker, (t, task)| {
                 let (dec, scratch) = worker.as_mut().map_err(|e| err(e.clone()))?;
-                decode_band(lay, dec, scratch, b, band)
+                decode_task(lay, dec, scratch, t.saturating_mul(per_task), task, band_bytes)
             },
         )
         .try_reduce(Tally::default, |a, b| Ok(a + b))
@@ -671,14 +831,32 @@ where
 
 /// Decodes every band into `data`, one after the other.
 #[cfg(target_arch = "wasm32")]
-fn decode_bands<'a, O>(lay: &Layout, data: &mut [u8], band_bytes: usize, first: &mut Decoder<Patched<'a>>, _open: &O) -> Result<Tally, CodecError>
+fn decode_bands<'a, O>(
+    lay: &Layout,
+    data: &mut [u8],
+    band_bytes: usize,
+    _workers: usize,
+    first: &mut Decoder<Patched<'a>>,
+    _open: &O,
+) -> Result<Tally, CodecError>
 where
     O: Fn() -> Result<Decoder<Patched<'a>>, CodecError> + Sync,
 {
-    let mut scratch = Vec::new();
+    decode_task(lay, first, &mut Vec::new(), 0, data, band_bytes.max(1))
+}
+
+/// Decodes the consecutive bands in `task` (the first is band `b0`), one after the other.
+fn decode_task(
+    lay: &Layout,
+    dec: &mut Decoder<Patched<'_>>,
+    scratch: &mut Vec<u8>,
+    b0: usize,
+    task: &mut [u8],
+    band_bytes: usize,
+) -> Result<Tally, CodecError> {
     let mut tally = Tally::default();
-    for (b, band) in data.chunks_mut(band_bytes.max(1)).enumerate() {
-        tally = tally + decode_band(lay, first, &mut scratch, b, band)?;
+    for (i, band) in task.chunks_mut(band_bytes).enumerate() {
+        tally = tally + decode_band(lay, dec, scratch, b0.saturating_add(i), band)?;
     }
     Ok(tally)
 }
@@ -691,7 +869,8 @@ fn decode_band(lay: &Layout, dec: &mut Decoder<Patched<'_>>, scratch: &mut Vec<u
     let mut tally = Tally::default();
     for plane in 0..lay.planes {
         for col in 0..lay.across {
-            let chunk = plane
+            let chunk = lay
+                .sample_of(plane)
                 .checked_mul(lay.chunks_per_plane)
                 .and_then(|c| c.checked_add(b.checked_mul(lay.across)?))
                 .and_then(|c| c.checked_add(col))
@@ -712,6 +891,9 @@ fn decode_band(lay: &Layout, dec: &mut Decoder<Patched<'_>>, scratch: &mut Vec<u
                 return Err(CodecError::LimitExceeded(format!("a {} byte strip or tile", pref.len)));
             }
             if scratch.len() < pref.len {
+                scratch
+                    .try_reserve_exact(pref.len - scratch.len())
+                    .map_err(|_| CodecError::LimitExceeded(format!("cannot allocate {} bytes for a strip or tile", pref.len)))?;
                 scratch.resize(pref.len, 0);
             }
             let buf = scratch.get_mut(..pref.len).ok_or_else(|| err("scratch buffer"))?;
@@ -763,7 +945,7 @@ fn convert_row(lay: &Layout, src: &[u8], dst: &mut [u8], n: usize, plane: usize)
         transfer(lay.src, src, 1, 0, dst, lay.out, och, plane, n);
     } else {
         for k in 0..och {
-            transfer(lay.src, src, lay.chunk_spp, k, dst, lay.out, och, k, n);
+            transfer(lay.src, src, lay.chunk_spp, lay.sample_of(k), dst, lay.out, och, k, n);
         }
     }
 }

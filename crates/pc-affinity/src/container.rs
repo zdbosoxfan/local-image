@@ -271,6 +271,11 @@ impl<'a> Archive<'a> {
                     latest.insert(id, (date, tables, record));
                 }
             }
+            // Directory records are walked for every table too.
+            records = records.saturating_add(usize::from(dirs));
+            if records > limits.max_objects {
+                return Err(Error::Limit("archive record count"));
+            }
             for _ in 0..dirs {
                 let len = usize::from(c.u16()?);
                 c.take(10)?;

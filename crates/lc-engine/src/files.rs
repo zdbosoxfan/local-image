@@ -724,7 +724,7 @@ fn embedded_preview_size(bytes: &[u8]) -> Option<(u32, u32)> {
 /// The embedded preview of a raw file as a working-space image no larger than `max_edge`, oriented.
 pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(RgbFrame, SourceInfo)> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
-    let d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
+    let d = lightcraft_codecs::decode_raw_preview(bytes, &jpeg, still_image_decode_options(max_edge)).ok()?;
     let img = d.to_working();
     let img = if img.width.max(img.height) > max_edge { img.fit_antiring(max_edge, max_edge) } else { img };
     Some((img.oriented(preview_orientation(bytes, d.orientation)), SourceInfo::default()))
@@ -734,7 +734,7 @@ pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(RgbFrame,
 /// loupe and grid show it until the raw itself has been developed ([`crate::media::QuickJob`]).
 pub fn embedded_preview_srgb(bytes: &[u8], max_edge: usize) -> Option<li_raster::Rgba8> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
-    let mut d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
+    let mut d = lightcraft_codecs::decode_raw_preview(bytes, &jpeg, still_image_decode_options(max_edge)).ok()?;
     if d.image.width.max(d.image.height) > max_edge {
         d.image = d.image.fit(max_edge, max_edge, Filter::Box);
         d.alpha = None;

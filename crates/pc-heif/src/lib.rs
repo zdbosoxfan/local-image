@@ -15,6 +15,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod census;
+mod pps;
+use pps::check_parameter_sets;
 use std::borrow::Cow;
 
 use heic_rs::PixelLayout;
@@ -151,13 +153,18 @@ fn open_error(error: heic_rs::Error) -> Error {
 /// Checks every reconstruction used while probing, including repeated grid references.
 fn probe_with_context(bytes: &[u8], ctx: &Context<'_>, visits: &mut usize) -> Result<heic_rs::ImageInfo, Error> {
     let id = ctx.meta.primary;
+    // `heic_rs::probe` reads an item without `ispe` from its parameter sets
+    check_item_parameter_sets(ctx, id)?;
     let info = heic_rs::probe(bytes).map_err(open_error)?;
+    let mut alpha_items = Vec::new();
     if let Some(alpha) = ctx.alpha_item(id).map_err(err)? {
         item_visits(ctx, alpha, 0, visits)?;
+        alpha_items.push(alpha);
         if let Some((_, tiles)) = ctx.grid(alpha).map_err(err)? {
-            for tile in tiles {
+            for &tile in &tiles {
                 item_visits(ctx, tile, 0, visits)?;
             }
+            alpha_items.extend(tiles);
         }
     }
     let mut coded = match ctx.grid(id).map_err(err)? {
@@ -171,6 +178,11 @@ fn probe_with_context(bytes: &[u8], ctx: &Context<'_>, visits: &mut usize) -> Re
     }
     coded.sort_unstable();
     coded.dedup();
+    alpha_items.sort_unstable();
+    alpha_items.dedup();
+    for &item in coded.iter().chain(&alpha_items) {
+        check_item_parameter_sets(ctx, item)?;
+    }
     let mut reconstructed = 0_usize;
     for item in coded {
         reconstructed = reconstructed.saturating_add(ctx.item_data(item).map_err(err)?.len());
@@ -179,6 +191,11 @@ fn probe_with_context(bytes: &[u8], ctx: &Context<'_>, visits: &mut usize) -> Re
         }
     }
     Ok(info)
+}
+
+/// [`check_parameter_sets`] of a coded item's `hvcC`, if it has one.
+fn check_item_parameter_sets(ctx: &Context<'_>, id: u32) -> Result<(), Error> {
+    ctx.props(id).map_err(err)?.hvcc.as_ref().map_or(Ok(()), |h| check_parameter_sets(&h.parameter_sets()))
 }
 
 /// Counts the item extents a reconstruction follows, before heic-rs visits them.

@@ -72,13 +72,24 @@ struct Parser<'a> {
 /// Deepest `<dict>` / `<array>` nesting read (real looks nest a handful of levels).
 const MAX_DEPTH: usize = 64;
 
+/// Index of the `;` that ends a reference starting at `rest` (its `&`). The scan stops at the first byte that cannot
+/// appear in a name or a numeric reference, so each run of name bytes is read once, not once per `&`.
+fn entity_end(rest: &str) -> Option<usize> {
+    let n = rest.bytes().skip(1).take_while(|b| b.is_ascii_alphanumeric() || *b == b'#').count();
+    (rest.as_bytes().get(n + 1) == Some(&b';')).then_some(n + 1)
+}
+
 fn unescape(t: &str) -> String {
     let mut out = String::with_capacity(t.len());
     let mut rest = t;
     while let Some(p) = rest.find('&') {
         out.push_str(&rest[..p]);
         rest = &rest[p..];
-        let Some(end) = rest.find(';') else { break };
+        let Some(end) = entity_end(rest) else {
+            out.push('&');
+            rest = &rest[1..];
+            continue;
+        };
         let ent = &rest[1..end];
         let c = match ent {
             "amp" => Some('&'),
@@ -334,11 +345,13 @@ struct Acc {
     sums: BTreeMap<String, (f64, (f64, f64))>,
     curves: BTreeMap<String, Vec<(f64, f64)>>,
     unmapped: Vec<String>,
+    /// What `unmapped` holds, for the look-up (a look names each unsupported setting once).
+    seen: std::collections::HashSet<String>,
 }
 
 impl Acc {
     fn skip(&mut self, what: String) {
-        if !self.unmapped.contains(&what) {
+        if self.seen.insert(what.clone()) {
             self.unmapped.push(what);
         }
     }
@@ -709,5 +722,22 @@ mod tests {
         let r = s.execute("preset.import", &json!({"paths": [dir.join("Wild/Vintage.lmp").to_string_lossy()], "dryRun": true})).unwrap();
         assert_eq!(r["imported"][0]["group"], json!("Imported Presets"), "{r}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A million `&` before one `;`, and a look naming 200,000 distinct unsupported settings: each `&`
+    /// searched the rest for the `;`, and each setting was compared with every one listed before it.
+    #[test]
+    fn hostile_looks_are_read_in_linear_time() {
+        let hostile = format!("{};&amp;", "&".repeat(1_000_000));
+        let t = std::time::Instant::now();
+        assert_eq!(unescape(&hostile), format!("{};&", "&".repeat(1_000_000)));
+        let mut acc = Acc::default();
+        for i in 0..200_000 {
+            acc.skip(format!("Effect{i}.Amount"));
+            acc.skip("Orton.Amount".into());
+        }
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "took {:?}", t.elapsed());
+        assert_eq!(acc.unmapped.len(), 200_001);
+        assert_eq!(acc.unmapped[..3], ["Effect0.Amount", "Orton.Amount", "Effect1.Amount"]);
     }
 }

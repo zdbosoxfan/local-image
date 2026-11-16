@@ -196,6 +196,7 @@ fn finish_decode(mut img: Image, o: u16, opts: &DecodeOptions) -> Result<Image, 
 /// [`DecodeWarning::DeepFlattened`]. `Err(Unsupported)` when the file has no deep part.
 pub fn decode_deep_exr(bytes: &[u8], limits: &Limits) -> Result<DeepImage, CodecError> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        codecs::exr::check_previews(bytes)?;
         let mut cur = std::io::Cursor::new(bytes);
         let meta = ::exr::meta::MetaData::read_from_buffered(&mut cur, false).map_err(|e| CodecError::malformed(Format::OpenExr, e))?;
         codecs::deep_exr::decode_deep(&meta, bytes, limits)

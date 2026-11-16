@@ -227,6 +227,13 @@ fn entity(name: &str) -> Option<char> {
     })
 }
 
+/// Index of the `;` that ends a reference starting at `rest` (its `&`). The scan stops at the first byte that cannot
+/// appear in a name or a numeric reference, so each run of name bytes is read once, not once per `&`.
+fn entity_end(rest: &str) -> Option<usize> {
+    let n = rest.bytes().skip(1).take_while(|b| b.is_ascii_alphanumeric() || *b == b'#').count();
+    (rest.as_bytes().get(n + 1) == Some(&b';')).then_some(n + 1)
+}
+
 /// Unescape attribute values (predefined + numeric references; unknown references kept verbatim).
 fn unescape_attr(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -234,7 +241,7 @@ fn unescape_attr(s: &str) -> String {
     while let Some(i) = rest.find('&') {
         out.push_str(&rest[..i]);
         rest = &rest[i..];
-        match rest.find(';').and_then(|j| entity(&rest[1..j]).map(|c| (c, j))) {
+        match entity_end(rest).and_then(|j| entity(&rest[1..j]).map(|c| (c, j))) {
             Some((c, j)) => {
                 out.push(c);
                 rest = &rest[j + 1..];
@@ -1276,6 +1283,16 @@ mod tests {
             (0..17_000).map(|i| format!("<v:p{i}>value</v:p{i}>")).collect::<String>()
         );
         assert!(matches!(parse_xmp(&packet), Err(XmpError::TooComplex)));
+    }
+
+    /// A million `&` then one `;`: each `&` once searched the whole rest of the attribute for the `;`.
+    #[test]
+    fn many_ampersands_before_one_semicolon_are_read_once() {
+        let hostile = format!("{};&amp;", "&".repeat(1_000_000));
+        let t = std::time::Instant::now();
+        assert_eq!(unescape_attr(&hostile), format!("{};&", "&".repeat(1_000_000)));
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "took {:?}", t.elapsed());
+        assert_eq!(unescape_attr("&lt;a&gt; &#x10FFFF; C&#0000000097;non &unknownreference;"), "<a> \u{10FFFF} Canon &unknownreference;");
     }
 }
 
