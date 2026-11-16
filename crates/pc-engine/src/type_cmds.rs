@@ -523,12 +523,19 @@ const TYPING_KEYS: [&str; 4] = ["layer", "coalesce", "replace", "text"];
 
 /// While an action records, one typing session is one step, as Photoshop records "Make text
 /// layer" or "Set current text layer" once (#10113). Its keystrokes (`type.edit` with the
-/// session's `coalesce` key, changing the text) fold into the `type.create` that made the layer,
-/// whose `text` becomes the layer's text, or into one `type.edit` that sets the whole text. Neither
-/// names the layer, so the step plays on the new or the current type layer of any document, as
-/// Batch needs. Returns true when it journaled the step itself.
+/// session's `coalesce` key, changing the text) fold into the `type.create` that made the layer
+/// (in the same document), whose `text` becomes the layer's text, or into one `type.edit` that
+/// sets the whole text. Neither names the layer, so the step plays on the new or the current type
+/// layer of any document, as Batch needs. A layer with more than one character or paragraph style
+/// keeps a step per edit: setting its whole text would give it one style on replay. Returns true
+/// when it journaled the step itself.
 pub(crate) fn coalesce_journal(s: &mut Session, id: &str, params: &Value) -> bool {
     let Some((from, _)) = s.actions.recording else { return false };
+    if id == "type.create" {
+        // Remembered for the typing that follows; journaled as usual.
+        s.actions.typing_layer = s.active().and_then(|st| Some((st.doc.id.0, st.active_layer?.0)));
+        return false;
+    }
     if id != "type.edit" {
         return false;
     }
@@ -542,22 +549,27 @@ pub(crate) fn coalesce_journal(s: &mut Session, id: &str, params: &Value) -> boo
     let key = params.get("coalesce").filter(|k| !k.is_null()).cloned();
     let (Some(key), true) = (key, typing) else { return false };
     let Some(text) = st.doc.layer(LayerId(layer)).and_then(|l| match &l.content {
-        LayerContent::Text(t) => Some(t.text.clone()),
+        LayerContent::Text(t) if one_style(&t.runs, |r| &r.style) && one_style(&t.paragraphs, |r| &r.style) => Some(t.text.clone()),
         _ => None,
     }) else {
         return false;
     };
-    // The newest layer was made by the step before: the Type tool makes a layer, then types in it.
-    let newest = st.doc.walk().into_iter().map(|(_, _, l)| l.id.0).max() == Some(layer);
+    // The step before made this very layer: the Type tool makes a layer, then types in it.
+    let made_here = s.actions.typing_layer == Some((st.doc.id.0, layer));
     let last = s.journal.len().checked_sub(1).filter(|&i| i >= from);
     match last.and_then(|i| s.journal.get_mut(i)) {
-        Some((last_id, p)) if last_id == "type.create" && newest => p["text"] = json!(text),
+        Some((last_id, p)) if last_id == "type.create" && made_here => p["text"] = json!(text),
         Some((last_id, p)) if last_id == "type.edit" && p.get("coalesce") == Some(&key) && p.get("layer").is_none() => {
             *p = json!({"text": text, "coalesce": key});
         }
         _ => s.journal.push((id.to_string(), json!({"text": text, "coalesce": key}))),
     }
     true
+}
+
+/// Do `runs` all have the same style?
+fn one_style<R, S: PartialEq>(runs: &[R], style: impl Fn(&R) -> &S) -> bool {
+    runs.windows(2).all(|w| matches!(w, [a, b] if style(a) == style(b)))
 }
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -1311,5 +1323,46 @@ mod tests {
         assert!(played.get("failed").is_none(), "{played}");
         let d = s.active().unwrap();
         assert_eq!(text_layer(&s, d.active_layer.unwrap().0).text, "Hello");
+    }
+
+    /// Types `text` one character at a time from char `at`, as the Type tool sends keystrokes.
+    fn type_in(s: &mut Session, layer: u64, at: usize, text: &str, session: &str) {
+        for (i, c) in text.chars().enumerate() {
+            let p = json!({"layer": layer, "replace": {"start": at + i, "end": at + i, "text": c.to_string()}, "coalesce": session});
+            s.execute("type.edit", p).unwrap();
+        }
+    }
+
+    /// #10113: typing in a type layer of another document, switched to as a tab is (no step),
+    /// after a recorded `type.create` is no part of that step.
+    #[test]
+    fn typing_in_another_document_is_not_folded_into_the_layer_made_in_the_first() {
+        let mut s = session();
+        let other = s.execute("type.create", json!({"x": 10, "y": 40, "text": "Old", "size": 24})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("file.new", json!({"width": 200, "height": 100, "background": "transparent"})).unwrap();
+        s.execute("actions.record", json!({"name": "Two"})).unwrap();
+        s.execute("type.create", json!({"x": 20, "y": 50, "text": "", "size": 24})).unwrap();
+        assert!(s.set_active(0));
+        type_in(&mut s, other, 3, "!", "s4");
+        s.execute("actions.stop", json!({})).unwrap();
+        let steps = &s.actions.list[0].steps;
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        assert_eq!((steps[0].0.as_str(), steps[0].1["text"].as_str()), ("type.create", Some("")), "the new layer keeps its own text");
+        assert_eq!((steps[1].0.as_str(), steps[1].1["text"].as_str()), ("type.edit", Some("Old!")));
+    }
+
+    /// #10113: typing in a layer with more than one style keeps a step per edit: a step setting
+    /// its whole text would give all of it one style on replay.
+    #[test]
+    fn typing_in_styled_text_keeps_a_step_per_edit() {
+        let mut s = session();
+        let id = s.execute("type.create", json!({"x": 20, "y": 50, "text": "Hi there", "size": 24})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("type.setStyle", json!({"layer": id, "range": [3, 8], "fauxBold": true})).unwrap();
+        s.execute("actions.record", json!({"name": "Bold"})).unwrap();
+        type_in(&mut s, id, 8, "!!", "s5");
+        s.execute("actions.stop", json!({})).unwrap();
+        let steps = &s.actions.list[0].steps;
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        assert!(steps.iter().all(|(id, p)| id == "type.edit" && p.get("replace").is_some()), "{steps:?}");
     }
 }

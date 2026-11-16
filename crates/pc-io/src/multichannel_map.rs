@@ -3,8 +3,9 @@
 //! A Multichannel document has no layers: its image is a set of ink (spot) channels, stored in
 //! [`Document::channels`] with ink density as the value (1 = solid ink, like every spot channel).
 //! A PSD stores the same planes the way Photoshop shows them in the Channels panel: 0 (black) =
-//! solid ink, max = paper. Channel names come from resources 1006 / 1045 and ink colours from
-//! DisplayInfo (1077), exactly as for spot channels in the other modes.
+//! solid ink, max = paper. Alpha-type channels (DisplayInfo kind 0 / 1) are stored as-is, like the
+//! alpha channels of every other mode (max = selected). Channel names come from resources 1006 /
+//! 1045 and ink colours from DisplayInfo (1077), exactly as for spot channels in the other modes.
 
 use photocraft_color::{Color, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{AlphaChannel, Document};
@@ -74,6 +75,22 @@ pub(crate) fn import(file: &PsdFile, all: &[u8], doc: &mut Document, names: &[St
     } else if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO_OLD) {
         crate::channel_map::apply_display_info(&r.data, false, 0, &mut doc.channels);
     }
+    // Alpha-type planes are stored as-is, not as ink: undo the inversion for them.
+    for ch in doc.channels.iter_mut().filter(|c| c.spot.is_none()) {
+        let mut s = Surface::new(fmt);
+        let mut vals = Vec::new();
+        vals.try_reserve_exact(w * band.min(hh)).map_err(|e| format!("not enough memory for multichannel pixels ({e})"))?;
+        for y in (0..hh).step_by(band) {
+            let r = Rect::new(0, y as i32, h.width as i32, (y + band).min(hh) as i32);
+            ch.surface.read_region_into(r, &mut vals);
+            for v in &mut vals {
+                *v = 1.0 - *v;
+            }
+            s.try_write_region(r, &vals).map_err(|e| format!("multichannel pixel allocation: {e}"))?;
+        }
+        s.prune();
+        ch.surface = s;
+    }
     Ok(())
 }
 
@@ -105,8 +122,10 @@ pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: u64) 
         }
     }
     for ch in &channels {
+        // Inks are stored as tone (0 = solid ink), alpha-type channels as-is.
+        let ink = ch.spot.is_some();
         for v in ch.surface.read_region(canvas).chunks_exact(ch.surface.channels()) {
-            encode_be(1.0 - v[0], sample, &mut planes);
+            encode_be(if ink { 1.0 - v[0] } else { v[0] }, sample, &mut planes);
         }
     }
     let big = doc.size.width > 30_000 || doc.size.height > 30_000;
