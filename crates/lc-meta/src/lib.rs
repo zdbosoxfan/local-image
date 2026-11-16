@@ -347,7 +347,7 @@ pub fn extract(bytes: &[u8]) -> Metadata {
 /// [`extract`] and the file's XMP packet ([`Embedded::xmp`]) from one pass over the container.
 pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
     let (e, tiff) = container::blocks(bytes);
-    let xmp = e.xmp.as_deref().and_then(|x| parse_whole_xmp(x).ok()).map(|x| x.metadata);
+    let xmp = e.xmp.as_deref().and_then(|x| parse_whole_xmp(x).ok());
     (extract_embedded(&e, exif_metadata(bytes, &e, tiff.as_ref()), xmp), e.xmp)
 }
 
@@ -374,7 +374,7 @@ pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
             return Err(ExtractError::UnreadBlock(block));
         }
         check_exif_xmp(&e)?;
-        let xmp = e.xmp.as_deref().map(strict_xmp).transpose()?.map(|x| x.metadata);
+        let xmp = e.xmp.as_deref().map(strict_xmp).transpose()?;
         let extended = e.xmp_extended.as_deref().map(strict_xmp).transpose()?;
         let mut m = extract_embedded(&e, exif_metadata(bytes, &e, tiff.as_ref()), xmp);
         if let Some(x) = extended {
@@ -385,7 +385,7 @@ pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
     let e = psd::parse(bytes).ok_or(ExtractError::MalformedPsd)?;
     check_exif_xmp(&e)?;
     let m = e.exif.as_deref().map(try_read_exif).transpose().map_err(|_| ExtractError::MalformedPsd)?.unwrap_or_default();
-    let xmp = e.xmp.as_deref().map(strict_xmp).transpose().map_err(|_| ExtractError::MalformedPsd)?.map(|x| x.metadata);
+    let xmp = e.xmp.as_deref().map(strict_xmp).transpose().map_err(|_| ExtractError::MalformedPsd)?;
     Ok(extract_embedded(&e, m, xmp))
 }
 
@@ -405,16 +405,37 @@ fn check_exif_xmp(e: &Embedded) -> Result<(), ExtractError> {
     Ok(())
 }
 
-fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<Metadata>) -> Metadata {
+fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<XmpData>) -> Metadata {
     if let Some(i) = e.iptc.as_deref() {
         m.fill_missing(&parse_iptc(i));
     }
     if let Some(xmp) = xmp {
-        m.overlay_user_fields(&xmp);
-        m.fill_missing(&xmp);
+        m.overlay_user_fields(&xmp.metadata);
+        m.fill_missing(&xmp.metadata);
+        // boxes another app drew on the photo as stored go where the upright photo has them
+        if let (Some(drawn_on), Some(orientation), Some(w), Some(h)) = (xmp.regions_drawn_on(), m.orientation, m.width, m.height) {
+            upright_regions(&mut m.regions, drawn_on, orientation, (w, h));
+        }
     }
     m.fill_dji_gps();
     m
+}
+
+/// Turn regions drawn on a photo as it is stored onto the upright photo. MWG gives each box as a fraction of
+/// `AppliedToDimensions` (`drawn_on`); for a photo whose Exif `orientation` turns it a quarter turn, some apps give the
+/// stored, sideways size there and boxes on the stored pixels to match (Lightroom says so per box with
+/// `mwg-rs:Rotation` instead, which [`parse_xmp`] reads). When `drawn_on` has the shape of the photo as stored
+/// (`stored`, before `orientation`) rather than the upright one, every box is turned with `orientation`. A square
+/// photo or `drawn_on` looks the same both ways, and a half turn or a mirror doesn't change the shape: their boxes are
+/// left as they are.
+pub fn upright_regions(regions: &mut [Region], drawn_on: (f64, f64), orientation: Orientation, stored: (u32, u32)) {
+    let ((dw, dh), (sw, sh)) = (drawn_on, stored);
+    if regions.is_empty() || !orientation.swaps_axes() || sw == sh || dw == dh || (dw > dh) != (sw > sh) {
+        return;
+    }
+    for r in regions.iter_mut() {
+        r.rect = orientation.map_norm_rect(r.rect);
+    }
 }
 
 /// A container-level error reported by [`try_extract`].

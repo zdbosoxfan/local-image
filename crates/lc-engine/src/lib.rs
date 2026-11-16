@@ -756,6 +756,9 @@ impl Session {
     /// belong to one photo's pixels), nor history / snapshot restores. Masks / layers never auto
     /// sync either: `json_delta` takes arrays whole, so any layer edit would replace every other
     /// photo's own layer stack. Layers go to other photos only through an explicit Sync / Copy.
+    ///
+    /// White balance goes on each photo on its own scale: a mode is resolved for the photo by
+    /// [`Session::transfer_settings`], a typed or dragged Temp or Tint by [`auto_wb::sync_custom_wb`].
     fn auto_sync_ops(&mut self, id: PhotoId, new: &DevelopSettings, label: &str) -> Vec<Op> {
         if !self.auto_sync
             || self.active() != Some(id)
@@ -779,11 +782,16 @@ impl Session {
                 return Vec::new();
             }
         }
+        let active_info = self.source_info(id);
+        let custom_wb = old.wb != new.wb && new.wb.mode == lightcraft_develop::WbMode::Custom;
         let targets: Vec<_> = self.selection.ids.iter().copied().filter(|x| *x != id).filter_map(|x| self.develop_of(x).map(|d| (x, d))).collect();
         targets
             .into_iter()
             .filter_map(|(x, d)| {
-                let synced = self.transfer_settings(x, &d, &delta);
+                let mut synced = self.transfer_settings(x, &d, &delta);
+                if custom_wb {
+                    auto_wb::sync_custom_wb(&active_info, &old, new, &self.source_info(x), &d, &mut synced);
+                }
                 (synced != *d).then(|| self.develop_op(x, synced, label)).flatten()
             })
             .collect()

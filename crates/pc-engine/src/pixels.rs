@@ -149,7 +149,9 @@ fn adjusted(s: &Surface, r: Rect, adj: &Adjustment, selection: Option<&Surface>,
         out.par_chunks_exact_mut(n).enumerate().for_each(|(i, dst)| {
             let (a, o) = (&buf.px[i], &orig.px[i]);
             let k = selection.map_or(1.0, |sel| sel.sample_channel(r.x0 + (i % w) as i32, r.y0 + (i / w) as i32, 0));
-            let mixed: [f32; 4] = std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k);
+            // `o*(1-k) + a*k` keeps the edit exact at full coverage, even over huge 32-bit values
+            // whose difference from it would round the edit away.
+            let mixed: [f32; 4] = std::array::from_fn(|c| o[c] * (1.0 - k) + a[c] * k);
             let mut enc = [0.0f32; 8];
             photocraft_raster::from_rgba_into(&fmt, mixed, &mut enc);
             dst.copy_from_slice(&enc[..n]);
@@ -292,13 +294,35 @@ mod tests {
             let mut reference = Vec::new();
             for (i, (a, o)) in buf.px.iter().zip(&original).enumerate() {
                 let k = selection.sample_channel(r.x0 + (i % 73) as i32, r.y0 + (i / 73) as i32, 0);
-                reference.extend(photocraft_raster::from_rgba(&fmt, std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k)));
+                reference.extend(photocraft_raster::from_rgba(&fmt, std::array::from_fn(|c| o[c] * (1.0 - k) + a[c] * k)));
             }
             for threads in [1, 4] {
                 let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
                 let out = pool.install(|| adjusted(&surface, r, &adj, Some(&selection), ColorMode::Rgb));
                 assert_eq!(out.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), reference.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
             }
+        }
+    }
+
+    /// A destructive edit at full coverage writes its result exactly, even over huge 32-bit values
+    /// (a Color Lookup's 0.5 over 1e8 must stay 0.5).
+    #[test]
+    fn full_coverage_keeps_the_edit_over_huge_hdr_values() {
+        let fmt = PixelFormat::RGBA32F;
+        let r = Rect::from_xywh(0, 0, 1, 1);
+        let look = Adjustment::ColorLookup {
+            name: "half".into(),
+            lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+            size: 2,
+            domain: None,
+            tetrahedral: false,
+            dither: false,
+        };
+        for v in [1.0e8_f32, 1.0e6, -1.0e6] {
+            let mut s = Surface::new(fmt);
+            s.write_region(r, &[v, v, v, 1.0]);
+            let out = adjusted(&s, r, &look, None, ColorMode::Rgb);
+            assert!(out[..3].iter().all(|c| (c - 0.5).abs() < 1e-6), "over {v}: {out:?}");
         }
     }
 
