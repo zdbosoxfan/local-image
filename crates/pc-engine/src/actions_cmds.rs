@@ -56,6 +56,11 @@ pub struct ActionState {
     /// Bumped whenever `list` changes, so the preset store can skip unchanged writes.
     #[serde(skip)]
     pub rev: u64,
+    /// The document and type layer the last recorded `type.create` made, while recording: the
+    /// typing that follows folds into that step only when it types in that layer of that
+    /// document (`type_cmds::coalesce_journal`, #10113).
+    #[serde(skip)]
+    pub typing_layer: Option<(u64, u64)>,
 }
 
 /// Visibility gestures name a layer for replay, since document-local ids change on another image.
