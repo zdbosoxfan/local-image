@@ -3931,3 +3931,6 @@ ai	New	Baru
 	LZW	LZW
 	ZIP	ZIP
 	Open as Smart Object…	Buka sebagai Smart Object…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	Tepi Keras
+	Last folder	Folder terakhir

@@ -3931,3 +3931,6 @@ ai	New	最新
 	LZW	LZW
 	ZIP	ZIP
 	Open as Smart Object…	打开为智能对象…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	硬边
+	Last folder	上次的文件夹
