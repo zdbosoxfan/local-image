@@ -3842,6 +3842,13 @@ fn library_export_finishes_and_reports_while_compositing_is_shown() {
     std::fs::create_dir(&output).unwrap();
     host.library.as_mut().unwrap().services.write_shared = Some(std::sync::Arc::new(lightcraft_engine::export::write_file));
     let mut h = RoundTripUi::new(host);
+    // The Library is drawn once, as in the app, before its background work runs unseen.
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Library);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    h.host.switch(&ctx, Module::Compositing);
     for _ in 0..3 {
         h.step(vec![]);
     }
