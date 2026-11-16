@@ -19,6 +19,11 @@ pub fn layers_at(doc: &Document, x: i32, y: i32) -> Vec<LayerId> {
     if x.checked_add(1).is_none() || y.checked_add(1).is_none() {
         return Vec::new();
     }
+    // Off the canvas nothing is drawn (only artboard documents show layers over the pasteboard), so
+    // pixels hanging past the edge and fill layers can't be hit there.
+    if !doc.has_artboards() && !doc.bounds().contains(x, y) {
+        return Vec::new();
+    }
     let rows = doc.walk();
     let mut out = Vec::new();
     for (path, _, l) in rows.iter().rev() {
@@ -183,5 +188,27 @@ mod tests {
         }
         let mut empty = Session::new();
         assert!(empty.execute("layer.pickAt", json!({"x": 1, "y": 1})).is_err());
+    }
+
+    /// Off the canvas nothing is drawn, so a fill layer or pixels hanging past the edge aren't hit
+    /// on the pasteboard and a click there picks nothing.
+    #[test]
+    fn nothing_is_hit_off_the_canvas() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 40, "background": "transparent"})).unwrap();
+        s.execute("layer.newFillLayer.solidColor", json!({"color": "#00ff00"})).unwrap();
+        let fill = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({"name": "Off"})).unwrap();
+        let off = s.active().unwrap().active_layer.unwrap();
+        s.edit("paint past the edge", |doc, _| {
+            doc.layer_mut(off).unwrap().surface_mut().unwrap().fill_rect(Rect::new(-20, 0, 10, 40), &[1.0, 0.0, 0.0, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let pick = |s: &mut Session, x: i32| s.execute("layer.pickAt", json!({"x": x, "y": 5, "select": false})).unwrap()["layer"].clone();
+        assert_eq!(pick(&mut s, 5), off.0, "on the canvas");
+        assert_eq!(pick(&mut s, 20), fill.0, "the fill layer covers the canvas");
+        assert_eq!(pick(&mut s, -10), Value::Null, "the pasteboard, over Off's hidden pixels and the fill");
+        assert_eq!(s.execute("layer.pickAt", json!({"x": -10, "y": 5, "list": true})).unwrap()["layers"], json!([]));
     }
 }

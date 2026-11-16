@@ -60,7 +60,7 @@ fn is_background(l: &Layer) -> bool {
 }
 
 /// Photoshop converts the Background to a normal layer before erasing to transparency.
-fn unlock_background(l: &mut Layer) {
+pub(crate) fn unlock_background(l: &mut Layer) {
     if is_background(l) {
         l.name = "Layer 0".into();
         l.locks.transparency = false;
@@ -155,7 +155,7 @@ fn background_eraser(s: &mut Session, p: &Value) -> Result<Value> {
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         unlock_background(l);
         let surf = l.surface_mut().ok_or_else(|| bad(CMD, "not a pixel layer"))?;
-        Ok(apply_background_eraser(surf, &stroke, &bs, selection.as_ref()))
+        apply_background_eraser(surf, &stroke, &bs, selection.as_ref()).map_err(|e| bad(CMD, e.to_string()))
     })?;
     Ok(damage(s, dmg, true))
 }

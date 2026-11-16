@@ -13,6 +13,63 @@ use kurbo::{BezPath, ParamCurve, ParamCurveDeriv, PathEl, PathSeg, Vec2};
 /// variable-width strokes give it the stroke's join and miter spikes grow from it.
 pub const CORNER_COS: f64 = 0.9998;
 
+/// A curve whose control polygon is longer than this, or with a point farther out, is drawn as a
+/// line by [`flatten`]: kurbo squares and cubes coordinates when it sizes its work, and past this
+/// that overflows and it reserves a buffer no machine has.
+const MAX_FLATTEN_LENGTH: f64 = 1e60;
+
+/// [`kurbo::flatten`], each curve's tolerance raised so that it makes at most about
+/// [`MAX_FLATTEN_PER_CURVE`] segments: kurbo sizes its work and a buffer from the curve's
+/// coordinates before producing anything, so a small curve with far-out handles asked for
+/// gigabytes. The segments a curve needs grow with the square root of its control polygon's length
+/// over the tolerance; that ratio is held under the square of the cap. A curve whose points aren't
+/// finite or are past [`MAX_FLATTEN_LENGTH`] is drawn as a line to its end.
+pub(crate) fn flatten(path: impl IntoIterator<Item = PathEl>, tolerance: f64, mut callback: impl FnMut(PathEl)) {
+    let (mut last, mut start) = (None, None);
+    for el in path {
+        let (from, to, length) = match el {
+            PathEl::MoveTo(p) => {
+                (last, start) = (Some(p), Some(p));
+                callback(el);
+                continue;
+            }
+            PathEl::LineTo(p) => {
+                last = Some(p);
+                callback(el);
+                continue;
+            }
+            PathEl::ClosePath => {
+                last = start;
+                callback(el);
+                continue;
+            }
+            PathEl::QuadTo(a, b) => (last, b, last.map(|p| p.distance(a) + a.distance(b))),
+            PathEl::CurveTo(a, b, c) => (last, c, last.map(|p| p.distance(a) + a.distance(b) + b.distance(c))),
+        };
+        last = Some(to);
+        let (Some(from), Some(length)) = (from, length) else { continue };
+        let far = |p: kurbo::Point| !(p.x.abs() <= MAX_FLATTEN_LENGTH && p.y.abs() <= MAX_FLATTEN_LENGTH);
+        let controls_far = match el {
+            PathEl::QuadTo(a, _) => far(a),
+            PathEl::CurveTo(a, b, _) => far(a) || far(b),
+            _ => false,
+        };
+        if length.is_nan() || length > MAX_FLATTEN_LENGTH || far(from) || far(to) || controls_far {
+            callback(PathEl::LineTo(to));
+            continue;
+        }
+        let tol = tolerance.max(length / (MAX_FLATTEN_PER_CURVE * MAX_FLATTEN_PER_CURVE));
+        kurbo::flatten([PathEl::MoveTo(from), el], tol, |e| {
+            if !matches!(e, PathEl::MoveTo(_)) {
+                callback(e);
+            }
+        });
+    }
+}
+
+/// Most line segments [`flatten`] makes of one curve, whatever its size and the tolerance.
+pub(crate) const MAX_FLATTEN_PER_CURVE: f64 = 4096.0;
+
 /// Element ranges of the subpaths of `bp` (each with whether it is closed).
 pub fn subpaths(bp: &BezPath) -> Vec<(std::ops::Range<usize>, bool)> {
     let els = bp.elements();
@@ -101,5 +158,41 @@ mod tests {
         assert_eq!(tangent(&c[0], 0.0), Vec2::new(1.0, 0.0));
         assert_eq!(tangent(&c[0], 1.0), Vec2::new(0.0, 1.0));
         assert_eq!(unit(Vec2::ZERO), Vec2::new(1.0, 0.0));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod flatten_tests {
+    use super::*;
+    use kurbo::Point;
+
+    #[test]
+    fn flatten_bounds_the_segments_of_one_curve() {
+        let count = |path: &[PathEl], tol: f64| {
+            let mut n = 0usize;
+            flatten(path.iter().copied(), tol, |_| n += 1);
+            n
+        };
+        let wild = [PathEl::MoveTo(Point::ZERO), PathEl::CurveTo(Point::new(1e15, -1e15), Point::new(-1e15, 1e15), Point::new(1.0, 0.0))];
+        assert!(count(&wild, 0.25) < 3 * MAX_FLATTEN_PER_CURVE as usize);
+        let plain = [PathEl::MoveTo(Point::ZERO), PathEl::CurveTo(Point::new(0.0, 50.0), Point::new(100.0, 50.0), Point::new(100.0, 0.0)), PathEl::ClosePath];
+        let mut ours = vec![];
+        flatten(plain.iter().copied(), 0.25, |e| ours.push(e));
+        let mut theirs = vec![];
+        kurbo::flatten(plain.iter().copied(), 0.25, |e| theirs.push(e));
+        assert_eq!(ours, theirs);
+        let nan = [PathEl::MoveTo(Point::ZERO), PathEl::QuadTo(Point::new(f64::NAN, 0.0), Point::new(1.0, 1.0))];
+        assert_eq!(count(&nan, 0.25), 2);
+        // Finite coordinates whose squares overflow are a line to the end too.
+        let huge = [PathEl::MoveTo(Point::ZERO), PathEl::CurveTo(Point::new(1e200, 0.0), Point::new(-1e200, 1e200), Point::new(1.0, 0.0))];
+        assert_eq!(count(&huge, 0.25), 2);
+        // A short polygon out near f64::MAX: a line, and every point it emits is finite.
+        let m = f64::MAX / 2.0;
+        let far = [PathEl::MoveTo(Point::new(m, m)), PathEl::CurveTo(Point::new(m, m), Point::new(m, m), Point::new(m, m))];
+        let mut points = vec![];
+        flatten(far.iter().copied(), 0.25, |e| points.push(e));
+        assert_eq!(points.len(), 2);
+        assert!(points.iter().all(|e| matches!(e, PathEl::MoveTo(p) | PathEl::LineTo(p) if p.is_finite())), "{points:?}");
     }
 }

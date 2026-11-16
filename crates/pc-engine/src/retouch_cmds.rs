@@ -234,6 +234,9 @@ fn clone_mapping(s: &mut Session, p: &Value, stroke: &Stroke, cmd: &str) -> Resu
     crate::presets::clone_source::mapping(s, p, (f.x, f.y), cmd)
 }
 
+/// Most source pixels one clone sample may read (an 8192 x 8192 window); real strokes stay far below.
+const MAX_CLONE_SOURCE_PIXELS: u64 = 1 << 26;
+
 /// Source pixels for destination `rect`: a translated read, or a bilinear resample when the
 /// clone source is scaled, rotated or flipped.
 fn clone_sample(
@@ -257,7 +260,13 @@ fn clone_sample(
         r.rect = rect;
         return Ok(r);
     }
-    let src = sample(pre, id, surf, which, map.source_rect(rect));
+    // A small W/H scale makes the source window enormous for a bounded destination: refuse it
+    // before the dense read allocates it.
+    let sr = map.source_rect(rect);
+    if u64::from(sr.width()) * u64::from(sr.height()) > MAX_CLONE_SOURCE_PIXELS {
+        return Err(bad(cmd, "the scaled clone source covers too large an area; raise the clone source's W/H or use a smaller brush"));
+    }
+    let src = sample(pre, id, surf, which, sr);
     Ok(crate::presets::clone_source::resample(&src, rect, map, alpha_index(&surf.format())))
 }
 
@@ -607,7 +616,8 @@ fn dodge_burn_cmd(s: &mut Session, p: &Value, burn: bool) -> Result<Value> {
     let dmg = run_stroke(s, label, id, p, |_, surf, sel, lock| {
         let fmt = surf.format();
         let sp = stroke.brush.spacing;
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| color_dab(&fmt, work, fp, exposure, sp, |c, k| dodge_burn(c, k, range, burn, protect))))
+        apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| color_dab(&fmt, work, fp, exposure, sp, |c, k| dodge_burn(c, k, range, burn, protect)))
+            .map_err(|e| bad(cmd, e.to_string()))
     })?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
@@ -625,7 +635,8 @@ fn sponge_cmd(s: &mut Session, p: &Value) -> Result<Value> {
         let fmt = surf.format();
         let sp = stroke.brush.spacing;
         // Flow is already in each dab's coverage; a full-flow pass moves colours half-way.
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| color_dab(&fmt, work, fp, 0.5, sp, |c, k| sponge(c, k, saturate, vibrance))))
+        apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| color_dab(&fmt, work, fp, 0.5, sp, |c, k| sponge(c, k, saturate, vibrance)))
+            .map_err(|e| bad(CMD, e.to_string()))
     })?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
@@ -707,10 +718,11 @@ fn focus_cmd(s: &mut Session, p: &Value, sharpen: bool) -> Result<Value> {
                 }
             }
         };
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, halo, |work, fp| match &mut sampler {
+        apply_dab_stroke(surf, &stroke, sel, lock, halo, |work, fp| match &mut sampler {
             Some(all) => all.dab(work, fp, focus),
             None => focus(work, fp),
-        }))
+        })
+        .map_err(|e| bad(cmd, e.to_string()))
     })?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
@@ -737,10 +749,11 @@ fn smudge_cmd(s: &mut Session, p: &Value) -> Result<Value> {
         // Premultiplied mixing: transparent pixels carry no colour, so no dark fringes.
         let mut sm = Smudge::new(strength, finger_px, max_size).with_alpha(alpha_index(&fmt)).fine_steps(step);
         let mut sampler = all.then(|| AllLayers::new(pre, fmt));
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| match &mut sampler {
+        apply_dab_stroke(surf, &stroke, sel, lock, 0, |work, fp| match &mut sampler {
             Some(all) => all.dab(work, fp, |w, f| sm.dab(w, f)),
             None => sm.dab(work, fp),
-        }))
+        })
+        .map_err(|e| bad(CMD, e.to_string()))
     })?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }

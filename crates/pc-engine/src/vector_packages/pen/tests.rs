@@ -96,6 +96,30 @@ fn pen_alt_mid_drag_freezes_incoming_and_shift_constrains_each_frame() {
 }
 
 #[test]
+fn pen_close_drag_does_not_make_the_first_anchor_symmetric() {
+    let s = session();
+    // A smooth first anchor: its outgoing handle turns in line with the incoming one, keeping its length.
+    let mut g = begin(&s, Mode::Pen);
+    g.motion(p(30., 20.), Modifiers::default()).unwrap();
+    g.release().unwrap();
+    click(&mut g, p(80., 20.));
+    click(&mut g, p(80., 80.));
+    g.press(p(21., 21.), Modifiers::default(), 4.).unwrap();
+    g.motion(p(20., 40.), Modifiers::default()).unwrap();
+    let k = g.path().subpaths[0].knots[0];
+    assert_eq!((k.in_ctrl, k.out_ctrl, k.smooth), (p(20., 0.), p(20., 30.), true));
+    // A corner: the first segment keeps its shape.
+    let mut g = begin(&s, Mode::Pen);
+    g.release().unwrap();
+    click(&mut g, p(80., 20.));
+    click(&mut g, p(80., 80.));
+    g.press(p(21., 21.), Modifiers::default(), 4.).unwrap();
+    g.motion(p(20., 40.), Modifiers::default()).unwrap();
+    let k = g.path().subpaths[0].knots[0];
+    assert_eq!((k.in_ctrl, k.out_ctrl, k.smooth), (p(20., 0.), p(20., 20.), false));
+}
+
+#[test]
 fn pen_close_drag_alt_preserves_first_outgoing_and_close_click_preserves_handles() {
     let s = session();
     let mut g = begin(&s, Mode::Pen);
@@ -113,6 +137,20 @@ fn pen_close_drag_alt_preserves_first_outgoing_and_close_click_preserves_handles
     assert_eq!(k.in_ctrl, p(20., 0.));
     assert!(!k.smooth);
     assert!(matches!(g.release().unwrap(), Outcome::Finished(_)));
+}
+
+#[test]
+fn smart_close_drag_alt_keeps_the_far_handle_the_closing_press_fitted() {
+    let s = session();
+    let mut g = begin(&s, Mode::Smart);
+    g.release().unwrap();
+    click(&mut g, p(80., 20.));
+    click(&mut g, p(80., 80.));
+    // Closing refits the first anchor's handles to its new neighbour.
+    g.press(p(21., 21.), Modifiers::default(), 4.).unwrap();
+    let fitted = g.path().subpaths[0].knots[0];
+    g.motion(p(40., 20.), Modifiers { alt: true, shift: false }).unwrap();
+    assert_eq!(g.path().subpaths[0].knots[0].out_ctrl, fitted.out_ctrl);
 }
 
 #[test]

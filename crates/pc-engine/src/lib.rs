@@ -699,6 +699,9 @@ pub mod vector_integration;
 mod gpu_test_support;
 
 #[cfg(test)]
+mod dense_budget_tests;
+
+#[cfg(test)]
 mod hotfix_critical_tests;
 
 #[cfg(test)]

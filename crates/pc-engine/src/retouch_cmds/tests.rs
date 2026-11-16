@@ -9,6 +9,19 @@ fn session(w: u32, h: u32, depth: u64, mode: &str) -> Session {
     s
 }
 
+#[test]
+fn a_hugely_scaled_clone_source_is_refused_before_the_dense_read() {
+    use crate::presets::clone_source::Mapping;
+    let s = session(32, 24, 8, "rgb");
+    let d = s.active().unwrap();
+    let id = d.active_layer.unwrap();
+    let surf = d.doc.layer(id).unwrap().surface().unwrap();
+    let which = sample_layers(&json!({"sampleLayer": "current"}), "paint.cloneStamp").unwrap();
+    // 1000x: a 100 x 100 destination asks for a 100000 x 100000 source window.
+    let map = Mapping { source: (0.0, 0.0), anchor: (0.0, 0.0), m: [1000.0, 0.0, 0.0, 1000.0] };
+    assert!(clone_sample(&d.doc, Some(id), surf, which, Rect::new(0, 0, 100, 100), &map, "paint.cloneStamp").is_err());
+}
+
 /// Straight RGBA of the active layer at a pixel.
 fn rgba(s: &Session, x: i32, y: i32) -> [f32; 4] {
     let d = s.active().unwrap();
