@@ -775,6 +775,7 @@ mod tests {
     #[test]
     fn a_link_is_not_copied_as_its_target() {
         let dir = std::env::temp_dir().join(format!("lc-rename-copy-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("share")).unwrap();
         std::fs::write(dir.join("private.txt"), b"secret").unwrap();
         std::os::unix::fs::symlink(dir.join("private.txt"), dir.join("photo.xmp")).unwrap();
