@@ -773,6 +773,17 @@ mod tests {
             assert!(merge_xmp(bad, &fresh(1, &[]), RULES).is_err(), "{bad:?}");
         }
     }
+
+    #[test]
+    fn a_self_closing_rdf_element_is_opened_not_replaced() {
+        let old = "<!-- kept --><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><r:RDF xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/></x:xmpmeta>";
+        let out = merge_xmp(old, &fresh(3, &[]), RULES).unwrap();
+        assert!(out.starts_with("<!-- kept --><x:xmpmeta"), "{out}");
+        assert!(out.contains("</r:RDF></x:xmpmeta>"), "{out}");
+        assert_eq!(parse_xmp(&out).unwrap().properties["xmp:Rating"], vec!["3"]);
+        let no_rdf = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><x:other/></x:xmpmeta>";
+        assert!(merge_xmp(no_rdf, &fresh(3, &[]), RULES).is_err());
+    }
     #[test]
     fn preserves_foreign_properties_using_known_prefixes() {
         for property in [r#"lc:Secret="keep-me"/>"#, r#"><lc:Secret>keep-me</lc:Secret></rdf:Description>"#] {
