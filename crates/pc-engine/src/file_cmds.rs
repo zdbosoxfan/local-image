@@ -98,6 +98,12 @@ pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
     Err(EngineError::Other(format!("cannot write {path}: no file system on the web")))
 }
 
+/// Whether a file name's extension is one the batch commands open.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn openable_name(name: &str) -> bool {
+    std::path::Path::new(name).extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
+}
+
 /// Files of a folder that look like images we can open, sorted by name.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
@@ -105,10 +111,7 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     let mut out: Vec<String> = rd
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| {
-            p.is_file()
-                && p.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
-        })
+        .filter(|p| p.is_file() && p.file_name().and_then(|n| n.to_str()).is_some_and(openable_name))
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
     out.sort();
@@ -661,32 +664,49 @@ fn parse_steps(v: &Value) -> Result<Vec<(String, Value)>> {
         .collect()
 }
 
-/// Inputs of a batch command: `"input"` is a folder or an array of files.
-pub(crate) fn batch_inputs(p: &Value, cmd: &str) -> Result<Vec<String>> {
-    match p.get("input").or_else(|| p.get("files")) {
-        Some(Value::Array(a)) => Ok(a.iter().filter_map(Value::as_str).map(str::to_string).collect()),
-        Some(Value::String(dir)) => list_images(dir),
-        _ => Err(EngineError::BadParams { cmd: cmd.into(), msg: "missing \"input\" (folder or array of files)".into() }),
-    }
+/// Inputs of a batch command: `"input"` is a folder (with `"includeSubfolders"`, its subfolders
+/// too) or an array of files. See [`crate::batch::inputs`].
+pub(crate) fn batch_inputs(p: &Value, cmd: &str) -> Result<Vec<crate::batch::Input>> {
+    crate::batch::inputs(p, cmd)
 }
 
-/// Opens each input in a scratch session, runs `f` on it and saves it to `output` as `format`
-/// (`"same"` keeps the input's extension). Errors per file are collected, not fatal.
+/// Opens each input in a scratch session, runs `f` on it and saves it to `output` (in the
+/// input's subfolder, mirrored) as `format` (`"same"` keeps the input's extension), named by
+/// `options.naming`. `f` gets the output path and returns `true` when it saved the result
+/// itself. Errors per file are collected, not fatal, unless `options.stop_on_error`; they also
+/// go to `options.error_log` when set. With a job handle, progress is reported per file and a
+/// cancel stops after the current file (`Err(Cancelled)`; the files written so far stay, the
+/// log is still written).
 pub(crate) fn process_files(
-    inputs: &[String],
+    inputs: &[crate::batch::Input],
     output: &str,
     format: &str,
     save: SaveOpts,
-    suffix: &str,
+    options: &crate::batch::Options,
+    ctx: Option<&lightcraft_sysmem::JobCtl>,
     f: &dyn Fn(&mut Session, &str) -> Result<bool>,
-) -> Value {
+) -> Result<Value> {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
-    for path in inputs {
+    let date = crate::batch::Date::today();
+    let total = inputs.len();
+    let mut stopped = None;
+    let mut cancelled = false;
+    let mut done = 0;
+    for (i, input) in inputs.iter().enumerate() {
+        if let Some(ctx) = ctx {
+            if ctx.is_cancelled() {
+                cancelled = true;
+                break;
+            }
+            ctx.report(i as f32 / total.max(1) as f32, &format!("{} of {total}: {}", i + 1, file_name(&input.path)));
+        }
+        let path = &input.path;
         let ext =
             if format == "same" { path.rsplit('.').next().unwrap_or("png").to_ascii_lowercase() } else { format.trim_start_matches('.').to_ascii_lowercase() };
-        let out = join(output, &format!("{}{suffix}.{ext}", stem(path)));
+        let dir = if input.subdir.is_empty() { output.to_string() } else { join(output, &input.subdir) };
+        let out = join(&dir, &options.naming.file_name(&stem(path), &ext, i as u64, date));
         let r = (|| -> Result<()> {
             written.check(&out).map_err(EngineError::Other)?;
             let bytes = read_file(path)?;
@@ -699,15 +719,34 @@ pub(crate) fn process_files(
             }
             Ok(())
         })();
+        done = i + 1;
         match r {
             Ok(()) => {
                 written.record(&out, path);
                 files.push(out);
             }
-            Err(e) => errors.push(json!({"file": path, "error": e.to_string()})),
+            Err(e) => {
+                errors.push(json!({"file": path, "error": e.to_string()}));
+                if options.stop_on_error {
+                    stopped = Some(path.clone());
+                    break;
+                }
+            }
         }
     }
-    json!({"files": files, "errors": errors})
+    if let Some(log) = &options.error_log
+        && !errors.is_empty()
+    {
+        crate::batch::write_error_log(log, &errors, date)?;
+    }
+    if cancelled {
+        return Err(EngineError::Cancelled);
+    }
+    if let Some(ctx) = ctx {
+        ctx.report(1.0, "");
+    }
+    let skipped = || inputs.iter().skip(done).map(|i| i.path.clone()).collect();
+    Ok(crate::batch::outcome(files, errors, stopped.map(|at| (at, skipped())), options.error_log.as_deref()))
 }
 
 /// The output paths a batch run has written, so a later input whose output name matches an
@@ -761,11 +800,11 @@ fn image_processor(_s: &mut Session, p: &Value) -> Result<Value> {
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(p).or_quality(8.0), "", &|scratch, _| {
+    let options = crate::batch::Options::from_params(p, cmd)?;
+    process_files(&inputs, &output, &format, SaveOpts::from_params(p).or_quality(8.0), &options, None, &|scratch, _| {
         process_image(scratch, to_srgb, fit.as_ref())?;
         Ok(false)
-    });
-    Ok(r)
+    })
 }
 
 fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1192,7 +1231,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action; Save, Save As and Save a Copy mark the output document; recorded save paths are ignored),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"tiffLayers":bool=false} → {files, errors} (up to 16 nested scripts/batches and 100000 input/step units per run, including nested actions; each input and action step counts once; an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action; Save, Save As and Save a Copy mark the output document; recorded save paths are ignored),"source":"folder|open"="folder" (open: the steps run on every open document; "input" is ignored, "output" optional: a copy of each is saved there, else they just stay changed),"input":folder|[paths],"includeSubfolders":bool=false (the output mirrors the subfolders),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","naming":"{name}.{ext}"? (template: {name} {NAME} {Name} {serial} {serial:2..4} {letter} {LETTER} {date:mmddyy|mmdd|yyyymmdd|yymmdd|yyddmm|ddmmyy} (UTC) {ext} {EXT}, other text literal),"startSerial":int=1,"stopOnError":bool=false (else every file is tried),"errorLog":path? (the errors, one per line),"quality":0..12?,"tiffLayers":bool=false} → {files, errors, stopped?, skipped?, errorLog?, documents? (source open)} (runs as a job: progress per file, Cancel stops after the current one; up to 16 nested scripts/batches and 100000 input/step units per run, including nested actions; each input and action step counts once; an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),
@@ -1201,7 +1240,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Image Processor…",
             &["File", "Scripts"],
             None,
-            r##"{"input":folder|[paths],"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false,"jpeg":{enabled?:bool=true,quality?:1..12=5,convertToSrgb?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"psd":{enabled?:bool=true,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"tiff":{enabled?:bool=true,lzw?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?} → {files, errors} (an input whose output name was already written in the run goes to errors; without format, supplying jpeg/psd/tiff writes each enabled one from every input with its own settings, the TIFF with layers; at least one must be enabled, and each error then names its format)"##,
+            r##"{"input":folder|[paths],"includeSubfolders":bool=false,"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","naming":"{name}.{ext}"? (as file.automate.batch),"startSerial":int=1,"stopOnError":bool=false,"errorLog":path? (naming to errorLog: with format only),"quality":0..12=8,"tiffLayers":bool=false,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false,"jpeg":{enabled?:bool=true,quality?:1..12=5,convertToSrgb?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"psd":{enabled?:bool=true,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"tiff":{enabled?:bool=true,lzw?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?} → {files, errors, stopped?, skipped?, errorLog?} (an input whose output name was already written in the run goes to errors; without format, supplying jpeg/psd/tiff writes each enabled one from every input with its own settings, the TIFF with layers; at least one must be enabled, and each error then names its format)"##,
             native,
             image_processor
         ),

@@ -60,7 +60,7 @@ fn processor_format(key: &str, extension: &'static str, options: &Value) -> Resu
     Ok(Some(ProcessorFormat { extension, save, fit, to_srgb }))
 }
 
-pub(super) fn run(p: &Value, inputs: &[String], output: &str) -> Result<Value> {
+pub(super) fn run(p: &Value, inputs: &[crate::batch::Input], output: &str) -> Result<Value> {
     // Every section is checked before any format writes a file.
     let mut formats = Vec::new();
     for (key, extension) in [("jpeg", "jpg"), ("psd", "psd"), ("tiff", "tif")] {
@@ -73,17 +73,19 @@ pub(super) fn run(p: &Value, inputs: &[String], output: &str) -> Result<Value> {
     if formats.is_empty() {
         return Err(bad("You must save to at least one file type."));
     }
+    // One error list across the formats: the naming and error options apply with `format` only.
+    let options = crate::batch::Options::plain("");
     let mut files = Vec::new();
     let mut errors = Vec::new();
     for format in formats {
-        let mut result = process_files(inputs, output, format.extension, format.save, "", &|scratch, out| {
+        let mut result = process_files(inputs, output, format.extension, format.save, &options, None, &|scratch, out| {
             // A PSD or TIFF input in the output folder would otherwise be replaced by its own copy.
-            if inputs.iter().any(|input| li_fs::same_file(std::path::Path::new(input), std::path::Path::new(out))) {
+            if inputs.iter().any(|input| li_fs::same_file(std::path::Path::new(&input.path), std::path::Path::new(out))) {
                 return Err(EngineError::Other(format!("output would replace a source file: {out}")));
             }
             process_image(scratch, format.to_srgb, format.fit.as_ref())?;
             Ok(false)
-        });
+        })?;
         if let Some(Value::Array(written)) = result.get_mut("files").map(Value::take) {
             files.extend(written);
         }
