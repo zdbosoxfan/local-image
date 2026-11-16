@@ -475,3 +475,17 @@ fn sliver_crops_render_quickly_with_wide_stages_on() {
         assert!(r.image.width >= 1 && r.image.height >= 1, "{rect:?}");
     }
 }
+
+/// A crop of no width gave grain NaN coordinates (and NaN pixels); the render stays finite.
+#[test]
+fn zero_width_crop_with_grain_renders_finite_pixels() {
+    let mut s = DevelopSettings::default();
+    s.grain.amount = 60.0;
+    s.crop.geometry.rect = lightcraft_geom::Rect::new(0.5, 0.1, 0.5, 0.9);
+    let mut req = RenderRequest::fit(240, 240);
+    req.depth = crate::OutputDepth::F32Linear;
+    let r = render(&scene(), &SourceInfo::default(), &s, &req);
+    let d = r.deep.expect("a deep image");
+    let crate::DeepSamples::F32(v) = d.samples else { panic!("f32 samples") };
+    assert!(v.iter().all(|x| x.is_finite()), "non-finite sample in a zero-width crop with grain");
+}

@@ -1182,3 +1182,76 @@ fn rating_rejects_fractional_values() {
     s.execute("photo.rate", &json!({"rating": 3})).unwrap();
     assert_eq!(s.catalog.photo(id).unwrap().rating, 3);
 }
+
+/// Work weighed with saturating maths can ask for `usize::MAX` bytes. Adding to that overflowed (a
+/// panic with the gate's mutex held in a debug build, a wrapped count that let everything in for a
+/// release one). The count is exact past `usize::MAX`: later work waits, whichever permit is
+/// released first, and even on a gate whose limit is `usize::MAX`.
+#[test]
+fn work_gate_counts_past_usize_max_instead_of_overflowing() {
+    use crate::memory::WorkGate;
+    use std::sync::Arc;
+    // a holder of one byte, on its own thread; still waiting 50 ms later
+    let waiting = |g: &Arc<WorkGate>| {
+        let g2 = g.clone();
+        let t = std::thread::spawn(move || {
+            let _b = g2.acquire(1);
+            g2.usage().0
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!t.is_finished(), "the next holder waits");
+        t
+    };
+
+    // the huge permit released first: the urgent one is still counted
+    let g = Arc::new(WorkGate::new(100));
+    let huge = g.acquire(usize::MAX);
+    let urgent = g.acquire_urgent(101);
+    assert_eq!(g.usage().0, usize::MAX, "reported saturated");
+    drop(huge);
+    assert_eq!(g.usage().0, 101);
+    let t = waiting(&g);
+    drop(urgent);
+    assert_eq!(t.join().unwrap(), 1);
+    assert_eq!(g.usage().0, 0);
+
+    // the urgent permit released first
+    let huge = g.acquire(usize::MAX);
+    drop(g.acquire_urgent(1));
+    assert_eq!(g.usage().0, usize::MAX);
+    let t = waiting(&g);
+    drop(huge);
+    assert_eq!(t.join().unwrap(), 1);
+    assert_eq!(g.usage().0, 0);
+
+    // a gate without a practical limit is still full when it holds usize::MAX
+    let g = Arc::new(WorkGate::new(usize::MAX));
+    let huge = g.acquire(usize::MAX);
+    let t = waiting(&g);
+    drop(huge);
+    assert_eq!(t.join().unwrap(), 1);
+}
+
+/// Past the shared dab budget a brush mask fails the render, rather than rendering a mask missing
+/// its later (erase) strokes.
+#[test]
+fn an_over_budget_brush_mask_fails_the_render() {
+    use lightcraft_develop::{BrushStroke, Mask, MaskComponent, MaskOp, MaskShape};
+    use lightcraft_geom::Point;
+    let mut s = demo();
+    let id = s.active().unwrap();
+    let far = BrushStroke { points: vec![Point::new(-4000.0, 0.5), Point::new(4000.0, 0.5)], size: 0.05, ..Default::default() };
+    let brush = |strokes| Mask {
+        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes } }],
+        ..Default::default()
+    };
+    let mut d = active_dev(&s);
+    d.masks = vec![brush(vec![far; 10])];
+    s.set_develop(id, d.clone(), "Brush").unwrap();
+    let e = s.render_now(id, 64, 64).err().expect("an over-budget brush mask is an error");
+    assert!(e.contains("dabs"), "{e}");
+    let near = BrushStroke { points: vec![Point::new(0.1, 0.1), Point::new(0.9, 0.9)], size: 0.05, ..Default::default() };
+    d.masks = vec![brush(vec![near])];
+    s.set_develop(id, d, "Brush").unwrap();
+    assert!(s.render_now(id, 64, 64).is_ok());
+}

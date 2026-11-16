@@ -870,21 +870,7 @@ impl LightcraftApp {
             if now - self.ui.auto_import_at >= 3.0 && self.import.is_none() && !self.tasks.is_running(LABEL) {
                 self.ui.auto_import_at = now;
                 let work = move || lightcraft_engine::cmd::library::list_auto_import_folder(&folder);
-                let done = |app: &mut LightcraftApp, _ctx: &egui::Context, listing: Result<Vec<(String, u64)>, String>| {
-                    let listing = match listing {
-                        Ok(l) => l,
-                        Err(e) => return log::debug!("auto import: {e}"),
-                    };
-                    let p = serde_json::json!({"listing": listing, "start": false});
-                    let Ok(r) = app.session.execute("library.autoImportScan", &p) else { return };
-                    let Some(mut params) = r.get("import").cloned().filter(|_| app.import.is_none()) else { return };
-                    let paths: Vec<String> =
-                        params["paths"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
-                    if let Some(o) = params.as_object_mut() {
-                        o.remove("paths");
-                    }
-                    app.import = Some(import::ImportTask::new(paths, params, app.session.library_generation, false).auto());
-                };
+                let done = |app: &mut LightcraftApp, _ctx: &egui::Context, listing| import::auto_listed(app, listing);
                 if let Err(e) = tasks::spawn(self, LABEL, work, done) {
                     log::warn!("{e}");
                 }

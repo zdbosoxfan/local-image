@@ -788,6 +788,17 @@ pub fn export_flat(doc: &Document, format: Format, opts: &ExportOptions) -> Resu
             img = gray;
             warnings.push(format!("colours converted to sGray; {format:?} can't embed the document's colour profile"));
         }
+    } else if img.icc.is_none() {
+        // An untagged document is in the default working space for its mode, which is how the
+        // canvas shows it and what Photoshop embeds for it: sRGB, and for gray the Dot Gain
+        // 20%-compatible working gray (not sGray, which would show the same samples darker). A
+        // JPEG or PNG with Embed Color Profile then says so instead of leaving viewers to guess.
+        // The codec still leaves it out when embedding is off.
+        if img.layout().is_rgb() {
+            img.icc = Some(Builtin::Srgb.profile().to_bytes().to_vec());
+        } else if img.layout().is_gray() {
+            img.icc = Some(Builtin::DotGain20Compat.profile().to_bytes().to_vec());
+        }
     }
     for w in codecs::fidelity_warnings_with(&img, format, &opts.encode) {
         if w.is_fatal() {
@@ -988,11 +999,54 @@ mod parity_tests {
         doc.layers.push(Layer::new("Pixels", LayerContent::Raster(surface)));
         doc.metadata.exif = Some(Arc::new(lightcraft_tiff::exif::minimal_exif(6)));
         doc.metadata.xmp = Some(r#"<rdf:Description tiff:Orientation="6"/>"#.into());
-        for (ext, size, expected) in [("psd", 570, 0xb48c029c61d4be65u64), ("tiff", 325, 0xfbffddd714c68a3a)] {
+        for (ext, size, expected) in [("psd", 570, 0xb48c029c61d4be65u64), ("tiff", 989, 0xbdff0aa1e0505270)] {
             let bytes = crate::export(&doc, ext, &ExportOptions::default()).unwrap().bytes;
             let hash = bytes.iter().fold(0xcbf29ce484222325u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3));
             assert_eq!(bytes.len(), size, "{ext} length changed");
             assert_eq!(hash, expected, "{ext} byte golden changed");
         }
+    }
+}
+
+#[cfg(test)]
+mod assumed_profile_tests {
+    use super::*;
+    use photocraft_cms::{Builtin, Profile};
+    use photocraft_color::Color;
+
+    fn doc(mode: ColorMode) -> Document {
+        Document::with_background("t", Size::new(16, 12), mode, SampleType::U8, Color::rgba(0.78, 0.39, 0.2, 1.0))
+    }
+
+    fn embedded(r: &ExportResult) -> Option<String> {
+        codecs::decode(&r.bytes).unwrap().icc.map(|b| Profile::parse(&b).unwrap().description)
+    }
+
+    /// An untagged document is in the default working space for its mode, and Photoshop embeds
+    /// that (sRGB IEC61966-2.1 for a new or untagged RGB document) when the profile is embedded.
+    #[test]
+    fn untagged_documents_embed_the_profile_they_are_assumed_to_be_in() {
+        let opts = ExportOptions::default();
+        assert!(opts.encode.embed_icc);
+        for ext in ["jpg", "png", "tif", "webp"] {
+            let r = crate::export(&doc(ColorMode::Rgb), ext, &opts).unwrap();
+            assert_eq!(embedded(&r).as_deref(), Some(Builtin::Srgb.description()), "{ext}");
+        }
+        // An untagged gray document shows through the default working gray (Dot Gain 20%
+        // compatible), so that is the profile its samples are tagged with, not sGray (which would
+        // show them darker than the canvas).
+        let r = crate::export(&doc(ColorMode::Grayscale), "png", &opts).unwrap();
+        assert_eq!(embedded(&r).as_deref(), Some(Builtin::DotGain20Compat.description()));
+        // Embed Color Profile off: still none.
+        let mut off = ExportOptions::default();
+        off.encode.embed_icc = false;
+        assert_eq!(embedded(&crate::export(&doc(ColorMode::Rgb), "jpg", &off).unwrap()), None);
+        // A format without profiles gets no warning about one.
+        let r = crate::export(&doc(ColorMode::Rgb), "bmp", &opts).unwrap();
+        assert!(!r.warnings.iter().any(|w| w.contains("profile")), "{:?}", r.warnings);
+        // A tagged document keeps its own profile.
+        let mut p3 = doc(ColorMode::Rgb);
+        p3.icc_profile = Some(Arc::new(Builtin::DisplayP3.profile().to_bytes().to_vec()));
+        assert_eq!(embedded(&crate::export(&p3, "jpg", &opts).unwrap()).as_deref(), Some(Builtin::DisplayP3.description()));
     }
 }

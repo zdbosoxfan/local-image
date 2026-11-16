@@ -221,6 +221,37 @@ pub fn open_smart_filter(app: &mut PhotocraftApp, ctx: &egui::Context, layer: La
     open_pixels(app, ctx, layer, surf, params, coverage, Target::SmartFilter(index), None)
 }
 
+/// `area` of `surf` averaged over `k`×`k` blocks, row-major (`ceil(w/k)` × `ceil(h/k)`). A block
+/// past the last row repeats that row, as a clamped edge. Each source row is read once and
+/// weighted by the block rows it stands for: reading it once per missing row made a one-row
+/// domain quadratic in its width.
+fn box_average(surf: &photocraft_raster::Surface, area: Rect, k: usize) -> Vec<[f32; 4]> {
+    let (w, h) = (area.width() as usize, area.height() as usize);
+    let (pw, ph) = (w.div_ceil(k), h.div_ceil(k));
+    let mut proxy = vec![[0.0f32; 4]; pw * ph];
+    let mut row = vec![[0.0f32; 4]; w];
+    for py in 0..ph {
+        // f64: a weighted f32 sample near f32::MAX would overflow to infinity.
+        let mut acc = vec![[0.0f64; 5]; pw];
+        for sy in py * k..((py + 1) * k).min(h) {
+            let weight = if sy == h - 1 { ((py + 1) * k - sy) as f64 } else { 1.0 };
+            let y = area.y0 + sy as i32;
+            surf.read_rgba_into(Rect::new(area.x0, y, area.x1, y + 1), &mut row);
+            for (x, q) in row.iter().enumerate() {
+                let a = &mut acc[x / k];
+                for c in 0..4 {
+                    a[c] += f64::from(q[c]) * weight;
+                }
+                a[4] += weight;
+            }
+        }
+        for (x, a) in acc.iter().enumerate() {
+            proxy[py * pw + x] = [0, 1, 2, 3].map(|c| (a[c] / a[4]) as f32);
+        }
+    }
+    proxy
+}
+
 fn open_pixels(
     app: &mut PhotocraftApp,
     ctx: &egui::Context,
@@ -248,26 +279,7 @@ fn open_pixels(
     }
     let k = w.max(h).div_ceil(PROXY_SIDE).max(1);
     let (pw, ph) = (w.div_ceil(k), h.div_ceil(k));
-    let mut proxy = vec![[0.0f32; 4]; pw * ph];
-    let mut row = vec![[0.0f32; 4]; w];
-    for py in 0..ph {
-        // Box-average k×k blocks.
-        let mut acc = vec![[0.0f32; 5]; pw];
-        for dy in 0..k {
-            let y = area.y0 + (py * k + dy).min(h - 1) as i32;
-            surf.read_rgba_into(Rect::new(area.x0, y, area.x1, y + 1), &mut row);
-            for (x, q) in row.iter().enumerate() {
-                let a = &mut acc[x / k];
-                for c in 0..4 {
-                    a[c] += q[c];
-                }
-                a[4] += 1.0;
-            }
-        }
-        for (x, a) in acc.iter().enumerate() {
-            proxy[py * pw + x] = [a[0] / a[4], a[1] / a[4], a[2] / a[4], a[3] / a[4]];
-        }
-    }
+    let proxy = box_average(&surf, area, k);
     // Coverage at the centre of each proxy block.
     let sample = |value: &dyn Fn(i32, i32) -> f32| {
         (0..ph)
@@ -1126,6 +1138,51 @@ mod develop_tests {
 #[cfg(test)]
 mod proxy_tests {
     use super::*;
+
+    /// Every block row read in turn, the last row again past the end, summed in f64.
+    fn clamped_average(surf: &photocraft_raster::Surface, area: Rect, k: usize) -> Vec<[f32; 4]> {
+        let (w, h) = (area.width() as usize, area.height() as usize);
+        let (pw, ph) = (w.div_ceil(k), h.div_ceil(k));
+        let mut out = Vec::new();
+        let mut row = vec![[0.0f32; 4]; w];
+        for py in 0..ph {
+            let mut acc = vec![[0.0f64; 5]; pw];
+            for dy in 0..k {
+                let y = area.y0 + (py * k + dy).min(h - 1) as i32;
+                surf.read_rgba_into(Rect::new(area.x0, y, area.x1, y + 1), &mut row);
+                for (x, q) in row.iter().enumerate() {
+                    for c in 0..4 {
+                        acc[x / k][c] += f64::from(q[c]);
+                    }
+                    acc[x / k][4] += 1.0;
+                }
+            }
+            out.extend(acc.iter().map(|a| [0, 1, 2, 3].map(|c| (a[c] / a[4]) as f32)));
+        }
+        out
+    }
+
+    #[test]
+    fn box_average_matches_the_clamped_average_past_the_last_row() {
+        let mut surf = photocraft_raster::Surface::new(photocraft_color::PixelFormat::RGBA32F);
+        for x in 0..37 {
+            for y in 0..5 {
+                surf.fill_rect(Rect::new(x, y, x + 1, y + 1), &[x as f32 / 37.0, y as f32 / 5.0, 0.5, 1.0]);
+            }
+        }
+        // Samples whose f32 sum overflows: the one-row case reads them into every block row.
+        let big = f32::MAX / 2.0;
+        surf.fill_rect(Rect::new(0, 8, 37, 9), &[big, -big, big, 1.0]);
+        for (area, k) in
+            [(Rect::new(0, 0, 37, 5), 2), (Rect::new(0, 0, 37, 5), 4), (Rect::new(0, 2, 37, 3), 16), (Rect::new(3, 0, 37, 5), 7), (Rect::new(0, 8, 37, 9), 4)]
+        {
+            let (got, want) = (box_average(&surf, area, k), clamped_average(&surf, area, k));
+            assert_eq!(got.len(), want.len());
+            for (g, w) in got.iter().zip(&want) {
+                assert!(g.iter().zip(w).all(|(a, b)| a.is_finite() && (a - b).abs() <= 1e-5 * b.abs().max(1.0)), "{area:?} k={k}: {g:?} vs {w:?}");
+            }
+        }
+    }
 
     #[test]
     fn downsampled_proxy_equals_downsampled_commit_within_tolerance() {

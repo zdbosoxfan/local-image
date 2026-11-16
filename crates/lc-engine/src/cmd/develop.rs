@@ -877,7 +877,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 .iter()
                 .filter_map(|id| {
                     let d = s.develop_of(*id)?;
-                    let mut settings = preset.apply(&d, amount);
+                    // The amount is measured from the import look when the photo has one. Settings from
+                    // a sidecar or a catalog import record none, and their baseline is the current ones.
+                    let imported =
+                        s.catalog.photo(*id).filter(|photo| photo.import_look.is_some() && amount != 1.0).map(|photo| photo.import_defaults());
+                    let mut settings = preset.apply_on(&d, imported.as_ref().unwrap_or(&*d), amount);
                     s.resolve_transferred_wb(*id, &preset.settings, &mut settings);
                     s.refresh_transferred_masks(*id, &mut settings, d.masks.len());
                     if preset.settings.get("geometry").is_some() {

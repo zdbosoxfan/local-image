@@ -34,6 +34,31 @@ pub fn preprocess(rgb: &[u8], w: usize, h: usize, side: usize) -> Result<Vec<f32
     if w == 0 || h == 0 || rgb.len() < n {
         return Err(Error::Model(format!("image buffer of {} bytes for {w} × {h}", rgb.len())));
     }
+    // The horizontal pass keeps every source row (h × side samples): for a strip far taller than
+    // it is wide that is many times the image itself, so such an image is resampled transposed
+    // (its rows become columns) and the result transposed back.
+    if h > w.saturating_mul(4) {
+        let mut t = vec![0u8; n];
+        for y in 0..h {
+            for x in 0..w {
+                if let (Some(d), Some(s)) = (t.get_mut((x * h + y) * 3..(x * h + y) * 3 + 3), rgb.get((y * w + x) * 3..(y * w + x) * 3 + 3)) {
+                    d.copy_from_slice(s);
+                }
+            }
+        }
+        let o = preprocess(&t, h, w, side)?;
+        let mut out = vec![0f32; o.len()];
+        for c in 0..3 {
+            for oy in 0..side {
+                for ox in 0..side {
+                    if let (Some(d), Some(v)) = (out.get_mut((c * side + oy) * side + ox), o.get((c * side + ox) * side + oy)) {
+                        *d = *v;
+                    }
+                }
+            }
+        }
+        return Ok(out);
+    }
     let (wx, wy) = (weights(w, side), weights(h, side));
     // horizontal pass: h rows × side columns × 3
     let mut tmp = vec![0f32; h * side * 3];
@@ -118,6 +143,24 @@ mod tests {
     fn short_buffers_are_errors() {
         assert!(preprocess(&[0; 5], 2, 2, 4).is_err());
         assert!(preprocess(&[], 0, 0, 4).is_err());
+    }
+
+    /// A strip 1 pixel wide and 400 000 tall at SAM's 1024 side: resampled transposed, so the
+    /// intermediate is 1024 wide by 1 rather than 400 000 by 1024 (about 5 GB of floats); it equals
+    /// the resample of its transposed twin.
+    #[test]
+    fn a_tall_narrow_strip_is_resampled_transposed() {
+        let (h, side) = (400_000usize, 1024);
+        let strip: Vec<u8> = (0..h * 3).map(|i| (i / 3 % 251) as u8).collect();
+        let a = preprocess(&strip, 1, h, side).unwrap();
+        let b = preprocess(&strip, h, 1, side).unwrap();
+        for c in 0..3 {
+            for y in 0..side {
+                for x in 0..side {
+                    assert_eq!(a[(c * side + y) * side + x], b[(c * side + x) * side + y]);
+                }
+            }
+        }
     }
 
     #[test]

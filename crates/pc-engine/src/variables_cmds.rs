@@ -298,7 +298,11 @@ fn import_data_sets(s: &mut Session, p: &Value) -> Result<Value> {
         sets.push(DataSet { name, values });
     }
     let n = sets.len();
-    set_vars(s, |v| v.data_sets = sets)?;
+    // A History step of its own, so an import can be undone.
+    s.edit("Import Data Sets", |doc, _| {
+        doc.variables.data_sets = sets;
+        Ok(())
+    })?;
     Ok(json!({"imported": n}))
 }
 

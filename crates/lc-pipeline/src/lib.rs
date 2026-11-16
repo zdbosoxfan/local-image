@@ -259,6 +259,9 @@ pub struct RenderRequest {
     /// Output must fit in `max_w × max_h` (aspect preserved).
     pub max_w: usize,
     pub max_h: usize,
+    /// The box is the final export size, already fitted against the full-resolution photo: a
+    /// source whose shape only rounds differently must not fit it a second time.
+    pub exact_size: bool,
     pub quality: Quality,
     /// Show the crop frame's content only (true) or the whole uncropped image (crop tool active).
     pub apply_crop: bool,
@@ -273,11 +276,49 @@ pub struct RenderRequest {
     pub proof: Option<Proof>,
 }
 
+/// The longest output side a render may be asked for (TIFF/PNG/JPEG all fit within it).
+pub const MAX_OUTPUT_SIDE: usize = 65_535;
+/// The most output pixels a render may be asked for (the box it fits into, about 1.07 Gpx).
+pub const MAX_OUTPUT_PIXELS: usize = 1 << 30;
+
+/// Rejects an output box past [`MAX_OUTPUT_SIDE`] or [`MAX_OUTPUT_PIXELS`] before anything is
+/// sized from it.
+pub fn check_output_size(max_w: usize, max_h: usize) -> Result<(), String> {
+    let pixels = max_w.checked_mul(max_h);
+    if max_w > MAX_OUTPUT_SIDE || max_h > MAX_OUTPUT_SIDE || pixels.is_none_or(|n| n > MAX_OUTPUT_PIXELS) {
+        return Err(format!("output size {max_w}×{max_h} is too large (at most {MAX_OUTPUT_SIDE} px per side and {MAX_OUTPUT_PIXELS} pixels)"));
+    }
+    Ok(())
+}
+
+/// Fails when a visible brush mask holds more dabs than its budget ([`masks::MAX_STROKE_DABS`]) at
+/// this render's output size: the render would otherwise skip its later strokes and show a wrong
+/// mask.
+pub fn check_brush_budget(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Result<(), String> {
+    let brush =
+        |m: &lightcraft_develop::Mask| m.visible && m.components.iter().any(|c| matches!(c.shape, lightcraft_develop::MaskShape::Brush { .. }));
+    if !s.masks.iter().any(brush) {
+        return Ok(());
+    }
+    let p = plan(src, info, s, req);
+    for m in s.masks.iter().filter(|m| brush(m)) {
+        for c in &m.components {
+            if let lightcraft_develop::MaskShape::Brush { strokes } = &c.shape
+                && masks::brush_over_budget(strokes, &p.frame, p.w, p.h)
+            {
+                return Err(format!("mask \"{}\": the brush strokes hold more than {} dabs at this size", m.name, masks::MAX_STROKE_DABS));
+            }
+        }
+    }
+    Ok(())
+}
+
 impl RenderRequest {
     pub fn fit(max_w: usize, max_h: usize) -> Self {
         Self {
             max_w,
             max_h,
+            exact_size: false,
             quality: Quality::Full,
             apply_crop: true,
             overlay: Overlay::None,
@@ -285,6 +326,16 @@ impl RenderRequest {
             depth: OutputDepth::U8,
             proof: None,
         }
+    }
+
+    /// The output size for `frame`. An exact box stands against a source that only rounds the
+    /// photo's shape differently; a source of another shape (a raw's embedded preview) is fitted,
+    /// not stretched.
+    fn size(&self, frame: &geometry::Frame) -> (usize, usize) {
+        let fitted = frame.fit(self.max_w, self.max_h);
+        let exact = (self.max_w.max(1), self.max_h.max(1));
+        let near = |a: usize, b: usize| a.abs_diff(b) <= b / 64 + 1;
+        if self.exact_size && near(fitted.0, exact.0) && near(fitted.1, exact.1) { exact } else { fitted }
     }
 }
 
@@ -332,7 +383,7 @@ pub(crate) struct Prepared {
 
 /// Output size for a source of `src_w × src_h` under `s`, fitting `max_w × max_h`.
 pub fn output_size(src_w: usize, src_h: usize, s: &DevelopSettings, req: &RenderRequest) -> (usize, usize) {
-    geometry::Frame::new(src_w, src_h, s, req.apply_crop).fit(req.max_w, req.max_h)
+    req.size(&geometry::Frame::new(src_w, src_h, s, req.apply_crop))
 }
 
 /// Size of the cropped output of a `src_w × src_h` source under `s` at the source's own resolution
@@ -364,6 +415,10 @@ pub fn frame_for(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, apply_c
     // calibrated CA profile would correct the same displacement twice.
     if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca && !info.embedded_ca_baked {
         frame.add_lateral_ca(optics::estimate_lateral_ca(src, basis.map(|[undo, _]| undo)));
+        if apply_crop && frame.lens_may_move_crop(&settings) {
+            // the estimated CA moves the colour planes too: keep the crop inside every one of them
+            frame.constrain_to_image(settings.geometry.constrain_crop);
+        }
     }
     if let Some(warp) = frame.warp.as_mut().filter(|w| w.per_channel()) {
         warp.camera_basis = basis;
@@ -548,7 +603,7 @@ pub fn plan<'a>(src: &RgbFrame, info: &SourceInfo, s: &'a DevelopSettings, req: 
     visualize::adjust_settings(req.overlay, &mut settings);
     let s = &*settings;
     let frame = frame_for(src, info, s, req.apply_crop);
-    let (w, h) = frame.fit(req.max_w, req.max_h);
+    let (w, h) = req.size(&frame);
     let px_per_long = frame.px_per_long(w);
     let src_long = src.width.max(src.height);
     let geo = hash_of((format!("{frame:?}"), w, h));
@@ -1078,6 +1133,25 @@ mod tests_toolset;
 
 mod base_curve_data;
 pub mod basecurves;
+
+/// `plan` keeps the box an export already decided instead of fitting it again: a source whose
+/// aspect rounds differently (a 149 × 100 decode of a 240 × 160 photo) came out a pixel off.
+#[cfg(test)]
+#[test]
+fn plan_keeps_an_exact_box_and_never_stretches_another_shape() {
+    let src = RgbFrame::from_fn(149, 100, |_, _| [0.5; 3]);
+    let info = SourceInfo::default();
+    let s = DevelopSettings::default();
+    let fitted = plan(&src, &info, &s, &RenderRequest::fit(240, 160));
+    assert_eq!((fitted.w, fitted.h), (238, 160));
+    let req = RenderRequest { exact_size: true, ..RenderRequest::fit(240, 160) };
+    let p = plan(&src, &info, &s, &req);
+    assert_eq!((p.w, p.h), (240, 160));
+    // an embedded preview of another shape keeps its shape: an exact box must not stretch it
+    let preview = RgbFrame::from_fn(120, 100, |_, _| [0.5; 3]);
+    let p = plan(&preview, &info, &s, &req);
+    assert_eq!((p.w, p.h), (192, 160));
+}
 
 #[cfg(test)]
 #[test]

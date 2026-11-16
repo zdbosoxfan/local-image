@@ -68,7 +68,8 @@ impl Frame {
     ) -> Frame {
         let orient = s.orientation;
         let (ow, oh) = if orient.swaps_axes() { (src_h as f64, src_w as f64) } else { (src_w as f64, src_h as f64) };
-        let crop = if apply_crop { s.crop.geometry.snapped(ow, oh) } else { CropGeometry::default() };
+        // bounded: a crop from a sidecar or an agent can reach far past the photo
+        let crop = if apply_crop { s.crop.geometry.bounded(ow, oh).snapped(ow, oh) } else { CropGeometry::default() };
         let lens = lens.map(|l| reorient_lens(l, orient, src_w as f64, src_h as f64));
         let mut warp = Warp::from_settings(ow, oh, s, lens.as_ref());
         if let Some(c) = lensdb {
@@ -95,10 +96,18 @@ impl Frame {
             flip_v: apply_crop && s.crop.flip_v,
             warp: (!warp.is_identity()).then_some(warp),
         };
-        if apply_crop && s.geometry.constrain_crop {
-            f.constrain_to_image();
+        if apply_crop && f.lens_may_move_crop(s) {
+            f.constrain_to_image(s.geometry.constrain_crop);
         }
         f
+    }
+
+    /// Lens corrections fit the crop inside the corrected photo only when it is uncropped, unless
+    /// "Constrain Crop" is on: a crop someone drew stays where it was drawn (region segmentation
+    /// renders its region as such a crop and places the result there). Read from the settings, as
+    /// the first fit already leaves an uncropped photo's crop smaller than the whole frame.
+    pub(crate) fn lens_may_move_crop(&self, s: &DevelopSettings) -> bool {
+        s.geometry.constrain_crop || s.crop.geometry.bounded(self.ow, self.oh).snapped(self.ow, self.oh).is_identity()
     }
 
     /// The green-plane geometry for scalar sensor metadata. Shading, channel
@@ -128,16 +137,33 @@ impl Frame {
         frame
     }
 
-    /// "Constrain Crop": the largest crop of the same aspect inside the user's crop that contains no area
-    /// outside the warped source. Shrinking about the crop's centre alone loses area on the lopsided
-    /// trapezoids Upright leaves (a vertical fix with a horizontal one or a roll), so the shrunk crop
-    /// also moves, within the room the shrink frees.
-    fn constrain_to_image(&mut self) {
-        let Some(wp) = self.warp.as_ref().filter(|w| w.moves_pixels()) else { return };
+    /// The largest crop of the same aspect inside the user's crop that contains no area outside the
+    /// warped source, in any colour plane. Lens corrections (profile, embedded camera warp, manual
+    /// distortion, lateral CA) do this, as a corrected lens never shows the blank past the photo's
+    /// edge (callers ask [`Frame::lens_may_move_crop`] first); perspective only with "Constrain
+    /// Crop" (`with_persp`), so a keystone fix can keep its corners. Shrinking about the crop's
+    /// centre alone loses area on the lopsided trapezoids Upright leaves (a vertical fix with a
+    /// horizontal one or a roll), so the shrunk crop also moves, within the room the shrink frees.
+    pub(crate) fn constrain_to_image(&mut self, with_persp: bool) {
+        let Some(full) = self.warp.as_ref().filter(|w| w.moves_pixels()) else { return };
+        let optics;
+        let wp = if with_persp || full.persp == Homography::IDENTITY {
+            full
+        } else {
+            let mut o = full.clone();
+            o.persp = Homography::IDENTITY;
+            o.persp_inv = Homography::IDENTITY;
+            optics = o;
+            &optics
+        };
+        if !wp.moves_pixels() {
+            return;
+        }
+        let planes: &[usize] = if wp.per_channel() { &[0, 1, 2] } else { &[1] };
         let a = self.crop.output_to_source(self.ow, self.oh, 1.0, 1.0);
         let (w, h) = (self.ow, self.oh);
-        // Crop coordinates (0..1 across the user's crop) → green-plane source position.
-        let map = |p: Point| wp.to_source(a.apply(p), 1);
+        // Crop coordinates (0..1 across the user's crop) → source position of colour plane `ch`.
+        let map = |p: Point, ch: usize| wp.to_source(a.apply(p), ch);
         let inside = |s: Point| s.x >= -1e-6 * w && s.y >= -1e-6 * h && s.x <= w * (1.0 + 1e-6) && s.y <= h * (1.0 + 1e-6);
         let samples = |t: f64, c: Point| {
             (0..=48).flat_map(move |i| {
@@ -145,7 +171,7 @@ impl Frame {
                 [(u, 0.0), (u, 1.0), (0.0, u), (1.0, u)].map(|(x, y)| Point::new(c.x + t * (x - 0.5), c.y + t * (y - 0.5)))
             })
         };
-        let fits = |t: f64, c: Point| samples(t, c).all(|p| inside(map(p)));
+        let fits = |t: f64, c: Point| samples(t, c).all(|p| planes.iter().all(|&ch| inside(map(p, ch))));
         let centre = Point::new(0.5, 0.5);
         if fits(1.0, centre) {
             return;
@@ -158,8 +184,8 @@ impl Frame {
             let mut c = centre;
             for _ in 0..6 {
                 let mut cons: Vec<([f64; 2], f64)> = Vec::new();
-                for p in samples(t, c) {
-                    let q = map(p);
+                for (p, &ch) in samples(t, c).flat_map(|p| planes.iter().map(move |ch| (p, ch))) {
+                    let q = map(p, ch);
                     if inside(q) {
                         continue;
                     }
@@ -168,7 +194,7 @@ impl Frame {
                         return None;
                     }
                     let e = 1e-4;
-                    let (qx, qy) = (map(Point::new(p.x + e, p.y)), map(Point::new(p.x, p.y + e)));
+                    let (qx, qy) = (map(Point::new(p.x + e, p.y), ch), map(Point::new(p.x, p.y + e), ch));
                     let jx = [(qx.x - q.x) / e, (qy.x - q.x) / e];
                     let jy = [(qx.y - q.y) / e, (qy.y - q.y) / e];
                     // keep a little inside: a hundredth of a source pixel
@@ -556,6 +582,17 @@ pub const FULL: Rect = Rect::UNIT;
 mod tests {
     use super::*;
 
+    /// A turned crop rect of 0..1000 (from a sidecar or an agent) made the native size of a
+    /// 6000 x 4000 photo ~2.4e13 pixels, which a full-size export allocated.
+    #[test]
+    fn a_crop_far_past_the_photo_keeps_the_native_size_near_the_source() {
+        let mut s = DevelopSettings::default();
+        s.crop.geometry = CropGeometry { rect: Rect::new(0.0, 0.0, 1000.0, 1000.0), angle: 5.0 };
+        let (w, h) = crate::native_output_size(6000, 4000, &s);
+        assert!(w <= 12_000.0 && h <= 8_000.0, "{w} x {h}");
+        assert_eq!(crate::native_output_size(6000, 4000, &DevelopSettings::default()), (6000.0, 4000.0));
+    }
+
     #[test]
     fn default_frame_is_identity() {
         let s = DevelopSettings::default();
@@ -931,8 +968,23 @@ mod tests {
         s.geometry.vertical = -30.0;
         let mut f = Frame::new(600, 400, &s, true);
         f.warp.as_mut().expect("a perspective warp").k1 = f64::NAN;
-        f.constrain_to_image();
+        f.constrain_to_image(true);
         assert!(f.crop.rect.width() <= 0.05 && f.crop.rect.height() <= 0.05, "{:?}", f.crop.rect);
+    }
+
+    /// A region segmentation pass renders `region` as a crop without Constrain Crop and stores the
+    /// model's output against `region`, so the frame must keep that crop under lens corrections.
+    #[test]
+    fn region_crop_without_constrain_stays_put_under_distortion() {
+        let region = lightcraft_geom::Rect::new(0.0, 0.0, 0.3, 0.3);
+        for distortion in [-60.0, 60.0] {
+            let mut s = DevelopSettings::default();
+            s.optics.distortion = distortion;
+            s.crop.geometry = lightcraft_geom::CropGeometry { rect: region, angle: 0.0 };
+            s.geometry.constrain_crop = false;
+            let got = Frame::new(600, 400, &s, true).crop.rect;
+            assert_eq!(got, region, "distortion {distortion}");
+        }
     }
 
     #[test]

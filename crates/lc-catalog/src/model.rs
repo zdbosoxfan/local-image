@@ -163,7 +163,13 @@ pub struct Meta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dji: Option<lightcraft_meta::DjiMetadata>,
     pub camera: String,
+    /// The camera's maker, from Exif `Make` (`camera` is maker and model together).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub make: String,
     pub lens: String,
+    /// The lens's maker, from Exif `LensMake`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub lens_make: String,
     pub focal_mm: Option<f32>,
     /// EXIF FocalLengthIn35mmFormat (Upright's camera model on any sensor size).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -325,6 +331,12 @@ pub struct Analysis {
 }
 
 impl Photo {
+    /// Keep the newest [`HISTORY_LIMIT`](crate::HISTORY_LIMIT) History steps.
+    pub fn trim_history(&mut self) {
+        let n = self.history.len().saturating_sub(crate::HISTORY_LIMIT);
+        self.history.drain(..n);
+    }
+
     pub fn new(id: PhotoId, source: Source, file_name: &str, format: &str, width: u32, height: u32, imported: &str) -> Photo {
         Photo {
             id,
