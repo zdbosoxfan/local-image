@@ -253,13 +253,12 @@ fn play(s: &mut Session, p: &Value) -> Result<Value> {
     let idx = resolve(&s.actions.list, p, "actions.play")?;
     let len = s.actions.list[idx].steps.len();
     let from = from_step(p, len)?;
-    // Inside a script or batch every stored step of the call costs one unit of the shared
-    // budget, run or skipped, and a call that no longer fits is refused before the action is
-    // copied. Calls that skip a large action's steps would otherwise copy it each time for the
-    // price of one step.
+    // Inside a script or batch the steps a call skips cost one unit each of the shared budget,
+    // charged before the action is copied; the steps that run are charged as they run. Calls
+    // that skip a large action's steps would otherwise copy it each time for the price of one.
     if s.actions.script_depth > 0 {
         let max = crate::automate_cmds::MAX_SCRIPT_STEPS;
-        if s.actions.script_steps.saturating_add(len as u64) > max {
+        if s.actions.script_steps.saturating_add(from as u64) > max {
             return Err(bad("actions.play", format!("the script or batch ran more than {max} steps in all")));
         }
         s.actions.script_steps += from as u64;
@@ -483,6 +482,19 @@ mod tests {
         let results = r["results"].as_array().unwrap();
         assert_eq!(results.len(), 100, "{}", r["ok"]);
         assert!(results[99]["error"].as_str().unwrap().contains("steps in all"), "{}", results[99]);
+    }
+
+    /// Only the skipped steps are charged up front: a call that skips none still runs the steps
+    /// that fit in what is left of the budget, then reports the limit.
+    #[test]
+    fn a_call_near_the_end_of_the_script_budget_runs_the_steps_that_fit() {
+        let mut s = Session::new();
+        s.actions.script_depth = 1;
+        s.actions.script_steps = crate::automate_cmds::MAX_SCRIPT_STEPS - 3;
+        s.actions.list.push(Action { name: "queries".into(), steps: vec![("actions.list".to_string(), json!({})); 3] });
+        let r = s.execute("file.scripts.browse", json!({"steps": [["actions.play", {"action": "queries"}]]})).unwrap();
+        assert_eq!(r["results"][0]["result"]["ran"], 2, "{r}");
+        assert!(r["results"][0]["result"]["failed"]["error"].as_str().unwrap().contains("steps in all"), "{r}");
     }
 
     #[test]
