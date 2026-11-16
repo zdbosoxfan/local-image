@@ -1744,3 +1744,32 @@ Not ported: storytold/photocraft@`d8891fe31c` (Export As: Scale All, #13734). It
 | [storytold/photocraft@`386a6804220ddb971867467eca2c00b9cdec7a06`](https://github.com/storytold/photocraft/commit/386a6804220ddb971867467eca2c00b9cdec7a06) | Transfer selected pixels between tabs and tiled documents | `crates/pc-engine/src/float_cmds.rs`<br>`crates/pc-engine/src/layer_copy_cmds.rs`<br>`crates/pc-engine/src/layer_copy_cmds/tests.rs`<br>`crates/pc-ui-egui/src/canvas.rs`<br>`crates/pc-ui-egui/src/layer_transfer.rs`<br>`crates/pc-ui-egui/src/layer_transfer/tests.rs` | MIT OR Apache-2.0 |
 
 Adapted port. The selected pixels are cut with our 3-argument `CutParts::with_copy(doc, layer, true)` (upstream: a 5-argument `CutParts::new` with the background colour). Our Move-tool drag of a selection does not float the pixels into the session (`move_ui::begin_pixels` keeps them in `move_preview` and commits `select.movePixels` on release), so there is nothing to put back when the drag becomes a transfer: upstream's `Drag::transfer_floating_before` and its `tool_input.rs` hunk are not ported, `move_drag` keeps `sel_move.is_none()` and accepts a drag with a selection. `prepare` is called from our `canvas::document_area` before `documents` (upstream `canvas/tabs.rs`), only when the restoration dialog does not block the canvas, as `finish` is. A tile's view mapping in `target_at` follows our `canvas_view`: the rulers' `content_rect` only for the active tile, `zoom` without the `ppp` division and no `aspect` field (our `ViewXform` has neither), and without `pixel_aligned` (private to `canvas`; it moves the mapping by less than a pixel, and the drop offset is rounded). The tiled test builds its view mapping the same way. `prepare` arms the transfer but does not activate the tile it is over, as upstream does: our `arranged_cells` puts the active document in the first tile (upstream keeps tiles stable with `arrange_start`), so activating would swap the tiles under the pointer and the release would land on the source; `layer.copyToDocument` activates the destination.
+
+## PhotoCraft Ruler and Info panel (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`498c310ec13ac0b936ab3804fae7d07dac4d77f6`](https://github.com/storytold/photocraft/commit/498c310ec13ac0b936ab3804fae7d07dac4d77f6) | Ruler: a drag on the line or a protractor's vertex moves the whole ruler; ±8 px end zones (#11981) | `crates/pc-ui-egui/src/analysis_ui.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`bcb886f473f89e0309202828b7d40e4cd92981ed`](https://github.com/storytold/photocraft/commit/bcb886f473f89e0309202828b7d40e4cd92981ed) | Info panel: the Ruler's A and L (A, L1, L2 for a protractor), its point and size (#11991) | `crates/pc-ui-egui/src/panels/docks.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `498c310e` keeps our payload-free `Drag::RulerNew` and reads the zoom from `current_zoom`. We have no `near_end` or `ruler_end_at` (the ⌥ pointer of #12037 is not ported), so the ±8 px square test replaces the end checks inline in the Ruler press arm; upstream's `analysis_ruler_move_tests.rs` lives in `analysis_ui.rs`'s `mod tests`. `bcb886f4` lands in our Info panel, which has no Crop tool W/H (`crop_ui::info_size`) or guide-drag X/Y: W/H fall back to the selection's size and X/Y to the hovered pixel; `RulerRows` and `ruler_rows` stay private to `docks.rs` and upstream's `info_ruler_tests.rs` lives in its `mod tests`.
+
+Design approval: faithful upstream port built from existing widgets (`widgets::hairline` and the Info panel's own rows), under Zach's decision 5 of 2026-10-25 (choosing an upstream feature approves a faithful port of its UI). "Ruler readout and drag" was chosen under his delegation of 2026-11-15 ("You decide on all those idc"); he can overrule it.
+
+## PhotoCraft Object Selection Hard Edge (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`b8b7129ca7512d19910ca54f9aa6de35e43b7cab`](https://github.com/storytold/photocraft/commit/b8b7129ca7512d19910ca54f9aa6de35e43b7cab) | Object Selection: the Hard Edge option; off, a 1-2-1 tent gives a softer rim one pixel wider on each side (#12855) | `crates/pc-engine/src/smartselect_cmds.rs`<br>`crates/pc-ui-egui/src/state.rs`<br>`crates/pc-ui-egui/src/retouch_ui.rs` | MIT OR Apache-2.0 |
+
+Adapted port: our click mode runs the learned model as a background job and has no Object Finder cache, so the rim is applied in the job's apply step (and around `grabcut::object_select` in rect mode) instead of through upstream's `object_edge`; the model's probability map is what stays as found. `object_hard_edge` sits in our flat `ToolOptions` beside `sample_all_layers`. Not ported: the Reset Tool part (`tool_reset.rs`, we have no Reset Tool), its test, and the Object Finder cache and "finding nothing changes nothing" tests (our Replace with nothing found clears the selection). Upstream's `object_hard_edge_tests.rs` lives in `smartselect_cmds.rs`'s `mod tests`, on a dragged rectangle plus one click test with the mock model. "Hard Edge" has no catalog translations yet and shows in English.
+
+Design approval: faithful upstream port built from an existing widget (`widgets::checkbox`), under Zach's decision 5 of 2026-10-25 (choosing an upstream feature approves a faithful port of its UI). "Object Selection Hard Edge" was chosen under his delegation of 2026-11-15 ("You decide on all those idc"); he can overrule it.
+
+## PhotoCraft Image Size Resample shortcuts (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4c5f49d9ff100880b8981c140949671f55552602`](https://github.com/storytold/photocraft/commit/4c5f49d9ff100880b8981c140949671f55552602) | Image Size: Alt+1 to Alt+8 pick the Resample method (#14789) | `crates/pc-ui-egui/src/sizing.rs` | MIT OR Apache-2.0 |
+
+Adapted port: Alt+1 picks our `bicubicAutomatic` (upstream's key is `automatic`). We have no Indexed Color filter on the Resample list (#6019 is not ported), so `resample_offered` is left out and every keyed method is offered while Resample is on. Upstream's `image_size_resample_shortcuts_tests.rs` is in `sizing.rs`'s `mod tests` without its Indexed Color case; our dialog opens with no field focused, so the focused-field test clicks into Width first.
