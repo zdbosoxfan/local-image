@@ -7,6 +7,8 @@
 //! `layer.translate`) moves the board with its contents. The canvas grows to the right and
 //! bottom to fit new boards, like Photoshop's auto-expanding artboard canvas.
 
+use std::collections::HashSet;
+
 use photocraft_color::{Color, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{Artboard, ArtboardBackground, Document, Layer, LayerContent, LayerId, Size};
 use photocraft_geom::Rect;
@@ -371,7 +373,49 @@ fn chosen_artboards(doc: &Document, p: &Value) -> Vec<LayerId> {
     }
 }
 
-/// File › Export › Artboards to Files: `<prefix>_<index:04>_<artboard name>.<format>` per board.
+/// Formats whose file names Artboards to Files writes with a `-` for each space, as the reference
+/// application does for PNG, JPEG, BMP, Targa and TIFF. PSD keeps its spaces, as do the formats
+/// the reference application was not measured with.
+const HYPHENATED_FORMATS: &[&str] = &["png", "jpg", "jpeg", "bmp", "tga", "tif", "tiff"];
+
+/// The file names (without extension) Artboards to Files writes for `names`, in export order:
+/// `<prefix><artboard name>` with no separator or index between them, [`sanitize`]d as a whole,
+/// and with each space turned into `-` when `hyphenate`.
+///
+/// A name equal to an earlier one, ignoring letter case (or equal once sanitized), gets the first
+/// `-2`, `-3`... that no other board's own name and no earlier suffix takes, so every board still
+/// gets a file of its own on case-insensitive file systems, while the first board of a name, and
+/// every board whose name is unique, keeps the plain name.
+fn artboard_file_stems(prefix: &str, names: &[&str], hyphenate: bool) -> Vec<String> {
+    let plain: Vec<String> = names
+        .iter()
+        .map(|name| {
+            let stem = sanitize(&format!("{prefix}{name}"));
+            if hyphenate { stem.replace(' ', "-") } else { stem }
+        })
+        .collect();
+    let mut taken: HashSet<String> = plain.iter().map(|stem| stem.to_lowercase()).collect();
+    let mut seen = HashSet::new();
+    plain
+        .into_iter()
+        .map(|stem| {
+            if seen.insert(stem.to_lowercase()) {
+                return stem;
+            }
+            let mut n = 2u64;
+            loop {
+                let candidate = format!("{stem}-{n}");
+                if taken.insert(candidate.to_lowercase()) {
+                    break candidate;
+                }
+                n += 1;
+            }
+        })
+        .collect()
+}
+
+/// File › Export › Artboards to Files: one `<prefix><artboard name>.<format>` per board, named by
+/// [`artboard_file_stems`] (`abfiles-testRed-Board.png`, `abfiles-testRed Board.psd`).
 fn artboards_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.artboardsToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
@@ -379,12 +423,13 @@ fn artboards_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
     let doc = d.doc.clone();
+    // Names come from the board layers, so only one board's document is built at a time.
+    let boards: Vec<(LayerId, &str)> = chosen_artboards(&doc, p).into_iter().filter_map(|id| doc.layer(id).map(|l| (id, l.name.as_str()))).collect();
+    let names: Vec<&str> = boards.iter().map(|(_, name)| *name).collect();
+    let stems = artboard_file_stems(&prefix, &names, HYPHENATED_FORMATS.contains(&format.as_str()));
     let mut files = Vec::new();
-    for id in chosen_artboards(&doc, p) {
+    for ((id, _), name) in boards.into_iter().zip(stems) {
         let Some(one) = artboard_document(&doc, id) else { continue };
-        // Names may be identical, or collide after sanitizing or filesystem case folding.
-        let i = files.len();
-        let name = if prefix.is_empty() { format!("{i:04}_{}", sanitize(&one.name)) } else { format!("{}_{i:04}_{}", sanitize(&prefix), sanitize(&one.name)) };
         let path = join(&dir, &format!("{name}.{format}"));
         save_doc(&one, &path, SaveOpts::from_params(p))?;
         files.push(path);
@@ -521,7 +566,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "file.export.artboardsToFiles",
             "Artboards to Files…",
             &["File", "Export"],
-            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name ("" = none),"artboards":[id]? (default all),"quality":0..12?} → {files}"##,
+            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name ("" = none),"artboards":[id]? (default all),"quality":0..12?} → {files} (one "<prefix><artboard name>.<format>" per board, no separator or index added: spaces become "-" except in PSD, characters a file name can't hold become "_", and a name an earlier board already took, ignoring case, gets "-2", "-3"...)"##,
             export_artboards,
             artboards_to_files
         ),
@@ -536,6 +581,9 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
+#[cfg(test)]
+#[path = "artboard_cmds/file_names_tests.rs"]
+mod file_names_tests;
 #[cfg(test)]
 #[path = "artboard_cmds/tests.rs"]
 mod tests;
