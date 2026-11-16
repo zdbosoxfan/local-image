@@ -175,6 +175,18 @@ const OTHER_LOCATION_PROPERTIES: &[&str] = &[
     "exif:GPSAltitude",
 ];
 
+/// Most namespace declarations in scope at once. Prefix lookup scans them, so declarations times
+/// the names of a start tag is the work; real packets declare a few dozen.
+const MAX_NS_DECLS: usize = 512;
+
+/// Refuses a scope stack holding more than [`MAX_NS_DECLS`] declarations.
+pub(crate) fn check_scopes(scopes: &[Vec<(String, String)>]) -> Result<(), XmpError> {
+    if scopes.iter().map(Vec::len).sum::<usize>() > MAX_NS_DECLS {
+        return Err(XmpError::TooComplex);
+    }
+    Ok(())
+}
+
 /// Canonical names preserve foreign bindings without allowing unbounded URI expansion.
 pub(crate) fn canonical_name(qname: &str, scopes: &[Vec<(String, String)>], opaque_budget: &mut usize) -> Result<String, XmpError> {
     let (prefix, local) = qname.split_once(':').unwrap_or(("", qname));
@@ -273,6 +285,7 @@ fn parse_tree(s: &str) -> Result<Node, XmpError> {
                     }
                 }
                 scopes.push(scope);
+                check_scopes(&scopes)?;
                 let name = canonical_name(&String::from_utf8_lossy(e.name().as_ref()), &scopes, &mut opaque_budget)?;
                 let attrs = raw_attrs
                     .into_iter()

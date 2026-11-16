@@ -411,3 +411,42 @@ fn previews_built_ahead_skip_memory_when_there_is_a_disk() {
     assert!(memory.get(built).is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// While the gate says no (the library's path leads to another folder), the cache changes nothing
+/// in its folder: no write, no removal of an unreadable file, no prune, no clear. Reads go on.
+#[test]
+fn a_closed_gate_leaves_the_cache_folder_as_it_is() {
+    let dir = temp_dir("gate");
+    let d = DiskCache::new(&dir, 1 << 20);
+    let open = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let gate = open.clone();
+    d.set_gate(Arc::new(move || gate.load(Ordering::Relaxed)));
+    let (kept, corrupt, late) = (hash_bytes(b"kept"), hash_bytes(b"corrupt"), hash_bytes(b"late"));
+    let img = gradient(16, 16, 3);
+    d.put(kept, &img);
+    d.put(corrupt, &img);
+    let file = |k: Hash128| {
+        let hex = k.to_string();
+        dir.join(&hex[..2]).join(format!("{hex}.jpg"))
+    };
+    std::fs::write(file(corrupt), b"not a jpeg").unwrap();
+
+    open.store(false, Ordering::Relaxed);
+    d.put(late, &img);
+    assert!(!file(late).exists(), "nothing is written");
+    assert!(d.get(kept).is_some(), "a read is not gated");
+    assert!(d.get(corrupt).is_none());
+    assert!(file(corrupt).exists(), "an unreadable file stays");
+    d.set_budget(0);
+    d.prune();
+    d.clear();
+    assert!(file(kept).exists(), "nothing is pruned or cleared");
+
+    open.store(true, Ordering::Relaxed);
+    d.set_budget(1 << 20);
+    d.put(late, &img);
+    assert!(file(late).exists(), "the folder is back: writing goes on");
+    d.clear();
+    assert!(!file(kept).exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
