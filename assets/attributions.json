@@ -14033,6 +14033,97 @@
           "url": "https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303"
         },
         {
+          "name": "LightCraft",
+          "used_for": "LR-CROP-AUTO: Auto straighten reads the vertical vanishing point and the horizon",
+          "commit": "47e2c0d248adf7f555163c0efde8d0f4b2d5485f",
+          "ours": "crates/lc-pipeline/src/straighten.rs, crates/lc-pipeline/src/upright.rs, crates/lc-pipeline/src/lib.rs, crates/lc-pipeline/src/tests_geometry.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/47e2c0d248adf7f555163c0efde8d0f4b2d5485f"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Alt/Option-drag previews for clipping and sharpening",
+          "commit": "9ac38222e12e9bec2bb171d2a30aa8b69aeb4b9a",
+          "ours": "crates/lc-pipeline/src/visualize.rs, crates/lc-pipeline/src/detail.rs, crates/lc-pipeline/src/lib.rs, crates/lc-gpu/src/render.rs, crates/lc-gpu/src/ctx.rs, crates/lc-gpu/src/wgsl/detail.wgsl, crates/lc-gpu/tests/it/equivalence.rs, crates/lc-ui-egui/src/state.rs, crates/lc-ui-egui/src/panels/edit.rs, crates/lc-ui-egui/src/panels/detail.rs, crates/lc-ui-egui/src/tests_panels.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/9ac38222e12e9bec2bb171d2a30aa8b69aeb4b9a"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "KEY-TOGGLEZOOM: hold Space over a tool to pan and click-zoom",
+          "commit": "abf0caf2017e79108fa9a7d67efabad27232b269",
+          "ours": "crates/lc-ui-egui/src/space_hand.rs, crates/lc-ui-egui/src/tests_space_hand.rs, crates/lc-ui-egui/src/control.rs, crates/lc-ui-egui/src/lib.rs, crates/lc-ui-egui/src/shortcuts.rs, crates/lc-ui-egui/src/panels/detail.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/abf0caf2017e79108fa9a7d67efabad27232b269"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "KEY-TOGGLEZOOM: a click down and up within one frame keeps its zoom on Space's release",
+          "commit": "9e305d642e3e091235e8a651079f6dafd798c224",
+          "ours": "crates/lc-ui-egui/src/space_hand.rs, crates/lc-ui-egui/src/tests_space_hand.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/9e305d642e3e091235e8a651079f6dafd798c224"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "KEY-TOGGLEZOOM: Toggle Zoom bound to Space in the keymap takes the hand and toggles once",
+          "commit": "c9c3870ab38718a63c5faaa7b677b39cbbc002eb",
+          "ours": "crates/lc-ui-egui/src/shortcuts.rs, crates/lc-ui-egui/src/tests_space_hand.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/c9c3870ab38718a63c5faaa7b677b39cbbc002eb"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-MASK-PINS: Object and Describe masks show a pin that selects them",
+          "commit": "63b7d0766e18726ba35a2f4be645280acd478984",
+          "ours": "crates/lc-ui-egui/src/panels/detail.rs, crates/lc-ui-egui/src/tests_masking.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/63b7d0766e18726ba35a2f4be645280acd478984"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-EDIT-AUTO: Auto Settings applies to every selected photo, decoded off the UI thread",
+          "commit": "aa52251d2ef3bb2e4014f20943c4c4c83ce0d931",
+          "ours": "crates/lc-engine/src/cmd/develop.rs, crates/lc-engine/src/tests.rs, crates/lc-ui-egui/src/auto_settings.rs, crates/lc-ui-egui/src/lib.rs, crates/lc-ui-egui/src/menus.rs, crates/li-i18n/src/pending_library.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/aa52251d2ef3bb2e4014f20943c4c4c83ce0d931"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
