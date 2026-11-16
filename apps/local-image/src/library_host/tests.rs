@@ -222,6 +222,31 @@ fn startup_view_choice_wins_over_the_remembered_module() {
     }
 }
 
+/// Startup › Open in Loupe after quitting in Develop stays in the Library once it draws: the
+/// saved develop tool panel does not pull it back to Develop.
+#[test]
+fn startup_in_loupe_after_quitting_in_develop_stays_in_the_library() {
+    let (dir, _, library, _) = library_with_photo("startup-loupe");
+    let location = library.ui.settings.library_path.clone();
+    drop(library);
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.session.edit_prefs(|prefs| {
+        prefs.library.insert("module".into(), json!("develop"));
+        prefs.library.insert("view".into(), json!("detail"));
+        prefs.library.insert("right".into(), json!("edit"));
+        prefs.library.insert("settings".into(), json!({ "libraryPath": location, "startupView": "detail" }));
+    });
+    let host = Host::new(editor);
+    assert_eq!(host.mode, Module::Library);
+    let mut h = RoundTripUi::new(host);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert_eq!(h.host.mode, Module::Library);
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// A file given at launch is shown in Compositing; a folder goes to the Library's import.
 #[test]
 fn launch_documents_show_in_compositing_and_folders_go_to_the_library_import() {

@@ -375,6 +375,9 @@ impl Host {
             let mut lib = open_library_app(opens, &mut self.prefs, saved);
             if mode == Module::Develop {
                 set_library_view(&mut lib, true);
+            } else if mode == Module::Library && lib.ui.right.is_edit_tool() {
+                // A develop tool saved at quit would turn a Library start back into Develop.
+                lib.ui.right = lightcraft_ui_egui::state::RightPanel::None;
             }
             lib
         });
