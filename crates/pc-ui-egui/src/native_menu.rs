@@ -4,7 +4,7 @@
 //! Pure and platform-free, so it is tested everywhere and builds for the web; only the backend
 //! touches AppKit. What the layout does ([`mac_layout`]):
 //! - an **app menu** named Local Image: About (from Help), Settings (Edit › Preferences), Language,
-//!   Appearance (Window › Theme), Services, Hide, Hide Others, Show All and Quit (File › Exit,
+//!   Appearance (Window › Theme), Services, Hide, Hide Others, Show All and Quit (File › Quit Local Image,
 //!   still the app's own `file.exit` so the unsaved-changes prompt runs). The other Craft apps
 //!   use the same app menu;
 //! - **Window** gets Minimize, Zoom and Bring All to Front, and **Help** the system search field;

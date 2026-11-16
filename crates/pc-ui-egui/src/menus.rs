@@ -24,7 +24,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     (crate::overwrite_original::SAVE_ID, "Save Over Original…", &["File"], None),
     (crate::overwrite_original::RETURN_ID, "Save Over Original and Return to Library…", &["File"], None),
     (crate::develop_layer::SAVE_RETURN_ID, "Save and Return to Library", &["File"], None),
-    ("file.exit", "Exit", &["File"], Some("Cmd+Q")),
+    ("file.exit", "Quit Local Image", &["File"], Some("Cmd+Q")),
     ("edit.freeTransform", "Free Transform", &["Edit"], Some("Cmd+T")),
     ("file.export.exportAs", "Export As…", &["File", "Export"], Some("Cmd+Alt+Shift+W")),
     ("file.export.quickExportAsPng", "Quick Export as PNG", &["File", "Export"], None),

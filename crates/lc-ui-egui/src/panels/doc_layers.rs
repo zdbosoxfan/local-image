@@ -126,7 +126,7 @@ pub fn open_in_compositing(app: &mut LightcraftApp, ctx: &egui::Context, id: Pho
     match app.services.open_with.as_mut() {
         Some(f) => {
             if let Err(e) = f(&path, "") {
-                app.toast_error(ctx, format!("Couldn't open the editor: {e}"));
+                app.toast_error(ctx, format!("Couldn't open Compositing: {e}"));
             }
         }
         None => app.toast(ctx, li_i18n::library::t("Compositing isn't available here")),
