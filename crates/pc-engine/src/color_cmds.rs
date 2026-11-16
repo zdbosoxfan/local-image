@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
+mod profile_dither;
+
 // State
 
 /// View › Proof Setup settings.
@@ -707,22 +709,7 @@ fn paint_colors(p: &mut FxPaint, cc: &mut impl FnMut(&mut Color)) {
 /// converted. The document is tagged with `dst`.
 pub fn convert_document(doc: &mut Document, dst: &Profile, intent: Intent, bpc: bool) -> Result<()> {
     let to_mode = space_mode(dst.color_space).ok_or_else(|| EngineError::Other(format!("cannot convert to a {:?} profile", dst.color_space)))?;
-    // Explicit conversion must not silently treat malformed or wrong-model ICC
-    // bytes as a default profile. Display-only fallback remains document_profile().
-    let src = match &doc.icc_profile {
-        Some(bytes) => {
-            let profile = profile_from_bytes(bytes).map_err(cms_err)?;
-            if profile.color_space != mode_space(doc.mode) {
-                return Err(EngineError::Other(format!(
-                    "embedded profile is {:?}, but the document is {:?}; assign the correct source profile before converting",
-                    profile.color_space,
-                    mode_space(doc.mode)
-                )));
-            }
-            profile
-        }
-        None => working_profile(doc.mode),
-    };
+    let src = conversion_source(doc)?;
     let from_mode = doc.pixel_format().mode;
     let t = Transform::new(&src, dst, intent, bpc).map_err(cms_err)?;
     let fmt = PixelFormat::new(to_mode, doc.depth, true);
@@ -749,6 +736,26 @@ pub fn convert_document(doc: &mut Document, dst: &Profile, intent: Intent, bpc: 
     doc.color_table = None;
     doc.duotone = None;
     Ok(())
+}
+
+/// The profile an explicit conversion starts from. Explicit conversion must not silently treat
+/// malformed or wrong-model ICC bytes as a default profile. Display-only fallback remains
+/// document_profile().
+fn conversion_source(doc: &Document) -> Result<Arc<Profile>> {
+    match &doc.icc_profile {
+        Some(bytes) => {
+            let profile = profile_from_bytes(bytes).map_err(cms_err)?;
+            if profile.color_space != mode_space(doc.mode) {
+                return Err(EngineError::Other(format!(
+                    "embedded profile is {:?}, but the document is {:?}; assign the correct source profile before converting",
+                    profile.color_space,
+                    mode_space(doc.mode)
+                )));
+            }
+            Ok(profile)
+        }
+        None => Ok(working_profile(doc.mode)),
+    }
 }
 
 /// Image › Mode › RGB/Grayscale/CMYK/Lab through the CMS. Params: `profile` (destination,
@@ -846,7 +853,16 @@ fn convert_to_profile(s: &mut Session, p: &Value) -> Result<Value> {
     let dst = s.color.resolve(spec, Some(doc), None)?;
     let intent = intent_or(p, s.color.settings.intent())?;
     let bpc = bool_param(p, "bpc", s.color.settings.bpc);
-    s.edit("Convert to Profile", |doc, _| convert_document(doc, &dst, intent, bpc))?;
+    let dither = match p.get("dither") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => *value,
+        Some(value) => {
+            return Err(EngineError::BadParams { cmd: "edit.convertToProfile".into(), msg: format!("`dither` must be true or false, not {value}") });
+        }
+    };
+    s.edit("Convert to Profile", |doc, _| {
+        if dither { profile_dither::convert(doc, &dst, intent, bpc) } else { convert_document(doc, &dst, intent, bpc) }
+    })?;
     let d = &s.active().ok_or(EngineError::NoDocument)?.doc;
     Ok(json!({ "profile": dst.description, "mode": format!("{:?}", d.mode), "intent": intent.id(), "bpc": bpc }))
 }
@@ -1065,7 +1081,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "edit.convertToProfile",
             "Convert to Profile…",
             ["Edit"],
-            r##"{"profile":"srgb|display-p3|adobe-rgb-compat|prophoto-compat|linear-srgb|rec2020|gray-gamma-2.2|sgray|dot-gain-20-compat|lab-d50|coated-cmyk|working" (or a path to an .icc file),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true}"##,
+            r##"{"profile":"srgb|display-p3|adobe-rgb-compat|prophoto-compat|linear-srgb|rec2020|gray-gamma-2.2|sgray|dot-gain-20-compat|lab-d50|coated-cmyk|working" (or a path to an .icc file),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true,"dither":bool=false (deterministic color quantization for 8-bit profile changes)}"##,
             has_doc,
             convert_to_profile,
             true

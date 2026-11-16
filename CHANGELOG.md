@@ -6,6 +6,12 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Edit > Convert to Profile can dither 8-bit documents, so a change of profile that lands between
+  whole 8-bit steps no longer bands smooth gradients. It is off by default and the same image
+  always dithers the same way.
+
 ### Security
 
 - HEIF decoding bounds metadata parsing, extent-record allocations, item reconstruction,
