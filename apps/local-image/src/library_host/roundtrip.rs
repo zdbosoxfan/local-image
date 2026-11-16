@@ -55,8 +55,7 @@ pub(super) fn documents_behind<'a>(editor: &'a PhotocraftApp, library: &str, pho
                     photocraft_doc::LayerContent::Smart(smart) => smart.develop.as_ref(),
                     _ => None,
                 })
-                .filter(|link| link.photo == Some(photo) && link.library.as_deref() == Some(library))
-                .next_back()
+                .rfind(|link| link.photo == Some(photo) && link.library.as_deref() == Some(library))
                 .is_some_and(|link| link.library_baseline.as_deref().unwrap_or(&link.settings) != settings)
         })
         .collect()
