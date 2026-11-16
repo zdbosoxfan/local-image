@@ -466,12 +466,13 @@ impl Session {
     }
 
     /// Add a document (from File → New, an import, etc.) and make it active.
-    /// Preserve its identity unless another open document already owns it.
+    /// Preserve its identity unless an open document or a picked clone source already owns it.
     /// Identity-dependent callers must read the admitted document at the returned index.
     pub fn add_document(&mut self, mut doc: Document, path: Option<String>) -> usize {
         vector_integration::initialize();
-        // Persisted IDs can overlap the allocator, so check every replacement too.
-        while self.docs.iter().any(|st| st.doc.id == doc.id) {
+        // Persisted IDs can overlap the allocator, so check every replacement too. A saved copy
+        // can carry a closed clone source's ID: it gets another, so that source stays closed.
+        while self.docs.iter().any(|st| st.doc.id == doc.id) || self.presets.clone.slots.iter().any(|slot| slot.document == Some(doc.id)) {
             doc.id = photocraft_doc::DocId::fresh();
         }
         let mut st = DocState::new(doc, path);
@@ -697,6 +698,9 @@ pub mod vector_integration;
 
 #[cfg(test)]
 mod gpu_test_support;
+
+#[cfg(test)]
+mod dense_budget_tests;
 
 #[cfg(test)]
 mod hotfix_critical_tests;

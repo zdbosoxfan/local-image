@@ -21,6 +21,7 @@ pub mod keywords;
 pub mod local;
 pub mod lock;
 pub mod model;
+pub mod opened_folder;
 pub mod query;
 pub mod rules;
 pub mod stacks;
@@ -36,6 +37,7 @@ use lightcraft_develop::DevelopSettings;
 pub use local::{DEFAULT_FORGET_DAYS, ForgetPlan, folder_of};
 pub use lock::{LibraryLock, LockError, LockOwner};
 pub use model::*;
+pub use opened_folder::OpenedFolder;
 pub use query::{DateGroup, Filter, Person, RatingOp, Sort, SortKey, mix64};
 pub use rules::{Match, Rule, RuleSet};
 use serde::{Deserialize, Serialize};
@@ -782,6 +784,8 @@ mod tests_journal;
 mod tests_local;
 #[cfg(test)]
 mod tests_lock;
+#[cfg(test)]
+mod tests_opened_folder;
 #[cfg(test)]
 mod tests_safe_file;
 #[cfg(test)]

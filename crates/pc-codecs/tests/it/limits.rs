@@ -437,3 +437,102 @@ fn limits_check_api() {
     assert!(l.check(10, 10, ChannelLayout::Rgba, SampleType::U8).is_err());
     assert!(l.check(10, 10, ChannelLayout::Rgb, SampleType::U8).is_ok());
 }
+
+/// A small file whose header declares hundreds of megabytes, inside the desktop limits, is
+/// refused by the size-against-file check before the decoder allocates its output.
+fn refused_as_implausible(f: Format, b: &[u8]) {
+    match decode_with(b, &opts(Limits::desktop_photo())) {
+        Err(CodecError::LimitExceeded(m)) => assert!(m.contains("cannot hold"), "{f:?}: {m}"),
+        other => panic!("{f:?}: expected an implausible-size refusal, got {:?}", other.map(|i| (i.width(), i.height()))),
+    }
+}
+
+fn find(b: &[u8], needle: &[u8]) -> usize {
+    b.windows(needle.len()).position(|w| w == needle).unwrap()
+}
+
+/// GIF89a with a two-colour global table and one frame at the top left holding no pixels or
+/// one pixel (LZW minimum code size 2: clear, index 0, end of information).
+fn tiny_gif(screen: (u16, u16), frame: (u16, u16)) -> Vec<u8> {
+    let mut b = b"GIF89a".to_vec();
+    for v in [screen.0, screen.1] {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b.extend_from_slice(&[0x80, 0, 0, 0, 0, 0, 255, 255, 255, 0x2C, 0, 0, 0, 0]);
+    for v in [frame.0, frame.1] {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b.extend_from_slice(&[0, 2, 2, 0x44, 0x01, 0, 0x3B]);
+    b
+}
+
+/// An `side`x`side` RLE8 BMP whose only data is the end-of-bitmap escape.
+fn eob_rle_bmp(side: u32) -> Vec<u8> {
+    let data = 14 + 40 + 1024;
+    let mut b = b"BM".to_vec();
+    for v in [data + 2, 0, data, 40, side, side] {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&8u16.to_le_bytes());
+    for v in [1u32, 2, 0, 0, 0, 0] {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b.resize(data as usize, 0);
+    b.extend_from_slice(&[0, 1]);
+    b
+}
+
+#[test]
+fn image_crate_headers_declaring_hundreds_of_megabytes_need_a_plausible_file_size() {
+    let side = 10_000u32;
+    let mut bmp = encoded(Format::Bmp);
+    bmp[18..22].copy_from_slice(&(side as i32).to_le_bytes());
+    bmp[22..26].copy_from_slice(&(side as i32).to_le_bytes());
+    refused_as_implausible(Format::Bmp, &bmp);
+    let mut qoi = encoded(Format::Qoi);
+    qoi[4..8].copy_from_slice(&side.to_be_bytes());
+    qoi[8..12].copy_from_slice(&side.to_be_bytes());
+    refused_as_implausible(Format::Qoi, &qoi);
+    let mut gif = encoded(Format::Gif);
+    gif[6..8].copy_from_slice(&(side as u16).to_le_bytes());
+    gif[8..10].copy_from_slice(&(side as u16).to_le_bytes());
+    refused_as_implausible(Format::Gif, &gif);
+    // The frame too. Descriptor: separator, left, top, width, height.
+    let frame = find(&gif, &[0x2C, 0, 0, 0, 0, 64, 0, 48, 0]);
+    gif[frame + 5..frame + 7].copy_from_slice(&(side as u16).to_le_bytes());
+    gif[frame + 7..frame + 9].copy_from_slice(&(side as u16).to_le_bytes());
+    refused_as_implausible(Format::Gif, &gif);
+    // A GIF's logical screen and a sparse RLE BMP's canvas need no data up to 256 MiB.
+    let img = decode(&tiny_gif((4000, 4000), (1, 1))).unwrap();
+    assert_eq!((img.width(), img.height()), (4000, 4000));
+    refused_as_implausible(Format::Gif, &tiny_gif((side as u16, side as u16), (1, 1)));
+    refused_as_implausible(Format::Gif, &tiny_gif((100, 100), (side as u16, side as u16)));
+    let img = decode(&eob_rle_bmp(4000)).unwrap();
+    assert_eq!((img.width(), img.height()), (4000, 4000));
+    refused_as_implausible(Format::Bmp, &eob_rle_bmp(11_000));
+}
+
+#[test]
+fn exr_header_declaring_hundreds_of_megabytes_needs_a_plausible_file_size() {
+    // DWA passes 2^16:1, so a DWAA or DWAB part may declare 4 times more than a ZIP part from
+    // the same file, and no more.
+    let img = synth(1, 1, ChannelLayout::Rgba, SampleType::U8, 1, 0.1);
+    let mut b = encode(&img, Format::OpenExr, &EncodeOptions::default()).unwrap();
+    let at = find(&b, b"dataWindow\0box2i\0") + b"dataWindow\0box2i\0".len() + 4;
+    let c = find(&b, b"compression\0compression\0") + b"compression\0compression\0".len() + 4;
+    let size = |b: &mut Vec<u8>, side: i32| {
+        b[at + 8..at + 12].copy_from_slice(&(side - 1).to_le_bytes());
+        b[at + 12..at + 16].copy_from_slice(&(side - 1).to_le_bytes());
+    };
+    let implausible = |b: &[u8]| matches!(decode_with(b, &opts(Limits::desktop_photo())), Err(CodecError::LimitExceeded(m)) if m.contains("cannot hold"));
+    size(&mut b, 2048);
+    b[c] = 3; // ZIP
+    assert!(implausible(&b), "{} bytes", b.len());
+    for dwa in [8, 9] {
+        b[c] = dwa;
+        assert!(!implausible(&b), "compression {dwa}");
+    }
+    size(&mut b, 4096);
+    assert!(implausible(&b), "{} bytes", b.len());
+}

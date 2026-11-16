@@ -1,6 +1,5 @@
 //! Native platform services: file dialogs (rfd), filesystem, codecs.
 
-#[cfg(any(target_os = "linux", test))]
 mod clipboard;
 #[cfg(target_os = "linux")]
 mod pdf_raster;
@@ -679,7 +678,7 @@ fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
 }
 
 pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) -> Services {
-    let clip: Rc<RefCell<Option<arboard::Clipboard>>> = Rc::default();
+    let clip: Rc<RefCell<clipboard::NativeClipboard>> = Rc::default();
     let preferences = preferences_services(prefs_file());
     if !cfg!(test)
         && let Some(path) = prefs_file()
@@ -760,45 +759,21 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             let clip = clip.clone();
             Box::new(move |w: u32, h: u32, px: &[u8]| {
                 let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
-                let cb = match slot.as_mut() {
-                    Some(c) => c,
-                    None => slot.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
-                };
-                cb.set_image(arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(px) }).map_err(|e| e.to_string())
+                slot.writer()?
+                    .set_image(arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(px) })
+                    .map_err(|e| e.to_string())
             })
         }),
         clipboard_get_files: Some({
             let clip = clip.clone();
             Box::new(move || {
                 let Ok(mut slot) = clip.try_borrow_mut() else { return vec![] };
-                let cb = match slot.as_mut() {
-                    Some(c) => c,
-                    None => match arboard::Clipboard::new() {
-                        Ok(c) => slot.insert(c),
-                        Err(_) => return vec![],
-                    },
-                };
-                cb.get().file_list().unwrap_or_default().iter().map(|p| p.to_string_lossy().trim_end_matches('\r').to_string()).collect()
+                slot.files().iter().map(|p| p.to_string_lossy().trim_end_matches('\r').to_string()).collect()
             })
         }),
         clipboard_get_image: Some({
             let clip = clip.clone();
-            Box::new(move || {
-                guarded_clipboard(|| {
-                    let mut slot = clip.try_borrow_mut().ok()?;
-                    let cb = match slot.as_mut() {
-                        Some(c) => c,
-                        None => slot.insert(arboard::Clipboard::new().ok()?),
-                    };
-                    if let Ok(image) = cb.get_image() {
-                        return Some((image.width as u32, image.height as u32, image.bytes.into_owned()));
-                    }
-                    #[cfg(target_os = "linux")]
-                    return clipboard::wayland_clipboard_image();
-                    #[cfg(not(target_os = "linux"))]
-                    None
-                })
-            })
+            Box::new(move || clip.try_borrow_mut().ok()?.image())
         }),
         load_prefs: None,
         load_prefs_checked: preferences.load_prefs_checked,
