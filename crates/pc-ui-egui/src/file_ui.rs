@@ -557,7 +557,7 @@ fn web_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
 /// own extension `ext`.
 fn kept_name_folder(path: &str, base: &str, ext: &str) -> Option<String> {
     let file = std::path::Path::new(path);
-    let kept = file.file_stem().is_some_and(|s| s.to_string_lossy() == base) && file.extension().is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case(ext));
+    let kept = file.file_stem().is_some_and(|s| s.to_string_lossy() == base) && file.extension().is_some_and(|e| e.to_string_lossy() == ext);
     kept.then(|| file.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default())
 }
 
@@ -1029,6 +1029,15 @@ mod tests {
             let r = crate::menus::invoke(&mut app, &ctx, id, json!({})).unwrap();
             assert!(r["dialog"].is_u64(), "{id}");
         }
+    }
+
+    /// Only the exact suggested name records the folder: the engine writes `web.png`, which on
+    /// a case-sensitive file system is not a typed `web.PNG`.
+    #[test]
+    fn kept_name_folder_needs_the_exact_suggested_name() {
+        assert_eq!(kept_name_folder("d/web.png", "web", "png"), Some("d".into()));
+        assert_eq!(kept_name_folder("d/web.PNG", "web", "png"), None);
+        assert_eq!(kept_name_folder("d/Web.png", "web", "png"), None);
     }
 }
 
