@@ -1934,6 +1934,32 @@ Upstream commits that came after a port already on this branch and that the port
 
 `667a14d9` follows the `6547ca0b` port. The io and compose hunks are one commit: only together do they keep a Multichannel composite unchanged. Local adaptation: our import flips the alpha-type planes back one tile band at a time with a fallible reservation, like the rest of `multichannel_map::import`, instead of upstream's whole-plane read. Existing test changed, as upstream changed its counterpart (owner-delegated decision 2026-11-16, recorded in the project log): `multichannel::tests::inks_multiply_over_paper` writes its alpha channel in the as-is polarity and checks the black ink where it is unselected. Not ported: upstream's edit of the #4031 `as_ink` composite check in `alpha_type_channels_import_as_alpha_and_round_trip` (that test was not ported here). Tests: `multichannel_resources::alpha_type_channels_are_stored_as_is_not_as_ink`, `multichannel_resources::a_full_alpha_channel_exports_as_a_full_plane`.
 
+## PhotoCraft Levels clipping display bounds (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`216a4260b04a998fae79a6a5c38f9889943053bd`](https://github.com/storytold/photocraft/commit/216a4260b04a998fae79a6a5c38f9889943053bd) | Levels clipping: snapped area stays within the texture limit (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`8878ff335fdb00d7eb8e34b91d0db9619c04ea43`](https://github.com/storytold/photocraft/commit/8878ff335fdb00d7eb8e34b91d0db9619c04ea43) | Levels clipping: cap the display at 2048 x 2048 blocks (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs` | MIT OR Apache-2.0 |
+
+Follow-up to the `69147701` + `0a209116` bundle. Taken as upstream wrote it; the test's `xf_over` view drops `aspect`, which our `ViewXform` does not have (as the bundle's `view` helper does), and relies on the same 2 px margin our `visible_doc_rect` keeps. `8878ff33` builds on `216a4260`'s loop and is taken as upstream wrote it.
+
+## PhotoCraft type edit commits when its layer or document is left (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`3c91200d88feef46129c90d60ca15b3f1e261c47`](https://github.com/storytold/photocraft/commit/3c91200d88feef46129c90d60ca15b3f1e261c47) | fix(type): commit a type edit when another layer or document becomes active (#6483) | `crates/pc-ui-egui/src/type_tool.rs`<br>`crates/pc-ui-egui/src/type_commit_tests.rs`<br>`crates/pc-ui-egui/src/state.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-ui-egui/src/hotfix_critical_tests.rs`<br>`crates/pc-ui-egui/src/panels/tests.rs`<br>`crates/pc-ui-egui/src/type_tool_tests.rs` | MIT OR Apache-2.0 |
+
+Adapted port, a follow-up to `be32a7c6` (#5612, which committed only on Layers-panel row clicks). Our type tool has no `commit_with`, Type Mask session or `type_transform`, so the home-document wrapper is our `commit` around the old body (`commit_here`), and a closed document's edit is simply dropped (no transform to reset, no return tool to clear). The existing tests' `TextEdit` literals gain `document: None` only. Not ported: upstream's `a_type_mask_session_goes_on_while_its_layer_is_active` test (we have no Type Mask tool) and the literal updates in test files we do not have (`hold_keys`, `input_tests`, `spring_tools`, `swatches_ui`, `type_font_picker_tests`).
+
+## PhotoCraft CLI refuses to write over its input (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4f0876958db142b61c790f1a23139e2cd5bd1854`](https://github.com/storytold/photocraft/commit/4f0876958db142b61c790f1a23139e2cd5bd1854) | CLI convert: refuse to write over the input file unless --in-place (#7437) | `apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs`<br>`apps/local-image-cli/Cargo.toml` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c`](https://github.com/storytold/photocraft/commit/cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c) | photocraft-cli run: refuse an --out that is the input file unless --in-place (#7437) | `apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs` | MIT OR Apache-2.0 |
+
+Adapted port by hand (upstream's `apps/photocraft-cli` is unmapped), the CLI half of #7437 after `502d055c`. `refuse_overwriting_input` compares the files with `li_fs::same_file`, as our `502d055c` port does, in place of upstream's `file_cmds::same_file`, so `local-image-cli` now depends on the workspace's `li-fs`. The usage text keeps our TIFF Options flags. `cc574bcf` reuses that helper in `run`, where our `Headless::save` with an explicit path never reaches `file.saveACopy`'s own guard; `--new` runs are unaffected.
+
 ## Upstream rows reviewed and not ported (2026-11-16)
 
 Upstream commits triaged as fixes (MUST or SHOULD) or offered as features in the 2026-11 pass and left out, with the reason. Apart from the two marked "Ported" below, which have their own sections, none of them is ported, so none has a row in a commit table. A row marked "owner decision" waits for the owner; the others wait for the base named.

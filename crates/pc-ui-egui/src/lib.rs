@@ -1535,6 +1535,8 @@ impl eframe::App for PhotocraftApp {
         if self.ui.text_edit.is_some() && !self.ui.tool.is_type() {
             type_tool::commit(self);
         }
+        // So does selecting another layer or document by any route.
+        type_tool::end_if_left(self);
         if self.ui.pen.is_some() && self.ui.tool != state::Tool::Pen {
             vector_ui::pen_commit(self, false);
         }
