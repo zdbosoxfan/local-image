@@ -151,3 +151,15 @@ fn only_documents_that_can_have_layers_are_asked_about() {
     let develop = DocLayers { layers: vec![layer("Develop", LayerKind::Develop, Some(1))], ..Default::default() };
     assert!(develop.is_layered(), "a lone Develop layer is worth showing");
 }
+
+/// A blend mode reads as in Compositing's Layers panel (German "Überlagern"),
+/// not with the Library catalog's word for the same English name.
+#[test]
+fn layer_rows_name_blend_modes_as_compositing_does() {
+    let mut overlay = layer("Retouch", LayerKind::Pixel, None);
+    overlay.blend = "Overlay".into();
+    let _german = li_i18n::language_scope(li_i18n::Lang::De);
+    let blend = crate::panels::doc_layers::detail(&overlay).split(" · ").nth(1).map(str::to_string);
+    assert_eq!(blend.as_deref(), Some(li_i18n::t("Overlay")));
+    assert_eq!(blend.as_deref(), Some("Überlagern"));
+}
