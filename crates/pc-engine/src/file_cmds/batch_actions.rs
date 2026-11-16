@@ -46,10 +46,15 @@ fn batch_inner(s: &mut Session, p: &Value) -> Result<Value> {
             let mut saved: Option<Arc<Document>> = None;
             for (id, params) in &steps {
                 if batch_save_point(id) {
+                    // The scratch session never executes a save point, so its gate would not see it.
+                    if let Some(gate) = scratch.authorize {
+                        gate(id, params)?;
+                    }
                     saved = Some(scratch.active().ok_or(EngineError::NoDocument)?.doc.clone());
                     continue;
                 }
-                let result = scratch.execute(id, params.clone())?;
+                let params = crate::actions_cmds::playback_params(scratch, id, params)?;
+                let result = scratch.execute(id, params)?;
                 if let Some(error) = crate::automate_cmds::nested_failure(id, &result) {
                     return Err(EngineError::Other(error));
                 }

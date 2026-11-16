@@ -312,3 +312,24 @@ fn gated_data_set_psds_embed_no_linked_file() {
     assert!(!has_png(&export(&mut s)), "an untrusted export does not");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// Upstream b056a3ee: Import Data Sets is one History step; undo brings back the previous sets.
+#[test]
+fn data_set_import_is_one_undoable_history_step() {
+    let (mut s, _p, _badge, title) = session();
+    s.execute("image.variables.define", json!({"defs": [{"name": "headline", "layer": title.0, "type": "textReplacement"}]})).unwrap();
+    let before = doc(&s).clone();
+    let history = s.active().unwrap().history.past_len();
+    let dir = tmp("csv_history");
+    let csv = format!("{dir}/sets.csv");
+    std::fs::write(&csv, "DataSet,headline\nNew,Imported\n").unwrap();
+    s.execute("file.import.variableDataSets", json!({"path": csv})).unwrap();
+    let state = s.active().unwrap();
+    assert_eq!(state.history.past_len(), history + 1);
+    assert_eq!(state.history.entries().last().map(String::as_str), Some("Import Data Sets"));
+    assert_eq!(state.doc.variables.data_sets[0].name, "New");
+    assert!(s.undo());
+    assert_eq!(*doc(&s), before, "undo restores the document as it was");
+    assert!(s.redo());
+    assert_eq!(doc(&s).variables.data_sets[0].name, "New");
+}

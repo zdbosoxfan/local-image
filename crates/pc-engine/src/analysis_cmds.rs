@@ -999,8 +999,12 @@ fn csv_field(v: &Value) -> String {
         Value::Null => String::new(),
         other => other.to_string(),
     };
-    // Spreadsheet formula guard: a leading `=`, `+`, `-`, `@`, tab or CR gets a `'` prefix, except a plain number.
-    let s = if s.starts_with(['=', '+', '-', '@', '\t', '\r']) && s.parse::<f64>().is_err() { format!("'{s}") } else { s };
+    // Spreadsheet formula guard: a leading `=`, `+`, `-`, `@` (ASCII or full-width), tab, CR or LF
+    // gets a `'` prefix, except a plain number. Leading spaces do not hide it: a spreadsheet that
+    // trims them still reads a formula.
+    let t = s.trim_start_matches(' ');
+    let formula = t.starts_with(['=', '+', '-', '@', '\t', '\r', '\n', '\u{ff1d}', '\u{ff0b}', '\u{ff0d}', '\u{ff20}']) && t.parse::<f64>().is_err();
+    let s = if formula { format!("'{s}") } else { s };
     if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s }
 }
 

@@ -270,6 +270,8 @@ pub type ImportFn = Box<dyn Fn(&str, &[u8]) -> Result<(Document, Vec<String>), S
 pub struct ExportSettings {
     /// JPEG quality 1–100 (None = codec default).
     pub jpeg_quality: Option<u8>,
+    /// JPEG chroma sampling: `true` is 4:2:0, `false` keeps full 4:4:4 colour detail.
+    pub jpeg_chroma_subsampling: bool,
     /// WebP: lossless (VP8L) rather than lossy (VP8 at [`Self::webp_quality`]).
     pub webp_lossless: bool,
     /// Lossy WebP quality 1–100 (None = codec default).
@@ -286,7 +288,15 @@ pub struct ExportSettings {
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        ExportSettings { jpeg_quality: None, webp_lossless: true, webp_quality: None, tiff_layers: true, read_linked_files: true, xmp_all: true }
+        ExportSettings {
+            jpeg_quality: None,
+            jpeg_chroma_subsampling: true,
+            webp_lossless: true,
+            webp_quality: None,
+            tiff_layers: true,
+            read_linked_files: true,
+            xmp_all: true,
+        }
     }
 }
 
