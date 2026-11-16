@@ -1913,8 +1913,9 @@ Adapted port (owner-delegated decision 2026-11-16). Upstream's walk changes are 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [storytold/photocraft@`216a4260b04a998fae79a6a5c38f9889943053bd`](https://github.com/storytold/photocraft/commit/216a4260b04a998fae79a6a5c38f9889943053bd) | Levels clipping: snapped area stays within the texture limit (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`8878ff335fdb00d7eb8e34b91d0db9619c04ea43`](https://github.com/storytold/photocraft/commit/8878ff335fdb00d7eb8e34b91d0db9619c04ea43) | Levels clipping: cap the display at 2048 x 2048 blocks (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs` | MIT OR Apache-2.0 |
 
-Follow-up to the `69147701` + `0a209116` bundle. Taken as upstream wrote it; the test's `xf_over` view drops `aspect`, which our `ViewXform` does not have (as the bundle's `view` helper does), and relies on the same 2 px margin our `visible_doc_rect` keeps.
+Follow-up to the `69147701` + `0a209116` bundle. Taken as upstream wrote it; the test's `xf_over` view drops `aspect`, which our `ViewXform` does not have (as the bundle's `view` helper does), and relies on the same 2 px margin our `visible_doc_rect` keeps. `8878ff33` builds on `216a4260`'s loop and is taken as upstream wrote it.
 
 ## Upstream rows reviewed and not ported (2026-11-16)
 
