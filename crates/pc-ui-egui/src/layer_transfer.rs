@@ -146,16 +146,17 @@ pub fn finish(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 /// Run before canvases process release: a tiled destination must take over the
-/// drag before the source can commit it as an ordinary move.
+/// drag before the source can commit it as an ordinary move. The destination is not activated
+/// here: `arranged_cells` puts the active document in the first tile, so that would swap the
+/// tiles under the pointer. The copy activates it on release.
 pub(crate) fn prepare(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if get(ctx).is_some() {
         return;
     }
     let Some(pos) = pointer_if_armed(app, ctx) else { return };
     let Some((dest, _)) = target_at(app, pos) else { return };
-    if app.session.active_index() != Some(dest) && arm_move_transfer(app, ctx, dest) {
-        app.session.set_active(dest);
-        app.jobs.focus = None;
+    if app.session.active_index() != Some(dest) {
+        arm_move_transfer(app, ctx, dest);
     }
 }
 
