@@ -481,6 +481,17 @@ mod tests {
         assert!(whole == tiled, "tiles of a 0.1 px blur match the whole image");
     }
 
+    /// Unsharp Mask and Smart Sharpen blur through `gaussian`, so at every radius they read as far
+    /// past a tile as Gaussian Blur does (below 1 its kernel has a fixed half-width).
+    #[test]
+    fn sharpeners_read_as_far_past_a_tile_as_their_blur() {
+        for radius in [0.1f32, 0.3, 0.5, 0.9, 1.0, 2.5] {
+            let blur = FilterParams::GaussianBlur { radius }.halo();
+            assert_eq!(FilterParams::UnsharpMask { amount: 100.0, radius, threshold: 0.0 }.halo(), blur, "Unsharp Mask at {radius}");
+            assert_eq!(FilterParams::SmartSharpen { amount: 100.0, radius, reduce_noise: 0.0 }.halo(), blur, "Smart Sharpen at {radius}");
+        }
+    }
+
     #[test]
     fn a_huge_box_blur_radius_is_held_to_its_cap() {
         let mut s = Surface::new(PixelFormat::RGBA8);

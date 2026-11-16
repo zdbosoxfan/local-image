@@ -526,8 +526,14 @@ impl FilterParams {
     pub fn halo(&self) -> Halo {
         let g = |sigma: f32| Halo::Radius(((sigma.max(0.0) * 3.0).ceil() as i32).saturating_add(1));
         match self {
-            // Radii below 1 use a fixed-width kernel (`blur::gaussian_blur_kernel`).
-            FilterParams::GaussianBlur { radius } | FilterParams::HighPass { radius } if (0.05..1.0).contains(radius) => {
+            // Radii below 1 use a fixed-width kernel (`blur::gaussian_blur_kernel`); the sharpeners
+            // blur through it too.
+            FilterParams::GaussianBlur { radius }
+            | FilterParams::HighPass { radius }
+            | FilterParams::UnsharpMask { radius, .. }
+            | FilterParams::SmartSharpen { radius, .. }
+                if (0.05..1.0).contains(radius) =>
+            {
                 Halo::Radius(blur::SMALL_GAUSSIAN_HALF + 1)
             }
             FilterParams::GaussianBlur { radius } | FilterParams::HighPass { radius } => g(*radius),
