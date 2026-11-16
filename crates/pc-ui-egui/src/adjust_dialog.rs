@@ -54,7 +54,10 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
         _ => None,
     };
     let cx = EditorCx { mem: egui::Id::new(("adjust-dialog", kind.as_str())), hist, gray, swatches: adjust_editors::swatches(app) };
-    let e = adjust_editors::editor(ui, &kind, &mut values, &cx);
+    let mut e = adjust_editors::editor(ui, &kind, &mut values, &cx);
+    if e.auto {
+        adjust_editors::apply_auto(app, &mut values, active, &mut e);
+    }
     if e.changed
         && let Value::Object(v) = values
     {

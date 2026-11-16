@@ -54,18 +54,21 @@ pub struct Edit {
     pub changed: bool,
     /// A gesture ended or a discrete control changed (commit them).
     pub commit: bool,
+    /// Black & White's Auto: the host fills in the weights for its image ([`apply_auto`]).
+    pub auto: bool,
 }
 
 impl Edit {
     fn add(&mut self, o: Edit) {
         self.changed |= o.changed;
         self.commit |= o.commit;
+        self.auto |= o.auto;
     }
     fn discrete(changed: bool) -> Self {
-        Edit { changed, commit: changed }
+        Edit { changed, commit: changed, ..Default::default() }
     }
     fn of(r: &egui::Response) -> Self {
-        Edit { changed: r.changed(), commit: r.drag_stopped() || (r.changed() && !r.dragged()) }
+        Edit { changed: r.changed(), commit: r.drag_stopped() || (r.changed() && !r.dragged()), ..Default::default() }
     }
 }
 
@@ -988,6 +991,9 @@ fn black_white(ui: &mut egui::Ui, v: &mut Value) -> Edit {
             v["tintColor"] = json!(adjust_params::hex(c));
         }
         e.add(r);
+        if widgets::secondary_button(ui, tl!("Auto"), 0.0).on_hover_text(tl!("A grey mix that spreads the image's tones")).clicked() {
+            e.auto = true;
+        }
         if widgets::secondary_button(ui, tl!("Default"), 0.0).clicked() {
             for (i, key) in HUE_RANGES.iter().enumerate() {
                 v[*key] = json!(adjust_params::BW_DEFAULTS[i]);
@@ -996,6 +1002,23 @@ fn black_white(ui: &mut egui::Ui, v: &mut Value) -> Edit {
         }
     });
     e
+}
+
+/// Black & White's Auto: the weights `image.adjustments.blackWhite.auto` finds for `layer` (an
+/// adjustment layer: the image under it; a pixel layer: its pixels) into `v`, as one discrete edit
+/// of `e`.
+pub fn apply_auto(app: &mut PhotocraftApp, v: &mut Value, layer: Option<LayerId>, e: &mut Edit) {
+    let p = layer.map_or(json!({}), |id| json!({"layer": id.0}));
+    match app.run("image.adjustments.blackWhite.auto", p) {
+        Ok(Value::Object(w)) => {
+            for (k, x) in w {
+                v[k] = x;
+            }
+            e.add(Edit::discrete(true));
+        }
+        Ok(_) => {}
+        Err(err) => app.ui.status = err,
+    }
 }
 
 // Photo Filter
@@ -1268,7 +1291,10 @@ pub fn layer_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: LayerId, adj
     let gray = app.session.active().is_some_and(|s| is_gray(s.doc.mode));
     let hist = needs_histogram(kind).then(|| tone::histograms(app, HistSource::BelowLayer(id), space_of(&values)));
     let cx = EditorCx { mem: egui::Id::new(("adjust-layer", id.0)), hist, gray, swatches: swatches(app) };
-    let e = editor(ui, kind, &mut values, &cx);
+    let mut e = editor(ui, kind, &mut values, &cx);
+    if e.auto {
+        apply_auto(app, &mut values, Some(id), &mut e);
+    }
     if e.changed {
         app.live_adjust = Some((id, values.clone()));
     }

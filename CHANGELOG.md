@@ -25,6 +25,11 @@ All notable changes to Local Image are recorded here. The format follows
 - Hue/Saturation: drag between a colour range's handles to move them together. The fully-on span
   moves all four, each fade moves its own two; a side stops at the other and the range never grows
   past a full turn. Each drag is one undo step.
+- Black & White has an Auto button beside Default, in the Properties panel and in Image >
+  Adjustments. It sets the colour weights for the image (what lies under the adjustment layer, or
+  the layer's own pixels) so colours the default mix turns into the same grey are told apart, with
+  the mildest change that does it. It is one undo step; automation can ask for the weights with
+  `image.adjustments.blackWhite.auto`, which changes nothing.
 
 ### Changed
 
