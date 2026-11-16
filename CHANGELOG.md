@@ -31,6 +31,9 @@ All notable changes to Local Image are recorded here. The format follows
   no longer paints; the next click does.
 - The Magnetic Lasso snaps to the edges of the visible image in an RGB document, whichever layer is
   active; hidden layers add none. Other colour modes still follow the active layer's own pixels.
+- Magic Wand and Magic Eraser Anti-alias keep the matched region fully selected and soften only
+  the pixels just outside it, by how close their colour is to the tolerance, as in Photoshop. A
+  shape next to a clearly different colour or transparency gets a hard edge.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
