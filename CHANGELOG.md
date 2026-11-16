@@ -22,6 +22,9 @@ All notable changes to Local Image are recorded here. The format follows
   highlights in white or colour (white slider); release Alt or the mouse to see the preview again.
   The document is never changed. Grayscale shows black and white; CMYK and Lab documents, channel,
   mask and Quick Mask targets, and Smart Filter Levels keep the normal preview.
+- Hue/Saturation: drag between a colour range's handles to move them together. The fully-on span
+  moves all four, each fade moves its own two; a side stops at the other and the range never grows
+  past a full turn. Each drag is one undo step.
 
 ### Changed
 
