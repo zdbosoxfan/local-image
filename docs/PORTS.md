@@ -1614,7 +1614,7 @@ reviewed and nothing from it applies: its press change, `show_frame`, is not her
 
 Not ported from `b0c4aa8c`: the distinct-byte allocation bound in `check_image`, because the batch test
 `hundred_megapixel_rgb_hdr_has_bounded_tile_batches` (`crates/lc-raw/src/tiffraw.rs`) plans its image from tiles
-all pointing at one 4096-byte payload, which that bound refuses (whether to keep the test or take the bound is left to Zach); and the sparse planner (no
+all pointing at one 4096-byte payload, which that bound refuses (whether to keep the test or take the bound is left to the owner); and the sparse planner (no
 sparse reader here). Already covered: `a4a797e2`'s tile-sized lossy JPEG budget by `lossy_jpeg`'s tile-bounded
 header and its Deflate padding bound by `check_image`'s tile-grid bound; `a42ee704`'s alpha-grid tiles by the
 shared extent-read budget; `f786b875`'s XMP path building by `property_key`'s key budget. Not applicable:
@@ -1790,7 +1790,7 @@ Adapted port. The selected pixels are cut with our 3-argument `CutParts::with_co
 
 Adapted ports: `498c310e` keeps our payload-free `Drag::RulerNew` and reads the zoom from `current_zoom`. We have no `near_end` or `ruler_end_at` (the ⌥ pointer of #12037 is not ported), so the ±8 px square test replaces the end checks inline in the Ruler press arm; upstream's `analysis_ruler_move_tests.rs` lives in `analysis_ui.rs`'s `mod tests`. `bcb886f4` lands in our Info panel, which has no Crop tool W/H (`crop_ui::info_size`) or guide-drag X/Y: W/H fall back to the selection's size and X/Y to the hovered pixel; `RulerRows` and `ruler_rows` stay private to `docks.rs` and upstream's `info_ruler_tests.rs` lives in its `mod tests`.
 
-Design approval: faithful upstream port built from existing widgets (`widgets::hairline` and the Info panel's own rows), under Zach's decision 5 of 2026-10-25 (choosing an upstream feature approves a faithful port of its UI). "Ruler readout and drag" was chosen under his delegation of 2026-11-15 ("You decide on all those idc"); he can overrule it.
+Design approval: faithful upstream port built from existing widgets (`widgets::hairline` and the Info panel's own rows), under owner decision 5 of 2026-10-25 (choosing an upstream feature approves a faithful port of its UI). "Ruler readout and drag" was chosen under his delegation of 2026-11-15 ("You decide on all those idc"); he can overrule it.
 
 ## PhotoCraft Object Selection Hard Edge (2026-11-16)
 
@@ -1800,7 +1800,7 @@ Design approval: faithful upstream port built from existing widgets (`widgets::h
 
 Adapted port: our click mode runs the learned model as a background job and has no Object Finder cache, so the rim is applied in the job's apply step (and around `grabcut::object_select` in rect mode) instead of through upstream's `object_edge`; the model's probability map is what stays as found. `object_hard_edge` sits in our flat `ToolOptions` beside `sample_all_layers`. Not ported: the Reset Tool part (`tool_reset.rs`, we have no Reset Tool), its test, and the Object Finder cache and "finding nothing changes nothing" tests (our Replace with nothing found clears the selection). Upstream's `object_hard_edge_tests.rs` lives in `smartselect_cmds.rs`'s `mod tests`, on a dragged rectangle plus one click test with the mock model. "Hard Edge" has no catalog translations yet and shows in English.
 
-Design approval: faithful upstream port built from an existing widget (`widgets::checkbox`), under Zach's decision 5 of 2026-10-25 (choosing an upstream feature approves a faithful port of its UI). "Object Selection Hard Edge" was chosen under his delegation of 2026-11-15 ("You decide on all those idc"); he can overrule it.
+Design approval: faithful upstream port built from an existing widget (`widgets::checkbox`), under owner decision 5 of 2026-10-25 (choosing an upstream feature approves a faithful port of its UI). "Object Selection Hard Edge" was chosen under his delegation of 2026-11-15 ("You decide on all those idc"); he can overrule it.
 
 ## PhotoCraft Image Size Resample shortcuts (2026-11-16)
 
