@@ -96,10 +96,18 @@ impl Frame {
             flip_v: apply_crop && s.crop.flip_v,
             warp: (!warp.is_identity()).then_some(warp),
         };
-        if apply_crop {
+        if apply_crop && f.lens_may_move_crop(s) {
             f.constrain_to_image(s.geometry.constrain_crop);
         }
         f
+    }
+
+    /// Lens corrections fit the crop inside the corrected photo only when it is uncropped, unless
+    /// "Constrain Crop" is on: a crop someone drew stays where it was drawn (region segmentation
+    /// renders its region as such a crop and places the result there). Read from the settings, as
+    /// the first fit already leaves an uncropped photo's crop smaller than the whole frame.
+    pub(crate) fn lens_may_move_crop(&self, s: &DevelopSettings) -> bool {
+        s.geometry.constrain_crop || s.crop.geometry.bounded(self.ow, self.oh).snapped(self.ow, self.oh).is_identity()
     }
 
     /// The green-plane geometry for scalar sensor metadata. Shading, channel
@@ -131,17 +139,12 @@ impl Frame {
 
     /// The largest crop of the same aspect inside the user's crop that contains no area outside the
     /// warped source, in any colour plane. Lens corrections (profile, embedded camera warp, manual
-    /// distortion, lateral CA) do this on an uncropped photo, as a corrected lens never shows the
-    /// blank past the photo's edge; perspective, and a crop someone drew, only with "Constrain Crop"
-    /// (`with_persp`), so a keystone fix can keep its corners and a drawn crop stays where it was
-    /// drawn (region segmentation renders its region as such a crop and places the result there).
-    /// Shrinking about the crop's centre alone loses area on the lopsided trapezoids Upright leaves
-    /// (a vertical fix with a horizontal one or a roll), so the shrunk crop also moves, within the
-    /// room the shrink frees.
+    /// distortion, lateral CA) do this, as a corrected lens never shows the blank past the photo's
+    /// edge (callers ask [`Frame::lens_may_move_crop`] first); perspective only with "Constrain
+    /// Crop" (`with_persp`), so a keystone fix can keep its corners. Shrinking about the crop's
+    /// centre alone loses area on the lopsided trapezoids Upright leaves (a vertical fix with a
+    /// horizontal one or a roll), so the shrunk crop also moves, within the room the shrink frees.
     pub(crate) fn constrain_to_image(&mut self, with_persp: bool) {
-        if !with_persp && !self.crop.is_identity() {
-            return;
-        }
         let Some(full) = self.warp.as_ref().filter(|w| w.moves_pixels()) else { return };
         let optics;
         let wp = if with_persp || full.persp == Homography::IDENTITY {

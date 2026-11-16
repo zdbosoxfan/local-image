@@ -284,6 +284,29 @@ fn lens_corrections_leave_no_blank_corners() {
     assert!(blank_fraction(&r) > 0.03, "the keystone keeps its corners: {}", blank_fraction(&r));
 }
 
+/// Remove CA moves the red and blue planes after the lens correction has fitted the crop, so an
+/// uncropped photo's crop is fitted again, also without Constrain Crop.
+#[test]
+fn remove_ca_keeps_every_colour_plane_inside_the_corrected_photo() {
+    let src = ca_source(640, 420, 0.01, -0.01);
+    let mut s = DevelopSettings::default();
+    s.optics.distortion = -60.0;
+    s.optics.remove_ca = true;
+    let f = crate::frame_for(&src, &SourceInfo::default(), &s, true);
+    let wp = f.warp.as_ref().expect("a lens warp");
+    let a = f.crop.output_to_source(f.ow, f.oh, 1.0, 1.0);
+    for ch in 0..3 {
+        for i in 0..=48 {
+            let u = i as f64 / 48.0;
+            for (x, y) in [(u, 0.0), (u, 1.0), (0.0, u), (1.0, u)] {
+                let q = wp.to_source(a.apply(Point::new(x, y)), ch);
+                let inside = q.x >= -1e-6 * f.ow && q.y >= -1e-6 * f.oh && q.x <= f.ow * (1.0 + 1e-6) && q.y <= f.oh * (1.0 + 1e-6);
+                assert!(inside, "plane {ch}: crop edge ({x}, {y}) samples {q:?} outside the photo");
+            }
+        }
+    }
+}
+
 #[test]
 fn transforms_preview_matches_export() {
     let src = lightcraft_scenes::demo_library()[4].render(960, 640);
