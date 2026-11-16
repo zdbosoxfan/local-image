@@ -310,14 +310,12 @@ impl Preset {
             o.remove("masks");
         }
         let mut out = apply_partial(s, &rest, amount);
-        let mut next = out.masks.iter().map(|m| m.id).max().unwrap_or(0);
         for m in masks {
             let Ok(mut m) = serde_json::from_value::<crate::Mask>(m.clone()) else { continue };
             if out.masks.iter().any(|q| q.name == m.name && mask_components_without_cache(q) == mask_components_without_cache(&m)) {
                 continue;
             }
-            next += 1;
-            m.id = next;
+            m.id = out.next_mask_id();
             m.adjust.amount = (m.adjust.amount * amount).clamp(0.0, 200.0);
             out.masks.push(m);
         }
@@ -329,6 +327,24 @@ impl Preset {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn preset_masks_get_unused_ids_after_a_mask_id_at_the_limit() {
+        let s = DevelopSettings { masks: vec![crate::Mask { id: u32::MAX, name: "Theirs".into(), ..Default::default() }], ..Default::default() };
+        let p = Preset {
+            id: "p".into(),
+            name: "P".into(),
+            group: "User".into(),
+            settings: json!({"masks": [{"id": 7, "name": "A"}, {"id": 7, "name": "B"}]}),
+            favorite: false,
+            builtin: false,
+        };
+        let out = p.apply(&s, 1.0);
+        let mut ids: Vec<u32> = out.masks.iter().map(|m| m.id).collect();
+        assert_eq!(ids.len(), 3);
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 3, "{:?}", out.masks);
+    }
     #[test]
     fn bugfix_develop_copy_discards_photo_bound_mask_pixels() {
         let mut patch = json!({"masks":[{"components":[

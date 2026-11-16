@@ -1112,3 +1112,16 @@ fn library_exports_keep_fields_past_the_xmp_retention_budget() {
     assert_eq!((back.copyright, back.artist, back.city), (metadata.copyright, metadata.artist, metadata.city));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// An absurd render or export size is refused, not a multiply overflow.
+#[test]
+fn huge_output_size_is_an_error() {
+    use lightcraft_pipeline::{OutputDepth, OutputSpace};
+    let mut s = Session::with_demo();
+    let id = s.active().unwrap();
+    let huge = usize::MAX >> 8;
+    assert!(s.render_export(id, huge, huge, OutputSpace::Srgb, OutputDepth::U8).is_err());
+    assert!(s.render_export(id, 70_000, 10, OutputSpace::Srgb, OutputDepth::U8).is_err());
+    assert!(s.render_now(id, huge, huge).is_err());
+    assert!(s.render_now(id, 10, 70_000).is_err());
+}

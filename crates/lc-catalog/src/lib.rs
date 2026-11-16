@@ -433,10 +433,11 @@ impl Catalog {
 
     fn apply_inner(&mut self, op: Op) -> Result<Op> {
         Ok(match op {
-            Op::AddPhoto { photo } => {
+            Op::AddPhoto { mut photo } => {
                 if self.photos.contains_key(&photo.id) {
                     return Err(CatalogError::Invalid(format!("photo {:?} exists", photo.id)));
                 }
+                photo.trim_history();
                 let id = photo.id;
                 self.next_photo = self.next_photo.max(id.0 + 1);
                 self.photos.insert(id, Arc::new(*photo));
@@ -496,16 +497,15 @@ impl Catalog {
             }
             Op::SetHistory { id, history } => {
                 let p = self.photo_mut(id)?;
-                Op::SetHistory { id, history: std::mem::replace(&mut p.history, history) }
+                let old = std::mem::replace(&mut p.history, history);
+                p.trim_history();
+                Op::SetHistory { id, history: old }
             }
             Op::PushHistory { id, step } => {
                 let p = self.photo_mut(id)?;
                 let old = p.history.clone();
                 p.history.push(step);
-                if p.history.len() > HISTORY_LIMIT {
-                    let n = p.history.len() - HISTORY_LIMIT;
-                    p.history.drain(..n);
-                }
+                p.trim_history();
                 Op::SetHistory { id, history: old }
             }
             Op::AddAlbum { album } => {
@@ -737,8 +737,19 @@ impl Catalog {
         serde_json::to_string(self).unwrap_or_default()
     }
 
+    /// A catalog from its snapshot, each photo keeping its newest [`HISTORY_LIMIT`] History steps.
     pub fn from_snapshot(s: &str) -> Result<Catalog> {
-        serde_json::from_str(s).map_err(|e| CatalogError::Corrupt(e.to_string()))
+        let mut c: Catalog = serde_json::from_str(s).map_err(|e| CatalogError::Corrupt(e.to_string()))?;
+        c.trim_histories();
+        Ok(c)
+    }
+
+    /// Each photo keeps its newest [`HISTORY_LIMIT`] History steps: a loaded snapshot may hold any
+    /// number, and only new edits applied the limit.
+    pub(crate) fn trim_histories(&mut self) {
+        for p in self.photos.values_mut().filter(|p| p.history.len() > HISTORY_LIMIT) {
+            Arc::make_mut(p).trim_history();
+        }
     }
 
     /// Replay an op log (JSON lines) on top of `self`. A torn final line (crash mid-write) is ignored.

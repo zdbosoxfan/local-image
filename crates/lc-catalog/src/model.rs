@@ -325,6 +325,12 @@ pub struct Analysis {
 }
 
 impl Photo {
+    /// Keep the newest [`HISTORY_LIMIT`](crate::HISTORY_LIMIT) History steps.
+    pub fn trim_history(&mut self) {
+        let n = self.history.len().saturating_sub(crate::HISTORY_LIMIT);
+        self.history.drain(..n);
+    }
+
     pub fn new(id: PhotoId, source: Source, file_name: &str, format: &str, width: u32, height: u32, imported: &str) -> Photo {
         Photo {
             id,
