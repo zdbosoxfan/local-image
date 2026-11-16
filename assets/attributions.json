@@ -14683,6 +14683,60 @@
           "url": "https://github.com/storytold/photocraft/commit/4c5f49d9ff100880b8981c140949671f55552602"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "Free Transform moves every selected layer (#6501, #3384, #6096)",
+          "commit": "24326695786cd0f63811618a51f9c97e182ec135",
+          "ours": "crates/pc-engine/src/transform_cmds.rs, crates/pc-engine/src/edit_cmds.rs, crates/pc-ui-egui/src/transform_tool.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/24326695786cd0f63811618a51f9c97e182ec135"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-LIB-PEOPLE: a re-read takes the file's orientation in the import's order, Exif before XMP (#2674)",
+          "commit": "4e350dc756e4d8d121d16dec62832621fe88b39f",
+          "ours": "crates/lc-engine/src/sidecar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/4e350dc756e4d8d121d16dec62832621fe88b39f"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(io): charge importers for the whole tiles surfaces keep (#11144)",
+          "commit": "e6c9ce340bf71f1ea1d0582713ba84de8b25f542",
+          "ours": "crates/pc-io/src/psd_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/e6c9ce340bf71f1ea1d0582713ba84de8b25f542"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-LIB-PEOPLE: a WebP's EXIF chunk of any size is read by its IFD, and the last one counts, as at import (#2674)",
+          "commit": "64998a1acf2328caa6b3c4a56989a480b6cf4e38",
+          "ours": "crates/lc-engine/src/sidecar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/64998a1acf2328caa6b3c4a56989a480b6cf4e38"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
