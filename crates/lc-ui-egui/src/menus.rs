@@ -1016,6 +1016,14 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "photo.editInExternal" => {
+            let editor = p.get("app").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| app.ui.settings.external_editor.clone());
+            // Hosted with no other editor named: the host's own editor opens the photo itself,
+            // linked to Develop, instead of a baked TIFF copy.
+            let own_editor = editor.trim().is_empty() || editor.trim().eq_ignore_ascii_case("local image");
+            if let Some(id) = app.session.active().filter(|_| app.hosted_menus && own_editor) {
+                app.host_composite_open = Some(id);
+                return Some(Ok(Value::Null));
+            }
             // render an edit copy (stacked on the original), then open it in the editor
             let mut params = p.clone();
             if !params.is_object() {
@@ -1029,7 +1037,6 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if let Some(id) = r["id"].as_u64() {
                 app.ui.external_edits.push(id);
             }
-            let editor = p.get("app").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| app.ui.settings.external_editor.clone());
             if let Some(f) = app.services.open_with.as_mut()
                 && let Err(e) = f(&path, &editor)
             {

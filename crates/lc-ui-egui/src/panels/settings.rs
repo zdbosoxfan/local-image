@@ -243,7 +243,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     row(ui, t, li_i18n::library::t("Application"), |ui| {
         let r = ui.add(
             egui::TextEdit::singleline(&mut app.ui.settings.external_editor)
-                .hint_text(li_i18n::library::t("System default"))
+                .hint_text(li_i18n::library::t("Compositing"))
                 .desired_width(220.0_f32.min(ui.available_width())),
         );
         register(ui.ctx(), "field:externalEditor", r.rect);
@@ -252,7 +252,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         ui,
         t,
         li_i18n::library::t(
-            "Photo ▸ Edit in External Editor (⇧⌘E) renders a 16-bit TIFF copy, stacks it with the original and opens it here (an app name on macOS, a program path elsewhere).",
+            "Photo ▸ Edit In… (⌘E) opens the photo in Compositing, linked to Develop. Name another application here (an app name on macOS, a program path elsewhere) to render a 16-bit TIFF copy, stack it with the original and open it there.",
         ),
     );
 }

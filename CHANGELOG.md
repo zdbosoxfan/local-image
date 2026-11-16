@@ -45,6 +45,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Coming back from Compositing keeps the Library selection when it holds the edited photo, which becomes the active one, instead of collapsing it to that photo.
 - Opening Info or Keywords from Develop's tool strip keeps Develop in the title bar and as the module to start in, instead of switching both to Library.
 - Library Settings › Startup › Open in Photo Grid or Loupe now starts in the Library even when Develop or Compositing was last shown. The remembering choice is now called "Last workspace and view".
+- Photo › Edit In… (Cmd+E) with no other application named opens the photo in Compositing as a Develop layer, linked to Develop, instead of writing a stacked 16-bit TIFF copy every time. Naming an application in Settings › External Editor still sends it a TIFF copy.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.

@@ -875,6 +875,29 @@ fn the_library_shows_unsaved_compositing_work() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Edit In with no other editor named opens the photo in Compositing as a Develop layer, beside
+/// the work already open there, instead of stacking a baked TIFF copy.
+#[test]
+fn edit_in_with_no_editor_named_opens_the_photo_in_compositing() {
+    let (dir, _, library, photo) = library_with_photo("edit-in-own");
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    let mut host = Host::new(editor);
+    host.editor.host_modes = true;
+    host.library = Some(library);
+    host.mode = Module::Library;
+    let lib = host.library();
+    lib.run("library.select", json!({"ids": [photo.0], "active": photo.0})).unwrap();
+    lib.run("photo.editInExternal", json!({})).unwrap();
+    host.open_composite(&egui::Context::default());
+    assert_eq!(host.mode, Module::Compositing);
+    assert_eq!(host.editor.session.documents().len(), 2, "the photo opens beside the open document");
+    assert_eq!(photocraft_ui_egui::develop_layer::active_photo(&host.editor), Some(photo.0));
+    assert_eq!(catalog(&host).catalog.photos().count(), 1, "no TIFF copy is stacked");
+    assert!(!dir.join("photo-Edit.tif").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn ai_colour_library_worker_converts_linear_unsaved_preview_before_publication() {
     let (dir, path, lib, orig) = library_with_photo("colour-preview");

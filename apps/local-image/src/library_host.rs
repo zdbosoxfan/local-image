@@ -782,13 +782,27 @@ impl Host {
     }
 
     /// The Library's "Open in Compositing" on a photo shown as its unsaved composite: back to that
-    /// document as it is.
+    /// document as it is. Edit In with no other editor named also lands here: a photo with no
+    /// document yet opens from the Library (from Develop, `switch` carries it across).
     fn open_composite(&mut self, ctx: &egui::Context) {
         let Some(id) = self.library.as_mut().and_then(|l| l.host_composite_open.take()) else { return };
         let doc = self.library.as_ref().and_then(|lib| document_of(&self.editor, &lib.session, id));
         if let Some(i) = doc {
             self.editor.session.set_active(i);
             self.editor.sync_views();
+        } else if self.mode == Module::Library
+            && let Some((photo, path, settings, name)) = self.library.as_ref().and_then(|lib| photo_to_open(lib, id))
+        {
+            let opened = if opens_with_layers(&path) {
+                self.editor.open_paths(&[path]);
+                Ok(())
+            } else {
+                self.open_editor_photo(photo, &path, &settings, &name)
+            };
+            if let Err(e) = opened {
+                self.editor.ui.status = e;
+                self.editor.ui.status_error = true;
+            }
         }
         let lib = self.library();
         let _ = lib.run("library.select", serde_json::json!({ "ids": [id.0], "active": id.0 }));
