@@ -568,6 +568,45 @@ fn batch_fails_inputs_that_share_an_output_name() {
     assert!(out.contains("3 succeeded, 0 failed"), "{out}");
 }
 
+/// `--recursive` mirrors the subfolders under `--out`, `--naming` names the results,
+/// `--stop-on-error` skips the rest after a failure and `--error-log` records the failures.
+#[test]
+fn batch_recursive_naming_stop_and_log() {
+    let d = tmp("batch-opts");
+    let input = d.join("in");
+    std::fs::create_dir_all(input.join("sub")).unwrap();
+    for name in ["a.png", "sub/a.png", "sub/c.png"] {
+        write_png(&input.join(name), 8, 6, 3);
+    }
+    std::fs::write(input.join("sub/b.png"), b"not a png").unwrap();
+    let rotate = r#"[["image.imageRotation.90cw", {}]]"#;
+    let log = d.join("errors.txt");
+    let log_arg = log.to_string_lossy();
+    let o = batch_with(&d, &input, "out", rotate, &["--recursive", "--naming", "{name}-{serial:2}.{ext}", "--start-serial", "5", "--error-log", &log_arg]);
+    let (stdout, stderr) = (String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+    assert!(!o.status.success(), "{stdout}");
+    assert!(d.join("out/a-05.png").is_file() && d.join("out/sub/a-06.png").is_file() && d.join("out/sub/c-08.png").is_file(), "{stdout}\n{stderr}");
+    assert!(stdout.contains("3 succeeded, 1 failed"), "{stdout}");
+    let text = std::fs::read_to_string(&log).unwrap();
+    assert!(text.contains("1 error(s)") && text.contains("b.png"), "{text}");
+
+    let o = batch_with(&d, &input, "out2", rotate, &["--recursive", "--stop-on-error"]);
+    let (stdout, stderr) = (String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+    assert!(!o.status.success(), "{stdout}");
+    assert!(stdout.contains("2 succeeded, 1 failed, 1 skipped"), "{stdout}");
+    assert!(stderr.contains("--stop-on-error"), "{stderr}");
+    assert!(!d.join("out2/sub/c.png").exists(), "c comes after the failure and is skipped");
+
+    let o = batch_with(&d, &input, "out3", rotate, &["--naming", "{nope}"]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--naming"), "{}", String::from_utf8_lossy(&o.stderr));
+    let o = batch_with(&d, &input, "out3", rotate, &["--start-serial", "x"]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--start-serial"), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(!d.join("out3").exists(), "a refused flag writes no folder");
+    std::fs::remove_dir_all(d).unwrap();
+}
+
 #[test]
 fn droplet_runs_an_action_on_files() {
     let d = tmp("droplet");

@@ -731,10 +731,21 @@ mod label_tests {
     }
 }
 
+/// The fields a `__form` dialog shows, in order: as `__order` lists them (a dialog's grouping,
+/// such as Batch's Play / Source / Destination / Errors), the rest alphabetically after them.
+fn form_keys(f: &Map<String, Value>) -> Vec<String> {
+    let mut keys: Vec<String> = f.keys().filter(|k| !k.starts_with("__")).cloned().collect();
+    if let Some(order) = f.get("__order").and_then(Value::as_array) {
+        let order: Vec<&str> = order.iter().filter_map(Value::as_str).collect();
+        keys.sort_by_key(|k| order.iter().position(|o| o == k).unwrap_or(usize::MAX));
+    }
+    keys
+}
+
 /// Body of a `__form` dialog: text fields, number fields, checkboxes and `__choices` dropdowns.
 pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let choices = f.get("__choices").cloned().unwrap_or(Value::Null);
-    let keys: Vec<String> = f.keys().filter(|k| !k.starts_with("__")).cloned().collect();
+    let keys = form_keys(f);
     egui::Grid::new("form-dialog").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for k in keys {
             let v = f.get(&k).cloned().unwrap_or(Value::Null);
@@ -938,10 +949,17 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
             };
             let steps = crate::actions::action_steps(action);
             let name = action.name.clone();
+            // Photoshop's Batch dialog: Source (folder with Include All Subfolders, or the open
+            // documents), Destination, File Naming, Errors (stop, or log to a file).
             dialog(
                 app,
-                json!({"action": name, "steps": steps, "input": dir, "output": format!("{dir}/batch"), "format": "same"}),
-                json!({"format": ["same", "png", "jpg", "psd", "tiff"]}),
+                json!({
+                    "action": name, "steps": steps, "source": "folder", "input": dir, "includeSubfolders": false,
+                    "output": format!("{dir}/batch"), "format": "same", "naming": photocraft_engine::batch::Naming::DEFAULT, "startSerial": 1,
+                    "stopOnError": false, "errorLog": "",
+                    "__order": ["action", "source", "input", "includeSubfolders", "output", "format", "naming", "startSerial", "stopOnError", "errorLog"],
+                }),
+                json!({"format": ["same", "png", "jpg", "psd", "tiff"], "source": ["folder", "open"]}),
             )
         }
         // Channel workflow dialogs (see channels_panel.rs for the channel references).

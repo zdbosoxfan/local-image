@@ -10607,6 +10607,20 @@
         },
         {
           "name": "PhotoCraft",
+          "used_for": "Batch: subfolders, open documents, file naming, stop on error, error log, progress and cancel (#219)",
+          "commit": "bc08629d292e1383a41e0db254a00a907f42c9e2",
+          "ours": "apps/local-image-cli/src/lib.rs, apps/local-image-cli/tests/cli.rs, crates/pc-ui-egui/src/view_cmds.rs, crates/pc-ui-egui/src/view_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/bc08629d292e1383a41e0db254a00a907f42c9e2"
+        },
+        {
+          "name": "PhotoCraft",
           "used_for": "automation: save_bytes never reads linked files (#11233)",
           "commit": "bf162c2215e84f7f96f4894bc7fa2008c45ef4d8",
           "ours": "crates/pc-automation/src/files.rs, crates/pc-automation/src/headless.rs, crates/pc-automation/tests/it/linked_save_bytes.rs, crates/pc-automation/tests/it/main.rs",
