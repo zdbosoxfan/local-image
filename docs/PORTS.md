@@ -1916,8 +1916,11 @@ Upstream commits that came after a port already on this branch and that the port
 |---|---|---|---|
 | [storytold/photocraft@`3a23cf3e6b10283637e927e4c6923eb3804d3a56`](https://github.com/storytold/photocraft/commit/3a23cf3e6b10283637e927e4c6923eb3804d3a56) | fix(paint): raise only the ring next to a transparent flood, at coverage 1 - alpha (#11354) | `crates/pc-algo/src/paint.rs` | MIT OR Apache-2.0 |
 | [storytold/photocraft@`bf550d8fcb0f33a57d800974f7a37cd3eb5a2c84`](https://github.com/storytold/photocraft/commit/bf550d8fcb0f33a57d800974f7a37cd3eb5a2c84) | perf(paint): only build the rim ring when an unlocked Blend fill can read it (#11354) | `crates/pc-algo/src/paint.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`cbdce347f07518c9ce2eb16576f55243cffef9fb`](https://github.com/storytold/photocraft/commit/cbdce347f07518c9ce2eb16576f55243cffef9fb) | Background Eraser: Protect Foreground keeps the per-channel distance; tolerance doc | `crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/bg_erase/graded_alpha_tests.rs` | MIT OR Apache-2.0 |
 
 `3a23cf3e` and `bf550d8f` follow the `b4487ee5` port, which the `e25be5e7` wand fringe had left without effect. Adapted port: our bucket has no Fill Mode, CMYK inks or locked-transparency path and no `fill_region`, so the ring is built in `bucket_fill_src` and `bf550d8f`'s guard reduces to "the region leaves a pixel uncovered" (our bucket always fills unlocked, in Normal). Not ported: the CMYK inks hunk and upstream's edit of `bucket_after_clearing_an_antialiased_selection_fills_the_hole_and_raises_the_rim_partly` (neither exists here), and the removed `opacity * 0.97` assertion (no counterpart). Tests: `paint::tests::bucket_on_transparency_blends_into_the_edge_at_its_transparency`, `paint::tests::bucket_on_transparency_raises_only_the_ring_next_to_the_flood`.
+
+`cbdce347` follows the `22882f69` port. Our foreground check is one `protected` closure used for both the pre-stroke and the working colours, so the one change covers both. Upstream's test sits in `bg_erase/graded_alpha_tests.rs`: `protect_foreground_keeps_todays_distance_to_the_foreground`.
 
 ## Upstream rows reviewed and not ported (2026-11-16)
 
