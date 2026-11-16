@@ -2687,6 +2687,8 @@ ai	New	Nuovi
 	Float Panel Group	Sgancia gruppo di pannelli
 	Save and Return to Library	Salva e torna alla libreria
 	Added your new Develop edits as layer {name}	Le nuove modifiche di Develop sono state aggiunte come livello {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Il ritaglio o le dimensioni della foto sono cambiati in Develop, quindi {name} non è stato aggiornato
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	I suoi livelli non sarebbero più allineati con la nuova foto, quindi mantiene la foto com'era.
 	Open the Library to save into it	Apri la libreria per salvare al suo interno
 	The layers below are unchanged; hide or delete the new layer to go back.	I livelli sottostanti sono invariati; nascondi o elimina il nuovo livello per tornare indietro.
 # Attributions page (li-attributions)

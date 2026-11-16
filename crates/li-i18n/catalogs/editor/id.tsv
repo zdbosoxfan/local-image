@@ -3029,6 +3029,8 @@ ai	New	Baru
 	Float Panel Group	Apungkan Grup Panel
 	Save and Return to Library	Simpan dan Kembali ke Pustaka
 	Added your new Develop edits as layer {name}	Hasil edit Kembangkan baru Anda ditambahkan sebagai layer {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Pangkasan atau ukuran foto berubah di Kembangkan, jadi {name} tidak diperbarui
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Layer-nya tidak akan lagi sejajar dengan foto baru, jadi foto tetap seperti semula.
 	Open the Library to save into it	Buka Pustaka untuk menyimpan ke dalamnya
 	The layers below are unchanged; hide or delete the new layer to go back.	Layer di bawahnya tidak berubah; sembunyikan atau hapus layer baru untuk kembali.
 # Attributions page (li-attributions)

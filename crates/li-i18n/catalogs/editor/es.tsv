@@ -2685,6 +2685,8 @@ ai	New	Nuevos
 	Float Panel Group	Flotar grupo de paneles
 	Save and Return to Library	Guardar y volver a la biblioteca
 	Added your new Develop edits as layer {name}	Se añadieron sus nuevos ajustes de Revelado como capa {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	El recorte o el tamaño de la foto cambió en Revelado, así que {name} no se actualizó
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Sus capas ya no coincidirían con la nueva foto, así que conserva la foto tal como estaba.
 	Open the Library to save into it	Abra la biblioteca para guardar en ella
 	The layers below are unchanged; hide or delete the new layer to go back.	Las capas inferiores no han cambiado; oculte o elimine la capa nueva para volver atrás.
 # Attributions page (li-attributions)

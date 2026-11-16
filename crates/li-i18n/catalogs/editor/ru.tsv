@@ -2954,6 +2954,8 @@ ai	New	Новые
 	Float Panel Group	Открепить группу панелей
 	Save and Return to Library	Сохранить и вернуться в библиотеку
 	Added your new Develop edits as layer {name}	Ваши новые правки обработки добавлены как слой {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Кадрирование или размер фото изменились при обработке, поэтому {name} не обновлён
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Его слои больше не совпадали бы с новым фото, поэтому фото остаётся прежним.
 	Open the Library to save into it	Откройте библиотеку, чтобы сохранить в неё
 	The layers below are unchanged; hide or delete the new layer to go back.	Нижние слои не изменены; чтобы вернуться, скройте или удалите новый слой.
 # Attributions page (li-attributions)

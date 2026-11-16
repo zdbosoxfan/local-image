@@ -3049,6 +3049,8 @@ ai	New	Novos
 	Float Panel Group	Desencaixar grupo de painéis
 	Save and Return to Library	Salvar e voltar à biblioteca
 	Added your new Develop edits as layer {name}	Suas novas edições da Revelação foram adicionadas como camada {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	O corte ou o tamanho da foto mudou na Revelação, então {name} não foi atualizado
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Suas camadas não ficariam mais alinhadas com a nova foto, então ele mantém a foto como estava.
 	Open the Library to save into it	Abra a Biblioteca para salvar nela
 	The layers below are unchanged; hide or delete the new layer to go back.	As camadas abaixo não foram alteradas; oculte ou exclua a nova camada para voltar.
 # Attributions page (li-attributions)
