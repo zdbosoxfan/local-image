@@ -1307,6 +1307,8 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 
 PhotoCraft document files (2026-11-15). `f373ec18`: the no-follow writer is `li_fs::atomic_write_no_follow`, an `AtomicFs` adapter over `RealFs`, where upstream adds a flag to its own `atomic.rs`. Not ported: its `write_bundle_file` hunk, which has no counterpart here; directory bundles are written through `li_fs::atomic_write`, whose `RealFs::preserve_permissions` sets the mode through a handle, though one it reopens on the staging path. `87da091f` runs after the symbol preflight, which keeps its own duplicate-id error for documents with symbols, and leaves our `max_id` reservation as it is. `e614f7d3` and `a9744ed4` are one port: the point selection is added with the second commit's span test already in it, and without upstream's corner flags, which our `Contour::Custom` does not carry.
 
+LightCraft file safety (2026-11-15). `0d2dd9a9` and its catalog follow-ups: ours has no log thread, so upstream's `log_writer.rs` and the Move-import flush have no counterpart. `690f6cfb` is ported only in part: after a streamed snapshot is staged the folder is asked again, but the staging file's own identity is not compared, as `li-fs` holds that file. The log-length check applies only in a folder accepted by its note, where upstream applies it always.
+
 Codec hostile-input bounds (2026-11-15). Adapted ports: `81ce14c1` charges band-worker scratch,
 the JPEG copy and the chunk tables next to the output, without upstream's extra-sample accounting,
 which this decoder does not have. `eef1638e` takes only the step budget, in our `jpeg_dimensions`
