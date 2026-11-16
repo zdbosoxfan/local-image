@@ -1319,6 +1319,13 @@ impl eframe::App for Host {
             _ => {
                 if let Some(lib) = self.library.as_mut() {
                     lib.background_tick(ctx);
+                    // A close the Library held back (its catalog wasn't saved): only the Library
+                    // draws the prompt that says why.
+                    if self.mode == Module::Compositing && lib.quit_prompt.is_some() {
+                        self.mode = Module::Library;
+                        self.styled = None;
+                        ctx.request_repaint();
+                    }
                 }
             }
         }

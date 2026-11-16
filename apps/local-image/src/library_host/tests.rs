@@ -2204,6 +2204,23 @@ fn workflow_host(tag: &str) -> (PathBuf, Host) {
     assert!(!host.editor.has_unsaved(), "theme fixture has no user edits to bypass");
     (dir, host)
 }
+/// A close the Library held back while Compositing was shown brings the Library forward, where
+/// its prompt says the catalog wasn't saved.
+#[test]
+fn a_held_back_close_shows_the_library_prompt_from_compositing() {
+    let (dir, host) = workflow_host("held-close");
+    let mut h = RoundTripUi::new(host);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert_eq!(h.host.mode, Module::Compositing);
+    h.host.library.as_mut().unwrap().quit_prompt = Some("1 change couldn't be written to disk".into());
+    h.step(vec![]);
+    assert_eq!(h.host.mode, Module::Library);
+    drop(h);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn host_theme_union_survives_real_module_switches() {
     use photocraft_ui_egui::theme::{ThemeKind, Tokens as EditorTokens};
