@@ -2069,8 +2069,8 @@ mod tests {
         assert!(glow_lut(&g).is_none());
     }
 
-    /// A contour above 0 at its start (the flat "always 100 %" one, and one starting at 50 %) used
-    /// to light every pixel an outer glow never reaches, out to the effect's rectangle. Nothing
+    /// A contour above 0 at its start (the flat "always 100 %" one, and one starting at 50 %) must
+    /// not light the pixels an outer glow never reaches, out to the effect's rectangle. Nothing
     /// past the reach may paint: `size` px for Precise (Euclidean, a pixel's slack allowed for
     /// the distance field's half-pixel origin), `size` px along each axis for Softer's tent.
     #[test]
