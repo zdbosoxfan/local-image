@@ -150,12 +150,13 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             break;
         };
         let f = binding.command;
-        // Toggle Zoom's Space alias: once per press
-        let space_zoom = binding.params.is_some() && f == "view.zoomToggle" && key == Key::Space;
+        // Toggle Zoom on Space, as its alias or as the user's own binding: the same hand and the
+        // same once-per-press
+        let space_zoom = f == "view.zoomToggle" && key == Key::Space;
         if space_zoom && !std::mem::take(&mut space_fresh) {
             continue;
         }
-        if let Some(params) = binding.params {
+        if let Some(params) = binding.params.or_else(|| space_zoom.then(|| json!({}))) {
             let id = f.as_str();
             // Space pauses / resumes a slideshow
             if id == "view.zoomToggle"

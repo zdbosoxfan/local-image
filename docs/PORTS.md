@@ -1474,6 +1474,9 @@ have no `view.navigate`) and check `app.gesture` for the stroke in progress (we 
 `brush_live`). Space takes no hand over the Edit panel's mask tools or the Skin Tone and film base
 pickers, which upstream does not have or list. Not ported: the `ui.key` row of upstream's control
 protocol (ours documents the PhotoCraft side) and the parity checklists.
+`c9c3870a`: our primary binding (no params) for Toggle Zoom on Space takes the alias's path in the
+same loop, slideshow pause included; the test sets `shortcut_overrides` (we have no
+`shortcuts::assign`).
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
@@ -1481,3 +1484,4 @@ protocol (ours documents the PhotoCraft side) and the parity checklists.
 | [`9ac38222e12e`](https://github.com/storytold/lightcraft/commit/9ac38222e12e9bec2bb171d2a30aa8b69aeb4b9a) | Alt/Option-drag previews for clipping and sharpening | `crates/lc-pipeline/src/visualize.rs`<br>`crates/lc-pipeline/src/detail.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-gpu/src/render.rs`<br>`crates/lc-gpu/src/ctx.rs`<br>`crates/lc-gpu/src/wgsl/detail.wgsl`<br>`crates/lc-gpu/tests/it/equivalence.rs`<br>`crates/lc-ui-egui/src/state.rs`<br>`crates/lc-ui-egui/src/panels/edit.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_panels.rs` | MIT OR Apache-2.0 |
 | [`abf0caf20170`](https://github.com/storytold/lightcraft/commit/abf0caf2017e79108fa9a7d67efabad27232b269) | KEY-TOGGLEZOOM: hold Space over a tool to pan and click-zoom | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs`<br>`crates/lc-ui-egui/src/control.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
 | [`9e305d642e3e`](https://github.com/storytold/lightcraft/commit/9e305d642e3e091235e8a651079f6dafd798c224) | KEY-TOGGLEZOOM: a click down and up within one frame keeps its zoom on Space's release | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
+| [`c9c3870ab387`](https://github.com/storytold/lightcraft/commit/c9c3870ab38718a63c5faaa7b677b39cbbc002eb) | KEY-TOGGLEZOOM: Toggle Zoom bound to Space in the keymap takes the hand and toggles once | `crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
