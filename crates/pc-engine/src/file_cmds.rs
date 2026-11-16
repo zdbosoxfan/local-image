@@ -817,8 +817,10 @@ impl OutputClaims {
 
 mod batch_actions;
 mod image_processor_formats;
+mod open_as_smart_object;
 
 use batch_actions::batch;
+use open_as_smart_object::open_as_smart_object;
 pub(crate) use batch_actions::batch_save_point;
 
 /// Image Processor's edits to one scratch document before it is saved.
@@ -1233,6 +1235,15 @@ pub fn specs() -> Vec<CommandSpec> {
             open_as
         ),
         spec!(
+            "file.openAsSmartObject",
+            "Open as Smart Object…",
+            &["File"],
+            None,
+            r##"{"path":str (or "paths":[str], one document each)} (opens the file as a new untitled document named "<file name without its last extension>-N" with the file's size, resolution, colour mode, bit depth and profile, holding one embedded smart object layer named after the file) → {document, name, layer} ({documents:[…]} for paths)"##,
+            native,
+            open_as_smart_object
+        ),
+        spec!(
             "file.placeEmbedded",
             "Place Embedded…",
             &["File"],
@@ -1343,6 +1354,10 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "file_cmds/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "file_cmds/open_as_smart_object_tests.rs"]
+mod open_as_smart_object_tests;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

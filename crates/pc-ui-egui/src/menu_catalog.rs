@@ -9,6 +9,7 @@ pub static CATALOG: &[(&[&str], &str, Option<&str>, &str)] = &[
     (&["File"], "New from Prompt…", Some("Cmd+Alt+N"), "li.newFromPrompt"),
     (&["File"], "Open…", Some("Cmd+O"), "file.open"),
     (&["File"], "Open As…", Some("Cmd+Alt+Shift+O"), "file.openAs"),
+    (&["File"], "Open as Smart Object…", None, "file.openAsSmartObject"),
     (&["File"], "Open Folder…", Some("Cmd+Shift+O"), "li.openFolder"),
     (&["File"], "---", None, "---"),
     (&["File"], "Close", Some("Cmd+W"), "file.close"),
