@@ -39,6 +39,9 @@ All notable changes to Local Image are recorded here. The format follows
 - Select and Mask's Shift Edge moves only soft borders, as in Photoshop: a hard selection edge
   stays where it is, and a feathered edge is pulled in or pushed out along a fixed coverage curve
   (at -100% a half-selected pixel drops to 2%, at +100% it rises to 98%).
+- Saving a PSD chooses PSB by the size of the file actually written, not by the uncompressed pixels:
+  a document that packs to well under 2 GB stays a PSD. A file over 2 GB is still saved as PSB
+  automatically; if it can't be, the save warns.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
