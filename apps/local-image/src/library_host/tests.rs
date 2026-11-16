@@ -876,6 +876,41 @@ fn quitting_from_the_library_asks_about_unsaved_work() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A Camera Raw Filter session keeps its edits: the module switch asks for OK or Cancel instead
+/// of cancelling it, and quitting with unsaved documents leaves it open behind the prompt.
+#[test]
+fn camera_raw_session_survives_module_switches_and_the_quit_prompt() {
+    let (dir, _path, library, _photo) = library_with_photo("camera-raw-session");
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.run("file.new", json!({"width":32,"height":24,"background":"transparent"})).unwrap();
+    editor.run("edit.fill", json!({"color":"#3366cc"})).unwrap();
+    let mut host = Host::new(editor);
+    host.editor.host_modes = true;
+    host.library = Some(library);
+    host.mode = Module::Compositing;
+    let ctx = egui::Context::default();
+    photocraft_ui_egui::develop_filter_ui::open(&mut host.editor, &ctx, None, Some(false)).unwrap();
+    host.start_camera_raw(&ctx);
+    assert_eq!(host.mode, Module::Develop);
+    assert!(host.camera_raw.is_some());
+    for to in [Module::Library, Module::Compositing] {
+        host.switch(&ctx, to);
+        assert_eq!(host.mode, Module::Develop, "{to:?}");
+        assert!(host.camera_raw.is_some() && host.editor.develop_filter.in_session(), "{to:?}");
+    }
+    let toast = host.library.as_ref().and_then(|lib| lib.ui.toast.as_ref()).map(|(text, _)| text.as_str());
+    assert_eq!(toast, Some("Finish Camera Raw Filter with OK or Cancel first"));
+    assert!(host.editor.has_unsaved());
+    let mut raw = egui::RawInput::default();
+    raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+    let mut out = ctx.run_ui(raw, |ui| {
+        assert!(host.quit_review(ui.ctx()));
+    });
+    out.textures_delta.clear();
+    assert!(host.camera_raw.is_some() && host.editor.develop_filter.in_session(), "the prompt can still be cancelled");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Cancel in the quit prompt goes back to the Library the quit started from, with the work kept.
 #[test]
 fn cancelling_the_quit_prompt_returns_to_the_library() {

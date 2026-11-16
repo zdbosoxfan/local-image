@@ -18,8 +18,8 @@
 //! settings and name); the host opens the pixels as a temporary photo the Library never saves
 //! (`Session::open_ephemeral`), shows Develop with a "Camera Raw Filter · ‹layer› — Cancel / OK"
 //! banner (Library-only actions hidden), and on OK hands the settings back
-//! (`develop_filter_ui::finish`, one history step) and returns to Compositing; Cancel (or leaving
-//! the session with the module switch) changes nothing. Going from Compositing to Develop with a
+//! (`develop_filter_ui::finish`, one history step) and returns to Compositing; Cancel changes
+//! nothing. The module switch waits until OK or Cancel. Going from Compositing to Develop with a
 //! layered document that has no Develop layer asks how to develop it (`on_switch_to_develop`).
 //!
 //! **Back to the Library** (Photoshop's Edit In from Lightroom): a document that came from a
@@ -871,9 +871,7 @@ impl Host {
         if self.mode == Module::Compositing || !ctx.input(|i| i.viewport().close_requested()) || !self.editor.has_unsaved() {
             return false;
         }
-        if self.camera_raw.is_some() {
-            self.end_camera_raw(ctx, false);
-        }
+        // A Camera Raw Filter session stays open: Cancel comes back to it, and `on_exit` drops it.
         self.quit_from = Some(self.mode);
         self.mode = Module::Compositing;
         self.styled = None;
@@ -978,9 +976,9 @@ impl Host {
         if self.mode == to || !self.editor.host_modes {
             return;
         }
-        // Leaving a Camera Raw Filter session with the module switch cancels it.
+        // Leaving a Camera Raw Filter session would throw its edits away: OK or Cancel ends it.
         if self.camera_raw.is_some() {
-            self.end_camera_raw(ctx, false);
+            self.library().toast(ctx, li_i18n::library::t("Finish Camera Raw Filter with OK or Cancel first"));
             return;
         }
         // A custom full-canvas modal owns module navigation too. Otherwise a host chord or

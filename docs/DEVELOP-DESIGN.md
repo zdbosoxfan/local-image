@@ -176,8 +176,8 @@ restore the earlier displayed image, including when caches are warm.
   deleted when the session ends and at startup), shows Develop with the banner "Camera Raw
   Filter · ‹layer› — Cancel / OK" (↩ / Esc), hides the Library's chrome and Library-only
   shortcuts, and hides the Calibration panel, Crop and the lens-profile switch. OK hands the
-  settings back and runs `filter.develop` (one history step); Cancel, or the module switch,
-  changes nothing. The old `filter.cameraRaw` (the earlier, simpler engine) keeps working for
+  settings back and runs `filter.develop` (one history step); Cancel changes nothing. The
+  module switch waits until OK or Cancel. The old `filter.cameraRaw` (the earlier, simpler engine) keeps working for
   existing documents; without the Library (`LOCAL_IMAGE_NO_LIBRARY`) its dialog edits a
   `filter.develop` instead (its controls mapped onto the settings, previews from the same engine).
 * **PSD**: a `filter.develop` is written as Photoshop's Camera Raw Filter (the settings Camera Raw
