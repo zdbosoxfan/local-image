@@ -333,6 +333,32 @@ fn history_brush_refuses_a_stroke_too_large_to_render() {
     }
 }
 
+/// #6110 review: the estimate from the input points is not the bound. Brush dynamics place dabs
+/// beyond those points, so the budget is applied to the extent the renderer actually produced,
+/// before the dense buffer is allocated. An injected budget makes that observable without asking
+/// for a stroke big enough to exhaust anything.
+#[test]
+fn the_budget_is_applied_to_the_rendered_extent_not_the_input_points() {
+    let mut brush = BrushSettings { size: 24.0, hardness: 1.0, ..Default::default() };
+    brush.scattering.enabled = true;
+    brush.scattering.scatter.jitter = 6.0;
+    let stroke = Stroke { brush, points: vec![StrokePoint::new(10.0, 10.0, 1.0), StrokePoint::new(40.0, 10.0, 1.0)] };
+
+    // What the renderer really covered, once scattering has placed every dab.
+    let (bounds, cov) = super::coverage_within("t", &stroke, u64::MAX).unwrap();
+    let rendered = u64::from(bounds.width()) * u64::from(bounds.height());
+    assert_eq!(cov.len() as u64, rendered, "the dense buffer is exactly the rendered extent");
+
+    // Scattering reaches past the points plus half the tip, which is what the estimate alone sees.
+    let points_only = (40.0 - 10.0 + 24.0 + 8.0) * (24.0 + 8.0);
+    assert!(rendered as f64 > points_only, "scattering expanded the stroke: {rendered} vs {points_only}");
+
+    // A budget one pixel under what it rendered refuses it; exactly the rendered extent fits.
+    let err = super::coverage_within("t", &stroke, rendered - 1).unwrap_err().to_string();
+    assert!(err.contains("stroke too large"), "{err}");
+    assert!(super::coverage_within("t", &stroke, rendered).is_ok(), "the rendered extent itself fits");
+}
+
 #[test]
 fn history_brush_errors_when_layer_is_new() {
     let mut s = session(20, 20, 8, "rgb");
