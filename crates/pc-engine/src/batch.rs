@@ -68,7 +68,7 @@ pub fn list_images_recursive(dir: &str) -> Result<Vec<Input>> {
             let path = e.path();
             if ft.is_dir() {
                 folders.push(name);
-            } else if path.is_file() && crate::file_cmds::openable_name(&name) {
+            } else if path.is_file() && crate::file_cmds::image_name(&path) {
                 if out.len() >= MAX_FILES {
                     return Err(EngineError::Other(format!("{root}: more than {MAX_FILES} images")));
                 }

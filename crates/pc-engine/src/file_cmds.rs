@@ -98,22 +98,18 @@ pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
     Err(EngineError::Other(format!("cannot write {path}: no file system on the web")))
 }
 
-/// Whether a file name's extension is one the batch commands open.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn openable_name(name: &str) -> bool {
-    std::path::Path::new(name).extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
+/// Whether `path` is named like an image we can open: a native `.pcraft` document or a format
+/// this build reads.
+pub(crate) fn image_name(path: &std::path::Path) -> bool {
+    path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
 }
 
 /// Files of a folder that look like images we can open, sorted by name.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     let rd = std::fs::read_dir(dir).map_err(|e| EngineError::Other(format!("{dir}: {e}")))?;
-    let mut out: Vec<String> = rd
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_file() && p.file_name().and_then(|n| n.to_str()).is_some_and(openable_name))
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
+    let mut out: Vec<String> =
+        rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_file() && image_name(p)).map(|p| p.to_string_lossy().into_owned()).collect();
     out.sort();
     Ok(out)
 }
@@ -739,6 +735,7 @@ pub(crate) fn process_files(
     let mut stopped = None;
     let mut cancelled = false;
     let mut done = 0;
+    let sources = sources_by_folder(inputs);
     for (i, input) in inputs.iter().enumerate() {
         if let Some(ctx) = ctx {
             if ctx.is_cancelled() {
@@ -754,8 +751,13 @@ pub(crate) fn process_files(
         let out = join(&dir, &options.naming.file_name(&stem(path), &ext, i as u64, date));
         let r = (|| -> Result<()> {
             written.check(&out).map_err(EngineError::Other)?;
+            if let Some(source) = source_at(&sources, &dir, &out).filter(|source| *source != path.as_str()) {
+                return Err(EngineError::Other(format!("not written: {out} would replace the source file {source} of this run")));
+            }
             let bytes = read_file(path)?;
             let mut scratch = Session::new();
+            // Nested commands answer to the gate of the request that started this run.
+            scratch.authorize = crate::jobs::installed_authorization();
             let doc = import(&file_name(path), &bytes)?;
             scratch.add_document(doc, Some(path.clone()));
             if !f(&mut scratch, &out)? {
@@ -792,6 +794,29 @@ pub(crate) fn process_files(
     }
     let skipped = || inputs.iter().skip(done).map(|i| i.path.clone()).collect();
     Ok(crate::batch::outcome(files, errors, stopped.map(|at| (at, skipped())), options.error_log.as_deref()))
+}
+
+/// The inputs by resolved folder and lower-case file name. A run saving into a source folder
+/// must not replace another input before reading it: `a.ARW` saved as JPEG would write over
+/// the source `a.jpg` (upstream VectorCraft 9a05e8ad). With subfolders, any output folder can
+/// be a source folder.
+type Sources<'a> = std::collections::HashMap<(std::path::PathBuf, String), &'a str>;
+
+fn sources_by_folder(inputs: &[crate::batch::Input]) -> Sources<'_> {
+    inputs
+        .iter()
+        .filter_map(|input| {
+            let path = input.path.as_str();
+            let parent = std::path::Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+            Some(((std::fs::canonicalize(parent).ok()?, file_name(path).to_lowercase()), path))
+        })
+        .collect()
+}
+
+/// The input that `out`, written into `dir`, would replace.
+fn source_at<'a>(sources: &Sources<'a>, dir: &str, out: &str) -> Option<&'a str> {
+    let folder = std::fs::canonicalize(if dir.is_empty() { "." } else { dir }).ok()?;
+    sources.get(&(folder, file_name(out).to_lowercase())).copied()
 }
 
 /// The output paths a batch run has written, so a later input whose output name matches an
@@ -998,20 +1023,23 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let visible_only = p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(true);
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
+    // An explicitly empty prefix stays empty; only the layer name needs sanitize's fallback.
+    let prefix = if prefix.is_empty() { String::new() } else { sanitize(&prefix) };
     let doc = d.doc.clone();
     let mut files = Vec::new();
-    // Top-level layers (groups export merged), top to bottom like Photoshop's numbering.
-    let layers: Vec<&Layer> = doc.layers.iter().rev().filter(|l| l.visible || !visible_only).collect();
-    for (i, l) in layers.iter().enumerate() {
-        if matches!(l.content, LayerContent::Adjustment(_)) {
+    // Top-level layers (groups export merged), top to bottom like Photoshop's numbering. Every
+    // layer takes its panel-order number, even one skipped as hidden or as an adjustment, so a
+    // file keeps the same number whether Visible Layers Only is on or off.
+    for (i, l) in doc.layers.iter().rev().enumerate() {
+        if (!l.visible && visible_only) || matches!(l.content, LayerContent::Adjustment(_)) {
             continue;
         }
         let mut one = (*doc).clone();
-        let mut only = (*l).clone();
+        let mut only = l.clone();
         only.visible = true;
         only.clipped = false;
         one.layers = vec![only];
-        let path = join(&dir, &format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&l.name)));
+        let path = join(&dir, &format!("{prefix}_{i:04}_{}.{format}", sanitize(&l.name)));
         save_doc(&one, &path, SaveOpts::from_params(p, cmd)?)?;
         files.push(path);
     }

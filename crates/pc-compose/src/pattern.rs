@@ -145,6 +145,9 @@ impl Tile {
     }
 }
 
+/// The smallest pattern scale a placement draws at (a fraction): keeps tile coordinates finite.
+pub const MIN_PLACEMENT_SCALE: f64 = 1e-6;
+
 /// Where a pattern sits: document point → tile coordinates.
 #[derive(Clone, Copy, Debug)]
 pub struct Placement {
@@ -169,7 +172,9 @@ impl Placement {
         let base = if link { anchor } else { (0.0, 0.0) };
         let origin = (base.0 + f64::from(phase.0), base.1 + f64::from(phase.1));
         let s = f64::from(scale);
-        let inv_scale = if s.is_finite() && s > 1e-3 { 1.0 / s } else { 1.0 };
+        // Any positive scale draws: a reduced preview takes a small stored scale well below
+        // 0.1 %. Only 0, negatives and non-finite values fall back to 100 %.
+        let inv_scale = if s.is_finite() && s > 0.0 { 1.0 / s.max(MIN_PLACEMENT_SCALE) } else { 1.0 };
         let a = f64::from(angle).to_radians();
         Placement { origin, cs: (a.cos(), a.sin()), inv_scale }
     }
@@ -270,6 +275,19 @@ mod tests {
         let rot = Placement::new(Rect::EMPTY, false, (0.0, 0.0), 1.0, 90.0);
         let (u, v) = rot.map(1.0, 3.0);
         assert!((u - -3.0).abs() < 1e-9 && (v - 1.0).abs() < 1e-9, "{u},{v}");
+    }
+
+    /// A stored 2 % pattern in a 4 % preview draws at 0.08 %, not at 100 %.
+    #[test]
+    fn placement_keeps_scales_below_a_tenth_of_a_percent() {
+        let place = Placement::new(Rect::EMPTY, false, (0.0, 0.0), 0.0008, 0.0);
+        let (u, v) = place.map(1.0, 2.0);
+        assert!((u - 1250.0).abs() < 1e-3 && (v - 2500.0).abs() < 1e-3, "{u},{v}");
+        // 0, negative and non-finite scales still draw at 100 %.
+        for bad in [0.0, -0.5, f32::NAN, f32::INFINITY] {
+            let p = Placement::new(Rect::EMPTY, false, (0.0, 0.0), bad, 0.0);
+            assert_eq!(p.map(3.0, 0.0).0, 3.0, "{bad}");
+        }
     }
 
     #[test]

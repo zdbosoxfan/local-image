@@ -85,6 +85,12 @@ fn basename(name: &str) -> String {
     let file = name.rsplit(['/', '\\']).next().unwrap_or(name);
     std::path::Path::new(file).file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or("drawing").to_owned()
 }
+/// A layer's name as a file stem: each character a file name can't hold becomes `_`, so
+/// `a/b:c*?` suggests `a_b_c__` and no part of the name reads as a folder.
+fn layer_stem(name: &str) -> String {
+    let safe: String = name.chars().map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c }).collect();
+    basename(&safe)
+}
 pub(crate) type Remembered = Map<String, Value>;
 fn remembered(app: &PhotocraftApp, f: &Map<String, Value>) -> Remembered {
     let mut saved: Map<String, Value> = KEYS.iter().filter_map(|key| f.get(*key).map(|v| ((*key).into(), v.clone()))).collect();
@@ -249,7 +255,7 @@ pub fn open_layer(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId) -> Re
     let id = open(app)?;
     if let Some(d) = app.ui.dialogs.iter_mut().find(|d| d.id == id) {
         d.fields.insert("__layer".into(), json!(layer.0));
-        d.fields.insert("__stem".into(), json!(basename(&ldoc.name)));
+        d.fields.insert("__stem".into(), json!(layer_stem(&ldoc.name)));
         if matches!(s_fmt(&d.fields).as_str(), "svg" | "pdf") {
             d.fields.insert("format".into(), json!("png"));
         }
@@ -332,6 +338,8 @@ fn settings(f: &Map<String, Value>) -> ExportSettings {
     let quality = n(f, "quality", 85.0).clamp(1.0, 100.0) as u8;
     ExportSettings {
         jpeg_quality: (fmt == "jpg").then_some(quality),
+        // 4:2:0 smears saturated text and graphics; above Save for Web's cutoff keep full chroma.
+        jpeg_chroma_subsampling: fmt == "jpg" && quality <= 50,
         webp_lossless: fmt != "webp" || lossless(f),
         webp_quality: (fmt == "webp" && !lossless(f)).then_some(quality),
         xmp_all: s(f, "metadata") == "all",
@@ -591,7 +599,11 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     capture_current(app, f)?;
     let preferences = f.contains_key("__export").then(|| remembered(app, f));
     let doc = source_document(app, f)?;
-    let stem = f.get("__stem").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| basename(&doc.name));
+    let stem = match f.get("__stem").and_then(Value::as_str) {
+        Some(stem) => stem.to_owned(),
+        None if f.contains_key("__layer") => layer_stem(&doc.name),
+        None => basename(&doc.name),
+    };
     let ext = s_fmt(f);
     if !FORMATS.iter().any(|(format, _)| *format == ext) {
         return Err(tl!("Unsupported export format").into());
@@ -706,6 +718,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn one_layers_suggested_file_name_holds_no_illegal_characters() {
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = asked.clone();
+        let file_dialog = crate::file_dialog::answering(move |request: crate::FileDialogRequest| {
+            if let crate::FileDialogRequest::Save { suggested } = request {
+                seen.borrow_mut().push(suggested);
+            }
+            None
+        });
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services { file_dialog: Some(file_dialog), ..Default::default() });
+        app.session.execute("file.new", json!({"width": 20, "height": 20})).unwrap();
+        app.session.execute("layer.new.layer", json!({"name": "a/b:c*?"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 2, "y": 2, "width": 6, "height": 6})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        let layer = app.session.active().unwrap().active_layer.unwrap();
+        // The Save dialog is cancelled: only the name it was asked for matters.
+        assert_eq!(quick_export_layer_png(&mut app, layer).unwrap_err(), crate::file_dialog::CANCELLED);
+        assert_eq!(*asked.borrow(), ["a_b_c__.png"]);
+    }
+
+    #[test]
     fn layered_preview_runs_outside_the_ui_frame() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 32, "height": 16})).unwrap();
@@ -761,6 +794,17 @@ mod tests {
         let proxy = export_document(&doc, &f, Some(40)).unwrap();
         assert_eq!(proxy.size.width, 40);
         assert_eq!(settings(&f).jpeg_quality, Some(85));
+    }
+
+    #[test]
+    fn jpeg_settings_keep_full_chroma_above_quality_50() {
+        let mut f = Map::new();
+        f.insert("format".into(), json!("jpg"));
+        for (quality, subsampled) in [(1, true), (50, true), (51, false), (100, false)] {
+            f.insert("quality".into(), json!(quality));
+            assert_eq!(settings(&f).jpeg_chroma_subsampling, subsampled, "quality {quality}");
+        }
+        assert!(ExportSettings::default().jpeg_chroma_subsampling, "Save As keeps the codec's 4:2:0 default");
     }
 
     #[test]

@@ -518,6 +518,48 @@ fn info(s: &Session, p: &Value) -> Result<Value> {
 
 const CHAR_PARAMS: &str = r##""font":str,"fontStyle":str,"weight":100..900,"italic":bool,"size":0.1..=1296 pt,"color":"#rrggbb"|[r,g,b,a],"tracking":-1000..=10000 (1/1000 em),"leading":pt|"auto","baselineShift":pt,"horizontalScale":%,"verticalScale":%,"underline":bool,"strikethrough":bool,"fauxBold":bool,"fauxItalic":bool,"kerning":1/1000em (manual, after each character)|"metrics"|"optical"|"off","caps":"normal|small|all","ligatures":bool,"discretionaryLigatures":bool,"features":{"ss01":1},"variations":{"wght":650},"language":str"##;
 
+/// The keys a typing edit carries: its text and the session that groups its keystrokes.
+const TYPING_KEYS: [&str; 4] = ["layer", "coalesce", "replace", "text"];
+
+/// While an action records, one typing session is one step, as Photoshop records "Make text
+/// layer" or "Set current text layer" once (#10113). Its keystrokes (`type.edit` with the
+/// session's `coalesce` key, changing the text) fold into the `type.create` that made the layer,
+/// whose `text` becomes the layer's text, or into one `type.edit` that sets the whole text. Neither
+/// names the layer, so the step plays on the new or the current type layer of any document, as
+/// Batch needs. Returns true when it journaled the step itself.
+pub(crate) fn coalesce_journal(s: &mut Session, id: &str, params: &Value) -> bool {
+    let Some((from, _)) = s.actions.recording else { return false };
+    if id != "type.edit" {
+        return false;
+    }
+    let Some(st) = s.active() else { return false };
+    let Some(layer) = params.get("layer").and_then(Value::as_u64) else { return false };
+    if st.active_layer != Some(LayerId(layer)) {
+        return false;
+    }
+    let typing =
+        params.as_object().is_some_and(|o| o.keys().all(|k| TYPING_KEYS.contains(&k.as_str())) && (o.contains_key("replace") || o.contains_key("text")));
+    let key = params.get("coalesce").filter(|k| !k.is_null()).cloned();
+    let (Some(key), true) = (key, typing) else { return false };
+    let Some(text) = st.doc.layer(LayerId(layer)).and_then(|l| match &l.content {
+        LayerContent::Text(t) => Some(t.text.clone()),
+        _ => None,
+    }) else {
+        return false;
+    };
+    // The newest layer was made by the step before: the Type tool makes a layer, then types in it.
+    let newest = st.doc.walk().into_iter().map(|(_, _, l)| l.id.0).max() == Some(layer);
+    let last = s.journal.len().checked_sub(1).filter(|&i| i >= from);
+    match last.and_then(|i| s.journal.get_mut(i)) {
+        Some((last_id, p)) if last_id == "type.create" && newest => p["text"] = json!(text),
+        Some((last_id, p)) if last_id == "type.edit" && p.get("coalesce") == Some(&key) && p.get("layer").is_none() => {
+            *p = json!({"text": text, "coalesce": key});
+        }
+        _ => s.journal.push((id.to_string(), json!({"text": text, "coalesce": key}))),
+    }
+    true
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
@@ -1246,5 +1288,28 @@ mod tests {
         assert_eq!(runs(&s, id).iter().map(|r| r.0).sum::<usize>(), 5);
         s.execute("type.edit", json!({"layer": id, "text": ""})).unwrap();
         assert_eq!(text_layer(&s, id).text, "");
+    }
+
+    /// #10113: recording a new type layer records one "make a text layer" step with the typed
+    /// text, not one step per keystroke, and it names no layer id, so it plays in other documents.
+    #[test]
+    fn recording_typed_text_records_one_step_that_plays_in_another_document() {
+        let mut s = session();
+        s.execute("actions.record", json!({"name": "Caption"})).unwrap();
+        let id = s.execute("type.create", json!({"x": 20, "y": 50, "text": "", "size": 24})).unwrap()["layer"].as_u64().unwrap();
+        for (i, c) in "Hello".chars().enumerate() {
+            s.execute("type.edit", json!({"layer": id, "replace": {"start": i, "end": i, "text": c.to_string()}, "coalesce": "s1"})).unwrap();
+        }
+        s.execute("actions.stop", json!({})).unwrap();
+        let steps = &s.actions.list[0].steps;
+        assert_eq!(steps.len(), 1, "one step, not one per keystroke: {steps:?}");
+        assert_eq!(steps[0].0, "type.create");
+        assert_eq!(steps[0].1["text"], "Hello");
+        assert!(steps[0].1.get("layer").is_none());
+        s.execute("file.new", json!({"width": 120, "height": 80})).unwrap();
+        let played = s.execute("actions.play", json!({"action": "Caption"})).unwrap();
+        assert!(played.get("failed").is_none(), "{played}");
+        let d = s.active().unwrap();
+        assert_eq!(text_layer(&s, d.active_layer.unwrap().0).text, "Hello");
     }
 }

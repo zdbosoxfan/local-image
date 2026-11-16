@@ -247,6 +247,22 @@ fn log_delete_and_csv_export() {
 }
 
 #[test]
+fn csv_field_guards_formulas_behind_spaces_line_feeds_and_full_width_signs() {
+    for (cell, want) in [
+        ("\n=1+1", "\"'\n=1+1\""),
+        ("\u{ff1d}1+1", "'\u{ff1d}1+1"),
+        ("\u{ff0b}1", "'\u{ff0b}1"),
+        ("\u{ff0d}cmd", "'\u{ff0d}cmd"),
+        ("\u{ff20}SUM(A1)", "'\u{ff20}SUM(A1)"),
+        (" =1+1", "' =1+1"),
+        ("  -2+3", "'  -2+3"),
+        (" -5.5", " -5.5"),
+    ] {
+        assert_eq!(csv_field(&json!(cell)), want, "{cell:?}");
+    }
+}
+
+#[test]
 fn csv_field_guards_formula_injection_but_not_numbers_or_names() {
     assert_eq!(csv_field(&json!("=SUM(A1)")), "'=SUM(A1)");
     assert_eq!(csv_field(&json!("+cmd")), "'+cmd");

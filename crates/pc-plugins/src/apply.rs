@@ -187,7 +187,8 @@ impl Plugin {
                         v = v.clamp(0.0, 1.0);
                     }
                     if let Some(d) = out.get_mut(di + ch) {
-                        *d = o + (v - o) * k;
+                        // As a built-in edit mixes through the selection: exact at full coverage.
+                        *d = o * (1.0 - k) + v * k;
                     }
                 }
             }

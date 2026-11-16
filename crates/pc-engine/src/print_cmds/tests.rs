@@ -236,6 +236,23 @@ fn paths_export_as_illustrator_postscript() {
     assert!(s.execute("file.export.pathsToIllustrator", json!({"paths": "Nope"})).is_err());
 }
 
+/// A document or path name with a line break stays inside its one PostScript comment line.
+#[test]
+fn illustrator_export_keeps_names_inside_their_comment_lines() {
+    let mut s = session("rgb", 8);
+    s.edit("paths", |d, _| {
+        d.name = "doc\nshowpage".into();
+        let tri = Subpath::polygon(&[(1.0, 1.0), (5.0, 1.0), (3.0, 5.0)]);
+        d.paths.push(NamedPath { name: "a\nshowpage\r%x".into(), path: Path::new(vec![tri]), psd_raw: None });
+        Ok(())
+    })
+    .unwrap();
+    let r = s.execute("file.export.pathsToIllustrator", json!({})).unwrap();
+    let ai = r["ai"].as_str().unwrap();
+    assert!(ai.contains("%%Title: (doc showpage)\n"), "{ai}");
+    assert!(ai.contains("%%Note: a showpage %x\n"), "{ai}");
+}
+
 #[test]
 fn package_copies_only_links_to_images() {
     let dir = tmp("package-not-image");

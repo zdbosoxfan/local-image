@@ -338,8 +338,20 @@ fn plan_scoped(doc: &Document) -> Result<Plan<'_>, Unsupported> {
     // layers below can't change the result, so they cost no passes or uploads.
     let start = doc.layers.iter().rposition(|l| photocraft_compose::occludes_below(l, doc.mode)).unwrap_or(0);
     let root = p.stack(doc.layers.get(start..).unwrap_or(&doc.layers), root)?;
-    Ok(p.finish(root))
+    let plan = p.finish(root);
+    if plan.slots > MAX_PLAN_SLOTS {
+        return Err(Unsupported(format!("{} accumulator slots, more than the {MAX_PLAN_SLOTS} the GPU keeps (composited on the CPU)", plan.slots)));
+    }
+    Ok(plan)
 }
+
+/// Most accumulator slots one plan may hold: every slot becomes a chunk-sized texture before the
+/// first pass runs, and nested isolated groups keep their ancestors' slots live.
+const MAX_PLAN_SLOTS: u32 = 32;
+
+/// Most gradient fill lookup tables one plan keeps (64 KiB of host memory each): a nested
+/// clipped pass-through group plans its gradient fills again at every level.
+const MAX_PLAN_LUTS: usize = 1024;
 
 struct Planner<'a> {
     passes: Vec<Pass<'a>>,
@@ -347,6 +359,8 @@ struct Planner<'a> {
     refs: Vec<u32>,
     cx: DocCtx<'a>,
     fx: Vec<FxLayer<'a>>,
+    /// Gradient fill lookup tables built so far.
+    luts: usize,
 }
 
 /// Coverage source of an effect paint (`kind` in `fs_fxpaint`); flags refine it.
@@ -416,7 +430,7 @@ pub const SHAPE_MAP: usize = usize::MAX;
 
 impl<'a> Planner<'a> {
     fn new(cx: DocCtx<'a>) -> Self {
-        Planner { passes: Vec::new(), free: Vec::new(), refs: Vec::new(), cx, fx: Vec::new() }
+        Planner { passes: Vec::new(), free: Vec::new(), refs: Vec::new(), cx, fx: Vec::new(), luts: 0 }
     }
 
     fn finish(self, root: Slot) -> Plan<'a> {
@@ -528,12 +542,19 @@ impl<'a> Planner<'a> {
         if !bi {
             return Ok(after);
         }
-        let own = if matches!(layer.content, LayerContent::Adjustment(_)) { None } else { Some(self.content(layer)?) };
+        // "This Layer": an adjustment layer is judged by its result at full strength, before
+        // Opacity and its mask (compose::apply_blend_if).
+        let own = match &layer.content {
+            LayerContent::Adjustment(adj) => {
+                let backdrop = self.retain(before);
+                self.adjust(adj, backdrop)?
+            }
+            _ => self.content(layer)?,
+        };
         let mut p = Pass::new(Kernel::BlendIf, 0);
         p.a = Some(before);
         p.b = Some(after);
-        p.c = own;
-        p.adjust_kind = i32::from(own.is_none());
+        p.c = Some(own);
         p.params[0][0] = if self.cx.mode == photocraft_color::ColorMode::Rgb { 4.0 } else { 2.0 };
         let mut row = [0.0; 4096];
         for side in 0..2 {
@@ -608,7 +629,8 @@ impl<'a> Planner<'a> {
         let visible_clipped: Vec<&'a Layer> = clipped.iter().filter(|c| c.visible).collect();
 
         // Below 100% fill a pass-through group renders isolated (as the CPU compositor does), and
-        // so does one that is the base of a clipping group and holds an adjustment layer.
+        // so does one that is the base of a clipping group and holds an adjustment layer, or one
+        // with Blend If.
         let clip_base_adjusts = !visible_clipped.is_empty()
             && matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|c| c.visible && matches!(c.content, LayerContent::Adjustment(_))));
         if let LayerContent::Group(g) = &layer.content
@@ -617,6 +639,7 @@ impl<'a> Planner<'a> {
             && layer.fill_opacity >= 1.0
             && !has_effects(layer)
             && !clip_base_adjusts
+            && !photocraft_compose::blend_if_active(layer, self.cx.mode)
         {
             let before = self.retain(backdrop);
             let mut after = self.stack(&g.children, backdrop)?;
@@ -830,20 +853,23 @@ impl<'a> Planner<'a> {
                 Ok(s)
             }
             _ => {
-                let p = self.content_pass(layer);
+                let p = self.content_pass(layer)?;
                 Ok(self.emit(p))
             }
         }
     }
 
     /// The Content pass of a raster / text / shape / smart / fill layer.
-    fn content_pass(&self, layer: &'a Layer) -> Pass<'a> {
+    fn content_pass(&mut self, layer: &'a Layer) -> Result<Pass<'a>, Unsupported> {
         let mut p = Pass::new(Kernel::Content, 0);
         p.mask = self.mask_use(layer);
         match &layer.content {
             LayerContent::Fill(f) => match &layer.fill_cache {
                 Some(c) if c.fill == *f => self.surface_tex(&mut p, layer.id, &c.surface),
-                _ => self.fill(&mut p, f, photocraft_compose::fill_frame(layer, self.cx.canvas)),
+                _ => {
+                    let frame = photocraft_compose::fill_frame(layer, self.cx.canvas);
+                    self.fill(&mut p, f, frame)?;
+                }
             },
             _ => {
                 if let Some(s) = layer.surface() {
@@ -851,7 +877,7 @@ impl<'a> Planner<'a> {
                 }
             }
         }
-        p
+        Ok(p)
     }
 
     fn surface_tex(&self, p: &mut Pass<'a>, id: LayerId, s: &'a Surface) {
@@ -862,7 +888,7 @@ impl<'a> Planner<'a> {
         }
     }
 
-    fn fill(&self, p: &mut Pass<'a>, f: &Fill, frame: photocraft_geom::Rect) {
+    fn fill(&mut self, p: &mut Pass<'a>, f: &Fill, frame: photocraft_geom::Rect) -> Result<(), Unsupported> {
         match f {
             Fill::Solid(c) => {
                 let rgb = c.to_rgb();
@@ -877,6 +903,10 @@ impl<'a> Planner<'a> {
                 p.params[1] = [c.x0 as f32, c.y0 as f32, c.width() as f32, c.height() as f32];
                 // p2.xy: centre offset; p2.w: dither (the shared position hash, see the shader).
                 p.params[2] = [offset.0, offset.1, 0.0, if *dither { 1.0 } else { 0.0 }];
+                self.luts += 1;
+                if self.luts > MAX_PLAN_LUTS {
+                    return Err(Unsupported("too many gradient fills to plan for the GPU (composited on the CPU)".into()));
+                }
                 let ramp = photocraft_compose::gradient_fill::Ramp::new(f);
                 let mut rows = vec![[0.0f32; 4096]; 4];
                 for k in 0..4096 {
@@ -890,6 +920,7 @@ impl<'a> Planner<'a> {
             // Pattern fills fall back to the CPU compositor (see `check`).
             Fill::Pattern { .. } => {}
         }
+        Ok(())
     }
 
     /// composite_atop: `layer` onto `base`, restricted to the base's alpha, honouring the
@@ -1418,7 +1449,7 @@ fn placement(anchor: (f64, f64), link: bool, phase: (f32, f32), scale: f32, angl
     let base = if link { anchor } else { (0.0, 0.0) };
     let origin = (base.0 + f64::from(phase.0), base.1 + f64::from(phase.1));
     let s = f64::from(scale);
-    let inv_scale = if s.is_finite() && s > 1e-3 { 1.0 / s } else { 1.0 };
+    let inv_scale = if s.is_finite() && s > 0.0 { 1.0 / s.max(photocraft_compose::pattern::MIN_PLACEMENT_SCALE) } else { 1.0 };
     let a = f64::from(angle).to_radians();
     Placement { origin, cs: (a.cos(), a.sin()), inv_scale }
 }
@@ -1790,6 +1821,45 @@ mod tests {
         translucent.layers[5].content = LayerContent::Fill(Fill::Solid(Color::rgba(1.0, 0.0, 0.0, 0.5)));
         assert!(!photocraft_compose::occludes_below(&translucent.layers[5], ColorMode::Rgb));
         assert!(photocraft_compose::occludes_below(&d.layers[5], ColorMode::Rgb));
+    }
+
+    /// A document sized to exhaust GPU memory is refused, so the CPU composites it: nested
+    /// isolated groups keep one chunk-sized texture live per level, and every gradient fill keeps
+    /// a 64 KiB lookup table.
+    #[test]
+    fn plans_cap_their_slots_and_gradient_tables() {
+        let nested = |depth: usize| {
+            let mut d = Document::with_background("t", Size::new(8, 8), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+            let mut inner = Layer::raster("leaf", d.pixel_format());
+            inner.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 4, 4), &[0.0, 0.0, 1.0, 1.0]);
+            for _ in 0..depth {
+                let mut sibling = Layer::raster("s", d.pixel_format());
+                sibling.surface_mut().unwrap().fill_rect(Rect::new(2, 2, 6, 6), &[1.0, 0.0, 0.0, 0.5]);
+                inner = Layer::group("g", vec![sibling, inner]);
+                inner.blend = BlendMode::Multiply;
+                inner.opacity = 0.5;
+            }
+            d.layers.push(inner);
+            d
+        };
+        assert!(plan(&nested(4)).unwrap().slots <= MAX_PLAN_SLOTS);
+        // `let else`, not `unwrap_err`: an unexpected Ok would print the whole plan.
+        let Err(e) = plan(&nested(48)) else { panic!("48 nested groups must be refused") };
+        assert!(e.to_string().contains("accumulator slots"), "{e}");
+
+        let fills = |n: usize| {
+            let mut d = Document::with_background("t", Size::new(8, 8), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+            for _ in 0..n {
+                let fill = Fill::gradient(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], 0.0, 1.0, photocraft_doc::GradientStyle::Linear, false);
+                let mut l = Layer::new("fill", LayerContent::Fill(fill));
+                l.opacity = 0.5;
+                d.layers.push(l);
+            }
+            d
+        };
+        assert!(plan(&fills(16)).is_ok());
+        let Err(e) = plan(&fills(1100)) else { panic!("1100 gradient fills must be refused") };
+        assert!(e.to_string().contains("gradient fills"), "{e}");
     }
 
     #[test]

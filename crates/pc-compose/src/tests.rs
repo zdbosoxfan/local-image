@@ -334,6 +334,73 @@ fn dissolve_coverage_matches_opacity() {
     assert_eq!(flatten(&d), b);
 }
 
+/// A Color Lookup's bounded output survives full coverage over a huge 32-bit pixel: 0.5 over 1e8
+/// stays 0.5, which `b + (r - b) * k` would round to 0.
+#[test]
+fn full_coverage_adjustment_keeps_its_result_over_huge_hdr_values() {
+    for v in [1.0e6_f32, 1.0e8, -1.0e6] {
+        let mut d = Document::new("hdr", Size::new(2, 2), ColorMode::Rgb, SampleType::F32);
+        let mut base = Layer::raster("b", PixelFormat::RGBA32F);
+        base.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 2, 2), &[v, v, v, 1.0]);
+        let look = Adjustment::ColorLookup {
+            name: "half".into(),
+            lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+            size: 2,
+            domain: None,
+            tetrahedral: false,
+            dither: false,
+        };
+        d.layers = vec![base, Layer::new("look", LayerContent::Adjustment(look))];
+        let got = px(&d, 0, 0);
+        for c in &got[..3] {
+            assert!((c - 0.5).abs() < 1e-6, "{v}: {got:?}");
+        }
+    }
+}
+
+/// Dissolve picks the layer or the backdrop per pixel for adjustments and clipped fills, with
+/// coverage from Opacity x Fill; a Normal mix would leave grays.
+#[test]
+fn dissolve_adjustments_and_clipped_fills_are_a_per_pixel_choice() {
+    let either = |b: &Buffer, x0: usize, x1: usize, w: usize| -> (usize, usize) {
+        let (mut black, mut white) = (0, 0);
+        for (i, p) in b.px.iter().enumerate() {
+            if i % w < x0 || i % w >= x1 {
+                continue;
+            }
+            if close4(*p, [0.0, 0.0, 0.0, 1.0]) {
+                black += 1;
+            } else {
+                assert!(close4(*p, [1.0; 4]), "Dissolve must not interpolate: {p:?}");
+                white += 1;
+            }
+        }
+        (black, white)
+    };
+    let mut d = doc_white(16, 16);
+    let mut inv = Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert));
+    inv.blend = BlendMode::Dissolve;
+    inv.opacity = 0.5;
+    d.layers.push(inv);
+    let (black, white) = either(&flatten(&d), 0, 16, 16);
+    assert!(black > 40 && white > 40, "adjustment: black {black} white {white}");
+
+    let mut d = doc_white(40, 12);
+    d.layers.push(solid_layer("base", Rect::new(0, 0, 20, 12), [1.0, 1.0, 1.0, 1.0]));
+    let mut clip = solid_layer("clip", d.bounds(), [0.0, 0.0, 0.0, 1.0]);
+    clip.clipped = true;
+    clip.blend = BlendMode::Dissolve;
+    clip.opacity = 0.6;
+    clip.fill_opacity = 0.5;
+    d.layers.push(clip);
+    let b = flatten(&d);
+    let (black, white) = either(&b, 0, 20, 40);
+    let share = black as f32 / (black + white) as f32;
+    assert!((share - 0.3).abs() < 0.1, "clipped coverage follows 60% opacity x 50% fill: {black}/{white}");
+    let (outside, _) = either(&b, 20, 40, 40);
+    assert_eq!(outside, 0, "outside the base the clipped layer is invisible");
+}
+
 #[test]
 fn render_is_tile_independent() {
     // Rendering a sub-rect must equal the same region of a full render.
@@ -645,6 +712,43 @@ fn blend_if_on_adjustment_and_clipped_layers() {
     d.layers.push(clip);
     assert!(close4(px(&d, 1, 1), [0.0, 0.0, 0.0, 1.0]));
     assert!(close4(px(&d, 6, 1), [0.0, 1.0, 0.0, 1.0]));
+}
+
+/// An adjustment layer's "This Layer" range judges its result at full strength, before Opacity
+/// mixes it in. Photoshop: Invert at 40% over (64, 128, 192) with Red / This Layer black at 150
+/// keeps the effect, (115, 128, 140), as Invert's red (191) passes 150; with white at 150 it
+/// drops it.
+#[test]
+fn adjustment_blend_if_judges_the_result_before_opacity() {
+    for (black, white, want) in [(150u8, 255u8, [115, 128, 140]), (0, 150, [64, 128, 192])] {
+        let mut d = doc_white(1, 1);
+        d.layers.push(solid_layer("base", Rect::new(0, 0, 1, 1), [64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0]));
+        let mut inv = Layer::new("invert", LayerContent::Adjustment(Adjustment::Invert));
+        inv.opacity = 0.4;
+        inv.blend_if.set(1, [range([black, black], [white, white]), FULL]);
+        d.layers.push(inv);
+        let got: Vec<i32> = px(&d, 0, 0)[..3].iter().map(|v| (v * 255.0).round() as i32).collect();
+        assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 1), "black {black} white {white}: {got:?} vs Photoshop {want:?}");
+    }
+}
+
+/// A Pass Through group with Blend If renders isolated, as Photoshop does: an Invert inside it
+/// leaves the layer beneath alone. Photoshop: (64, 128, 192) under such a group with Red /
+/// Underlying Layer white at 110 stays (64, 128, 192); without the Blend If it is inverted.
+#[test]
+fn pass_through_group_with_blend_if_is_isolated() {
+    for (gated, want) in [(true, [64, 128, 192]), (false, [191, 127, 63])] {
+        let mut d = doc_white(1, 1);
+        d.layers.push(solid_layer("base", Rect::new(0, 0, 1, 1), [64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0]));
+        let mut g = Layer::group("group", vec![Layer::new("invert", LayerContent::Adjustment(Adjustment::Invert))]);
+        g.blend = BlendMode::PassThrough;
+        if gated {
+            g.blend_if.set(1, [FULL, range([0, 0], [110, 110])]);
+        }
+        d.layers.push(g);
+        let got: Vec<i32> = px(&d, 0, 0)[..3].iter().map(|v| (v * 255.0).round() as i32).collect();
+        assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 1), "Blend If {gated}: {got:?} vs Photoshop {want:?}");
+    }
 }
 
 #[test]

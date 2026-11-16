@@ -150,6 +150,39 @@ fn filter_search_sort() {
     assert_eq!(c.keywords(), vec![("ocean".to_string(), 1), ("summer".to_string(), 1)]);
 }
 
+/// `>=` and `<=` in a fielded token compare inclusively; they used to read the `=` as part of the
+/// number, so `rating:>=3` or `iso:<=400` matched no photo.
+#[test]
+fn search_tokens_compare_inclusively() {
+    let mut c = Catalog::new();
+    let two = photo(&mut c, "two.jpg", "2026-05-01T10:00:00");
+    let three = photo(&mut c, "three.jpg", "2026-05-02T10:00:00");
+    let four = photo(&mut c, "four.jpg", "2026-05-03T10:00:00");
+    for (id, rating, iso) in [(two, 2, 200), (three, 3, 400), (four, 4, 800)] {
+        c.apply(Op::SetRating { id, rating }).unwrap();
+        let mut m = c.photo(id).unwrap().meta.clone();
+        m.iso = Some(iso);
+        m.aperture = Some(2.8);
+        c.apply(Op::SetMeta { id, meta: Box::new(m) }).unwrap();
+    }
+    let q = |t: &str| {
+        let mut ids = c.query(&Filter { text: t.into(), ..Default::default() }, &Sort::default());
+        ids.sort();
+        ids
+    };
+    assert_eq!(q("rating:>=3"), vec![three, four]);
+    assert_eq!(q("stars:<=3"), vec![two, three]);
+    assert_eq!(q("iso:>=400"), vec![three, four]);
+    assert_eq!(q("iso:<=400"), vec![two, three]);
+    assert_eq!(q("f:>=2.8"), vec![two, three, four], "f32 field counts its own value");
+    assert!(q("f:>=2.9").is_empty());
+    assert_eq!(q("rating:>3"), vec![four], "strict comparisons are unchanged");
+    assert_eq!(q("rating:=3"), vec![three]);
+    assert_eq!(q("rating:3"), vec![three]);
+    assert!(q("rating:>=").is_empty(), "an operator without a number matches nothing");
+    assert!(q("rating:=>3").is_empty(), "not an operator");
+}
+
 #[test]
 fn snapshot_and_log_replay() {
     let mut c = Catalog::new();

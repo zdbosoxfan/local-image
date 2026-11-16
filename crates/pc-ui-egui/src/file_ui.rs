@@ -204,7 +204,7 @@ pub fn open_web(app: &mut PhotocraftApp) -> u64 {
     if let Value::Object(m) = last {
         for (k, v) in m {
             // Each document starts at its own size; a remembered size would stretch another one.
-            if !matches!(k.as_str(), "path" | "dir" | "width" | "height" | "percent") {
+            if !matches!(k.as_str(), "path" | "dir" | "folder" | "width" | "height" | "percent") {
                 f.insert(k, v);
             }
         }
@@ -527,7 +527,7 @@ fn web_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 
 fn web_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
     let mut p = params(f);
-    if p.get("path").is_some() || p.get("dir").is_some() {
+    if p.get("path").is_some() || p.get("dir").is_some() || p.get("folder").is_some() {
         return save_for_web(app, p);
     }
     let doc = app.session.active().ok_or("no document")?.doc.clone();
@@ -542,11 +542,23 @@ fn web_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             let dir = path.rfind(['/', '\\']).map(|i| path[..i].to_string()).unwrap_or_else(|| ".".into());
             p["dir"] = json!(dir);
             p["html"] = json!(html);
+        } else if let Some(folder) = kept_name_folder(&path, &base, st.format.ext()) {
+            // The suggested name kept: only the folder, so a recorded action saves each
+            // document under its own name, as in Photoshop (#5305).
+            p["folder"] = json!(folder);
         } else {
             p["path"] = json!(path);
         }
         save_for_web(app, p)
     })
+}
+
+/// The folder of `path` when its file is the one Save for Web suggests: `base` with the format's
+/// own extension `ext`.
+fn kept_name_folder(path: &str, base: &str, ext: &str) -> Option<String> {
+    let file = std::path::Path::new(path);
+    let kept = file.file_stem().is_some_and(|s| s.to_string_lossy() == base) && file.extension().is_some_and(|e| e.to_string_lossy() == ext);
+    kept.then(|| file.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default())
 }
 
 /// Runs Save for Web with `p`, which says where to write.
@@ -1017,6 +1029,15 @@ mod tests {
             let r = crate::menus::invoke(&mut app, &ctx, id, json!({})).unwrap();
             assert!(r["dialog"].is_u64(), "{id}");
         }
+    }
+
+    /// Only the exact suggested name records the folder: the engine writes `web.png`, which on
+    /// a case-sensitive file system is not a typed `web.PNG`.
+    #[test]
+    fn kept_name_folder_needs_the_exact_suggested_name() {
+        assert_eq!(kept_name_folder("d/web.png", "web", "png"), Some("d".into()));
+        assert_eq!(kept_name_folder("d/web.PNG", "web", "png"), None);
+        assert_eq!(kept_name_folder("d/Web.png", "web", "png"), None);
     }
 }
 

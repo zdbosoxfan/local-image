@@ -88,10 +88,15 @@ fn run_steps(s: &mut Session, steps: &[(String, Value)]) -> Result<Option<Arc<Do
     let mut saved: Option<Arc<Document>> = None;
     for (id, params) in steps {
         if batch_save_point(id) {
+            // A save point is never executed, so the session's gate would not see it.
+            if let Some(gate) = s.authorize {
+                gate(id, params)?;
+            }
             saved = Some(s.active().ok_or(EngineError::NoDocument)?.doc.clone());
             continue;
         }
-        let result = s.execute(id, params.clone())?;
+        let params = crate::actions_cmds::playback_params(s, id, params)?;
+        let result = s.execute(id, params)?;
         if let Some(error) = crate::automate_cmds::nested_failure(id, &result) {
             return Err(EngineError::Other(error));
         }
