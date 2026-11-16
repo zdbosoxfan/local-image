@@ -720,7 +720,7 @@ fn focus_cmd(s: &mut Session, p: &Value, sharpen: bool) -> Result<Value> {
             for y in r.y0..r.y1 {
                 for x in r.x0..r.x1 {
                     // Protect Detail applies Strength once per dab, so a click at 50 % does half
-                    // of what 100 % does. Spread over the overlapping dabs it did almost nothing.
+                    // of what 100 % does.
                     let k = if gentle { fp.at(x, y) * strength } else { per_dab(fp.at(x, y) * strength, sp) };
                     if k <= 0.0 {
                         continue;
