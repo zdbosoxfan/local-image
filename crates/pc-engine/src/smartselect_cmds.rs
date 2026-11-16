@@ -222,9 +222,11 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Select › Subject: a background job (the model, or the classical saliency + GrabCut, on the
-/// whole composite); the selection mode is applied to the selection when it finishes.
+/// selected layer's pixels, or the composite when no pixel layer is selected); the selection mode
+/// is applied to the selection when it finishes.
 fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
-    let all = b(p, "sampleAllLayers", true);
+    // The selected layer's pixels; the composite only when no pixel layer is selected.
+    let all = b(p, "sampleAllLayers", false);
     // local-image: the learned model when one is installed (`"engine": "auto|classic|learned"`).
     let model = if crate::seg::wanted(p).map_err(|m| bad("select.subject", &m))? { crate::seg::SubjectModel::current() } else { None };
     let m = mode(p, "replace");
@@ -379,7 +381,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.subject",
             "Subject",
             ["Select"],
-            r##"{"sampleAllLayers":bool=true,"engine":"auto|classic|learned"="auto" (learned = the installed U²-Net/IS-Net model),"mode":"replace|add|subtract|intersect"="replace"}"##,
+            r##"{"sampleAllLayers":bool=false,"engine":"auto|classic|learned"="auto" (learned = the installed U²-Net/IS-Net model),"mode":"replace|add|subtract|intersect"="replace"} (samples the selected layer; the composite when no pixel layer is selected)"##,
             has_doc,
             select_subject
         ),
@@ -558,6 +560,23 @@ mod tests {
         assert!(v > 0.9, "IoU {v}");
         s.execute("edit.undo", json!({})).unwrap();
         assert!(s.active().unwrap().doc.selection.is_none());
+    }
+
+    /// Select Subject looks at the selected layer only; with no layer selected it looks at the
+    /// whole image.
+    #[test]
+    fn select_subject_samples_the_selected_layer_else_the_composite() {
+        let (mut s, inside) = disc(8);
+        // A layer above holding only a small square in the corner: the disc is not on it.
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("paint.pencil", json!({"points": [[10, 10], [30, 10]], "size": 3, "color": "#000000"})).unwrap();
+        s.execute("select.subject", json!({})).unwrap();
+        assert!(cov(&s, 100, 80) < 0.5, "the disc on the layer below was selected");
+        s.execute("select.deselect", json!({})).unwrap();
+        // No layer selected: the whole image, so the disc is found.
+        s.execute("select.deselectLayers", json!({})).unwrap();
+        s.execute("select.subject", json!({})).unwrap();
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.9);
     }
 
     /// A vertical Gaussian-blurred edge at x = 40 (warm left, cool right) with the left half selected.
@@ -894,7 +913,7 @@ mod tests {
         // Sample All Layers reads other pixels (the composite): its own map.
         run_job(&mut s, "select.object", json!({"point": [100, 80], "sampleAllLayers": true}));
         assert_eq!(mk.model.calls(), 2);
-        run_job(&mut s, "select.subject", json!({}));
+        run_job(&mut s, "select.subject", json!({"sampleAllLayers": true}));
         assert_eq!(mk.model.calls(), 2);
         // New pixels: the model runs again.
         s.edit("paint", |doc, _| {

@@ -34,6 +34,8 @@ All notable changes to Local Image are recorded here. The format follows
 - Magic Wand and Magic Eraser Anti-alias keep the matched region fully selected and soften only
   the pixels just outside it, by how close their colour is to the tolerance, as in Photoshop. A
   shape next to a clearly different colour or transparency gets a hard edge.
+- Select > Subject looks at the selected layer's pixels; it uses the whole image only when no pixel
+  layer is selected or Sample All Layers is asked for.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
