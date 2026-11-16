@@ -545,7 +545,7 @@ mod tests {
         }
         // The list shows the picked method.
         assert!(
-            h.query_all_by_role(egui::accesskit::Role::ComboBox).any(|n| n.accesskit_node().value().as_deref() == Some("Bilinear")),
+            h.query_all_by_role(egui::accesskit::Role::ComboBox).any(|n| n.value().as_deref() == Some("Bilinear")),
             "the Resample list shows Bilinear"
         );
     }
