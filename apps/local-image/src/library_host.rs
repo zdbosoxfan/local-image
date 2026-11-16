@@ -82,9 +82,9 @@ pub struct Host {
     /// The Library's active photo when Compositing was last left: coming back with the same photo
     /// returns to what was open there instead of bringing the photo forward again.
     left_compositing_with: Option<u64>,
-    /// The Library's view and right panel when it was left for Compositing: the way straight
-    /// back restores them (a loupe stays a loupe).
-    library_view_left: Option<(lightcraft_ui_egui::state::ViewMode, lightcraft_ui_egui::state::RightPanel)>,
+    /// The Library's active photo, view and right panel when it was left for Compositing: the way
+    /// straight back to the same photo restores them (a loupe stays a loupe).
+    library_view_left: Option<(Option<lightcraft_catalog::PhotoId>, lightcraft_ui_egui::state::ViewMode, lightcraft_ui_egui::state::RightPanel)>,
     /// Library develop settings last taken into, or turned down for, each photo's open documents:
     /// an undone update is not put back, and a turned-down one is not offered again.
     develop_sent: std::collections::HashMap<u64, DevelopSent>,
@@ -1223,7 +1223,9 @@ impl Host {
                 self.round_trip_notice = Some(RoundTripNotice::Unsaved { doc: active.doc.id, photo, destination });
             }
         }
-        let leaving = (from == Module::Library && to == Module::Compositing).then(|| self.library.as_ref().map(|lib| (lib.ui.view, lib.ui.right))).flatten();
+        let leaving = (from == Module::Library && to == Module::Compositing)
+            .then(|| self.library.as_ref().map(|lib| (lib.session.active(), lib.ui.view, lib.ui.right)))
+            .flatten();
         let library_view = std::mem::replace(&mut self.library_view_left, leaving);
         self.mode = to;
         self.remember_module(to);
@@ -1240,8 +1242,10 @@ impl Host {
                     lib.toast(ctx, "Updated the edits saved in Compositing");
                 }
                 if !preserve_library {
-                    match library_view.filter(|_| !develop) {
-                        Some((view, right)) => {
+                    // A save in Compositing makes its new file active; that one shows in the grid.
+                    let active = lib.session.active();
+                    match library_view.filter(|(left_with, _, _)| !develop && active.is_some() && *left_with == active) {
+                        Some((_, view, right)) => {
                             lib.ui.view = view;
                             lib.ui.right = if right.is_edit_tool() { lightcraft_ui_egui::state::RightPanel::None } else { right };
                         }
