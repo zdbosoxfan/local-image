@@ -587,3 +587,35 @@ fn library_identity_persists_and_copied_catalog_locations_remain_distinct() {
     assert_ne!(Session::new().library_identity(), Session::new().library_identity());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A library writes only to the folder it was opened from: with another folder at its path (a
+/// share mounted over it) saving stops with the reason and nothing is written there; with the
+/// opened folder back, the queued change is saved.
+#[cfg(unix)]
+#[test]
+fn a_library_does_not_save_into_a_folder_that_replaced_the_one_it_opened() {
+    let base = temp_dir("opened-folder");
+    let dir = base.join("lib");
+    let mut s = open(&dir, true);
+    let id = s.selection.active.unwrap();
+    let away = base.join("lib.away");
+    std::fs::rename(&dir, &away).unwrap();
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::write(dir.join("catalog.log"), b"their log\n").unwrap();
+
+    let _ = s.execute("photo.rate", &json!({"rating": 4}));
+    let e = s.persist().expect_err("the path leads to another folder").to_string();
+    assert!(e.contains("is no longer the folder this library was opened from"), "{e}");
+    assert_eq!(std::fs::read(dir.join("catalog.log")).unwrap(), b"their log\n");
+    for name in ["catalog.snap", "catalog.lock.owner", "presets.json", "view.json", "prefs.json"] {
+        assert!(!dir.join(name).exists(), "{name} was written into the folder at the path now");
+    }
+
+    std::fs::rename(&dir, base.join("lib.theirs")).unwrap();
+    std::fs::rename(&away, &dir).unwrap();
+    s.persist().expect("the opened folder is back");
+    drop(s);
+    let again = open(&dir, false);
+    assert_eq!(again.catalog.photo(id).unwrap().rating, 4);
+    let _ = std::fs::remove_dir_all(&base);
+}

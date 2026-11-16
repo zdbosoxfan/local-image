@@ -694,7 +694,7 @@ fn mixer_brush(s: &mut Session, p: &Value) -> Result<Value> {
             None
         };
         let (surf, lock) = crate::channel_cmds::target_surface(doc, id, p)?;
-        Ok(apply_mixer_stroke(surf, sample.as_ref(), &stroke, &m, &mut state, sel.as_ref(), lock))
+        apply_mixer_stroke(surf, sample.as_ref(), &stroke, &m, &mut state, sel.as_ref(), lock).map_err(|e| bad(cmd, e.to_string()))
     })?;
     if clean {
         state.clean();
@@ -725,7 +725,7 @@ fn color_replacement(s: &mut Session, p: &Value) -> Result<Value> {
         let sel = doc.selection.clone();
         let lock = doc.effective_locks(id).transparency;
         let surf = paint_surface(doc, id, &json!({}))?;
-        Ok(apply_color_replacement(surf, &stroke, &rs, sel.as_ref(), lock))
+        apply_color_replacement(surf, &stroke, &rs, sel.as_ref(), lock).map_err(|e| bad(cmd, e.to_string()))
     })?;
     Ok(damage_json(s, dmg))
 }

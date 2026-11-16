@@ -400,6 +400,12 @@ fn style_font_missing(fonts: &mut photocraft_text::FontDb, style: &photocraft_do
     true
 }
 
+/// Whether a type layer uses a font family the font database cannot supply.
+pub(crate) fn has_missing_font(t: &TextLayer) -> bool {
+    let mut engine = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner());
+    t.char_runs().iter().any(|r| style_font_missing(&mut engine.fonts, &r.style))
+}
+
 /// Font families used by type layers that the font database cannot supply.
 pub fn missing_fonts(doc: &Document) -> Vec<String> {
     let mut engine = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner());

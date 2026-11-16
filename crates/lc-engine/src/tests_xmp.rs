@@ -956,6 +956,25 @@ const OTHER_APP_SIDECAR: &str = r#"<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTc
 </x:xmpmeta>
 <?xpacket end="w"?>"#;
 
+/// A link under the sidecar's name is never backed up: its target's contents would be copied into
+/// a new, readable file beside the photo.
+#[cfg(unix)]
+#[test]
+fn a_linked_sidecar_is_not_copied_aside() {
+    let src = temp_dir("linked-sidecar");
+    write_png(&src.join("shot.png"), 1);
+    let mut s = Session::new().with_fs();
+    s.execute("library.import", &json!({"paths": [src.join("shot.png").to_string_lossy()]})).unwrap();
+    let id = only(&s);
+    std::fs::write(src.join("private.txt"), b"secret").unwrap();
+    std::os::unix::fs::symlink(src.join("private.txt"), src.join("shot.xmp")).unwrap();
+    assert!(s.save_sidecar(id).is_err());
+    let names: Vec<String> = std::fs::read_dir(&src).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert!(!names.iter().any(|n| n.contains(".bak-")), "{names:?}");
+    assert_eq!(std::fs::read(src.join("private.txt")).unwrap(), b"secret");
+    let _ = std::fs::remove_dir_all(&src);
+}
+
 /// Issue #92: saving merges into another app's sidecar instead of replacing it.
 #[test]
 fn saving_merges_into_another_apps_sidecar() {

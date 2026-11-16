@@ -242,6 +242,20 @@ pub fn expand(template: &str, p: &Photo, seq: usize) -> String {
     if ext.is_empty() { stem_out } else { format!("{stem_out}.{ext}") }
 }
 
+/// Most bytes one expansion yields (far above any file name or overlay line). A token repeated
+/// many times with a long metadata value would otherwise multiply into gigabytes.
+pub const MAX_EXPANDED_BYTES: usize = 1 << 20;
+
+/// `s` appended to `out`, cut at a character boundary where `out` would pass [`MAX_EXPANDED_BYTES`].
+fn push_capped(out: &mut String, s: &str) {
+    let room = MAX_EXPANDED_BYTES.saturating_sub(out.len());
+    let mut n = s.len().min(room);
+    while !s.is_char_boundary(n) {
+        n -= 1;
+    }
+    out.push_str(&s[..n]);
+}
+
 /// The template's tokens replaced for `p` (no extension added, nothing sanitized). A bare `{seq}`
 /// is zero-padded to `seq_width` digits.
 pub fn expand_tokens(template: &str, p: &Photo, seq: usize, seq_width: usize) -> String {
@@ -249,9 +263,12 @@ pub fn expand_tokens(template: &str, p: &Photo, seq: usize, seq_width: usize) ->
     let mut out = String::new();
     let mut rest = template;
     while let Some(i) = rest.find('{') {
-        out.push_str(&rest[..i]);
+        if out.len() >= MAX_EXPANDED_BYTES {
+            return out;
+        }
+        push_capped(&mut out, &rest[..i]);
         let Some(j) = rest[i..].find('}') else {
-            out.push_str(&rest[i..]);
+            push_capped(&mut out, &rest[i..]);
             rest = "";
             break;
         };
@@ -283,10 +300,10 @@ pub fn expand_tokens(template: &str, p: &Photo, seq: usize, seq_width: usize) ->
             "ext" => ext.to_string(),
             _ => format!("{{{tok}}}"),
         };
-        out.push_str(&v);
+        push_capped(&mut out, &v);
         rest = &rest[i + j + 1..];
     }
-    out.push_str(rest);
+    push_capped(&mut out, rest);
     out
 }
 
@@ -375,7 +392,7 @@ impl MoveFs for RealFs {
     }
 
     fn copy_no_replace(&self, a: &Path, b: &Path) -> std::io::Result<()> {
-        crate::import_move::copy_verified(a, b, None)
+        crate::import_move::copy_verified_plain(a, b)
     }
 
     fn remove_file(&self, p: &Path) -> std::io::Result<()> {
@@ -753,6 +770,20 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
 
+    /// A sidecar found beside the photo by its name is copied only when it is a plain file.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_not_copied_as_its_target() {
+        let dir = std::env::temp_dir().join(format!("lc-rename-copy-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("share")).unwrap();
+        std::fs::write(dir.join("private.txt"), b"secret").unwrap();
+        std::os::unix::fs::symlink(dir.join("private.txt"), dir.join("photo.xmp")).unwrap();
+        assert!(RealFs.copy_no_replace(&dir.join("photo.xmp"), &dir.join("share/photo.xmp")).is_err());
+        assert!(!dir.join("share/photo.xmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A model volume: files by path with contents; case-insensitive (default APFS/NTFS) or
     /// case-sensitive (Linux, case-sensitive APFS). `fail` makes renames from a matching source fail.
     pub(crate) struct FakeFs {
@@ -1124,5 +1155,16 @@ mod tests {
         assert_eq!(expand("{folder}{name}{num}", &p, 1), "beach.NEF");
         // a bare {seq} is padded to the caller's width
         assert_eq!(expand_tokens("{seq}|{seq:2}", &p, 7, 3), "007|07");
+    }
+
+    /// A long value repeated many times stops at the output cap, cut at a character boundary
+    /// (a three-byte character does not divide the cap).
+    #[test]
+    fn token_expansion_stops_at_the_output_cap() {
+        let mut p = file_photo(1, "shoots/IMG_1.jpg");
+        p.meta.creator = "€".repeat(5000);
+        let out = expand_tokens(&"{creator}".repeat(300), &p, 1, 1);
+        assert!(out.len() <= MAX_EXPANDED_BYTES && out.len() > MAX_EXPANDED_BYTES - 3, "{}", out.len());
+        assert!(out.chars().all(|c| c == '€'));
     }
 }

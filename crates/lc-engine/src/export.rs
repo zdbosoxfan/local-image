@@ -447,6 +447,14 @@ pub struct Destination {
     pub exact: Option<String>,
 }
 
+/// A subfolder that stays inside the destination folder: `\`, `:` and NUL become `_` (no drive,
+/// root or Windows separator) and empty, `.` and `..` parts are dropped; `a/b` still nests. Applied
+/// where the folder is used, so presets and the Export dialog's field are covered too.
+pub(crate) fn clean_subfolder(s: &str) -> String {
+    let s = s.trim().replace(['\\', ':', '\0'], "_");
+    s.split('/').map(str::trim).filter(|p| !p.is_empty() && *p != "." && *p != "..").collect::<Vec<_>>().join("/")
+}
+
 /// Where each of `ids` would be exported to under `o` and `to`, before any conflict policy:
 /// the folder ([`ExportOptions::same_folder`]: the photo's own; plus the subfolder) and the file
 /// name ([`ExportOptions::file_name_for`]). `None` for a photo with no folder of its own. Used to
@@ -458,7 +466,8 @@ pub fn planned_paths(
     to: &Destination,
 ) -> Vec<Option<String>> {
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
-    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    let sub = clean_subfolder(&o.subfolder);
+    let in_sub = |d: &str| if sub.is_empty() { d.to_string() } else { join(d, &sub) };
     ids.iter()
         .enumerate()
         .map(|(i, id)| {
@@ -768,7 +777,8 @@ pub(crate) fn run_batch_shaped(
 ) -> Result<Vec<serde_json::Value>, String> {
     use std::sync::atomic::{AtomicBool, Ordering};
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
-    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    let sub = clean_subfolder(&o.subfolder);
+    let in_sub = |d: &str| if sub.is_empty() { d.to_string() } else { join(d, &sub) };
     let batch_dir = in_sub(&to.dir);
     let single = items.len() == 1;
 

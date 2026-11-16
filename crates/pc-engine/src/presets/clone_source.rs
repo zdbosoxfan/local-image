@@ -8,6 +8,7 @@
 //! sample point: a 200 % width paints the source twice as wide, a 30° rotation paints it turned
 //! 30° counter-clockwise on screen (Photoshop's sense).
 
+use photocraft_doc::DocId;
 use photocraft_geom::Rect;
 use photocraft_paint::retouch::Region;
 use serde::{Deserialize, Serialize};
@@ -25,8 +26,15 @@ pub struct CloneSource {
     pub source: Option<[f64; 2]>,
     /// Destination point paired with `source` (first aligned stroke after setting it).
     pub anchor: Option<[f64; 2]>,
-    /// Layer the source was set on (informational, like the panel's document/layer line).
+    /// Destination point of the last stroke from this slot, or of an offset edit. Kept apart from
+    /// `anchor` so that reporting an unaligned stroke does not change aligned sampling.
+    #[serde(default)]
+    pub last_anchor: Option<[f64; 2]>,
+    /// Layer picked with the source; Current Layer sampling reads it after the target changes.
     pub layer: Option<u64>,
+    /// Document picked with the source; absent in slots saved before it was recorded.
+    #[serde(default)]
+    pub document: Option<DocId>,
     /// W and H in percent.
     pub scale: [f64; 2],
     /// Degrees, counter-clockwise.
@@ -37,7 +45,17 @@ pub struct CloneSource {
 
 impl Default for CloneSource {
     fn default() -> Self {
-        CloneSource { source: None, anchor: None, layer: None, scale: [100.0, 100.0], rotation: 0.0, flip_h: false, flip_v: false }
+        CloneSource {
+            source: None,
+            anchor: None,
+            last_anchor: None,
+            layer: None,
+            document: None,
+            scale: [100.0, 100.0],
+            rotation: 0.0,
+            flip_h: false,
+            flip_v: false,
+        }
     }
 }
 
@@ -49,13 +67,14 @@ impl CloneSource {
             && !self.flip_h
             && !self.flip_v
     }
-    /// The panel's Offset X/Y: source − anchor (once a stroke paired them).
+    /// The panel's Offset X/Y: source − destination of the pairing used last.
     pub fn offset(&self) -> Option<[f64; 2]> {
-        Some([self.source?[0] - self.anchor?[0], self.source?[1] - self.anchor?[1]])
+        let anchor = self.last_anchor.or(self.anchor)?;
+        Some([self.source?[0] - anchor[0], self.source?[1] - anchor[1]])
     }
     fn to_json(&self, i: usize) -> Value {
         json!({
-            "index": i, "source": self.source, "anchor": self.anchor, "offset": self.offset(), "layer": self.layer,
+            "index": i, "source": self.source, "anchor": self.anchor, "lastAnchor": self.last_anchor, "offset": self.offset(), "layer": self.layer, "documentId": self.document,
             "width": self.scale[0], "height": self.scale[1], "rotation": self.rotation, "flipH": self.flip_h, "flipV": self.flip_v,
         })
     }
@@ -152,13 +171,19 @@ fn pt(p: &Value, k: &str) -> Option<(f64, f64)> {
     Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?))
 }
 
-/// Resolve a clone stroke's mapping from its params and the active slot. `first` is the
-/// stroke's first point. With `"aligned"` strokes the slot remembers the anchor so later
-/// strokes keep sampling relative to the original pairing.
-pub fn mapping(s: &mut Session, p: &Value, first: (f64, f64), cmd: &str) -> Result<Mapping> {
+/// Whether a clone stroke follows the active slot: it names no `source` or `offset` of its own.
+/// The mapping and the sampled document must agree on this.
+pub(crate) fn uses_slot(p: &Value) -> bool {
+    pt(p, "source").is_none() && pt(p, "offset").is_none()
+}
+
+/// Resolve a clone stroke's mapping from its params and the active slot, leaving the slot as it
+/// is. `first` is the stroke's first point. An aligned stroke from the slot keeps sampling
+/// relative to the pairing [`remember_mapping`] stored.
+pub fn resolve(s: &Session, p: &Value, first: (f64, f64), cmd: &str) -> Result<Mapping> {
     let aligned = p.get("aligned").and_then(Value::as_bool).unwrap_or(true);
-    let slot = s.presets.clone.active().clone();
-    let explicit_tf = ["scale", "rotation", "flipH", "flipV"].iter().any(|k| p.get(*k).is_some());
+    let slot = s.presets.clone.active();
+    let explicit_tf = ["scale", "rotation", "flipH", "flipV"].iter().any(|k| p.get(*k).is_some_and(|v| !v.is_null()));
     let m = if explicit_tf {
         let sc = p
             .get("scale")
@@ -178,15 +203,25 @@ pub fn mapping(s: &mut Session, p: &Value, first: (f64, f64), cmd: &str) -> Resu
         return Ok(Mapping { source: src, anchor: anchor_param.unwrap_or(first), m });
     }
     let Some(src) = slot.source else { return Err(bad(cmd, "missing `source` ([x,y]) or `offset` ([dx,dy]); or set one with cloneSource.set")) };
-    let src = (src[0], src[1]);
     let anchor = match (aligned, slot.anchor) {
         (true, Some(a)) => (a[0], a[1]),
         _ => first,
     };
-    if aligned {
-        s.presets.clone.active_mut().anchor = Some([anchor.0, anchor.1]);
+    Ok(Mapping { source: (src[0], src[1]), anchor, m })
+}
+
+/// Record the pairing of a stroke that followed the slot, once its pixels are written. An aligned
+/// stroke also sets the anchor later aligned strokes keep; an unaligned one only reports its offset.
+pub fn remember_mapping(s: &mut Session, p: &Value, map: &Mapping) {
+    if !uses_slot(p) {
+        return;
     }
-    Ok(Mapping { source: src, anchor, m })
+    let slot = s.presets.clone.active_mut();
+    let anchor = [map.anchor.0, map.anchor.1];
+    slot.last_anchor = Some(anchor);
+    if p.get("aligned").and_then(Value::as_bool).unwrap_or(true) {
+        slot.anchor = Some(anchor);
+    }
 }
 
 /// Bilinear resample of `src` (covering [`Mapping::source_rect`]) onto `dst`, interpolating
@@ -195,12 +230,12 @@ pub fn resample(src: &Region, dst: Rect, map: &Mapping, alpha: Option<usize>) ->
     let n = src.ch;
     let mut out = Region::new(dst, n);
     let w = dst.width() as usize;
-    let fetch = |x: i32, y: i32, buf: &mut [f32]| {
-        if x < src.rect.x0 || y < src.rect.y0 || x >= src.rect.x1 || y >= src.rect.y1 {
+    let fetch = |x: f64, y: f64, buf: &mut [f32]| {
+        if x < f64::from(src.rect.x0) || y < f64::from(src.rect.y0) || x >= f64::from(src.rect.x1) || y >= f64::from(src.rect.y1) {
             buf.fill(0.0);
             return;
         }
-        buf.copy_from_slice(src.px(x, y));
+        buf.copy_from_slice(src.px(x as i32, y as i32));
         if let Some(a) = alpha {
             let av = buf[a];
             for (c, v) in buf.iter_mut().enumerate() {
@@ -214,13 +249,20 @@ pub fn resample(src: &Region, dst: Rect, map: &Mapping, alpha: Option<usize>) ->
     for (i, px) in out.data.chunks_exact_mut(n).enumerate() {
         let (x, y) = (dst.x0 + (i % w) as i32, dst.y0 + (i / w) as i32);
         let (sx, sy) = map.map(x as f64 + 0.5, y as f64 + 0.5);
+        // A mapping that is not finite has no source pixel, and must not turn into NaN alpha.
+        if !sx.is_finite() || !sy.is_finite() {
+            px.fill(0.0);
+            continue;
+        }
+        // The neighbours stay in floating point until the bounds check: a far sample cast to
+        // i32 saturates at the edge, and the neighbour one past it overflowed.
         let (fx, fy) = (sx - 0.5, sy - 0.5);
-        let (x0, y0) = (fx.floor() as i32, fy.floor() as i32);
-        let (tx, ty) = ((fx - x0 as f64) as f32, (fy - y0 as f64) as f32);
+        let (x0, y0) = (fx.floor(), fy.floor());
+        let (tx, ty) = ((fx - x0) as f32, (fy - y0) as f32);
         fetch(x0, y0, &mut q[0]);
-        fetch(x0 + 1, y0, &mut q[1]);
-        fetch(x0, y0 + 1, &mut q[2]);
-        fetch(x0 + 1, y0 + 1, &mut q[3]);
+        fetch(x0 + 1.0, y0, &mut q[1]);
+        fetch(x0, y0 + 1.0, &mut q[2]);
+        fetch(x0 + 1.0, y0 + 1.0, &mut q[3]);
         for c in 0..n {
             let top = q[0][c] + (q[1][c] - q[0][c]) * tx;
             let bot = q[2][c] + (q[3][c] - q[2][c]) * tx;
@@ -268,18 +310,22 @@ fn select(s: &mut Session, p: &Value) -> Result<Value> {
 fn set(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "cloneSource.set";
     let i = index(s, p, CMD)?;
-    let active_layer = s.active().and_then(|d| d.active_layer).map(|l| l.0);
+    let (document, active_layer) = (s.active().map(|d| d.doc.id), s.active().and_then(|d| d.active_layer).map(|l| l.0));
     let slot = &mut s.presets.clone.slots[i];
     if let Some((x, y)) = pt(p, "source") {
         // A new sample point re-pairs with the next stroke.
         slot.source = Some([x, y]);
         slot.anchor = None;
+        slot.last_anchor = None;
         slot.layer = p.get("layer").and_then(Value::as_u64).or(active_layer);
+        slot.document = document;
     }
     if let Some((dx, dy)) = pt(p, "offset") {
-        // Offset X/Y fields: keep the anchor (or the source as anchor) and move the source.
-        let a = slot.anchor.or(slot.source).ok_or_else(|| bad(CMD, "set a `source` before an offset"))?;
+        // Offset X/Y fields edit the pairing they show: keep its anchor (the last stroke's, else
+        // the aligned one, else the source itself) and move the source.
+        let a = slot.last_anchor.or(slot.anchor).or(slot.source).ok_or_else(|| bad(CMD, "set a `source` before an offset"))?;
         slot.anchor = Some(a);
+        slot.last_anchor = Some(a);
         slot.source = Some([a[0] + dx, a[1] + dy]);
     }
     if let Some(a) = p.get("scale").and_then(Value::as_array) {
@@ -354,7 +400,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Clone Sources",
             menu: &[],
             shortcut: None,
-            params: "{} → {active,sources:[{index,source,anchor,offset,layer,width,height,rotation,flipH,flipV}],overlay}",
+            params: "{} → {active,sources:[{index,source,anchor,lastAnchor,offset,layer,documentId,width,height,rotation,flipH,flipV}],overlay}",
             enabled: always,
             run: list,
             journal: false,
@@ -423,5 +469,23 @@ mod tests {
     fn source_rect_normal_case_unchanged() {
         let m = Mapping { source: (200.0, 0.0), anchor: (10.0, 10.0), m: [1.0, 0.0, 0.0, 1.0] };
         assert_eq!(m.source_rect(Rect::new(0, 0, 24, 16)), Rect::new(188, -12, 216, 8));
+    }
+
+    #[test]
+    fn resample_far_sources_are_transparent_without_overflow_or_nan() {
+        // Upstream 35e45def: a sample past the i32 range saturated at the edge and its right
+        // neighbour overflowed; a non-finite one became NaN alpha.
+        let mut source = Region::new(Rect::new(0, 0, 2, 2), 4);
+        for px in source.data.as_chunks_mut::<4>().0 {
+            px.copy_from_slice(&[1.0, 0.0, 0.0, 1.0]);
+        }
+        for at in [(3.0e9, 0.0), (0.0, 3.0e9), (-3.0e9, 0.0), (f64::MAX, f64::MAX), (f64::INFINITY, 0.0), (f64::NAN, 0.0)] {
+            let map = Mapping { source: at, anchor: (0.0, 0.0), m: [1.0, 0.0, 0.0, 1.0] };
+            assert_eq!(resample(&source, Rect::new(0, 0, 1, 1), &map, Some(3)).data, vec![0.0; 4], "source {at:?}");
+        }
+        // The left neighbour is past the range and transparent; the one at i32::MIN is a pixel.
+        source.rect = Rect::new(i32::MIN, 0, i32::MIN + 2, 2);
+        let map = Mapping { source: (f64::from(i32::MIN) - 0.25, 0.0), anchor: (0.0, 0.0), m: [1.0, 0.0, 0.0, 1.0] };
+        assert_eq!(resample(&source, Rect::new(0, 0, 1, 1), &map, Some(3)).data, vec![1.0, 0.0, 0.0, 0.75]);
     }
 }

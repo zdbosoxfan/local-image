@@ -197,6 +197,38 @@ fn presets_conflicts_and_subfolders() {
     assert_eq!(written, ["out/Sub/LC01347.png"]);
 }
 
+/// A subfolder with `..`, a root or a drive wrote outside the chosen folder. It is cleaned where
+/// the folder is used, so a preset or the Export dialog's field are covered as well as parameters.
+#[test]
+fn a_subfolder_never_leaves_the_destination_folder() {
+    use crate::export::{Destination, export_batch, planned_paths};
+    let mut s = Session::with_demo();
+    let id = s.active().unwrap();
+    let to = Destination { dir: "out".into(), exact: None };
+    let written_to = |s: &mut Session, sub: &str| {
+        let o = ExportOptions { subfolder: sub.into(), naming: "x".into(), ..ExportOptions::from_json(&json!({"format": "png", "width": 16})) };
+        let mut written: Vec<String> = Vec::new();
+        let mut write = |p: &str, _: &[u8]| {
+            written.push(p.to_string());
+            Ok(())
+        };
+        export_batch(s, &[id], &o, &to, &mut write, &|_| false).unwrap();
+        assert_eq!(planned_paths(&s.catalog, &[id], &o, &to), written.iter().cloned().map(Some).collect::<Vec<_>>(), "{sub:?}");
+        written
+    };
+    for (sub, want) in [
+        ("../../escaped", "out/escaped/x.png"),
+        ("..", "out/x.png"),
+        ("/etc", "out/etc/x.png"),
+        ("C:\\Windows", "out/C__Windows/x.png"),
+        ("a/./b/../c", "out/a/b/c/x.png"),
+        (" Client / Jobs ", "out/Client/Jobs/x.png"),
+    ] {
+        assert_eq!(written_to(&mut s, sub), [want], "{sub:?}");
+    }
+    assert_eq!(ExportOptions::from_json(&json!({"subfolder": "../up"})).subfolder, "up");
+}
+
 #[test]
 fn prepared_exports_run_on_another_thread() {
     fn send<T: Send>(_: &T) {}

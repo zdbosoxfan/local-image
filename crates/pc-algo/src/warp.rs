@@ -131,6 +131,8 @@ fn mapped_lengths(src_rect: Rect, f: &(dyn Fn(f64, f64) -> (f64, f64) + Sync)) -
 const MAX_DST_TILES: u64 = 1 << 20;
 /// Source pixels one destination tile may read densely.
 const MAX_FOOTPRINT_PIXELS: u64 = 1 << 25;
+/// Bounding-box pixels scanned per destination pixel of a tile, across all its triangles.
+const MAX_SCAN_PER_PIXEL: usize = 256;
 
 /// Rasterizes textured triangles: each vertex is `(destination, source)` in document pixels and
 /// each triangle samples `src` (restricted to `src_rect`) through the barycentric
@@ -187,6 +189,11 @@ pub fn warp_triangles(src: &Surface, src_rect: Rect, verts: &[([f64; 2], [f64; 2
         let by0 = ps.iter().map(|p| p[1]).fold(f64::MAX, f64::min).floor() as i32;
         let bx1 = ps.iter().map(|p| p[0]).fold(f64::MIN, f64::max).ceil() as i32;
         let by1 = ps.iter().map(|p| p[1]).fold(f64::MIN, f64::max).ceil() as i32;
+        // Degenerate triangles draw nothing (`work` skips them the same way): do not bin them.
+        let det = (ps[1][0] - ps[0][0]) * (ps[2][1] - ps[0][1]) - (ps[2][0] - ps[0][0]) * (ps[1][1] - ps[0][1]);
+        if det.is_nan() || det.abs() < 1e-12 {
+            continue;
+        }
         let (cx0, cy0) = ((bx0.max(dst.x0) - tx0).div_euclid(ts), (by0.max(dst.y0) - ty0).div_euclid(ts));
         let (cx1, cy1) = ((bx1.min(dst.x1 - 1) - tx0).div_euclid(ts), (by1.min(dst.y1 - 1) - ty0).div_euclid(ts));
         for cy in cy0.max(0)..=cy1 {
@@ -210,6 +217,9 @@ pub fn warp_triangles(src: &Surface, src_rect: Rect, verts: &[([f64; 2], [f64; 2
         let h = t.height() as usize;
         // Source position per destination pixel (NaN = not covered).
         let mut uv = vec![[f64::NAN; 2]; w * h];
+        // Folded warps pile thousands of triangles over the same pixels: the bounding boxes
+        // scanned per tile are capped (a sound warp scans a small multiple of the tile's area).
+        let mut scan_left = w * h * MAX_SCAN_PER_PIXEL + (1 << 16);
         for tri in tris {
             let [(p0, s0), (p1, s1), (p2, s2)] = tri.map(|v| verts[v]);
             let det = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]);
@@ -221,6 +231,12 @@ pub fn warp_triangles(src: &Surface, src_rect: Rect, verts: &[([f64; 2], [f64; 2
             let bx1 = (p0[0].max(p1[0]).max(p2[0]) + 0.5).ceil().min(f64::from(t.x1)) as i32;
             let by1 = (p0[1].max(p1[1]).max(p2[1]) + 0.5).ceil().min(f64::from(t.y1)) as i32;
             let eps = -1e-9;
+            let scan = (bx1 - bx0).max(0) as usize * (by1 - by0).max(0) as usize;
+            // A triangle that no longer fits is skipped, not the end of the tile: later (smaller) ones still draw.
+            if scan > scan_left {
+                continue;
+            }
+            scan_left -= scan;
             for y in by0..by1 {
                 let py = f64::from(y) + 0.5;
                 for x in bx0..bx1 {
@@ -428,6 +444,23 @@ mod tests {
         let out = warp_triangles(&src, Rect::new(0, 0, 40, 24), &verts, &[[0, 1, 2]], Interp::Nearest);
         assert!(out.content_bounds().is_empty());
         assert!(t.elapsed().as_secs() < 5);
+    }
+
+    #[test]
+    fn a_pile_of_triangles_over_one_tile_stops_at_the_scan_budget() {
+        // 300 triangles over the same tile, each scanning all of it, then one more that samples
+        // blue. The budget (256 scans of the tile, and a little) runs out first, so the pile
+        // stops drawing and the tile keeps the red of the triangles that fitted.
+        let mut src = Surface::new(PixelFormat::new(ColorMode::Rgb, SampleType::U8, true));
+        src.fill_rect(Rect::new(0, 0, 4, 8), &[1.0, 0.0, 0.0, 1.0]);
+        src.fill_rect(Rect::new(4, 0, 8, 8), &[0.0, 0.0, 1.0, 1.0]);
+        let corners = [[-10.0, -10.0], [600.0, -10.0], [-10.0, 600.0]];
+        let verts: Vec<([f64; 2], [f64; 2])> = corners.iter().map(|&p| (p, [1.5, 1.5])).chain(corners.iter().map(|&p| (p, [5.5, 1.5]))).collect();
+        let mut tris: Vec<[usize; 3]> = vec![[0, 1, 2]; 300];
+        tris.push([3, 4, 5]);
+        let out = warp_triangles(&src, Rect::new(0, 0, 8, 8), &verts, &tris, Interp::Nearest);
+        let p = out.pixel(100, 100);
+        assert!(p[0] > 0.9 && p[2] < 0.1, "{p:?}");
     }
 
     #[test]

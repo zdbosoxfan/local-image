@@ -410,7 +410,7 @@ impl ExportOptions {
             sharpen_amount: enm(p, "sharpenAmount").unwrap_or(d.sharpen_amount),
             naming: s("naming").map_or(d.naming, str::to_string),
             start_number: u("startNumber").map_or(d.start_number, |v| v.min(999_999) as u32),
-            subfolder: s("subfolder").map_or(d.subfolder, |v| v.trim().replace(['\\', ':', '\0'], "_")),
+            subfolder: s("subfolder").map_or(d.subfolder, clean_subfolder),
             same_folder: p.get("sameFolder").and_then(Value::as_bool).unwrap_or(d.same_folder),
             conflict: enm(p, "conflict").unwrap_or(d.conflict),
             tiff_compression: match s("tiffCompression").map(str::to_ascii_lowercase).as_deref() {
@@ -530,11 +530,14 @@ impl ExportOptions {
         let base = if self.naming.trim().is_empty() { "{name}" } else { self.naming.as_str() };
         let n = seq + self.start_number.max(1) as usize - 1;
         let name = crate::rename::expand_tokens(base, p, n, 3);
-        let mut name: String = name.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c }).collect();
+        // the catalog's own file name is cleaned the same way: one from a supplied catalog may hold separators
+        let clean = |s: &str| -> String { s.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c }).collect() };
+        let mut name = clean(&name);
         let (stem, ext) = p.file_name.rsplit_once('.').unwrap_or((&p.file_name, ""));
+        let ext = clean(ext);
         if name.trim().is_empty() {
             // every token came out empty (no title, no capture time…): keep the original name
-            name = stem.to_string();
+            name = clean(stem);
         }
         if self.format == ExportFormat::Original {
             let base = name.trim_end_matches('.');
