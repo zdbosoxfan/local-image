@@ -1825,3 +1825,131 @@ Adapted port. We already framed and moved several selected layers with no pixel 
 | [storytold/lightcraft@`4e350dc756e4d8d121d16dec62832621fe88b39f`](https://github.com/storytold/lightcraft/commit/4e350dc756e4d8d121d16dec62832621fe88b39f) | LR-LIB-PEOPLE: a re-read takes the file's orientation in the import's order, Exif before XMP (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
 
 Adapted port. Upstream makes `read_jpeg_app1`'s closure `FnMut`; we have no `read_jpeg_app1`, so our own JPEG walk becomes `jpeg_app1`, taking the same `FnMut` pick, and `jpeg_orientation` keeps the first XMP orientation while only an Exif one ends the walk. `file_orientation` keeps opening the original through `li_fs::read`. The TIFF walk's tag-700 packet is read with `parse_whole_xmp`, the parser our whole-file `extract` uses, where upstream calls `parse_xmp`. The test is upstream's, extended in place in `the_file_orientation_is_found_after_the_image_data`; the nine earlier cases keep their expected values.
+
+## Upstream rows reviewed and not ported (2026-11-16)
+
+Upstream commits triaged as fixes (MUST or SHOULD) or offered as features in the 2026-11 pass and left out, with the reason. None of them is ported, so none has a row in a commit table. A row marked "owner decision" waits for the owner; the others wait for the base named.
+
+### Fixes
+
+Not ported: storytold/vectorcraft@`c7dc443ee1` (SVG import: a feConvolveMatrix order that overflows usvg's multiply is refused). Owner decision: our pinned usvg 0.45.1 has the same overflow, but in release builds such a file opens today with only the filter left out, so upstream's refusal would stop files that open now; the choice is that refusal in `crates/pc-svg/src/preflight.rs` or neutralizing the order in the source handed to usvg. Port it before `2e7b2b7f96` if that one is reopened.
+
+Not ported: storytold/vectorcraft@`2e7b2b7f96` (SVG import: an embedded SVG image gets the feConvolveMatrix order check too). We do not parse nested SVG images: our `image_href_resolver` in `crates/pc-svg/src/import.rs` resolves only PNG, JPEG and WebP data. If nested SVG images are ever resolved, the check from `c7dc443ee1` must run on them too.
+
+Not ported: storytold/vectorcraft@`b814fcf689` (Pathfinder: holes that touch at a point stay holes of their region). Our `regions_of` in `crates/pc-pathops/src/pathfinder.rs` follows the sweep's parent chain and ignores the outer flag, so the bug, which came with upstream `39daf465f` (not ported), is not here. If `39daf465f` is ported, this commit comes with it.
+
+Not ported: storytold/photocraft@`ec6a4c1a50` (Save: stop doubling the encoded file in memory, #6607). Our saves still buffer the whole file, but the upstream hunks edit pc-psd code from six earlier upstream commits we lack (`cf83e0582`, `7893a6e04`, `fc0a579a4`, `4446ec6d6`, `cd75fa78e`, `c06eca9b6`). Port those first, then this one in two parts (pc-psd streaming; then the codecs, pc-io and app save paths on `li_fs::stage_stream` with a running size cap).
+
+Not ported: storytold/photocraft@`df73ed78f0` (fix(affinity): charge shared text traversal and retained text against a document budget). Already covered: `crates/pc-affinity/src/text.rs` charges traversal slots and retained characters against document-wide budgets (`MAX_CHILD_SLOTS`, `MAX_DOCUMENT_CHARS` in `model.rs`).
+
+Not ported: storytold/photocraft@`e6c9ce340b` (fix(io): charge importers for the whole tiles surfaces keep, #11144). Owner decision: our Affinity and SVG importers already charge whole tiles and we have no ORA, PDN or XCF importer, but the PSD smart-filter staging in `crates/pc-io/src/psd_import.rs` charges padded pixels and can undercharge small rects about 5x. A whole-tile charge there is fatal on failure here and could refuse PSDs that open today; the choice is to accept the bound, charge the larger of the two, or port with upstream's soft fallback.
+
+Not ported: storytold/photocraft@`b01e6c0270` (Save: a replacement in another group does not widen group access, #11232). Already covered: `preserve_access` in `crates/li-fs/src/lib.rs` keeps the replaced file's group and ACL, and when it cannot it clears mode bits 0o077, stricter than upstream.
+
+Not ported: storytold/photocraft@`4dd1ccc2a3` (fix(text): write a style-only type edit into the PSD's Txt2 style runs). We have no Txt2 writer: the Txt2 block is passed through unchanged on PSD export. Port upstream's writer (`20c910314` and the #6968 edited-object path) first; whether to schedule it is the owner's call.
+
+Not ported: storytold/photocraft@`b6d0f34500` (Carry #9104 with #8888 and keep the raw strings of a rewritten Txt2). Its #9104 part is already here (`359ce1c3`, `Value::RawString`), its tests need the Txt2 writer we lack, and its pattern-warning hunk has no counterpart in `crates/pc-compose/src/pattern.rs`.
+
+Not ported: storytold/photocraft@`26d151d061` (Jobs: a save past its commit point can't be reported as cancelled). Already covered: our save worker only writes a temporary file, and the replace runs in the apply step on the session thread, which a cancel removes first, so a cancel cannot be reported after the file was replaced.
+
+Not ported: storytold/photocraft@`8f5c0cf92b` (Clear a smart filter's stored smooth count when its dialog folds it). Our Curves have no smooth count, because Curves pencil mode and Smooth (`aba9b2b4e`, #3088) are not ported; port this with that feature.
+
+Not ported: storytold/photocraft@`77bde347a8` (fix(ui): Burn and Dodge's Exposure alerts and has a slider, #12669). Owner decision: the fix builds on the eraser tolerance range alert (#12268), the number field's `typed_text_parses` and the Camera Raw amount slider, none of which we have, and it adds a slider and an alert dialog to the options bar.
+
+Not ported: storytold/photocraft@`cd39cdc75c` (fix(compose, gpu): adjustment layers apply Fill inside the special eight blend modes, #9501). Owner decision: it needs upstream `4760f75b4` (#2552) first, which changes how pixel layers render at Fill below 100% in eight blend modes and may change existing compose and GPU parity expectations.
+
+Not ported: storytold/photocraft@`1b7b56d9f5` (GPU canvas: the open documents share one texture budget). Owner decision: upstream lets a document over its share draw from GPU viewport pages, which we lack (`3ba7052474`, deferred below); without them a large arranged document would fall back to the CPU canvas.
+
+Not ported: storytold/photocraft@`a8c8036f49` (Record actions in a document-independent form, #219). Owner decision: upstream records layers by name, which needs the .atn base (`3204231d7`, #4434) and its name-accepting layer parameter; porting it would replace our own `_actionLayer` visibility scheme and change its existing test.
+
+Not ported: storytold/photocraft@`80325c005d` (Free Transform: a proportional corner drag follows the pointer along the diagonal). Owner decision: it needs upstream `96cdff74` (#1873) first, and that changes two existing tests in `crates/pc-ui-egui/src/transform_tool.rs` (`alt_scales_about_reference_point_and_edges_scale_one_axis`, `corner_drag_scales_proportionally_about_opposite_corner`).
+
+Not ported: storytold/photocraft@`9d9bf1e3a2` (Fix Move Auto-Select toggling and locked-layer clicks). Our `pick_cmds.rs` has no `auto_select_target`, no locked-layer click-through (#1641) and no Move layer marquee (#4058); port those first, then revisit.
+
+Not ported: storytold/photocraft@`ffd9ec70c5` (fix(selection): ignore off-canvas remnants when deselecting). Already covered: our `select.rect` combines only over the canvas into a fresh surface, so an emptied canvas deselects; the sparse combine this fixes is not here.
+
+Not ported: storytold/photocraft@`60eb1e80be` (Free Transform: redraw only what the box changes; prepare large layers as a job). Owner decision: it is built on Above (`ac279f626`, #2439) and Follow (`2caa58884`, #1384), which we lack; the choice is to port those first or adapt it locally, which changes when the box appears.
+
+Not ported: storytold/photocraft@`ff683eb601` (Free Transform: keep the placed/copied-layer marker through preparation; stop on cancel; check the layer selection). It fixes the preparation job state that `60eb1e80be` adds; port it right after that one.
+
+Not ported: storytold/photocraft@`ec7ca9161d` (Place: wait for a preparing Free Transform before placing the next dropped file). Our box opens synchronously, so there is no preparing state to wait for; it becomes a one-line guard in `crates/pc-ui-egui/src/file_open.rs` after `60eb1e80be` and `ff683eb601`.
+
+Not ported: storytold/photocraft@`ec55bed7b0` (algo, engine, ui: Perspective Crop commits a quad mirrored on one axis, #12489). Already covered: our own Perspective Crop in `crates/pc-engine/src/perspective_crop_cmds.rs` accepts a convex quad of either winding and maps each corner onto its own, so a mirrored quad crops mirrored.
+
+Not ported: storytold/lightcraft@`64998a1acf` (LR-LIB-PEOPLE: a WebP's EXIF chunk of any size is read by its IFD, and the last one counts, as at import, #2674). Owner decision: the port changes an existing expectation in `crates/lc-engine/src/sidecar.rs` (`huge.webp` from Rotate270 to Rotate90 in `the_file_orientation_is_found_after_the_image_data`). Once approved it follows `4e350dc756`.
+
+Not ported: storytold/lightcraft@`86f2ba81eb` (Originals: refuse a screenshot target when an original cannot be queried). Our screenshot check uses the lenient `li_fs::same_file` like an ordinary export; the strict hard-link identity scan this fixes (`check_identity`, `same_file_strict` from `545ed92d`) is not here and would be a new feature.
+
+### Features
+
+Not ported: storytold/photocraft@`0456bc3f22` (Add guarded scratch storage with owned memory supervision). Too large for one job (about 2,700 changed lines), and it changes the scratch-disk preferences, which needs design approval.
+
+Not ported: storytold/photocraft@`89ed4cb284` (Stream native PSD and EXR imports through bounded seekable bands). Too large (about 2,650 changed lines), and it builds on `0456bc3f22`.
+
+Not ported: storytold/photocraft@`4915f0970e` (PSD/PSB open without reading the whole file, #5106). Too large for one job (about 1,770 changed lines across 30 files).
+
+Not ported: storytold/photocraft@`5d9c57e60d` (Linux: return memory of closed documents to the system, #8743). It depends on upstream's scratch pool (`86ddfb72f7`), which is too large for this pass.
+
+Not ported: storytold/photocraft@`bcc060180f` (adaptive PSD/PSB memory budget and interactive confirmation). It edits upstream files we do not have (`io/memory.rs` from `43a6b3035`, `io/psd_budget.rs` from `97a83f074`), and its confirmation dialog needs design approval.
+
+Not ported: storytold/photocraft@`3ba7052474` (Draw over-budget canvases from viewport pages on the GPU canvas). Deferred while GPU tests cannot run on the build machine.
+
+Not ported: storytold/photocraft@`dbcee2ba47` (io: stage encoded PSD/PSB channels on the scratch disk for large saves). It needs `4915f0970e`, `0456bc3f22` and upstream's `stage_file` (`4b27da939`), none of which is here.
+
+Not ported: storytold/photocraft@`f3b21c363c` (Free Transform several selected layers together, #3592). Already present as our own implementation; the later upstream rewrite `2432669578` is recorded under "PhotoCraft Free Transform of several selected layers".
+
+Not ported: storytold/photocraft@`4e816dc0ca` (Select and Mask workspace). Not chosen for this round under the owner's delegation; it is also too large for one job.
+
+Not ported: storytold/photocraft@`e0cc12d403` (Color Lookup: list the LUT folder in Image > Adjustments, #9754). It needs upstream's LUT Folder preference and folder scan (#6558), which we lack.
+
+Not ported: storytold/photocraft@`224dcdc936` (Fix content-aware crop targets and history labels). It fixes the content-aware crop fill (`5cb5ab52f`, #3823), which is not here.
+
+Not ported: storytold/photocraft@`0e421d6a33` (Replace Color: Add to Sample and Subtract from Sample, #6280). Our Replace Color has no sample points, Localized Color Clusters (#4477), dialog eyedropper (#6279) or shared Color Range matcher.
+
+Not ported: storytold/photocraft@`51b9454b71` (encode lossless JPEG XL using pure Rust). It adds a new dependency (zune-jpegxl); waits for the owner and a licence check.
+
+Not ported: storytold/photocraft@`aee67e8194` (expose JPEG XL Save As and Export As). The second half of `51b9454b71`; waits with it.
+
+Not ported: storytold/photocraft@`c3f825eed5` (native file drag and drop on Wayland). It relies on upstream's own winit fork; the winit 0.30.13 we use delivers no file drops on Wayland.
+
+Not ported: storytold/photocraft@`6a676ee1be` (Save over a flat JPEG: JPEG Options, then in place, #2223). It builds on the in-place flat save, the JPEG Options dialog and the Targa/DDS options prompts, none of which is here.
+
+Not ported: storytold/photocraft@`82845589f5` (Multi-layer export skips empty and adjustment layers, #14806). It changes the several-layer Export As from upstream `83f4452b` (#3629), which is not here; our layer export takes one layer.
+
+Not ported: storytold/photocraft@`74c57dba81` (Count tool group names and rename, #11766). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`07cdcca77a` (Save a New Document preset, #14043). It needs saved New Document presets (`1bc25d363`, #1516), which we lack.
+
+Not ported: storytold/photocraft@`5c1719e94c` (New Document Pixel Aspect Ratio, #14034). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`1f01437852` (New Document 1-bit Bitmap mode, #14030). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`5697cdfc48` (Web and Mobile presets turn Artboards on, #14042). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`5e746adc9f` (Line tool right-click menu in Shape mode, #13249). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`157d1b3db3` (Alt-drag a segment to duplicate a subpath). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`8112948602` (Editable toolbar grouping, #14459). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/lightcraft@`399b55eb61` (import Lightroom catalog backup zips directly, #2592). It plugs into upstream's Lightroom Classic catalog import (`4a427894` and its follow-ups), which is not here, and adds a dependency (sqlite-core) the task did not name.
+
+Not ported: storytold/lightcraft@`d2d78f1ab0` (harden the backup extraction, #2592). Same bundle as `399b55eb61`; the files it edits do not exist here.
+
+Not ported: storytold/lightcraft@`db93f24899` (a backup finds collections keyed on the live catalog's path, #2606). Same bundle as `399b55eb61`.
+
+Not ported: storytold/lightcraft@`fab829da27` (collection keys match in both orders, #2606). Same bundle as `399b55eb61`.
+
+Not ported: storytold/lightcraft@`24a265724c` (a backup zip names the new library after its catalog, #2592). Same bundle as `399b55eb61`; its destination dialog would also need design approval.
+
+Not ported: storytold/lightcraft@`2ec4add0d6` (lensfun database downloaded on first run). A network fetch that is not approved; waits for the owner, and the bundled database stays.
+
+Not ported: storytold/lightcraft@`2ad7207127` (masks stay on the photo under lens corrections, Upright, Transform and Rotate). Owner decision: it adds a saved mask field, which needs a catalog version bump, and our catalog has no upgrade-on-open since the decision of 2026-10-14, so every existing library would be refused.
+
+Not ported: storytold/lightcraft@`432fbed3d5` (mask geometry review fixes 1). Same bundle as `2ad7207127`.
+
+Not ported: storytold/lightcraft@`749a63ba58` (mask geometry review fixes 2). Same bundle as `2ad7207127`.
+
+Not ported: storytold/lightcraft@`d729c80a5a` (Detail: Remove Hot Pixels, on for newly imported raws, #1345). Owner decision: we already remove hot and dead photosites on every raw (`crates/lc-raw/src/hotpixels.rs`); ported as written it would switch that off for existing edits and add a saved field that needs a catalog version bump.
+
+Not ported: storytold/vectorcraft@`63dab14ee7` (Image Trace seam fills for Abutting traces). It conflicts with our design: Abutting traces are drawn as a seamless mosaic, which a seam-fill group would break or hide; seams at export would be a new design for the owner to approve.
