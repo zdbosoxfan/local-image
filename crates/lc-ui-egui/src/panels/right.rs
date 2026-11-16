@@ -243,6 +243,10 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for (label, tool) in [("AI", "ai"), ("Remove", "remove"), ("Heal", "heal"), ("Clone", "clone")] {
+                // AI Remove can't run on a Camera Raw Filter's photo
+                if tool == "ai" && app.session.ephemeral_photo() == Some(id) {
+                    continue;
+                }
                 let tip_tool = match tool {
                     "ai" => super::tool_tips::StripTool::RemoveAi,
                     "remove" => super::tool_tips::StripTool::RemovePixels,

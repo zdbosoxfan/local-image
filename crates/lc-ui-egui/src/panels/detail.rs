@@ -1907,9 +1907,11 @@ fn joined_lassos(lassos: &[Vec<Point>]) -> Vec<Point> {
 }
 
 /// Remove what the AI draft covers (one AI removal: its dabs and lassos together).
+/// The draft stays when the removal can't start, so what was painted is not lost.
 pub fn apply_remove_draft(app: &mut LightcraftApp, ctx: &egui::Context) {
-    let Some(dr) = app.ui.remove_draft.take() else { return };
+    let Some(dr) = app.ui.remove_draft.clone() else { return };
     if app.session.active().map(|i| i.0) != Some(dr.photo) || dr.is_empty() {
+        app.ui.remove_draft = None;
         return;
     }
     let mut params = json!({"mode": "ai", "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity});
@@ -1922,9 +1924,16 @@ pub fn apply_remove_draft(app: &mut LightcraftApp, ctx: &egui::Context) {
     if !app.ui.remove_engine.is_empty() {
         params["engine"] = json!(app.ui.remove_engine);
     }
-    if let Err(e) = app.run("spot.add", params) {
-        app.toast_error(ctx, e);
+    match app.run("spot.add", params) {
+        Ok(_) => app.ui.remove_draft = None,
+        Err(e) => app.toast_error(ctx, e),
     }
+}
+
+/// Whether the chosen AI Remove engine can't run now (Remove is disabled then).
+pub fn remove_engine_unready(app: &LightcraftApp) -> bool {
+    let wanted = Some(app.ui.remove_engine.as_str()).filter(|e| !e.is_empty());
+    app.session.ai_remove_engine(wanted).is_err()
 }
 
 /// Each frame (before the shortcuts): drop the AI draft once it no longer applies (another photo,
@@ -1980,12 +1989,17 @@ fn draft_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, map: &CanvasMap, lo
     );
     let mut apply = false;
     let mut cancel = false;
+    let ready = !remove_engine_unready(app);
     egui::Area::new(egui::Id::new("removeDraftButtons")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
             ui.horizontal(|ui| {
-                apply = crate::widgets::text_button(ui, "removeDraftApply", "Remove", true)
-                    .on_hover_text(li_i18n::library::t("Remove what you painted (Enter)"))
-                    .clicked();
+                apply = ui
+                    .add_enabled_ui(ready, |ui| {
+                        crate::widgets::text_button(ui, "removeDraftApply", "Remove", true)
+                            .on_hover_text(li_i18n::library::t("Remove what you painted (Enter)"))
+                            .clicked()
+                    })
+                    .inner;
                 cancel = crate::widgets::text_button(ui, "removeDraftCancel", "Cancel", false)
                     .on_hover_text(li_i18n::library::t("Discard what you painted (Esc)"))
                     .clicked();

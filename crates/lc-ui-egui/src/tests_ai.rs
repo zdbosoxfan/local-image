@@ -27,9 +27,25 @@ impl AiHost for Mock {
     }
 }
 
+/// An engine that can't run now (the AI engine is off).
+struct Down;
+
+impl AiHost for Down {
+    fn remove_engines(&self) -> Vec<RemoveEngine> {
+        vec![RemoveEngine { key: "down".into(), label: "Down Engine".into(), problem: Some("The AI engine isn't running.".into()) }]
+    }
+    fn remove(&self, _: &RemoveRequest, _: &JobCtl) -> Result<RemoveResult, String> {
+        Err("The AI engine isn't running.".into())
+    }
+}
+
 fn app() -> Headless {
+    app_with(Arc::new(Mock))
+}
+
+fn app_with(host: Arc<dyn AiHost>) -> Headless {
     let mut session = lightcraft_engine::Session::with_demo();
-    session.enhance.host = Some(Arc::new(Mock));
+    session.enhance.host = Some(host);
     let app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
     let mut h = Headless::new(app, [1200.0, 800.0], 1.0);
     let r = h.request("ui.set", json!({"view": "detail"}), T);
@@ -197,6 +213,20 @@ fn ai_remove_waits_for_confirmation() {
     assert!(h.step_until(JOB, |h| spots(h).len() == 1), "the removal arrives");
     let sp = spots(&h)[0].clone();
     assert!(sp.is_ai() && !sp.points.is_empty() && sp.polygon.len() >= 3, "{sp:?}");
+}
+
+/// A removal that can't start (the engine is off) keeps what was painted.
+#[test]
+fn ai_remove_keeps_the_painted_area_when_it_cannot_start() {
+    let mut h = app_with(Arc::new(Down));
+    exec(&mut h, "panel.remove", json!({}));
+    click(&mut h, "button:removeMode-ai");
+    brush(&mut h, (0.3, 0.3), (0.35, 0.3), false);
+    let painted = h.app.ui.remove_draft.clone().expect("a draft");
+    h.request("ui.key", json!({"key": "Enter"}), T);
+    h.settle(T);
+    assert_eq!(h.app.ui.remove_draft, Some(painted), "the painted area survives the error");
+    assert!(h.app.session.enhance.jobs().is_empty() && spots(&h).is_empty());
 }
 
 /// After an AI removal the Heal brush works over it: the brush keeps its own size, the old spot

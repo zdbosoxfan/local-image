@@ -61,12 +61,15 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
     let Some(id) = app.session.active() else { return };
     let engines = app.session.enhance.host.as_ref().map(|h| h.remove_engines()).unwrap_or_default();
     let draft = app.ui.remove_draft.as_ref().is_some_and(|dr| dr.photo == id.0);
+    let ready = !super::detail::remove_engine_unready(app);
     padded(ui, |ui| {
         if draft {
             dim(ui, "Paint more to add to it (⌥ takes away), then remove it all at once.");
             ui.horizontal(|ui| {
-                if text_button(ui, "removePanelApply", "Remove", true).on_hover_text(li_i18n::library::t("Remove what you painted (Enter)")).clicked()
-                {
+                let apply = ui.add_enabled_ui(ready, |ui| {
+                    text_button(ui, "removePanelApply", "Remove", true).on_hover_text(li_i18n::library::t("Remove what you painted (Enter)")).clicked()
+                });
+                if apply.inner {
                     super::detail::apply_remove_draft(app, ui.ctx());
                 }
                 if text_button(ui, "removePanelCancel", "Cancel", false)
