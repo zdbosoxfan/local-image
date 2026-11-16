@@ -334,8 +334,8 @@ fn dissolve_coverage_matches_opacity() {
     assert_eq!(flatten(&d), b);
 }
 
-/// A Color Lookup's bounded output survives full coverage over a huge 32-bit pixel: blending back
-/// as `b + (r - b) * k` lost the small result to f32 rounding (1e8 and 0.5 gave 0).
+/// A Color Lookup's bounded output survives full coverage over a huge 32-bit pixel: 0.5 over 1e8
+/// stays 0.5, which `b + (r - b) * k` would round to 0.
 #[test]
 fn full_coverage_adjustment_keeps_its_result_over_huge_hdr_values() {
     for v in [1.0e6_f32, 1.0e8, -1.0e6] {

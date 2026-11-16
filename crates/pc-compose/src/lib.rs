@@ -1576,7 +1576,7 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
                 }
                 let blended = blend::blend_rgb(layer.blend, [b[0], b[1], b[2]], [a[0], a[1], a[2]]);
                 // `b·(1−k) + s·k`, not `b + (s − b)·k`: with a huge 32-bit backdrop the difference
-                // loses a small result to f32 rounding, so full coverage gave 0 instead of 0.5.
+                // would lose a small result to f32 rounding; full coverage keeps the blend exactly.
                 let j = 1.0 - k;
                 backdrop.px[i] = [b[0] * j + blended[0] * k, b[1] * j + blended[1] * k, b[2] * j + blended[2] * k, b[3]];
             }
@@ -1882,7 +1882,7 @@ fn cached_effect_maps(layer: &Layer, region: Rect, key: u64, cx: &Ctx) -> std::s
             slot.get().map_or(maps, |e| e.maps.clone())
         }
     };
-    // Evict the oldest entries over budget (never the one just used).
+    // Evict the oldest other entries over budget, then the current one if it alone exceeds it.
     let mut c = fx_cache().lock().unwrap_or_else(|e| e.into_inner());
     let budget = effect_cache_budget();
     while c.bytes > budget && c.order.len() > 1 {

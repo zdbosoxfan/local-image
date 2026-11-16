@@ -277,7 +277,7 @@ mod tests {
         assert!((u - -3.0).abs() < 1e-9 && (v - 1.0).abs() < 1e-9, "{u},{v}");
     }
 
-    /// A stored 2 % pattern in a 4 % preview draws at 0.08 %, which used to fall back to 100 %.
+    /// A stored 2 % pattern in a 4 % preview draws at 0.08 %, not at 100 %.
     #[test]
     fn placement_keeps_scales_below_a_tenth_of_a_percent() {
         let place = Placement::new(Rect::EMPTY, false, (0.0, 0.0), 0.0008, 0.0);
