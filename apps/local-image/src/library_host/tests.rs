@@ -843,8 +843,7 @@ fn a_saved_edit_psd_returns_to_compositing_with_its_layers() {
     let saved = dir.join("photo-Edit.psd").to_string_lossy().to_string();
     assert_eq!(catalog(&host).active(), photo_at_path(catalog(&host), &saved));
     let layers = host.editor.session.active().unwrap().doc.layers.len();
-    host.editor.services.import =
-        Some(Box::new(|name, bytes| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())));
+    host.editor.services.import = Some(Box::new(|name, bytes| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())));
     host.switch(&ctx, Module::Develop);
     host.switch(&ctx, Module::Compositing);
     assert_eq!(host.editor.session.documents().len(), 1, "the saved document comes forward");
@@ -2442,6 +2441,7 @@ fn workflow_host(tag: &str) -> (PathBuf, Host) {
     assert!(!host.editor.has_unsaved(), "theme fixture has no user edits to bypass");
     (dir, host)
 }
+
 /// A close the Library held back while Compositing was shown brings the Library forward, where
 /// its prompt says the catalog wasn't saved.
 #[test]
