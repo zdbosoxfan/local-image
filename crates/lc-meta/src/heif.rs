@@ -297,11 +297,17 @@ mod tests {
             bad[at] ^= 0xff;
             let _ = crate::embedded(&bad);
         }
-        // version 1 with 65,535 entries declared and one present: the walk ends where the bytes do
-        let one_entry = [1, 0, 0, 0, 0x44, 0, 0xff, 0xff, 0, 1, 0, 0, 0, 0, 0, 0];
-        assert!(super::item_location(&one_entry, 9).is_none());
-        // extents read twice, to outgrow their source
-        let twice = super::Loc { construction: 0, base: 0, extents: vec![(0, good.len() as u64); 2] };
-        assert!(super::item_bytes(&good, None, &twice).is_none());
+    }
+
+    /// An item whose extents all cover the whole file adds up to far more than the file holds; it is
+    /// refused rather than copied, so a small hostile file can't make the reader allocate megabytes.
+    #[test]
+    fn an_item_longer_than_its_source_is_refused() {
+        let good = heic(&items(), 1, false);
+        let whole = (0, good.len() as u64);
+        let repeated = super::Loc { construction: 0, base: 0, extents: vec![whole; usize::from(super::MAX_EXTENTS)] };
+        assert!(super::item_bytes(&good, None, &repeated).is_none());
+        let once = super::Loc { construction: 0, base: 0, extents: vec![whole] };
+        assert_eq!(super::item_bytes(&good, None, &once).as_deref(), Some(good.as_slice()));
     }
 }
