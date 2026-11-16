@@ -44,7 +44,7 @@ impl Denoiser {
             return Err("GPU denoise is temporarily unavailable; retry after other GPU work finishes".into());
         }
         if lightcraft_sysmem::gpu::pressured() {
-            return Err("GPU memory is held by AI models; unload them with Eject in Compositing's status bar".into());
+            return Err("GPU memory is held by AI work; wait for AI jobs to finish, or unload models with Eject in Compositing's status bar".into());
         }
         let g = crate::device().ok_or_else(|| crate::unavailable_reason().unwrap_or_else(|| "no GPU".into()))?;
         let _scope = ctx::RenderScope::new(&g);
@@ -82,7 +82,7 @@ impl Denoiser {
             return Err("GPU denoise needs a healthy context with free VRAM; retry after other GPU work finishes".into());
         }
         if lightcraft_sysmem::gpu::pressured() {
-            return Err("GPU memory is held by AI models; unload them with Eject in Compositing's status bar".into());
+            return Err("GPU memory is held by AI work; wait for AI jobs to finish, or unload models with Eject in Compositing's status bar".into());
         }
         let g = &self.gpu;
         let epoch = lightcraft_sysmem::gpu::idle_epoch();
