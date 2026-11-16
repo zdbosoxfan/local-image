@@ -86,6 +86,8 @@ fn keyboard_blocked(app: &LightcraftApp, ctx: &egui::Context) -> bool {
 }
 
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
+    // Space held over a tool ends when the key is up, whoever has the keyboard by then
+    crate::space_hand::tick(app, ctx);
     if keyboard_blocked(app, ctx) {
         return;
     }
@@ -140,13 +142,21 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
         }
     };
+    // a held Space repeats: it toggles the zoom (or takes the hand) once per press
+    let mut space_fresh = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Space, pressed: true, repeat: false, .. })));
     // Shared ordered consumption; a newly opened modal owns every later event.
     while !keyboard_blocked(app, ctx) && (!ctx.egui_wants_keyboard_input() || guide_focused) {
-        let Some((binding, _)) = li_keys::input::take_pressed(ctx, &table) else {
+        let Some((binding, key)) = li_keys::input::take_pressed(ctx, &table) else {
             break;
         };
         let f = binding.command;
-        if let Some(params) = binding.params {
+        // Toggle Zoom on Space, as its alias or as the user's own binding: the same hand and the
+        // same once-per-press
+        let space_zoom = f == "view.zoomToggle" && key == Key::Space;
+        if space_zoom && !std::mem::take(&mut space_fresh) {
+            continue;
+        }
+        if let Some(params) = binding.params.or_else(|| space_zoom.then(|| json!({}))) {
             let id = f.as_str();
             // Space pauses / resumes a slideshow
             if id == "view.zoomToggle"
@@ -155,6 +165,10 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
                 let now = ctx.input(|i| i.time);
                 app.ui.slideshow = Some((interval, now + interval, !paused));
                 app.toast(ctx, if paused { "Slideshow resumed" } else { "Slideshow paused" });
+                continue;
+            }
+            // over a tool on the photo, held Space is the view's hand; a tap toggles on its release
+            if space_zoom && crate::space_hand::begin(app, ctx) {
                 continue;
             }
             // flag/rate aliases (Shift+X…) go through the culling path: active photo in Compare/Survey,

@@ -1560,7 +1560,7 @@ LightCraft file safety (2026-11-15). `0d2dd9a9` and its catalog follow-ups: ours
 | [storytold/photocraft@`e0ca582b97ff5ecfeea81421e60f2642502b00ae`](https://github.com/storytold/photocraft/commit/e0ca582b97ff5ecfeea81421e60f2642502b00ae) | fix(engine): the Magic Eraser measures Tolerance by colour spread (#11995) | `crates/pc-algo/src/selection.rs`<br>`crates/pc-engine/src/eraser_cmds.rs`<br>`crates/pc-engine/src/eraser_cmds/tests.rs`<br>`crates/pc-engine/src/selection_cmds.rs` | MIT OR Apache-2.0 |
 | [storytold/photocraft@`25d6041ab52d849fca1f3dd12cf2eb63c1cff45f`](https://github.com/storytold/photocraft/commit/25d6041ab52d849fca1f3dd12cf2eb63c1cff45f) | fix(algo): partly transparent colours keep the per-channel limit (#11995) | `crates/pc-algo/src/selection.rs`<br>`crates/pc-engine/src/eraser_cmds/tests.rs` | MIT OR Apache-2.0 |
 
-Adapted ports: `0e0d99d0` adds the `within` mask to our Sample Size wand (`wand_region_within`, which `wand_region_sampled` calls). `e0ca582b` and `25d6041a` add `ColorDistance` as a parameter of that same function instead of a further wrapper; our Magic Eraser fringe is still the 3x3 mask average (`e25be5e7` is not ported), so upstream's colour-distance fringe hunk has no counterpart. `ca005139` and `66cbb2a1` mark a Shift-click press as `Drag::line` and add `smoothing: 0` through `canvas::unsmoothed_line`; retouch `parse_brush` reads `smoothing` as 0..100. Our UI has no live retouch previews, so `66cbb2a1`'s preview hunks do not apply.
+Adapted ports: `0e0d99d0` adds the `within` mask to our Sample Size wand (`wand_region_within`, which `wand_region_sampled` calls). `e0ca582b` and `25d6041a` add `ColorDistance` as a parameter of that same function instead of a further wrapper; upstream's colour-distance fringe hunk landed with the `e25be5e7` port (see Adopted PhotoCraft behaviour changes), which measures the fringe with `distance.rgb`. `ca005139` and `66cbb2a1` mark a Shift-click press as `Drag::line` and add `smoothing: 0` through `canvas::unsmoothed_line`; retouch `parse_brush` reads `smoothing` as 0..100. Our UI has no live retouch previews, so `66cbb2a1`'s preview hunks do not apply.
 
 Codec hostile-input bounds (2026-11-15). Adapted ports: `81ce14c1` charges band-worker scratch,
 the JPEG copy and the chunk tables next to the output, without upstream's extra-sample accounting,
@@ -1657,6 +1657,72 @@ its own container builder.
 | [`17248a205dd7`](https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df) | A preview fallback keeps the colour space the raw's EXIF states | `crates/lc-codecs/src/jpeg.rs`<br>`crates/lc-codecs/src/lib.rs`<br>`crates/lc-engine/src/files.rs` | MIT OR Apache-2.0 |
 | [`5d4b68f04cfe`](https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303) | Use craft-heif from craft-libs for HEIC/HEIF (#13076) | `crates/pc-codecs/src/codecs/heif.rs` | MIT OR Apache-2.0 |
 | [`6c2ff558d90a`](https://github.com/storytold/lightcraft/commit/6c2ff558d90a9ab6e314f9ce4f19bd1d542fee6b) | #2284: read the Exif and XMP items of HEIF files | `crates/lc-meta/src/heif.rs`<br>`crates/lc-meta/src/container.rs`<br>`crates/lc-meta/src/cr3.rs`<br>`crates/lc-meta/src/lib.rs`<br>`crates/lc-meta/tests/robust.rs` | MIT OR Apache-2.0 |
+
+## Adopted PhotoCraft behaviour changes (2026-11-16)
+
+Each of these changes an existing test exactly as upstream changed its counterpart (owner decision 2026-11-15).
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`54515f94b347`](https://github.com/storytold/photocraft/commit/54515f94b34786dc4c3d04a57cb8d66f838ea59f) | fix(ui-egui): the rasterize prompt no longer replays the click that opened it (#8806) | `crates/pc-ui-egui/src/rasterize_prompt.rs`<br>`crates/pc-ui-egui/src/rasterize_prompt_tests.rs`<br>`crates/pc-ui-egui/src/vector_packages/persona.rs`<br>`docs/control-protocol.md` | MIT OR Apache-2.0 |
+| [`70e6b0e7b15c`](https://github.com/storytold/photocraft/commit/70e6b0e7b15c8c3bac05c14fa821c57011cc1b3c) | Magnetic Lasso: the edge comes from the visible composite, not the active layer (#11686) | `crates/pc-engine/src/magnetic_cmds.rs`<br>`crates/pc-engine/src/magnetic_cmds/tests.rs`<br>`crates/pc-ui-egui/src/magnetic_lasso_ui.rs` | MIT OR Apache-2.0 |
+| [`e25be5e77bfc`](https://github.com/storytold/photocraft/commit/e25be5e77bfc440cd21e7c8577a2a0a264d54b2a) | Magic Wand: Anti-alias keeps the region whole and softens only near-matching neighbours (#11776) | `crates/pc-algo/src/selection.rs` | MIT OR Apache-2.0 |
+| [`375d4894a119`](https://github.com/storytold/photocraft/commit/375d4894a119b6cd5933d53e8fe7f506d2783392) | Selecting subject now automatically applies to selected layer, and uses sampleAllLayers only when no layer is selected | `crates/pc-engine/src/smartselect_cmds.rs` | MIT OR Apache-2.0 |
+| [`bf80e2d2fa6a`](https://github.com/storytold/photocraft/commit/bf80e2d2fa6a565f9d5d4bc53271fb9597adaa39) | Select and Mask: Shift Edge is a curve on coverage, so hard edges stay put | `crates/li-matte/src/matting.rs`<br>`crates/pc-algo/src/matting.rs`<br>`crates/pc-algo/tests/coverage/matting_coverage.rs`<br>`crates/pc-engine/src/smartselect_cmds.rs` | MIT OR Apache-2.0 |
+| [`1e076433dce7`](https://github.com/storytold/photocraft/commit/1e076433dce771aad46d10f4530745acfb5547a7) | PSD save: choose PSB by the encoded size, not the raw estimate (#5285) | `crates/pc-psd/src/compression.rs`<br>`crates/pc-psd/src/file.rs`<br>`crates/pc-psd/src/resources.rs`<br>`crates/pc-io/src/psd_export.rs`<br>`crates/pc-io/src/psd_export/tests.rs`<br>`crates/pc-io/src/multichannel_map.rs` | MIT OR Apache-2.0 |
+
+`54515f94`: our `confirm()` keeps its local `persona::validate_rasterize_prompt` check before rasterizing; upstream's `confirm_filter` branch and scorecard rows have no counterpart here.
+
+`e25be5e7`: the 8-bit fill is our `wand_region_within`, so its fringe measures the colour with `distance.rgb(p, target)` (upstream's follow-up hunk from `e0ca582b`) and the Magic Eraser's Spread distance applies to the fringe too. Upstream's `wand_antialias_tests.rs` sits in the `tests` module of `selection.rs`.
+
+`375d4894`: our `select.subject` is a background job with the learned-model `engine` option; the default changes in that job's `all` flag and in its spec string, which keeps the `engine` field.
+
+`bf80e2d2`: our Shift Edge was the pre-#5176 whole-pixel morphology in `li-matte`, so the curve replaces `shift_px` there and #5176 is not ported. `morph` stays for Closed-form matting's trimap. Not ported: upstream's `morphology/tests.rs` deletions (we have no shift-morphology tests) and `docs/octagonal-mask-performance.md`. Local: the module docs of both `matting.rs` files now name the coverage curve; `matting_coverage.rs` halo/spread drop by the old 2 px shift (50 to 48, 26 from 28); the third `editor_buffer_goldens` hash needs regenerating.
+
+`1e076433`: a too-large document is still saved as PSB automatically (`fit_psd_size` promotes it when the exact encoded length plus 1 MB headroom is over 2 GB, or cannot be computed); a failed promotion warns and the writer's 32-bit length check refuses the PSD. Local: our writer pads every tagged block, the layer block included, to even, so `encoded_len` uses the existing `TaggedBlock::encoded_len` and the `tagged.rs` hunk (`encoded_len_aligned`) is not ported. Our export stores the layer block's 4-byte padding explicitly, so that step moved into `pad_layer_info`, which `fit_psd_size` reruns for PSB on both placements (upstream re-pads only the section). `document_to_psd_sized` keeps our `memory_budget` argument (upstream has an `Interrupt`). The `pc-psd` tests sit in the existing `tests` module of `file.rs`. The estimator tests are replaced by upstream's four encoded-size tests (owner decision 2026-11-15).
+
+## LightCraft Develop ports (2026-11-16)
+
+Local adaptations: `47e2c0d2` takes the analysis image from our `analysis_plane`, which keeps the
+small-source resampling of `analyze_lines`; upstream's unused `level_plane` is not ported.
+`9ac38222` adds only what was missing: Masking's preview, its GPU kernel and `SharpK` existed. The
+detail band is our sharpening's (`detail::detail_band`, from the Radius planes `prep.sharp`, with a
+GPU twin `sharp_detail_preview`), not upstream's texture blur; `sharpen_mask_weight` and
+`texture_sigma` have no counterpart. The UI keeps our per-slider Alt flag (`alt_preview`) instead
+of a global Alt state, so an Alt-drag on the histogram shows no preview. Not ported: `per_pixel`
+(our loupe has no window render to gate) and the unrelated `spots.rs` cleanup.
+`abf0caf2` dispatches through our `take_pressed` loop, which drops each key event it takes, so the
+once-per-press check reads the frame's fresh Space press before the loop. Its tests use Clone in
+Remove (our Remove and Heal make shared patches, not `develop.spots`), set the zoom directly (we
+have no `view.navigate`) and check `app.gesture` for the stroke in progress (we have no
+`brush_live`). Space takes no hand over the Edit panel's mask tools or the Skin Tone and film base
+pickers, which upstream does not have or list. Not ported: the `ui.key` row of upstream's control
+protocol (ours documents the PhotoCraft side) and the parity checklists.
+`c9c3870a`: our primary binding (no params) for Toggle Zoom on Space takes the alias's path in the
+same loop, slideshow pause included; the test sets `shortcut_overrides` (we have no
+`shortcuts::assign`).
+`63b7d076`: the pin code sits in our `panels/detail.rs` (upstream `panels/detail/masks.rs`); its test
+drops upstream's `view.toolOverlay` step, since our pins show whenever Show Pins is on. Our pin drag
+on a shape `moved_shape` cannot move ends in `end_interaction`, which records no step when the
+settings are unchanged. Not ported: upstream's what's-new and parity checklist lines.
+`aa52251d`: our shortcut stays Cmd+U (upstream Shift+A) and the engine command documents `{ids?}`. The
+app hook is a `develop.auto` arm in our `menus.rs` `run_ui_command` (upstream `menus/run.rs`); the task
+runs on `tasks::spawn_job` with its `JobCtl` (upstream `spawn_tracked` with a cancel flag), wrapped
+in `guard::catch` like the Auto white balance task, and a cancelled run is discarded by the runner
+instead of returning an error. Toasts go through `li_i18n::library` and the new strings are listed
+in `PENDING_DEVELOP_TRANSLATIONS`. Our demo's Auto gives vibrance 12 and a contrast measured per
+photo, so the engine test compares each photo with `auto_tone` on its own source instead of
+upstream's fixed 68 and 30; the UI test waits with `tasks::wait` (we have no `wait_for`).
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`47e2c0d248ad`](https://github.com/storytold/lightcraft/commit/47e2c0d248adf7f555163c0efde8d0f4b2d5485f) | LR-CROP-AUTO: Auto straighten reads the vertical vanishing point and the horizon | `crates/lc-pipeline/src/straighten.rs`<br>`crates/lc-pipeline/src/upright.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-pipeline/src/tests_geometry.rs` | MIT OR Apache-2.0 |
+| [`9ac38222e12e`](https://github.com/storytold/lightcraft/commit/9ac38222e12e9bec2bb171d2a30aa8b69aeb4b9a) | Alt/Option-drag previews for clipping and sharpening | `crates/lc-pipeline/src/visualize.rs`<br>`crates/lc-pipeline/src/detail.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-gpu/src/render.rs`<br>`crates/lc-gpu/src/ctx.rs`<br>`crates/lc-gpu/src/wgsl/detail.wgsl`<br>`crates/lc-gpu/tests/it/equivalence.rs`<br>`crates/lc-ui-egui/src/state.rs`<br>`crates/lc-ui-egui/src/panels/edit.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_panels.rs` | MIT OR Apache-2.0 |
+| [`abf0caf2017e`](https://github.com/storytold/lightcraft/commit/abf0caf2017e79108fa9a7d67efabad27232b269) | KEY-TOGGLEZOOM: hold Space over a tool to pan and click-zoom | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs`<br>`crates/lc-ui-egui/src/control.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
+| [`9e305d642e3e`](https://github.com/storytold/lightcraft/commit/9e305d642e3e091235e8a651079f6dafd798c224) | KEY-TOGGLEZOOM: a click down and up within one frame keeps its zoom on Space's release | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
+| [`c9c3870ab387`](https://github.com/storytold/lightcraft/commit/c9c3870ab38718a63c5faaa7b677b39cbbc002eb) | KEY-TOGGLEZOOM: Toggle Zoom bound to Space in the keymap takes the hand and toggles once | `crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
+| [`63b7d0766e18`](https://github.com/storytold/lightcraft/commit/63b7d0766e18726ba35a2f4be645280acd478984) | LR-MASK-PINS: Object and Describe masks show a pin that selects them | `crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_masking.rs` | MIT OR Apache-2.0 |
+| [`aa52251d2ef3`](https://github.com/storytold/lightcraft/commit/aa52251d2ef3bb2e4014f20943c4c4c83ce0d931) | Apply Auto settings to every selected photo (#3808) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/auto_settings.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/li-i18n/src/pending_library.rs` | MIT OR Apache-2.0 |
 
 ## Content-Aware Fill geometric options (2026-11-15)
 

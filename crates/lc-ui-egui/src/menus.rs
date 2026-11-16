@@ -1125,6 +1125,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             crate::panels::dialogs::prompt(app, "Save Metadata Preset", "Preset name", "", "metadata.savePreset", json!({}), "name");
             Ok(Value::Null)
         }
+        // the selection is decoded by a background task, then committed as one step
+        "develop.auto" => crate::auto_settings::command(app, p),
         "file.findMissing" => {
             let Some(folder) = p.get("folder").and_then(Value::as_str).map(str::to_string) else {
                 return Some(ask_paths(app, FileDialogRequest::folder("Choose Search Folder"), id, p, "folder"));
