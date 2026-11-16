@@ -246,6 +246,13 @@ pub fn sync(app: &mut PhotocraftApp, photo: u64, settings: &Value) {
 }
 
 pub(crate) fn finish_sync(app: &mut PhotocraftApp, r: &Value) {
+    for kept in r["geometryChanged"].as_array().into_iter().flatten() {
+        let name = kept["name"].as_str().unwrap_or_default();
+        let msg = li_i18n::fmt(tl!("The photo's crop or size changed in Develop, so {name} was not updated"), &[("name", name)]);
+        crate::notices::post(app, msg.clone(), vec![tl!("Its layers would no longer line up with the new photo, so it keeps the photo as it was.").into()], false, None);
+        app.ui.status = msg;
+        app.ui.status_error = false;
+    }
     if let Some(added) = r["added"].as_array().filter(|a| !a.is_empty()) {
         for a in added {
             let name = a["name"].as_str().unwrap_or("Develop");

@@ -192,6 +192,25 @@ fn develop_compositing_started_during_render_gets_a_new_layer() {
 }
 
 #[test]
+fn develop_size_change_resizes_an_untouched_canvas_and_keeps_compositing_work() {
+    let photo = Photo::new("rotate");
+    let mut s = photo.session();
+    assert_eq!(s.active().unwrap().doc.size, Size::new(64, 40));
+    let steps = s.active().unwrap().history.past_len();
+    let portrait = json!({"photo": 71, "settings": {"orientation": "Rotate90"}});
+    assert_eq!(s.execute("develop.syncPhoto", portrait.clone()).unwrap()["updated"], 1);
+    assert_eq!(s.active().unwrap().doc.size, Size::new(40, 64));
+    assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().doc.size, Size::new(64, 40));
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let result = s.execute("develop.syncPhoto", portrait).unwrap();
+    assert_eq!(result["geometryChanged"][0]["document"], 0);
+    assert!(Arc::ptr_eq(&before, &s.active().unwrap().doc));
+}
+
+#[test]
 fn develop_changed_or_closed_target_is_never_overwritten() {
     let photo = Photo::new("changed");
     let mut s = photo.session();

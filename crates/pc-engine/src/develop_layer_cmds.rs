@@ -13,10 +13,12 @@
 //! * `develop.syncPhoto {photo, settings}` — the new settings of that Library photo reach every
 //!   open document following it (one undo step per document): a document that is still just the
 //!   photo re-develops its layer; one with compositing work gets a new Develop layer on top
-//!   ("Develop 2"…) and keeps every existing layer as it was.
+//!   ("Develop 2"…) and keeps every existing layer as it was. When the photo's size changed (crop,
+//!   rotation, perspective), a document that is still just the photo takes the new canvas size;
+//!   any other keeps the photo as it was and is listed under `geometryChanged`.
 //! * `develop.layers {}` — the Develop layers of the open documents (for the host).
 
-use photocraft_doc::{DevelopLink, DocId, Document, Layer, LayerContent, LayerId, SmartObject, SmartSource};
+use photocraft_doc::{DevelopLink, DocId, Document, Layer, LayerContent, LayerId, Size, SmartObject, SmartSource};
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
@@ -354,16 +356,30 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let active = s.active_index();
             let mut updated = 0;
             let mut added = Vec::new();
+            let mut geometry_changed = Vec::new();
             for (base, old, mut clean, in_place) in rendered {
                 let Some(i) = s.documents().iter().position(|d| d.doc.id == base.id) else { continue };
                 if s.job_on(base.id).is_some() || validate_layer(&s.documents()[i].doc, &base, &old).is_err() {
                     continue;
                 }
-                let untouched = is_untouched(&s.documents()[i].doc);
+                let doc = &s.documents()[i].doc;
+                let in_place = in_place.filter(|_| is_untouched(doc));
+                let old_size = rendered_size(&old);
+                let resize = rendered_size(in_place.as_ref().unwrap_or(&clean)).filter(|new| old_size.is_some_and(|was| was != *new));
+                // Layers above the photo, or a canvas sized by hand, would no longer line up with
+                // the new crop: keep the document as it is.
+                if resize.is_some() && (in_place.is_none() || old_size != Some(doc.size)) {
+                    geometry_changed.push(json!({"document": i, "name": doc.name}));
+                    continue;
+                }
                 s.set_active(i);
-                let result = if let Some(new) = in_place.filter(|_| untouched) {
+                let result = if let Some(new) = in_place {
                     s.edit("Update from Develop", |doc, _| {
                         *doc.layer_mut(old.id).ok_or(EngineError::NoLayer(old.id))? = new;
+                        if let Some(size) = resize {
+                            doc.size = size;
+                            doc.selection = None;
+                        }
                         Ok(())
                     })
                     .map(|_| updated += 1)
@@ -379,9 +395,16 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
                 restore_active(s, active);
                 result?;
             }
-            Ok(json!({"updated": updated, "added": added}))
+            Ok(json!({"updated": updated, "added": added, "geometryChanged": geometry_changed}))
         },
     )
+}
+
+/// The size of a Develop layer's rendered photo (its pixels' extent); `None` without pixels.
+fn rendered_size(layer: &Layer) -> Option<Size> {
+    let LayerContent::Smart(sm) = &layer.content else { return None };
+    let r = sm.cache.as_ref()?.content_bounds();
+    Some(Size::new(r.width(), r.height()))
 }
 
 fn list(s: &mut Session, _: &Value) -> Result<Value> {
@@ -429,7 +452,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Update Develop Layers",
             menu: &[],
             shortcut: None,
-            params: r##"{"photo":id,"settings":DevelopSettings JSON} → {updated, added: [{document, layer, name}]}"##,
+            params: r##"{"photo":id,"settings":DevelopSettings JSON} → {updated, added: [{document, layer, name}], geometryChanged: [{document, name}]}"##,
             enabled: always,
             run: sync_photo,
             journal: true,
