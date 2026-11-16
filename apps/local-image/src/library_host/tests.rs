@@ -253,8 +253,6 @@ fn launch_documents_show_in_compositing_and_folders_go_to_the_library_import() {
 }
 use super::*;
 
-/// LightCraft e2d35de: Library › Add Photos offers everything the folder scan imports and
-/// shows DSC_0001.NEF / IMG_0001.JPG / .CR3 on Linux.
 /// A raw the Library has, opened from Compositing (File › Open, Open Recent, a drop, the filmstrip
 /// or a launch argument), opens as a Develop layer with the photo's settings, not at camera
 /// defaults.
@@ -306,6 +304,8 @@ fn the_filmstrip_steps_on_from_a_catalogued_raw() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// LightCraft e2d35de: Library › Add Photos offers everything the folder scan imports and
+/// shows DSC_0001.NEF / IMG_0001.JPG / .CR3 on Linux.
 #[test]
 fn shared_decode_add_photos_picker_uses_readable_registry() {
     let extensions = add_photos_extensions();
