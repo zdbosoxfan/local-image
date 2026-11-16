@@ -9,7 +9,7 @@ use crate::PathOpsError;
 use kurbo::{BezPath, ParamCurveExtrema, Rect};
 use std::{cell::Cell, marker::PhantomData};
 
-const MAX_SEGMENT_PAIRS: usize = 1 << 22;
+pub(crate) const MAX_SEGMENT_PAIRS: usize = 1 << 22;
 /// Many components, or a chain of booleans over a growing result, pass the sweep limit one sweep
 /// at a time. The cost that matters to the user is their sum.
 const MAX_OPERATION_PAIRS: usize = 4 * MAX_SEGMENT_PAIRS;
@@ -122,10 +122,10 @@ fn overlaps_within(boxes: &[Rect], cap: usize) -> Option<usize> {
     Some(overlaps)
 }
 
-/// Charge one sweep of `paths` to the open operation, or refuse it.
-pub(crate) fn charge_sweep<'a>(paths: impl IntoIterator<Item = &'a BezPath>) -> Result<(), PathOpsError> {
+/// Charge one sweep of `paths` to the open operation, or refuse it if it alone passes `cap` pairs.
+pub(crate) fn charge_sweep<'a>(paths: impl IntoIterator<Item = &'a BezPath>, cap: usize) -> Result<(), PathOpsError> {
     let boxes: Vec<Rect> = paths.into_iter().flat_map(|path| path.segments().map(|segment| segment.bounding_box())).collect();
-    let pairs = overlaps_within(&boxes, MAX_SEGMENT_PAIRS).unwrap_or(MAX_OPERATION_PAIRS + 1);
+    let pairs = overlaps_within(&boxes, cap).unwrap_or(MAX_OPERATION_PAIRS + 1);
     let spent = OPERATION_PAIRS.get().unwrap_or(0).saturating_add(pairs);
     OPERATION_PAIRS.set(OPERATION_PAIRS.get().map(|_| spent));
     if spent > MAX_OPERATION_PAIRS {
@@ -209,18 +209,18 @@ mod tests {
             let _operation = WorkBudget::begin();
             for _ in 0..3 {
                 let _joined = WorkBudget::begin();
-                assert_eq!(charge_sweep([&grid]), Ok(()));
+                assert_eq!(charge_sweep([&grid], MAX_SEGMENT_PAIRS), Ok(()));
             }
-            assert_eq!(charge_sweep([&grid]), Ok(()));
+            assert_eq!(charge_sweep([&grid], MAX_SEGMENT_PAIRS), Ok(()));
             assert!(!watch.refused());
 
-            assert_eq!(charge_sweep([&grid]), Err(PathOpsError::TooComplex));
+            assert_eq!(charge_sweep([&grid], MAX_SEGMENT_PAIRS), Err(PathOpsError::TooComplex));
             assert!(watch.refused());
-            assert_eq!(charge_sweep([&BezPath::new()]), Err(PathOpsError::TooComplex));
+            assert_eq!(charge_sweep([&BezPath::new()], MAX_SEGMENT_PAIRS), Err(PathOpsError::TooComplex));
         }
         let later = RefusalWatch::begin();
         let _next_operation = WorkBudget::begin();
-        assert_eq!(charge_sweep([&grid]), Ok(()));
+        assert_eq!(charge_sweep([&grid], MAX_SEGMENT_PAIRS), Ok(()));
         assert!(!later.refused());
     }
 

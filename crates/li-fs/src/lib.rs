@@ -492,6 +492,45 @@ impl AtomicFs for PrivateFs {
         if cfg!(unix) { Ok(()) } else { RealFs.preserve_permissions(from, to, policy) }
     }
 }
+/// As [`atomic_write`], never following a symlink at `path`: the rename replaces a link there, so
+/// one planted after a caller's own check cannot carry the write outside the folder.
+pub fn atomic_write_no_follow(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    atomic_write_with(&NoFollowFs, RenameRetry::platform(), path, bytes)
+}
+/// [`RealFs`] that stages beside `path` itself instead of beside a symlink's target.
+struct NoFollowFs;
+impl AtomicFs for NoFollowFs {
+    fn write_new(&self, tmp: &Path, bytes: &[u8]) -> io::Result<()> {
+        RealFs.write_new(tmp, bytes)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        RealFs.rename(from, to)
+    }
+    fn remove(&self, path: &Path) -> io::Result<()> {
+        RealFs.remove(path)
+    }
+    fn sync_dir(&self, dir: &Path) -> io::Result<()> {
+        RealFs.sync_dir(dir)
+    }
+    fn copy_permissions(&self, from: &Path, to: &Path) -> io::Result<()> {
+        RealFs.copy_permissions(from, to)
+    }
+    fn sync_temp(&self, tmp: &Path) -> io::Result<()> {
+        RealFs.sync_temp(tmp)
+    }
+    fn prepare_target(&self, path: &Path) -> io::Result<PathBuf> {
+        validate_target(path)?;
+        fs::create_dir_all(parent_of(path))?;
+        Ok(path.to_path_buf())
+    }
+    fn preserve_permissions(&self, from: &Path, to: &Path, policy: Policy) -> io::Result<()> {
+        // A replaced link has nothing to carry over: its target's access is not this file's.
+        if fs::symlink_metadata(from)?.file_type().is_symlink() {
+            return Ok(());
+        }
+        RealFs.preserve_permissions(from, to, policy)
+    }
+}
 pub fn atomic_write_with(fs: &dyn AtomicFs, retry: RenameRetry, path: &Path, bytes: &[u8]) -> io::Result<()> {
     let (target, tmp) = prepare(fs, path, bytes, &Interrupt::NONE)?;
     let mut cleanup = Temp { fs, path: Some(tmp.clone()) };
@@ -601,13 +640,33 @@ fn resolve_symlink(path: &Path) -> io::Result<PathBuf> {
         Err(e) => Err(e),
     }
 }
-/// Short unique name with a bounded target hint; also recognized by legacy cleanup tools.
+/// Short unique name with a bounded target hint: `lightcraft-{pid}-{n}.{hint}.pcsave.tmp`.
+///
+/// It does not start with a dot: an SMB server that hides dot files (TrueNAS, macOS shares) marks
+/// such a file hidden when it is created, the mark survives the rename, and the saved file would
+/// be hidden too. Leftovers may still carry the dot form; [`temp_owner`] reads both.
 pub fn temp_name(file: &str) -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     // A bounded ASCII target hint lets cache cleanup distinguish its files from unrelated
     // writers, and keeps even non-ASCII/NAME_MAX destinations well below the name limit.
     let hint: String = file.chars().take(64).map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
-    format!(".lightcraft-{}-{}.{hint}.pcsave.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+    format!("lightcraft-{}-{}.{hint}{TEMP_SUFFIX}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+/// What every [`temp_name`] ends with.
+const TEMP_SUFFIX: &str = ".pcsave.tmp";
+
+/// The process id and target hint of a [`temp_name`], in today's form or the dot-prefixed one
+/// older versions wrote, so their leftovers are still recognized; `None` for any other name.
+pub fn temp_owner(name: &str) -> Option<(u32, &str)> {
+    let rest = name.strip_prefix('.').unwrap_or(name).strip_prefix("lightcraft-")?.strip_suffix(TEMP_SUFFIX)?;
+    let (numbers, hint) = rest.split_once('.')?;
+    let (pid, n) = numbers.split_once('-')?;
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(pid) || !digits(n) {
+        return None;
+    }
+    Some((pid.parse().ok()?, hint))
 }
 pub fn sync_dir(dir: &Path) {
     let _ = sync_dir_checked(dir);
