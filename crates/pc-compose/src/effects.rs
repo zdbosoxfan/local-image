@@ -1779,6 +1779,15 @@ mod tests {
         assert_eq!(sample_gradient(&g, f32::NAN)[..3], [1.0; 3]);
     }
 
+    /// A plane with no pixels sizes no scratch from its other dimension: one too large to
+    /// allocate at all still returns empty.
+    #[test]
+    fn an_empty_distance_transform_allocates_nothing() {
+        let (d, n) = edt_nearest(&[], 0, usize::MAX / 2);
+        assert!(d.is_empty() && n.is_empty());
+        assert!(edt(&[], usize::MAX / 2, 0).is_empty());
+    }
+
     #[test]
     fn edt_two_seeds() {
         let (w, h) = (10, 1);
