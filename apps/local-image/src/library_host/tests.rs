@@ -876,6 +876,39 @@ fn quitting_from_the_library_asks_about_unsaved_work() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Cancel in the quit prompt goes back to the Library the quit started from, with the work kept.
+#[test]
+fn cancelling_the_quit_prompt_returns_to_the_library() {
+    let (dir, path, lib, orig) = library_with_photo("quit-cancel");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    PhotocraftApp::setup_context(&ctx, host.editor.ui.theme);
+    host.switch(&ctx, Module::Library);
+    let mut raw = egui::RawInput::default();
+    raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+    let mut out = ctx.run_ui(raw, |ui| {
+        let ctx = ui.ctx().clone();
+        assert!(host.quit_review(&ctx));
+        photocraft_ui_egui::discard_ui::guard_window_close(&mut host.editor, &ctx);
+    });
+    out.textures_delta.clear();
+    assert_eq!(host.mode, Module::Compositing, "the prompt is in Compositing");
+    assert!(photocraft_ui_egui::discard_ui::asking(&host.editor));
+    let escape = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+    for events in [vec![], vec![escape]] {
+        let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| photocraft_ui_egui::discard_ui::show(&mut host.editor, ui.ctx()));
+        out.textures_delta.clear();
+    }
+    assert!(!photocraft_ui_egui::discard_ui::asking(&host.editor), "Esc cancelled the prompt");
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        assert!(!host.quit_review(ui.ctx()));
+    });
+    out.textures_delta.clear();
+    assert_eq!(host.mode, Module::Library);
+    assert!(host.editor.has_unsaved(), "the work is still there");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Library → Develop (new edits) → Compositing: the edits arrive as a new Develop layer on
 /// top of a document with compositing work; its existing layers stay as they were.
 #[test]

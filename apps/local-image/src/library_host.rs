@@ -80,6 +80,8 @@ pub struct Host {
     save_sources_seen: Option<SaveSourcesKey>,
     /// The Camera Raw Filter session open in Develop.
     camera_raw: Option<CameraRawSession>,
+    /// The module a quit started from while Compositing asks about unsaved documents.
+    quit_from: Option<Module>,
     /// Composites of unsaved Compositing documents, rendered for the Library.
     composites: Composites,
     filmstrip_previews: FilmstripPreviews,
@@ -197,6 +199,7 @@ impl Host {
             library_seen: None,
             save_sources_seen: None,
             camera_raw: None,
+            quit_from: None,
             composites: Composites::default(),
             filmstrip_previews: FilmstripPreviews::default(),
             round_trip_notice: None,
@@ -851,14 +854,27 @@ impl Host {
 
     /// Quitting from Library or Develop with unsaved documents: Compositing comes forward (as it
     /// is: the Library's photo isn't opened there) so its unsaved-changes prompt asks about them
-    /// (Save / Don't Save / Cancel). `true` when the editor must run this frame.
+    /// (Save / Don't Save / Cancel); Cancel goes back to the module the quit started from. `true`
+    /// when the editor must run this frame.
     fn quit_review(&mut self, ctx: &egui::Context) -> bool {
+        // The prompt closed with unsaved work left: it was cancelled.
+        if let Some(from) = self.quit_from
+            && !photocraft_ui_egui::discard_ui::asking(&self.editor)
+        {
+            self.quit_from = None;
+            if self.editor.has_unsaved() {
+                self.mode = from;
+                self.styled = None;
+                ctx.request_repaint();
+            }
+        }
         if self.mode == Module::Compositing || !ctx.input(|i| i.viewport().close_requested()) || !self.editor.has_unsaved() {
             return false;
         }
         if self.camera_raw.is_some() {
             self.end_camera_raw(ctx, false);
         }
+        self.quit_from = Some(self.mode);
         self.mode = Module::Compositing;
         self.styled = None;
         ctx.request_repaint();
