@@ -29,6 +29,8 @@ All notable changes to Local Image are recorded here. The format follows
 - Answering OK to the "Rasterize?" prompt that a brush or pencil opens on a type, shape, Smart
   Object or fill layer only rasterizes the layer, as in Photoshop. The click that opened the prompt
   no longer paints; the next click does.
+- The Magnetic Lasso snaps to the edges of the visible image in an RGB document, whichever layer is
+  active; hidden layers add none. Other colour modes still follow the active layer's own pixels.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.

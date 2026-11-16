@@ -1464,5 +1464,6 @@ Each of these changes an existing test exactly as upstream changed its counterpa
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`54515f94b347`](https://github.com/storytold/photocraft/commit/54515f94b34786dc4c3d04a57cb8d66f838ea59f) | fix(ui-egui): the rasterize prompt no longer replays the click that opened it (#8806) | `crates/pc-ui-egui/src/rasterize_prompt.rs`<br>`crates/pc-ui-egui/src/rasterize_prompt_tests.rs`<br>`crates/pc-ui-egui/src/vector_packages/persona.rs`<br>`docs/control-protocol.md` | MIT OR Apache-2.0 |
+| [`70e6b0e7b15c`](https://github.com/storytold/photocraft/commit/70e6b0e7b15c8c3bac05c14fa821c57011cc1b3c) | Magnetic Lasso: the edge comes from the visible composite, not the active layer (#11686) | `crates/pc-engine/src/magnetic_cmds.rs`<br>`crates/pc-engine/src/magnetic_cmds/tests.rs`<br>`crates/pc-ui-egui/src/magnetic_lasso_ui.rs` | MIT OR Apache-2.0 |
 
 `54515f94`: our `confirm()` keeps its local `persona::validate_rasterize_prompt` check before rasterizing; upstream's `confirm_filter` branch and scorecard rows have no counterpart here.
