@@ -338,6 +338,46 @@ fn regions_drawn_on_the_photo_as_stored_land_on_the_upright_photo() {
     let _ = std::fs::remove_dir_all(&src);
 }
 
+/// A photo whose Exif states no orientation, but whose XMP says `tiff:Orientation=6`, is shown as stored (it turns by
+/// the Exif alone), so boxes drawn on its stored frame are right as written when it is imported.
+#[test]
+fn an_orientation_only_the_xmp_states_leaves_stored_frame_regions_as_written() {
+    let src = temp_dir("regions-xmp-orientation");
+    let file = src.join("p.jpg");
+    let packet = STORED_FRAME_REGIONS.replace(r#"rdf:about="""#, r#"rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Orientation="6""#);
+    let (w, h) = (32usize, 24usize);
+    let data: Vec<[u8; 4]> = (0..w * h).map(|i| [(i % w * 7) as u8, (i / w * 9) as u8, 90, 255]).collect();
+    let img = li_raster::Rgba8 { width: w, height: h, data };
+    // an Exif that states the size as stored (32 × 24, as cameras do) and no orientation: IFD0 points to an Exif IFD
+    // holding PixelXDimension and PixelYDimension
+    let mut exif = b"II*\0\x08\0\0\0".to_vec();
+    for (count, entries, next) in [(1u16, vec![(34665u16, 26u32)], 0u32), (2, vec![(40962, 32), (40963, 24)], 0)] {
+        exif.extend(count.to_le_bytes());
+        for (tag, value) in entries {
+            exif.extend(tag.to_le_bytes());
+            exif.extend(4u16.to_le_bytes());
+            exif.extend(1u32.to_le_bytes());
+            exif.extend(value.to_le_bytes());
+        }
+        exif.extend(next.to_le_bytes());
+    }
+    let meta = lightcraft_codecs::EncodeMeta { exif: Some(exif.as_slice()), xmp: Some(packet.as_str()), ..Default::default() };
+    let bytes = lightcraft_codecs::encode_jpeg(&lightcraft_codecs::EncodeImage::rgba8(&img), 90, Default::default(), &meta).unwrap();
+    std::fs::write(&file, bytes).unwrap();
+    let mut s = Session::new().with_fs();
+    s.execute("library.import", &json!({"paths": [file.to_string_lossy()]})).unwrap();
+    let p = s.catalog.photo(only(&s)).unwrap();
+    assert_eq!((p.width, p.height), (32, 24), "shown as stored");
+    assert_eq!(p.meta.regions.len(), 1);
+    let r = p.meta.regions[0].rect;
+    let got = [r.x0, r.y0, r.x1, r.y1];
+    assert!(
+        got.iter().zip([0.2, 0.325, 0.3, 0.475]).all(|(g, want)| (g - want).abs() < 1e-9),
+        "the box was turned by an orientation the Exif doesn't state: {got:?}"
+    );
+    let _ = std::fs::remove_dir_all(&src);
+}
+
 /// Removing a face box is a catalog-only, undoable edit: it never rewrites the sidecar (Lightroom's
 /// regions and everything else in it stay byte for byte), even with auto-write on.
 #[test]
