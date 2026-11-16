@@ -51,9 +51,6 @@ fn open_with_format(app: &mut PhotocraftApp, format: Option<&str>) -> Result<u64
                 f.insert(key.into(), value.clone());
             }
         }
-        if let Some(rows) = saved.get("scaleAll").filter(|v| valid_scale_rows(v)) {
-            f.insert("scaleAll".into(), rows.clone());
-        }
     }
     if let Some(format) = format {
         f.insert("format".into(), json!(format));
@@ -93,10 +90,7 @@ fn layer_stem(name: &str) -> String {
 }
 pub(crate) type Remembered = Map<String, Value>;
 fn remembered(app: &PhotocraftApp, f: &Map<String, Value>) -> Remembered {
-    let mut saved: Map<String, Value> = KEYS.iter().filter_map(|key| f.get(*key).map(|v| ((*key).into(), v.clone()))).collect();
-    if let Some(rows) = f.get("scaleAll").filter(|v| valid_scale_rows(v)) {
-        saved.insert("scaleAll".into(), rows.clone());
-    }
+    let saved: Map<String, Value> = KEYS.iter().filter_map(|key| f.get(*key).map(|v| ((*key).into(), v.clone()))).collect();
     let mut values = Map::from_iter([(PREFS.into(), Value::Object(saved))]);
     match s_fmt(f).as_str() {
         "svg" => {
@@ -122,101 +116,6 @@ fn remembered(app: &PhotocraftApp, f: &Map<String, Value>) -> Remembered {
     }
     values
 }
-/// Scale All's sizes, in the menu's order.
-const SCALE_SIZES: [&str; 11] = ["0.1x", "0.25x", "0.3x", "0.33x", "0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x", "3x"];
-/// The sizes + adds, as measured: the first one no row has yet (0.3x is never added).
-const SCALE_ADD_ORDER: [&str; 9] = ["0.5x", "0.75x", "0.25x", "2x", "0.33x", "1.5x", "0.1x", "3x", "1.25x"];
-/// Scale All's row limit, as measured.
-const MAX_SCALE_ROWS: usize = 10;
-/// Rows shown before the list scrolls, as measured.
-const SCALE_ROWS_SHOWN: f32 = 7.0;
-
-/// Whether `v` is a Scale All row list: 1..=10 rows of a listed size and a suffix.
-fn valid_scale_rows(v: &Value) -> bool {
-    v.as_array().is_some_and(|rows| {
-        (1..=MAX_SCALE_ROWS).contains(&rows.len())
-            && rows.iter().all(|r| {
-                r.get("size").and_then(Value::as_str).is_some_and(|s| SCALE_SIZES.contains(&s))
-                    && r.get("suffix").and_then(Value::as_str).is_some_and(|s| s.chars().count() <= 64)
-            })
-    })
-}
-
-/// The dialog's Scale All rows as (size, suffix); one 1x row with no suffix by default.
-fn scale_rows(f: &Map<String, Value>) -> Vec<(String, String)> {
-    let row = |r: &Value| (r["size"].as_str().unwrap_or("1x").to_string(), r["suffix"].as_str().unwrap_or_default().to_string());
-    match f.get("scaleAll").filter(|v| valid_scale_rows(v)).and_then(Value::as_array) {
-        Some(rows) => rows.iter().map(row).collect(),
-        None => vec![("1x".into(), String::new())],
-    }
-}
-
-fn scale_rows_value(rows: &[(String, String)]) -> Value {
-    Value::Array(rows.iter().map(|(size, suffix)| json!({"size": size, "suffix": suffix})).collect())
-}
-
-/// The row + adds: the next unused size with an `@<size>` suffix, none at the limit.
-fn next_scale_row(rows: &[(String, String)]) -> Option<(String, String)> {
-    if rows.len() >= MAX_SCALE_ROWS {
-        return None;
-    }
-    SCALE_ADD_ORDER.iter().find(|s| !rows.iter().any(|(size, _)| size == *s)).map(|s| ((*s).to_string(), format!("@{s}")))
-}
-
-fn scale_factor(size: &str) -> f64 {
-    size.strip_suffix('x').and_then(|v| v.parse().ok()).filter(|v: &f64| v.is_finite() && *v > 0.0).unwrap_or(1.0)
-}
-
-/// The dialog settings `f` with the export scale multiplied by `factor` (a Scale All row).
-fn scaled_fields(f: &Map<String, Value>, factor: f64) -> Map<String, Value> {
-    let mut out = f.clone();
-    if (factor - 1.0).abs() > f64::EPSILON {
-        out.insert("scale".into(), json!(n(f, "scale", 100.0) * factor));
-    }
-    out
-}
-
-/// A row's suffix as part of a file name: characters a file name can't hold become `_`.
-fn file_suffix(suffix: &str) -> String {
-    suffix.chars().map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c }).collect()
-}
-
-/// Export As › Scale All: one row per output size, each a Size and a Suffix, with + to add the
-/// next size and a trash button per row (greyed while one row is left).
-fn scale_all_fields(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
-    let t = Tokens::get(ui.ctx());
-    let mut rows = scale_rows(f);
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(tl!("Scale All")).font(crate::theme::semibold(12.0)).color(t.text));
-        if crate::icons::button(ui, "plus", 20.0, false, tl!("Add a size")).clicked()
-            && let Some(row) = next_scale_row(&rows)
-        {
-            rows.push(row);
-        }
-    });
-    let sizes: Vec<(String, &str)> = SCALE_SIZES.iter().map(|s| ((*s).to_string(), *s)).collect();
-    let single = rows.len() == 1;
-    let mut remove = None;
-    let row_height = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
-    egui::ScrollArea::vertical().id_salt("export-scale-all").max_height(row_height * SCALE_ROWS_SHOWN).show(ui, |ui| {
-        for (i, (size, suffix)) in rows.iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                crate::widgets::dropdown(ui, &format!("export-scale-size-{i}"), size, &sizes, 70.0);
-                ui.add(egui::TextEdit::singleline(suffix).desired_width(110.0).hint_text(tl!("Suffix")));
-                let name = li_i18n::fmt(tl!("Remove size {n}"), &[("n", &(i + 1).to_string())]);
-                if ui.add_enabled_ui(!single, |ui| crate::icons::button(ui, "trash", 20.0, false, &name)).inner.clicked() {
-                    remove = Some(i);
-                }
-            });
-        }
-    });
-    if let Some(i) = remove {
-        rows.remove(i);
-    }
-    f.insert("scaleAll".into(), scale_rows_value(&rows));
-    ui.add_space(8.0);
-}
-
 pub(crate) fn publish_preferences(app: &mut PhotocraftApp, values: Remembered) {
     app.session.edit_prefs(|prefs| prefs.dialogs.extend(values));
 }
@@ -500,7 +399,6 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
         // Left: settings.
         ui.vertical(|ui| {
             ui.set_width(220.0);
-            scale_all_fields(ui, f);
             ui.label(egui::RichText::new(tl!("File Settings")).font(crate::theme::semibold(12.0)).color(t.text));
             let fmt = s_fmt(f);
             if fmt == "webp" {
@@ -619,11 +517,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             crate::vector_packages::pdf_export::begin_embedded(app, &suggested, preferences)
         };
     }
-    let rows = scale_rows(f);
-    if rows.len() > 1 {
-        return confirm_sizes(app, f, doc, &stem, rows, preferences);
-    }
-    let f = scaled_fields(f, scale_factor(&rows[0].0));
+    let f = f.clone();
     app.pick_export(&suggested, move |app, path| {
         capture_current(app, &f)?;
         let out = export_document(&doc, &f, None)?;
@@ -636,46 +530,6 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
         }
         crate::notices::file_result(app, tl!("Exported"), &path, &warnings);
         Ok(json!({"path": path, "bytes": bytes.len(), "warnings": warnings}))
-    })
-}
-
-/// [`confirm`] with several Scale All rows: a folder choice, then `<name><suffix>.<ext>` there for
-/// each row, at the row's size.
-fn confirm_sizes(
-    app: &mut PhotocraftApp,
-    f: &Map<String, Value>,
-    doc: Arc<Document>,
-    stem: &str,
-    rows: Vec<(String, String)>,
-    preferences: Option<Remembered>,
-) -> Result<Value, String> {
-    let (f, stem) = (f.clone(), stem.to_owned());
-    app.pick_folder(move |app, dir| {
-        capture_current(app, &f)?;
-        let ext = s_fmt(&f);
-        let mut exported = Vec::new();
-        for (size, suffix) in &rows {
-            let path = std::path::Path::new(&dir).join(format!("{stem}{}.{ext}", file_suffix(suffix)));
-            // The writer follows links, so one planted where a file is written would redirect it.
-            #[cfg(not(target_arch = "wasm32"))]
-            if path.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
-                return Err(format!("{} is a link; nothing was written there", path.display()));
-            }
-            let path = path.to_string_lossy().into_owned();
-            let out = export_document(&doc, &scaled_fields(&f, scale_factor(size)), None)?;
-            let export = app.services.export.as_ref().ok_or("no exporter configured")?;
-            let (bytes, warnings) = export(&out, &path, &settings(&f)).map_err(|error| format!("Could not export {path}: {error}"))?;
-            let write = app.services.write.as_mut().ok_or("no writer configured")?;
-            write(&path, &bytes).map_err(|error| format!("Could not export {path}: {error}"))?;
-            crate::notices::file_result(app, tl!("Exported"), &path, &warnings);
-            exported.push(json!({"path": path, "bytes": bytes.len(), "warnings": warnings}));
-        }
-        if let Some(preferences) = preferences {
-            publish_preferences(app, preferences);
-        }
-        app.ui.status = li_i18n::fmt(tl!("Exported {n} files"), &[("n", &exported.len().to_string())]);
-        app.ui.status_error = false;
-        Ok(json!({"exported": exported}))
     })
 }
 
@@ -900,7 +754,3 @@ mod tests {
 #[cfg(test)]
 #[path = "export_dialog/unified_tests.rs"]
 mod unified_tests;
-
-#[cfg(test)]
-#[path = "export_dialog/scale_all_tests.rs"]
-mod scale_all_tests;
