@@ -52,6 +52,11 @@ use roundtrip::*;
 use services_wiring::*;
 use settings::*;
 
+/// Launch arguments split into documents for Compositing and folders for the Library's import.
+pub fn split_launch_paths(paths: &[String]) -> (Vec<String>, Vec<String>) {
+    paths.iter().cloned().partition(|path| !std::path::Path::new(path).is_dir())
+}
+
 /// Files the Library asked the editor to open (Edit in External Editor with no other editor set).
 type Opens = Arc<Mutex<Vec<String>>>;
 type SaveSourcesKey = (String, u64, u64, Vec<photocraft_ui_egui::develop_layer::LibraryOrigin>);
@@ -85,6 +90,8 @@ pub struct Host {
     camera_raw: Option<CameraRawSession>,
     /// The module a quit started from while Compositing asks about unsaved documents.
     quit_from: Option<Module>,
+    /// Folders named at launch, imported once the Library exists.
+    launch_folders: Vec<String>,
     /// Composites of unsaved Compositing documents, rendered for the Library.
     composites: Composites,
     filmstrip_previews: FilmstripPreviews,
@@ -181,7 +188,9 @@ impl Host {
     pub fn new(editor: PhotocraftApp) -> Self {
         let mut editor = editor;
         editor.host_modes = std::env::var_os("LOCAL_IMAGE_NO_LIBRARY").is_none();
-        let mode = if editor.host_modes {
+        // Files opened at launch are shown, not left loading behind the remembered module.
+        let launched = !editor.session.documents().is_empty() || !editor.jobs.opens.is_empty();
+        let mode = if editor.host_modes && !launched {
             editor
                 .session
                 .prefs()
@@ -210,9 +219,40 @@ impl Host {
             save_sources_seen: None,
             camera_raw: None,
             quit_from: None,
+            launch_folders: Vec::new(),
             composites: Composites::default(),
             filmstrip_previews: FilmstripPreviews::default(),
             round_trip_notice: None,
+        }
+    }
+
+    /// Folders named at launch go to the Library's import (scan, then its review), shown unless a
+    /// launch document is open in Compositing. Without the Library the editor reports them.
+    pub fn import_at_launch(&mut self, folders: Vec<String>) {
+        if folders.is_empty() {
+            return;
+        }
+        if !self.editor.host_modes {
+            self.editor.open_paths(&folders);
+            return;
+        }
+        if self.mode == Module::Compositing && self.editor.session.documents().is_empty() && self.editor.jobs.opens.is_empty() {
+            self.mode = Module::Library;
+        }
+        self.launch_folders = folders;
+    }
+
+    fn start_launch_import(&mut self, ctx: &egui::Context) {
+        if self.launch_folders.is_empty() {
+            return;
+        }
+        let Some(lib) = self.library.as_mut() else { return };
+        let folders = std::mem::take(&mut self.launch_folders);
+        if let Some(problem) = lib.library_problem.as_mut() {
+            // Imported once the user has chosen where (the Library, or a temporary session).
+            problem.pending_import.extend(folders);
+        } else if let Err(e) = lightcraft_ui_egui::import::open(lib, folders) {
+            lib.toast_error(ctx, e);
         }
     }
 
@@ -1216,6 +1256,7 @@ impl eframe::App for Host {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.observe_library();
         self.frames += 1;
+        self.start_launch_import(ctx);
         self.editor.current_module = self.mode;
         self.shared_shell(ctx);
         self.run_library_native_menu(ctx);

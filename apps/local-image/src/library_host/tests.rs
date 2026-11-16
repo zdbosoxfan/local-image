@@ -205,6 +205,36 @@ fn bugfix_develop_startup_defaults_to_library_and_restores_develop() {
     assert_eq!(super::module_preference(Some("editor")), super::Module::Compositing);
     assert_eq!(super::module_preference(Some("unknown")), super::Module::Library);
 }
+
+/// A file given at launch is shown in Compositing; a folder goes to the Library's import.
+#[test]
+fn launch_documents_show_in_compositing_and_folders_go_to_the_library_import() {
+    let dir = std::env::temp_dir().join(format!("li-launch-args-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("shoot")).unwrap();
+    std::fs::write(dir.join("photo.png"), b"").unwrap();
+    let file = dir.join("photo.png").to_string_lossy().to_string();
+    let folder = dir.join("shoot").to_string_lossy().to_string();
+    assert_eq!(super::split_launch_paths(&[file.clone(), folder.clone()]), (vec![file], vec![folder.clone()]));
+
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.run("file.new", serde_json::json!({"width": 8, "height": 8})).unwrap();
+    let host = Host::new(editor);
+    assert_eq!(host.mode, Module::Compositing, "a launch document is shown, not the remembered module");
+
+    let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));
+    host.editor.host_modes = true;
+    host.mode = Module::Compositing;
+    host.import_at_launch(vec![folder.clone()]);
+    assert_eq!(host.mode, Module::Library, "only a folder: the Library shows its import");
+    let (library_dir, _, library, _) = library_with_photo("launch-folder");
+    host.library = Some(library);
+    host.start_launch_import(&egui::Context::default());
+    assert!(host.launch_folders.is_empty());
+    assert!(host.library.as_ref().unwrap().scan.is_some(), "the folder is scanned for the import review");
+    let _ = std::fs::remove_dir_all(library_dir);
+    let _ = std::fs::remove_dir_all(dir);
+}
 use super::*;
 
 /// LightCraft e2d35de: Library › Add Photos offers everything the folder scan imports and
