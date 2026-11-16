@@ -1202,7 +1202,7 @@ Already covered: `d00df631`'s lossy-JPEG size ceiling by the tile-bounded JPEG h
 
 Not applicable, the upstream file having no counterpart here as of `6f6d8ed8`: `d00df631`'s and `3022baa8`'s `crates/raw/src/sparse.rs` (no sparse reader), `d00df631`'s `crates/raw/src/vendor/mef.rs` (no MEF decoder) and `crates/raw/src/wb_estimate.rs`, and `d8ceb3a6`'s `crates/meta/src/focus_read.rs` (no focus reader), `crates/denoise/src/reference.rs` and `crates/denoise-core/src/product.rs`. `d8ceb3a6`'s `try_read_exif_with` in `crates/meta/src/exif.rs` exists upstream for that focus reader and has no caller here.
 
-Local limit on a ported guard: the refusal of an Original export under Remove Location Info from `db7e3784` (`crates/lc-engine/src/export/prepared.rs`) only trusts the containers `reads_container` allows (`crates/lc-meta/src/container.rs`). Everything else is refused, including HEIC, HEIF, HIF and JPEG XL, which have no metadata reader here yet. Within those containers `try_extract` refuses a malformed XMP packet in any of them, and any block `Embedded::unread` names: compressed or `zTXt`/`tEXt` PNG XMP, a raw metadata profile, a second Exif block or XMP packet, a cut-off block, and XMP that is not UTF-8. JPEG extended XMP is read, and `Metadata::other_location` adds the location fields `Metadata` has no field for. A local adaptation with no upstream match. This is best-effort, not a guarantee that a copied file holds no location: corrupt Exif outside PSD/PSB reads as no Exif (`try_extract_keeps_non_psd_exif_best_effort`), so a location inside it goes unseen, and nothing looks at JPEG data past the first scan, IPTC past the first APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3 preview boxes, or PNG text chunks under other keywords.
+Local limit on a ported guard: the refusal of an Original export under Remove Location Info from `db7e3784` (`crates/lc-engine/src/export/prepared.rs`) only trusts the containers `reads_container` allows (`crates/lc-meta/src/container.rs`). Everything else is refused, including JPEG XL, which has no metadata reader here yet, and HEIC, HEIF and HIF, whose Exif and XMP items are read best-effort for import (`6c2ff558`, `crates/lc-meta/src/heif.rs`) and not trusted by this check. Within those containers `try_extract` refuses a malformed XMP packet in any of them, and any block `Embedded::unread` names: compressed or `zTXt`/`tEXt` PNG XMP, a raw metadata profile, a second Exif block or XMP packet, a cut-off block, and XMP that is not UTF-8. JPEG extended XMP is read, and `Metadata::other_location` adds the location fields `Metadata` has no field for. A local adaptation with no upstream match. This is best-effort, not a guarantee that a copied file holds no location: corrupt Exif outside PSD/PSB reads as no Exif (`try_extract_keeps_non_psd_exif_best_effort`), so a location inside it goes unseen, and nothing looks at JPEG data past the first scan, IPTC past the first APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3 preview boxes, or PNG text chunks under other keywords.
 
 ## Giant-file imports (2026-11-15)
 
@@ -1632,6 +1632,14 @@ Local extension of
 `17248a20`: the Library's embedded-preview paths (`lc-engine` `load_embedded_preview`, `embedded_preview_srgb`) take
 the same EXIF colour-space tag, and a preview with EXIF of its own is read by that EXIF, not the raw's.
 
+Adapted port of `6c2ff558`: the reader feeds `extract` and `embedded` only. `reads_container` still refuses HEIF, so
+the Remove Location Info refusal of HEIC, HEIF and HIF originals stands. The reader looks up the two metadata items
+in `iloc` instead of listing every item, and refuses an item longer than its source. It takes the first `Exif` item
+and the first XMP item in `iinf`; upstream takes the first of each it can locate and read, so a file whose first
+Exif item is unreadable yields no Exif here. Not ported: the `lightcraft-heif` test-data dependency and the engine
+import test built on it (no synthetic HEIC writer here; `crates/pc-heif` only decodes), so the reader is tested on
+its own container builder.
+
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`b0c4aa8cc8ac`](https://github.com/storytold/lightcraft/commit/b0c4aa8cc8acac043af6d767b3bfec30d0ab0c0a) | security(raw): linear sparse planning, distinct-byte allocation bound, opcode list budget, ORF strip length (#3679) | `crates/lc-raw/src/opcodes.rs`<br>`crates/lc-raw/src/vendor/orf.rs` | MIT OR Apache-2.0 |
@@ -1648,6 +1656,7 @@ the same EXIF colour-space tag, and a preview with EXIF of its own is read by th
 | [`0133e139bb68`](https://github.com/storytold/photocraft/commit/0133e139bb6857af2d4a2749ffe0ba99a7697e8d) | A raw with damaged sensor data opens its camera JPEG instead of failing | `crates/pc-io/src/raw.rs` | MIT OR Apache-2.0 |
 | [`17248a205dd7`](https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df) | A preview fallback keeps the colour space the raw's EXIF states | `crates/lc-codecs/src/jpeg.rs`<br>`crates/lc-codecs/src/lib.rs`<br>`crates/lc-engine/src/files.rs` | MIT OR Apache-2.0 |
 | [`5d4b68f04cfe`](https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303) | Use craft-heif from craft-libs for HEIC/HEIF (#13076) | `crates/pc-codecs/src/codecs/heif.rs` | MIT OR Apache-2.0 |
+| [`6c2ff558d90a`](https://github.com/storytold/lightcraft/commit/6c2ff558d90a9ab6e314f9ce4f19bd1d542fee6b) | #2284: read the Exif and XMP items of HEIF files | `crates/lc-meta/src/heif.rs`<br>`crates/lc-meta/src/container.rs`<br>`crates/lc-meta/src/cr3.rs`<br>`crates/lc-meta/src/lib.rs`<br>`crates/lc-meta/tests/robust.rs` | MIT OR Apache-2.0 |
 
 ## Content-Aware Fill geometric options (2026-11-15)
 
