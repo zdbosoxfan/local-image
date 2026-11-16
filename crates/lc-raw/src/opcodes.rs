@@ -437,11 +437,43 @@ fn max_radius(cx: f64, cy: f64, w: f64, h: f64) -> f64 {
 /// every pixel: tens of GB at [`crate::MAX_SAMPLES`]. Pixels past the cap, in list order, are left as they are.
 const MAX_BAD_PIXELS: usize = 1 << 22;
 
+/// Whole-image passes one opcode list may cost, all its ops together (a real DNG's list is a handful of gain maps
+/// and tables). Ops past it, in list order, are left out: 4096 full-image ops are 4096 passes over a 100 MP raw.
+const MAX_LIST_PASSES: usize = 32;
+
+/// Sample visits `op` costs on a `w × h × cpp` buffer (coefficient evaluations for a polynomial).
+fn op_cost(op: &Opcode, w: usize, h: usize, cpp: usize) -> usize {
+    let visits = |a: &Area| {
+        let rows = (a.bottom as usize).min(h).saturating_sub(a.top as usize).div_ceil(a.row_pitch.max(1) as usize);
+        let cols = (a.right as usize).min(w).saturating_sub(a.left as usize).div_ceil(a.col_pitch.max(1) as usize);
+        let planes = (a.plane as usize).saturating_add(a.planes.max(1) as usize).min(cpp).saturating_sub(a.plane as usize);
+        rows.saturating_mul(cols).saturating_mul(planes)
+    };
+    match op {
+        Opcode::MapPolynomial { area, coefficients } => visits(area).saturating_mul(coefficients.len().max(1)),
+        Opcode::MapTable { area, .. }
+        | Opcode::GainMap { area, .. }
+        | Opcode::DeltaPerRow { area, .. }
+        | Opcode::DeltaPerColumn { area, .. }
+        | Opcode::ScalePerRow { area, .. }
+        | Opcode::ScalePerColumn { area, .. } => visits(area),
+        // `apply_list` does nothing for these
+        Opcode::Unknown { .. } | Opcode::TrimBounds { .. } | Opcode::WarpFisheye { .. } | Opcode::WarpRectilinear { .. } => 0,
+        _ => w.saturating_mul(h).saturating_mul(cpp),
+    }
+}
+
 /// Apply a list to an interleaved `w × h × cpp` buffer. `cfa` (when the data is a mosaic) is used by the
 /// bad-pixel opcodes. `scale` is the value of 1.0 in the buffer: 65535 for list 1 (raw 16-bit values), 1 for
 /// lists 2 and 3 (normalised values).
 pub fn apply_list(list: &[Opcode], buf: &mut [f32], w: usize, h: usize, cpp: usize, cfa: Option<&Cfa>, scale: f32) {
+    let mut budget = w.saturating_mul(h).saturating_mul(cpp).max(1).saturating_mul(MAX_LIST_PASSES);
     for op in list {
+        let cost = op_cost(op, w, h, cpp);
+        if cost > budget {
+            continue;
+        }
+        budget -= cost;
         match op {
             Opcode::MapTable { area, table } => {
                 let n = table.len();
@@ -1095,6 +1127,19 @@ pub(crate) mod tests {
         let parsed = parse_list(&write_list(&ops));
         assert_eq!(parsed.iter().filter(|op| matches!(op, Opcode::MapPolynomial { .. })).count(), 64);
         assert!(matches!(parsed.last(), Some(Opcode::Unknown { id: 8, .. })));
+    }
+
+    /// The parser keeps up to 4096 opcodes; a list repeating a full-image delta that often is held to
+    /// `MAX_LIST_PASSES` passes, the first ones applied and the rest left out.
+    #[test]
+    fn a_list_repeating_full_image_work_stops_at_its_budget() {
+        let (w, h) = (64usize, 48usize);
+        let area = Area { bottom: h as u32, right: w as u32, planes: 1, row_pitch: 1, col_pitch: 1, ..Default::default() };
+        let list = vec![Opcode::DeltaPerRow { area, deltas: vec![0.001; h] }; 4096];
+        let mut buf = vec![0.0f32; w * h];
+        apply_list(&list, &mut buf, w, h, 1, None, 1.0);
+        assert_eq!((buf[0] / 0.001).round() as usize, MAX_LIST_PASSES, "{}", buf[0]);
+        assert!(buf.iter().all(|v| *v == buf[0]));
     }
 
     #[test]
