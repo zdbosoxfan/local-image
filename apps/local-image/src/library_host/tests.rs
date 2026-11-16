@@ -292,6 +292,7 @@ fn the_filmstrip_steps_on_from_a_catalogued_raw() {
     lib.run("library.select", json!({"ids": [id.0], "active": id.0})).unwrap();
     let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));
     host.editor.raw_opens = Some(Vec::new());
+    host.editor.services.import = Some(Box::new(|name, bytes| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())));
     host.library = Some(lib);
     host.mode = Module::Compositing;
     filmstrip_ui::set_folder(&dir, vec![PathBuf::from(&raw), PathBuf::from(&png)]);
