@@ -239,6 +239,31 @@ use super::*;
 
 /// LightCraft e2d35de: Library › Add Photos offers everything the folder scan imports and
 /// shows DSC_0001.NEF / IMG_0001.JPG / .CR3 on Linux.
+/// A raw the Library has, opened from Compositing (File › Open, Open Recent, a drop, the filmstrip
+/// or a launch argument), opens as a Develop layer with the photo's settings, not at camera
+/// defaults.
+#[test]
+fn a_catalogued_raw_opened_in_compositing_keeps_its_develop_edits() {
+    let (dir, png, mut lib, _) = library_with_photo("raw-open");
+    // PNG bytes under a raw name: the decoders read the content, the routing reads the name.
+    let raw = dir.join("photo.dng").to_string_lossy().to_string();
+    std::fs::copy(&png, &raw).unwrap();
+    let id = lib.session.catalog.alloc_photo_id();
+    let photo = lightcraft_catalog::Photo::new(id, lightcraft_catalog::Source::File { path: raw.clone() }, "photo.dng", "DNG", 40, 30, "2026-11-16");
+    lib.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    lib.run("library.select", json!({"ids": [id.0], "active": id.0})).unwrap();
+    lib.run("develop.set", json!({"control": "light.exposure", "value": 1.5})).unwrap();
+    let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));
+    host.library = Some(lib);
+    host.mode = Module::Compositing;
+    host.editor.open_path(&raw).unwrap();
+    assert!(host.editor.session.documents().is_empty(), "the raw waits for the host");
+    host.open_queued_raws();
+    let doc = &host.editor.session.active().expect("the raw opened").doc;
+    assert_eq!(develop_layer::original_of(doc), Some((id.0, raw)), "a Develop layer on the Library photo");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn shared_decode_add_photos_picker_uses_readable_registry() {
     let extensions = add_photos_extensions();

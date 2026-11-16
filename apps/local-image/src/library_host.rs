@@ -188,6 +188,7 @@ impl Host {
     pub fn new(editor: PhotocraftApp) -> Self {
         let mut editor = editor;
         editor.host_modes = std::env::var_os("LOCAL_IMAGE_NO_LIBRARY").is_none();
+        editor.raw_opens = editor.host_modes.then(Vec::new);
         // Files opened at launch are shown, not left loading behind the remembered module.
         let launched = !editor.session.documents().is_empty() || !editor.jobs.opens.is_empty();
         let mode = if editor.host_modes && !launched {
@@ -226,6 +227,14 @@ impl Host {
         }
     }
 
+    /// Files named at launch open in Compositing, which is shown; a raw the Library has opens
+    /// with its Develop settings.
+    pub fn open_at_launch(&mut self, documents: &[String]) {
+        if self.editor.open_paths(documents) > 0 {
+            self.mode = Module::Compositing;
+        }
+    }
+
     /// Folders named at launch go to the Library's import (scan, then its review), shown unless a
     /// launch document is open in Compositing. Without the Library the editor reports them.
     pub fn import_at_launch(&mut self, folders: Vec<String>) {
@@ -236,7 +245,11 @@ impl Host {
             self.editor.open_paths(&folders);
             return;
         }
-        if self.mode == Module::Compositing && self.editor.session.documents().is_empty() && self.editor.jobs.opens.is_empty() {
+        if self.mode == Module::Compositing
+            && self.editor.session.documents().is_empty()
+            && self.editor.jobs.opens.is_empty()
+            && self.editor.raw_opens.as_ref().is_none_or(Vec::is_empty)
+        {
             self.mode = Module::Library;
         }
         self.launch_folders = folders;
@@ -553,14 +566,26 @@ impl Host {
     /// The Library's active photo: its id, file and develop settings (JSON).
     fn active_photo(&mut self) -> Option<(u64, String, serde_json::Value, String)> {
         let lib = self.library.as_ref()?;
-        let id = lib.session.active()?;
-        let ph = lib.session.catalog.photo(id)?;
-        let path = match &ph.source {
-            lightcraft_catalog::Source::File { path } => path.clone(),
-            _ => return None,
-        };
-        let settings = serde_json::to_value(&*ph.develop).ok()?;
-        Some((id.0, path, settings, ph.file_name.clone()))
+        photo_to_open(lib, lib.session.active()?)
+    }
+
+    /// Raws opened in Compositing: one the Library has opens with its Develop settings, any other
+    /// as a plain file.
+    fn open_queued_raws(&mut self) {
+        let raws = self.editor.raw_opens.as_mut().map(std::mem::take).unwrap_or_default();
+        for raw in raws {
+            let photo = {
+                let lib = self.library();
+                photo_at_path(&lib.session, &raw).and_then(|id| photo_to_open(lib, id))
+            };
+            let opened = match photo {
+                Some((id, path, settings, name)) => self.open_editor_photo(id, &path, &settings, &name),
+                None => self.editor.open_path_here(&raw).map(|_| ()),
+            };
+            if let Err(e) = opened {
+                self.editor.open_failed(&photocraft_ui_egui::file_open::display_name(&raw), &e);
+            }
+        }
     }
 
     fn observe_library(&mut self) {
@@ -1242,6 +1267,17 @@ fn consume_host_chord(ctx: &egui::Context, modifiers: egui::Modifiers, key: egui
     })
 }
 
+/// Library photo `id` as Compositing opens it: its id, file, develop settings (JSON) and name.
+fn photo_to_open(lib: &LightcraftApp, id: lightcraft_catalog::PhotoId) -> Option<(u64, String, serde_json::Value, String)> {
+    let ph = lib.session.catalog.photo(id)?;
+    let path = match &ph.source {
+        lightcraft_catalog::Source::File { path } => path.clone(),
+        _ => return None,
+    };
+    let settings = serde_json::to_value(&*ph.develop).ok()?;
+    Some((id.0, path, settings, ph.file_name.clone()))
+}
+
 /// A Library photo Compositing opens as the document it is. TIFF is left out: most TIFFs in a
 /// catalog are flat photos that come across with their Develop settings.
 fn opens_with_layers(path: &str) -> bool {
@@ -1330,6 +1366,7 @@ impl eframe::App for Host {
             self.editor.open_paths(&fresh);
             self.switch(ctx, Module::Compositing);
         }
+        self.open_queued_raws();
         if let Some(m) = self.editor.switch_module.take() {
             if let Some(browse) = self.editor.automation_browse.take() {
                 let mut hooks = self.automation_media.take();
