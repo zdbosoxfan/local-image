@@ -433,21 +433,45 @@ fn link_or_copy(src: &Path, dst: &Path) -> io::Result<OwnedFile> {
         }
     }
     // Move keeps the byte-for-byte comparison: the source is deleted on the strength of it
-    copy_verified_owned(src, dst, None)
+    copy_verified_owned(src, dst, None, None)
 }
 
 /// Copy into a new file, sync it to disk and verify it: against `expect` (the probe's hash of the
 /// source) when given, else byte for byte against the source. On any failure the partial copy is
 /// removed.
 pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_preview::ContentId>) -> io::Result<()> {
-    copy_verified_owned(src, dst, expect).map(|_| ())
+    copy_verified_owned(src, dst, expect, None).map(|_| ())
 }
-fn copy_verified_owned(src: &Path, dst: &Path, expect: Option<lightcraft_preview::ContentId>) -> io::Result<OwnedFile> {
+
+/// [`copy_verified`] of the plain file named `src`, never a link's target: the opened handle must
+/// be the entry checked first, so a swap for a link after the check is not followed either.
+pub(crate) fn copy_verified_plain(src: &Path, dst: &Path) -> io::Result<()> {
+    let checked = fs::symlink_metadata(src)?;
+    if !checked.is_file() {
+        return Err(io::Error::other(format!("{} is not a regular file", src.display())));
+    }
+    copy_verified_owned(src, dst, None, Some(&checked)).map(|_| ())
+}
+
+fn copy_verified_owned(
+    src: &Path,
+    dst: &Path,
+    expect: Option<lightcraft_preview::ContentId>,
+    checked: Option<&fs::Metadata>,
+) -> io::Result<OwnedFile> {
     let mut verified_content = None;
     let published = li_fs::write_new_with_receipt(
         dst,
         &mut |out| {
             let mut inp = li_fs::read::open_regular(src, li_fs::read::MAX_FILE_BYTES)?;
+            #[cfg(unix)]
+            if let Some(c) = checked {
+                use std::os::unix::fs::MetadataExt;
+                let m = inp.metadata()?;
+                if (m.dev(), m.ino()) != (c.dev(), c.ino()) {
+                    return Err(io::Error::other(format!("{} is not a regular file", src.display())));
+                }
+            }
             if injected(Fault::FailWrite) {
                 out.write_all(b"partial")?;
                 return Err(io::Error::other("write failed (injected)"));

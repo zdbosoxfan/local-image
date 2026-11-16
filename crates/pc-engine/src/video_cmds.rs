@@ -13,6 +13,29 @@ use crate::{EngineError, Result, Session};
 /// Maximum dense RGBA staging pixels in one animated GIF frame. A GIF also keeps the
 /// quantised frame and palette while rendering, so the document canvas limit is not enough.
 const MAX_GIF_FRAME_PIXELS: u64 = 64 << 20;
+/// Largest total an animated GIF render keeps staged before encoding: one index byte per pixel
+/// plus a 768-byte palette for every frame, the same bound as imported footage.
+const MAX_GIF_STAGED_BYTES: u64 = MAX_FOOTAGE_BYTES;
+/// The GIF format stores each side as 16 bits.
+const MAX_GIF_SIDE: u64 = 65_535;
+
+/// Refuse a GIF render whose canvas or frames × canvas staging is over budget, before any frame
+/// is rendered.
+fn check_gif_budget(w: u64, h: u64, frames: u64) -> Result<()> {
+    if w > MAX_GIF_SIDE || h > MAX_GIF_SIDE {
+        return Err(EngineError::Other(format!("{w} × {h} is too large to render as an animated GIF (the GIF format allows {MAX_GIF_SIDE} pixels per side)")));
+    }
+    let Some(pixels) = w.checked_mul(h).filter(|p| *p <= MAX_GIF_FRAME_PIXELS) else {
+        return Err(EngineError::Other(format!("{w} × {h} is too large to render as an animated GIF (limit {MAX_GIF_FRAME_PIXELS} pixels per frame)")));
+    };
+    if frames.checked_mul(pixels + 768).is_none_or(|total| total > MAX_GIF_STAGED_BYTES) {
+        return Err(EngineError::Other(format!(
+            "{frames} frames of {w} × {h} are too large to render as an animated GIF (limit {} MiB staged in total); shorten the timeline or reduce the canvas",
+            MAX_GIF_STAGED_BYTES >> 20
+        )));
+    }
+    Ok(())
+}
 
 /// Set every video layer's displayed content to its frame at the playhead.
 pub fn sync(doc: &mut Document) {
@@ -94,10 +117,20 @@ fn new_blank(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(json!({"layer": id.0}))
 }
 
+/// A video layer must have room for an added frame.
+fn check_frame_growth(frames: usize) -> Result<()> {
+    let limit = crate::timeline_cmds::MAX_DURATION;
+    if frames >= limit {
+        return Err(EngineError::Other(format!("a video layer is limited to {limit} frames")));
+    }
+    Ok(())
+}
+
 fn insert_blank(s: &mut Session, _p: &Value) -> Result<Value> {
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
     edit_video(s, "Insert Blank Frame", move |v, cur| {
-        let at = (cur + 1).min(v.frames.len());
+        check_frame_growth(v.frames.len())?;
+        let at = cur.saturating_add(1).min(v.frames.len());
         v.frames.insert(at, blank_of(fmt));
         Ok(())
     })
@@ -105,7 +138,9 @@ fn insert_blank(s: &mut Session, _p: &Value) -> Result<Value> {
 
 fn duplicate_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     edit_video(s, "Duplicate Frame", |v, cur| {
-        if let Some(f) = v.frames.get(cur).cloned() {
+        if let Some(f) = v.frames.get(cur) {
+            check_frame_growth(v.frames.len())?;
+            let f = f.clone();
             v.frames.insert(cur + 1, f);
         }
         Ok(())
@@ -351,11 +386,9 @@ fn render_video(s: &mut Session, p: &Value) -> Result<Value> {
     // Animated GIF: one file, every frame quantised to its own palette.
     if format.eq_ignore_ascii_case("gif") {
         use photocraft_algo::quantize::{self, Dither, Forced, PaletteKind};
-        // The whole canvas is staged as f32 RGBA for each frame; reject over-budget
-        // dimensions before an infallible allocation can abort the process.
-        if (w as u64).saturating_mul(h as u64) > MAX_GIF_FRAME_PIXELS {
-            return Err(EngineError::Other(format!("{w} × {h} is too large to render as an animated GIF (limit {MAX_GIF_FRAME_PIXELS} pixels per frame)")));
-        }
+        // Each frame is staged as f32 RGBA and every encoded frame is kept until the file is
+        // written; reject over-budget sizes before an infallible allocation can abort the process.
+        check_gif_budget(w as u64, h as u64, frames as u64)?;
         let delay = (100.0 / fps).round().clamp(1.0, 65535.0) as u16;
         let mut gframes = Vec::with_capacity(frames);
         for f in 0..frames {

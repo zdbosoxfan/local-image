@@ -526,8 +526,9 @@ pub fn complete_with(
     p: &CompleteParams,
     ctl: &lightcraft_sysmem::jobs::Interrupt,
 ) -> Result<Option<Vec<f32>>, lightcraft_sysmem::jobs::Cancelled> {
-    assert_eq!(img.len(), w * h * ch);
-    assert_eq!(hole.len(), w * h);
+    // Checked: wrapped products must not let tiny buffers pass for huge dimensions.
+    assert_eq!(w.checked_mul(h).and_then(|n| n.checked_mul(ch)), Some(img.len()));
+    assert_eq!(w.checked_mul(h), Some(hole.len()));
     let Some((bx0, by0, bx1, by1)) = hole_bbox(w, h, hole) else { return Ok(Some(img.to_vec())) };
     let r = p.patch_radius.max(1);
     let psz = 2 * r + 1;
@@ -784,7 +785,8 @@ pub fn best_offset(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool], ri
 pub fn synthesize(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool], block: usize, seed: u64) -> Vec<f32> {
     let mut out = img.to_vec();
     let Some((bx0, by0, bx1, by1)) = hole_bbox(w, h, hole) else { return out };
-    let b = block.max(4) as i32;
+    // A block larger than the image fits no candidate either way: the clamp keeps the i32 math in range.
+    let b = block.clamp(4, w.max(h).max(4)) as i32;
     let ov = (b / 3).max(1);
     let hs = integral(w, h, hole);
     // Candidate block origins: whole block (with overlap) inside the grid and outside the hole.
@@ -859,6 +861,16 @@ pub fn synthesize(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool], blo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A block size beyond `i32` falls back to the membrane fill instead of stepping backwards forever.
+    #[test]
+    fn a_huge_synthesis_block_does_not_hang() {
+        let (w, h) = (8, 8);
+        let img = vec![0.5f32; w * h];
+        let mut hole = vec![false; w * h];
+        hole[27] = true;
+        assert_eq!(synthesize(w, h, 1, &img, &hole, usize::MAX, 1).len(), w * h);
+    }
 
     #[test]
     fn thin_hole_thickness_measures_across_the_hole_including_canvas_edges() {

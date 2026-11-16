@@ -259,3 +259,41 @@ fn artboards_to_pdf_pages_go_bottom_artboard_first() {
     assert_eq!(page_sizes(json!({"artboards": [blue, red]})), [(20, 15), (20, 20)]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Dragging a layer from one artboard onto another (`layer.moveTo`) re-parented it but left it at
+/// its old canvas position, outside the board it now belonged to, so the board clipped it away. It
+/// keeps its place on its board instead, shifting by the offset between the boards' origins; a
+/// layer locked in place (here through the board it leaves) stays where it is.
+#[test]
+fn moving_a_layer_to_another_artboard_keeps_its_place_on_the_board() {
+    let mut s = session(8);
+    let red = add_square(&mut s, Rect::new(10, 10, 30, 30), [1.0, 0.0, 0.0, 1.0]);
+    let a = LayerId(s.execute("layer.new.artboardFromLayers", json!({"name": "A"})).unwrap()["layer"].as_u64().unwrap());
+    s.execute("layer.artboard.set", json!({"width": 40, "height": 40})).unwrap();
+    let b = LayerId(s.execute("layer.new.artboard", json!({"rect": [200, 20, 40, 40], "name": "B"})).unwrap()["layer"].as_u64().unwrap());
+    assert_eq!(doc(&s).artboard_of(red), Some(a));
+    let content = |s: &Session| doc(s).layer(red).unwrap().surface().unwrap().content_bounds();
+    let steps = s.active().unwrap().history.past_len();
+
+    s.execute("layer.moveTo", json!({"layer": red.0, "target": b.0, "position": "into"})).unwrap();
+    assert_eq!(doc(&s).artboard_of(red), Some(b));
+    assert_eq!(content(&s), Rect::new(200, 20, 220, 40), "same spot on board B");
+    assert_eq!(s.active().unwrap().history.past_len(), steps + 1, "one undo step for the move and the shift");
+    s.execute("layer.moveTo", json!({"layer": red.0, "target": a.0, "position": "into"})).unwrap();
+    assert_eq!(content(&s), Rect::new(10, 10, 30, 30), "back by the reverse offset");
+    s.undo();
+    assert_eq!((doc(&s).artboard_of(red), content(&s)), (Some(b), Rect::new(200, 20, 220, 40)), "undo takes both back");
+
+    // Out to the top level and back in from outside any board: no board on one side, no shift.
+    s.execute("layer.moveTo", json!({"layer": red.0, "target": b.0, "position": "above"})).unwrap();
+    s.execute("layer.moveTo", json!({"layer": red.0, "target": a.0, "position": "into"})).unwrap();
+    assert_eq!((doc(&s).artboard_of(red), content(&s)), (Some(a), Rect::new(200, 20, 220, 40)));
+
+    s.execute("layer.moveTo", json!({"layer": red.0, "target": b.0, "position": "into"})).unwrap();
+    s.execute("layer.select", json!({"layer": b.0})).unwrap();
+    s.execute("layer.lockLayers", json!({"position": true})).unwrap();
+    assert!(!doc(&s).layer(red).unwrap().locks.position && doc(&s).effective_locks(red).position, "locked through its board");
+    let locked_at = content(&s);
+    s.execute("layer.moveTo", json!({"layer": red.0, "target": a.0, "position": "into"})).unwrap();
+    assert_eq!((doc(&s).artboard_of(red), content(&s)), (Some(a), locked_at), "a locked layer stays put");
+}

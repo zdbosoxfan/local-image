@@ -99,6 +99,15 @@ fn cube_files(paths: &[String]) -> Vec<(String, String, Option<String>, String)>
     out
 }
 
+/// Write an imported LUT's copy as a new file renamed into place. A link already under the name
+/// (planted in the Profiles folder) is removed first: `li_fs` would replace its target.
+fn write_copy(path: &Path, text: &str) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        std::fs::remove_file(path)?;
+    }
+    li_fs::write_atomic(path, text.as_bytes())
+}
+
 fn import(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "profile.import";
     let paths: Vec<String> =
@@ -131,13 +140,13 @@ fn import(s: &mut Session, p: &Value) -> Result<Value> {
         let file = match &dir {
             Some(d) => {
                 let f = d.join(format!("{}.{extension}", id.trim_start_matches("lut:")));
-                std::fs::write(&f, &text).map_err(|e| bad(C, format!("{}: {e}", f.display())))?;
+                write_copy(&f, &text).map_err(|e| bad(C, format!("{}: {e}", f.display())))?;
                 f.to_string_lossy().to_string()
             }
             None => {
                 // no library on disk: remember the original (the in-memory session ends with the app)
                 let f = std::env::temp_dir().join(format!("lightcraft-{}.{extension}", id.trim_start_matches("lut:")));
-                std::fs::write(&f, &text).map_err(|e| bad(C, e.to_string()))?;
+                write_copy(&f, &text).map_err(|e| bad(C, e.to_string()))?;
                 f.to_string_lossy().to_string()
             }
         };

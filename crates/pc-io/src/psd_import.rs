@@ -879,7 +879,11 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         // Ink channels only (no layers); see `multichannel_map`.
         if let Some(Ok(all)) = &merged {
             let names = file.resource(1045).map(|r| unicode_names(&r.data)).unwrap_or_default();
-            crate::multichannel_map::import(file, all, &mut doc, &names, &mut cx.warnings);
+            if let Err(error) = crate::multichannel_map::import(file, all, &mut doc, &names, &mut cx.warnings)
+                && cx.fatal.is_none()
+            {
+                cx.fatal = Some(format!("multichannel channels could not be read ({error}); no document was opened"));
+            }
         }
         if !file.layers().is_empty() {
             cx.warn(format!("Multichannel documents have no layers: {} layer records were not imported", file.layers().len()));

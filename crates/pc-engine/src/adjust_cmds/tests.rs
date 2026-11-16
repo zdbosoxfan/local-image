@@ -3,6 +3,13 @@ use super::*;
 const DEPTHS: [u64; 3] = [8, 16, 32];
 const MODES: [&str; 4] = ["rgb", "gray", "cmyk", "lab"];
 
+/// A LUT path that names a device is refused instead of read without end.
+#[cfg(unix)]
+#[test]
+fn lut_file_reads_refuse_devices() {
+    assert!(read_file("/dev/zero").is_none());
+}
+
 fn session(depth: u64, mode: &str) -> Session {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 48, "height": 32, "depth": depth, "mode": mode})).unwrap();

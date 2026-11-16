@@ -194,7 +194,7 @@ fn leaving_angle(edges: &[Edge], h: usize, v: Point, r: f64) -> f64 {
     }
     let mut prev = segs.first().map_or(v, |s| s.c.p0);
     let mut hit: Option<Point> = None;
-    kurbo::flatten(bp.iter(), (r * 1e-4).max(1e-12), |el| {
+    crate::geom::bez::flatten(bp.iter(), (r * 1e-4).max(1e-12), |el| {
         if let (None, kurbo::PathEl::LineTo(p)) = (hit, el) {
             if p.distance(v) >= r {
                 // The point on prev → p at distance r (prev is closer).
@@ -542,7 +542,7 @@ fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
     }
     let eps = eps_for(inputs.iter().map(|p| &p.0))?;
     snap_horizontals(&mut inputs.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
-    crate::budget::charge_sweep(inputs.iter().map(|(path, _)| path))?;
+    crate::budget::charge_sweep(inputs.iter().map(|(path, _)| path), crate::budget::MAX_SEGMENT_PAIRS)?;
     // The sweep can panic on rare near-degenerate input; that must never take the app down.
     let sweep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // Each edge keeps a `Crossings` on either side, with up to one entry per slot to its west.
@@ -784,7 +784,7 @@ pub fn interior_point(path: &PathData) -> Option<Point> {
     let bp = path.to_bezpath();
     let mut edges: Vec<(Point, Point)> = vec![];
     let (mut first, mut last) = (Point::ZERO, Point::ZERO);
-    kurbo::flatten(bp.iter(), (bb.width().max(bb.height()) * 1e-3).max(1e-4), |el| match el {
+    crate::geom::bez::flatten(bp.iter(), (bb.width().max(bb.height()) * 1e-3).max(1e-4), |el| match el {
         kurbo::PathEl::MoveTo(p) => {
             if last != first {
                 edges.push((last, first));

@@ -521,6 +521,16 @@ fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Optio
         Some(c) if c.len() == 2 => (c[0].as_f64().unwrap_or(cw / 2.0), c[1].as_f64().unwrap_or(ch / 2.0)),
         _ => (cw / 2.0, ch / 2.0),
     };
+    // `scale` is the caller's: bound the resampled size before allocating it. Resampling rounds the
+    // far edges outward; an unresampled placement keeps its size.
+    let (ow, oh) = if (scale - 1.0).abs() > 1e-9 { ((w * scale).ceil(), (h * scale).ceil()) } else { (w, h) };
+    let scaled = ow * oh;
+    if scaled.is_nan() || scaled > photocraft_compose::MAX_RENDER_PIXELS as f64 {
+        return Err(EngineError::BadParams {
+            cmd: "file.place".into(),
+            msg: format!("scaling {w}×{h} to {} % makes an image too large to place", scale * 100.0),
+        });
+    }
     let (dx, dy) = ((center.0 - w * scale / 2.0).round(), (center.1 - h * scale / 2.0).round());
     let mut px = flattened_checked(&src, fmt, "file.place")?;
     if (scale - 1.0).abs() > 1e-9 {
@@ -901,6 +911,10 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.layersToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
     let format = p.get("format").and_then(Value::as_str).unwrap_or("png").trim_start_matches('.').to_ascii_lowercase();
+    // The format becomes the file extension inside one file name: never a path.
+    if format.is_empty() || !format.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(EngineError::BadParams { cmd: cmd.into(), msg: "`format` must be a file extension such as png".into() });
+    }
     let visible_only = p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(true);
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
