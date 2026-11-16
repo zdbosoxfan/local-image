@@ -628,6 +628,7 @@ fn commands_are_registered_with_catalog_ids() {
         "layer.smartObjects.newSmartObjectViaCopy",
         "layer.smartObjects.rasterize",
         "layer.smartObjects.editContents",
+        "layer.smartObjects.resetTransform",
         "layer.smartObjects.replaceContents",
         "layer.smartObjects.exportContents",
         "layer.smartObjects.updateModifiedContent",
