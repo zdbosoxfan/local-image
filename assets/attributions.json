@@ -14167,7 +14167,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "LR-EDIT-AUTO: Auto Settings applies to every selected photo, decoded off the UI thread",
+          "used_for": "Apply Auto settings to every selected photo (#3808)",
           "commit": "aa52251d2ef3bb2e4014f20943c4c4c83ce0d931",
           "ours": "crates/lc-engine/src/cmd/develop.rs, crates/lc-engine/src/tests.rs, crates/lc-ui-egui/src/auto_settings.rs, crates/lc-ui-egui/src/lib.rs, crates/lc-ui-egui/src/menus.rs, crates/li-i18n/src/pending_library.rs",
           "licence": "MIT OR Apache-2.0",
