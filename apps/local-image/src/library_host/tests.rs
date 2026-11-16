@@ -1048,6 +1048,27 @@ fn new_develop_edits_come_back_as_a_new_layer() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A plain switch from Library keeps the document being worked on in front: another photo
+/// clicked in Library does not open over it.
+#[test]
+fn a_plain_switch_to_compositing_keeps_the_open_document() {
+    let (dir, path, lib, orig) = library_with_photo("plain-switch-keeps-document");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    let doc = host.editor.session.active().unwrap().doc.id;
+    let other = dir.join("other.png");
+    image::RgbImage::from_pixel(8, 6, image::Rgb([20, 40, 60])).save(&other).unwrap();
+    host.switch(&ctx, Module::Library);
+    let lib = host.library();
+    lib.session.execute("library.import", &json!({ "paths": [other.to_string_lossy()] })).unwrap();
+    let other = lib.session.catalog.photos().map(|p| p.id).find(|id| *id != orig).unwrap();
+    lib.run("library.select", json!({"ids": [other.0], "active": other.0})).unwrap();
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.session.documents().len(), 1, "nothing opened over the retouch");
+    assert_eq!(host.editor.session.active().unwrap().doc.id, doc);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Undoing the new Develop layer lasts: the next trip to the Library and back does not add it again.
 #[test]
 fn undone_develop_edits_stay_undone_after_a_module_switch() {

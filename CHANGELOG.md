@@ -41,6 +41,7 @@ All notable changes to Local Image are recorded here. The format follows
 - A raw the Library has, opened in Compositing with File › Open, Open Recent, a drop, the filmstrip or the command line, opens as a Develop layer with its Develop edits instead of at camera defaults, and its saves join the Library.
 - Documents recovered after a crash are announced as a notice, so the count shows in the Library and Develop as well as in the Compositing status bar.
 - Ctrl/Cmd+Alt+1/2/3 no longer switches modules past an open Library dialog, Smart Sort or People, or past a running filter's progress window, which left the job without its Cancel.
+- Switching from Library to Compositing keeps the document being worked on in front instead of opening the last photo clicked in Library over it. The Library photo still comes across into an empty Compositing, and Develop still carries its photo.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.

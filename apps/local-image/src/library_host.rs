@@ -1175,8 +1175,10 @@ impl Host {
             Module::Compositing => {
                 self.sync_develop_layers(from);
                 let photo = self.active_photo();
-                let changed = photo.as_ref().map(|p| p.0) != self.left_compositing_with || self.editor.session.documents().is_empty();
-                if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop) {
+                // Develop carries its photo across. A plain switch from Library keeps the document
+                // being worked on; the Library photo comes across only into an empty Compositing.
+                let empty = self.editor.session.documents().is_empty() && self.editor.jobs.opens.is_empty();
+                if let Some((id, path, settings, name)) = photo.filter(|_| empty || from == Module::Develop) {
                     // A layered document (a saved `-Edit.psd`) opens with its layers, or comes
                     // forward if open; a Develop layer of it would flatten the retouch.
                     if opens_with_layers(&path) {
