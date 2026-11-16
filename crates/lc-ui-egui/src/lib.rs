@@ -37,6 +37,7 @@ pub mod render;
 pub mod shortcuts;
 pub mod smart_sort_keys;
 pub mod smart_sort_task;
+pub mod space_hand;
 pub mod state;
 pub mod tasks;
 pub mod theme;
@@ -87,6 +88,8 @@ mod tests_scroll;
 mod tests_slider_speed;
 #[cfg(test)]
 mod tests_smart_sort;
+#[cfg(test)]
+mod tests_space_hand;
 #[cfg(test)]
 mod tests_switch_library;
 #[cfg(test)]
@@ -245,6 +248,8 @@ pub struct LightcraftApp {
     pub widgets: Vec<(String, egui::Rect)>,
     /// In-progress on-canvas gesture (brush stroke points, gradient drag…).
     pub gesture: Option<panels::detail::Gesture>,
+    /// Space is held over a tool on the photo: the view's hand has the pointer ([`space_hand`]).
+    pub space_hand: Option<space_hand::SpaceHand>,
     /// What the loupe drew last frame: photo and source ("render", "cached", "embedded", "small",
     /// "thumb", "none").
     pub loupe_shown: Option<(lightcraft_catalog::PhotoId, &'static str)>,
@@ -357,6 +362,7 @@ impl LightcraftApp {
             film_scroll: None,
             widgets: vec![],
             gesture: None,
+            space_hand: None,
             loupe_shown: None,
             merge: merge::MergeState::default(),
             import: None,
@@ -951,9 +957,19 @@ impl LightcraftApp {
         if self.synthetic.is_empty() {
             return;
         }
-        let n = match self.synthetic[0] {
-            egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. } => 1,
-            _ => self.synthetic.iter().position(|e| matches!(e, egui::Event::Key { pressed: false, .. })).map_or(self.synthetic.len(), |i| i + 1),
+        let pointer =
+            |e: &egui::Event| matches!(e, egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. });
+        let n = if pointer(&self.synthetic[0]) {
+            1
+        } else {
+            // a key sequence up to its release; a key held down (no release yet) stops before the
+            // pointer events that follow, which then still come one per frame
+            let release = self.synthetic.iter().position(|e| matches!(e, egui::Event::Key { pressed: false, .. })).map(|i| i + 1);
+            let next_pointer = self.synthetic.iter().position(pointer);
+            match (release, next_pointer) {
+                (Some(r), Some(q)) => r.min(q),
+                (r, q) => r.or(q).unwrap_or(self.synthetic.len()),
+            }
         };
         if let Some(egui::Event::PointerMoved(p) | egui::Event::PointerButton { pos: p, .. }) = self.synthetic.first() {
             raw.events.push(egui::Event::PointerMoved(*p));

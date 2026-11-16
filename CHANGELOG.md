@@ -20,6 +20,10 @@ All notable changes to Local Image are recorded here. The format follows
   temporary previews: highlight clipping for Exposure, Highlights and Whites, shadow clipping for
   Shadows and Blacks, greyscale for Sharpening Amount and the detail band for Radius and Detail,
   as Masking already showed its mask. Settings and the histogram are unchanged.
+- Develop: with Crop, Masking, Remove, Red Eye or a picker on the photo, holding Space lends the
+  pointer to the view, as Lightroom's temporary Hand: a click zooms to the click-zoom ratio at the
+  point clicked (or back to Fit), a drag pans the zoomed photo, and the tool gets neither. A quick
+  tap still toggles the zoom, on its release.
 
 ### Changed
 
@@ -29,6 +33,7 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Develop: holding Space no longer toggles the zoom over and over as the key repeats.
 - Image decoding refuses hostile files before they can allocate far past their size: PNG colour
   profiles and dropped text, EXR previews and header sizes, TIFF strip scratch, chunk tables,
   repeated structural tags, predictor rows and JPEG chunks, GIF, BMP, TGA, ICO and QOI header sizes,

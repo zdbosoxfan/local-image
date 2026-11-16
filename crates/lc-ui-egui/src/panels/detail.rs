@@ -408,11 +408,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // where `pixel_rect` puts a render on the physical pixel grid)
     let (shown, drawn);
     let mut composite_button = None;
+    let before_img = split.then(|| fit_rect(areas[0], aspect, app.ui.zoom, native, ppp, app.ui.pan));
     if let Some(button) = composite.then(|| super::host_composite::loupe(app, ui, id, main_area)).flatten() {
         composite_button = Some(button);
         (shown, drawn) = ("compositing", img_rect);
-    } else if split {
-        let br = fit_rect(areas[0], aspect, app.ui.zoom, native, ppp, app.ui.pan);
+    } else if let Some(br) = before_img {
         draw(Slot::Before, br);
         (shown, drawn) = draw(Slot::Main, img_rect);
         p.text(pos2(br.left(), br.bottom() + 14.0), Align2::LEFT_CENTER, li_i18n::library::t("Before"), t.font(12.0), t.text_dim);
@@ -523,6 +523,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     if matches!(right, RightPanel::Edit | RightPanel::Masking) {
         super::layer_bar::canvas_pill(app, ui, canvas);
     }
+    // Space held over a tool: the view's hand takes the pointer from it
+    crate::space_hand::interact(app, ui, canvas, (main_area, img_rect), before_img.map(|br| (areas[0], br)));
     // drawn and hit-tested above the loupe and its tools: clicks on it pan
     navigator(app, ui, canvas, img_rect, id);
     if let Some(b) = composite_button
@@ -784,8 +786,7 @@ const NAV_W: f32 = 180.0;
 /// The Navigator: while zoomed in, a mini map of the photo at the canvas' bottom right with the
 /// visible region outlined; click or drag on it to pan.
 fn navigator(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, img: Rect, id: PhotoId) {
-    let zoomed = img.width() > canvas.width() + 1.0 || img.height() > canvas.height() + 1.0;
-    if !app.ui.navigator || !zoomed || app.ui.fullscreen {
+    if !app.ui.navigator || !zoomed(img, canvas) || app.ui.fullscreen {
         return;
     }
     let tex = app.renderer.thumb(id).or_else(|| app.renderer.textures.get(&Slot::Main).filter(|t| t.photo == id));
@@ -1067,8 +1068,23 @@ fn general_interaction(
         }
         return;
     }
-    // click toggles Fit ↔ the click-zoom ratio (2:1/3:1/5:1) at the clicked point; drag pans when zoomed
-    let zoomed = img.width() > canvas.width() + 1.0 || img.height() > canvas.height() + 1.0;
+    // only over the photo: a panel drawn earlier (sliders) must keep its own cursor
+    if zoomed(img, canvas) && (resp.dragged_by(egui::PointerButton::Primary) || resp.hovered()) {
+        ui.ctx().set_cursor_icon(if resp.dragged_by(egui::PointerButton::Primary) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+    }
+    click_zoom_and_pan(app, resp, img, canvas);
+    let _ = (native, aspect);
+}
+
+/// The photo `img` reaches past its pane `canvas`: a drag pans it.
+pub(crate) fn zoomed(img: Rect, canvas: Rect) -> bool {
+    img.width() > canvas.width() + 1.0 || img.height() > canvas.height() + 1.0
+}
+
+/// The loupe's own click and drag (also Space's hand over a tool, `space_hand`): a click toggles
+/// Fit ↔ the click-zoom ratio (2:1/3:1/5:1) at the clicked point, a drag pans when zoomed.
+pub(crate) fn click_zoom_and_pan(app: &mut LightcraftApp, resp: &egui::Response, img: Rect, canvas: Rect) {
+    let zoomed = zoomed(img, canvas);
     if resp.double_clicked() || (resp.clicked() && !zoomed) {
         if let Some(q) = resp.interact_pointer_pos() {
             let u = ((q.x - img.left()) / img.width()).clamp(0.0, 1.0);
@@ -1081,18 +1097,11 @@ fn general_interaction(
         app.ui.zoom = Zoom::Fit;
         app.ui.zoom_anim = true;
     }
-    if zoomed {
-        // only over the photo: a panel drawn earlier (sliders) must keep its own cursor
-        if resp.dragged_by(egui::PointerButton::Primary) || resp.hovered() {
-            ui.ctx().set_cursor_icon(if resp.dragged_by(egui::PointerButton::Primary) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
-        }
-        if resp.dragged_by(egui::PointerButton::Primary) {
-            let dlt = resp.drag_delta();
-            app.ui.pan.0 = (app.ui.pan.0 - dlt.x / img.width()).clamp(0.0, 1.0);
-            app.ui.pan.1 = (app.ui.pan.1 - dlt.y / img.height()).clamp(0.0, 1.0);
-        }
+    if zoomed && resp.dragged_by(egui::PointerButton::Primary) {
+        let dlt = resp.drag_delta();
+        app.ui.pan.0 = (app.ui.pan.0 - dlt.x / img.width()).clamp(0.0, 1.0);
+        app.ui.pan.1 = (app.ui.pan.1 - dlt.y / img.height()).clamp(0.0, 1.0);
     }
-    let _ = (native, aspect);
 }
 
 // crop

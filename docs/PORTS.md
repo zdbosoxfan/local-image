@@ -1467,8 +1467,16 @@ GPU twin `sharp_detail_preview`), not upstream's texture blur; `sharpen_mask_wei
 `texture_sigma` have no counterpart. The UI keeps our per-slider Alt flag (`alt_preview`) instead
 of a global Alt state, so an Alt-drag on the histogram shows no preview. Not ported: `per_pixel`
 (our loupe has no window render to gate) and the unrelated `spots.rs` cleanup.
+`abf0caf2` dispatches through our `take_pressed` loop, which drops each key event it takes, so the
+once-per-press check reads the frame's fresh Space press before the loop. Its tests use Clone in
+Remove (our Remove and Heal make shared patches, not `develop.spots`), set the zoom directly (we
+have no `view.navigate`) and check `app.gesture` for the stroke in progress (we have no
+`brush_live`). Space takes no hand over the Edit panel's mask tools or the Skin Tone and film base
+pickers, which upstream does not have or list. Not ported: the `ui.key` row of upstream's control
+protocol (ours documents the PhotoCraft side) and the parity checklists.
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`47e2c0d248ad`](https://github.com/storytold/lightcraft/commit/47e2c0d248adf7f555163c0efde8d0f4b2d5485f) | LR-CROP-AUTO: Auto straighten reads the vertical vanishing point and the horizon | `crates/lc-pipeline/src/straighten.rs`<br>`crates/lc-pipeline/src/upright.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-pipeline/src/tests_geometry.rs` | MIT OR Apache-2.0 |
 | [`9ac38222e12e`](https://github.com/storytold/lightcraft/commit/9ac38222e12e9bec2bb171d2a30aa8b69aeb4b9a) | Alt/Option-drag previews for clipping and sharpening | `crates/lc-pipeline/src/visualize.rs`<br>`crates/lc-pipeline/src/detail.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-gpu/src/render.rs`<br>`crates/lc-gpu/src/ctx.rs`<br>`crates/lc-gpu/src/wgsl/detail.wgsl`<br>`crates/lc-gpu/tests/it/equivalence.rs`<br>`crates/lc-ui-egui/src/state.rs`<br>`crates/lc-ui-egui/src/panels/edit.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_panels.rs` | MIT OR Apache-2.0 |
+| [`abf0caf20170`](https://github.com/storytold/lightcraft/commit/abf0caf2017e79108fa9a7d67efabad27232b269) | KEY-TOGGLEZOOM: hold Space over a tool to pan and click-zoom | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs`<br>`crates/lc-ui-egui/src/control.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
