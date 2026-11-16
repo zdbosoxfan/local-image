@@ -13,7 +13,7 @@ pub const PENDING_ENHANCE_TRANSLATIONS: &[&str] = &[
     "Faithful",
     "Rescue",
     "Generative (SeedVR2)",
-    "AI enlargement uses local models. Download them in Settings › Local AI. Up to 4×; model input is sRGB 8-bit.",
+    "AI enlargement uses local models. Download them in Edit › Preferences › Local AI. Up to 4×; model input is sRGB 8-bit.",
 ];
 
 /// Owner deferred translations for this task (2026-10-10). Remove as translations land.
@@ -35,7 +35,7 @@ pub const PENDING_AI_DENOISE_TRANSLATIONS: &[&str] = &[
     "Denoising",
     "Denoised image",
     "Preview result — run full resolution before exporting.",
-    "Model downloads are available in Settings › Local AI.",
+    "Model downloads are available in Edit › Preferences › Local AI.",
 ];
 
 /// File-input robustness English messages awaiting translations.
@@ -250,7 +250,7 @@ pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
     "Pages",
     "Choose Proof Sheet Folder",
     "Proof sheet exported",
-    "AI…",
+    "Local AI…",
     "Back",
     "Photo Grid",
     "Square Grid",

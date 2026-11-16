@@ -716,7 +716,7 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                 ui.colored_label(egui::Color32::LIGHT_RED, e);
             }
         } else {
-            ui.label(li_i18n::library::t("Download the Smart Sort model in Compositing ▸ Local AI"));
+            ui.label(li_i18n::library::t("Download the Smart Sort model in Edit › Preferences › Local AI"));
         }
         ui.hyperlink_to("MIT", "https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K");
     }

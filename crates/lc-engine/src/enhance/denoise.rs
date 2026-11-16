@@ -119,7 +119,7 @@ fn infer_selected(
         (c.path(dir), if c.class == 1 { Variant::Linear } else { Variant::Rgb }, c.size)
     } else {
         if li_seg::verified_denoise_bytes(dir, kind.spec()).is_none() {
-            return Err("The AI Denoise model is not installed or failed verification. Download it in Settings › Local AI.".into());
+            return Err("The AI Denoise model is not installed or failed verification. Download it in Edit › Preferences › Local AI.".into());
         }
         (li_seg::companion_path(dir, kind.file()), kind, kind.tile())
     };
@@ -132,7 +132,7 @@ fn infer_selected(
             *cache = None;
             let shape = li_seg::restoration_graph::Shape { c: kind.channels(), h: tile, w: tile };
             let graph = li_seg::restoration_graph::Graph::load(&path, shape)
-                .map_err(|e| format!("This AI Denoise model can't run: {e:#}. Choose another model, or Use default in Settings › Local AI."))?;
+                .map_err(|e| format!("This AI Denoise model can't run: {e:#}. Choose another model, or Use default in Edit › Preferences › Local AI."))?;
             match lightcraft_gpu::denoise::Denoiser::from_graph(graph, kind) {
                 Ok(d) => *cache = Some((path.clone(), kind, stamp, d)),
                 Err(e) => return Err(format!("AI Denoise GPU unavailable: {e}")),
@@ -206,7 +206,7 @@ impl Session {
                 li_seg::installed_bytes(d, if family == DenoiseModel::Raw { Variant::Linear.spec() } else { Variant::Rgb.spec() }).is_none()
             })
         {
-            return Err("The AI Denoise model is not installed. Download it in Settings › Local AI.".into());
+            return Err("The AI Denoise model is not installed. Download it in Edit › Preferences › Local AI.".into());
         }
         if preview && destination.is_some() {
             return Err("exports require full-resolution denoising".into());

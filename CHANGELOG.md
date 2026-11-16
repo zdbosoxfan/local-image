@@ -56,6 +56,7 @@ All notable changes to Local Image are recorded here. The format follows
 - AI Denoise that can't use the GPU because AI models hold its memory now says so and points to Eject in Compositing's status bar, instead of asking to retry after other GPU work finishes.
 - Compositing's File › Exit is now Quit Local Image, as in Library and Develop. Library and Develop messages and shortcut lists name Compositing and "Library & Develop" instead of "the editor" and "Library", and the Global shortcut F reads "Screen mode / Full Screen Preview".
 - Blend modes in Develop's and the Library's Layers list read as in Compositing's Layers panel; German showed "Überlagerung" for Overlay instead of "Überlagern".
+- Library and Develop AI messages point to Edit › Preferences › Local AI, where AI setup is, instead of "Compositing › Local AI" or "Settings › Local AI", and Library Settings' AI… button reads Local AI….
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.

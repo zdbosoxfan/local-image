@@ -23,7 +23,7 @@
 	AHD	AHD
 	AI	AI
 	AI Remove	Odstranění AI
-	AI Remove needs the AI engine. Set it up in Compositing › Local AI.	Odstranění AI vyžaduje modul AI. Nastavte jej v Kompozice › Místní AI.
+	AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.	Odstranění AI vyžaduje modul AI. Nastavte jej v Úpravy › Předvolby › Místní AI.
 	About Local Image	O aplikaci Local Image
 	Activity	Aktivita
 	Actual size	Skutečná velikost
@@ -429,7 +429,7 @@
 	Don't enlarge	Nezvětšovat
 	Done	Hotovo
 	Download Model	Stáhnout model
-	Download the Smart Sort model in Compositing ▸ Local AI	Stáhněte model Smart Sort v modulu Compositing ▸ Local AI
+	Download the Smart Sort model in Edit › Preferences › Local AI	Stáhněte model Smart Sort v Úpravy › Předvolby › Místní AI
 	Downloading	Stahování
 	Drag along the horizon to straighten; double-click for Auto.	Tažením podél horizontu srovnejte; dvojitým kliknutím aktivujete automatiku.
 	Drag along the horizon; double-click for Auto	Tažením podél horizontu; dvojitým kliknutím aktivujete automatiku

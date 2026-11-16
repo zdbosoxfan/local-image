@@ -98,7 +98,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
                 *tab = id.to_string();
             }
         }
-        if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
+        if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "Local AI…", false).clicked() {
             app.open_shared_ai = true;
         }
     });
@@ -191,7 +191,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             hint(ui, t, li_i18n::library::t("not available here"));
         }
     });
-    if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
+    if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "Local AI…", false).clicked() {
         app.open_shared_ai = true;
     }
     crate::library_safety_ui::settings(app, ui);

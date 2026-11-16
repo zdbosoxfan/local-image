@@ -156,7 +156,7 @@ impl Session {
     }
 }
 
-const NO_HOST: &str = "AI Remove needs the AI engine. Set it up in Compositing › Local AI.";
+const NO_HOST: &str = "AI Remove needs the AI engine. Set it up in Edit › Preferences › Local AI.";
 /// The job (and undo step) label of a content-aware heal.
 pub const HEAL_LABEL: &str = "Heal";
 
