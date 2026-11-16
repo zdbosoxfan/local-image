@@ -239,18 +239,17 @@ mod tests {
         assert!(matrix[0].iter().zip([0.7, 0.3, 0.0, 0.0]).all(|(a, b)| (a - b).abs() < 1e-5), "the edited Red row renders: {:?}", matrix[0]);
     }
 
-    /// A Color Lookup opens in the schema dialog, which holds no field for the loaded table
-    /// (`data`), so pressing OK without an edit must not replace the params and erase it.
+    /// Selective Color opens in the schema dialog, which holds fields for only one range, so
+    /// pressing OK without an edit must not replace the params and erase the other ranges.
     #[test]
-    fn confirming_an_unedited_color_lookup_smart_filter_keeps_its_table() {
-        let cube = "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n";
-        let (mut app, id) = recorded_filter("image.adjustments.colorLookup", json!({"data": cube, "fileName": "x.cube"}));
+    fn confirming_an_unedited_selective_color_smart_filter_keeps_its_other_ranges() {
+        let (mut app, id) = recorded_filter("image.adjustments.selectiveColor", json!({"yellows": [10, 20, 30, 40]}));
         let sm = smart_object(&app, id);
         open_editor(&mut app, &egui::Context::default(), id, &sm, 0);
-        let dialog = app.ui.dialogs.last().expect("the Color Lookup dialog opened").id;
+        let dialog = app.ui.dialogs.last().expect("the Selective Color dialog opened").id;
         crate::dialogs::confirm(&mut app, dialog).unwrap();
         let params = smart_object(&app, id).smart_filters[0].params.clone();
-        assert_eq!(params.get("data").and_then(Value::as_str), Some(cube), "the loaded table is still stored: {params}");
+        assert_eq!(params.get("yellows"), Some(&json!([10, 20, 30, 40])), "the recorded Yellows range is still stored: {params}");
     }
 
     /// An Image › Adjustments recorded on a smart object (Brightness/Contrast…) opens its own
