@@ -3908,3 +3908,7 @@ ai	New	最新
 	GPU Memory (MB, 0 = Automatic)	GPU 内存（MB，0 = 自动）
 	{path} was saved over	{path} 已被覆盖保存
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	“{doc}”已不再关联文件，并被标记为未保存：请使用新名称保存以保留内容。
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	合并
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	拉开图像色调的灰度混合

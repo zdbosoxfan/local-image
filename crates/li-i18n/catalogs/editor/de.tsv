@@ -3897,3 +3897,7 @@ ai	New	Neu
 	GPU Memory (MB, 0 = Automatic)	GPU-Speicher (MB, 0 = Automatisch)
 	{path} was saved over	{path} wurde überschrieben
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	„{doc}“ ist keiner Datei mehr zugeordnet und als ungespeichert markiert. Speichern Sie es unter einem neuen Namen, um es zu behalten.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Zusammengefügt
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Eine Graumischung, die die Tonwerte des Bildes spreizt

@@ -3920,3 +3920,7 @@ ai	New	新着
 	GPU Memory (MB, 0 = Automatic)	GPU メモリ（MB、0 = 自動）
 	{path} was saved over	{path} は上書き保存されました
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	「{doc}」はファイルとの関連付けが解除され、未保存としてマークされました。内容を保持するには新しい名前で保存してください。
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	統合
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	画像の階調を広げるグレーの配合

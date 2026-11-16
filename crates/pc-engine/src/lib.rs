@@ -50,7 +50,7 @@ pub mod filters;
 pub mod filters_ext;
 pub mod float_cmds;
 mod frame_cmds;
-pub mod freqsep_cmds;
+pub mod frequency_separation_cmds;
 pub mod fx_view_cmds;
 pub mod gallery_cmds;
 pub mod gradient_fill_cmds;

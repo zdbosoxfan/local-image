@@ -3908,3 +3908,7 @@ ai	New	Baru
 	GPU Memory (MB, 0 = Automatic)	Memori GPU (MB, 0 = Otomatis)
 	{path} was saved over	{path} telah ditimpa
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	"{doc}" tidak lagi terkait dengan file dan ditandai belum disimpan: simpan dengan nama baru untuk mempertahankannya.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Gabungan
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Campuran abu-abu yang menyebarkan nada gambar
