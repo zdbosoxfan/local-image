@@ -746,3 +746,21 @@ fn os_open_restores_a_minimized_window_before_focusing_it() {
         assert_eq!(commands, expected);
     }
 }
+
+/// File › Open as Smart Object… (#11678) asks with File › Open's dialog and opens each chosen
+/// file as its own untitled document holding one embedded smart object.
+#[test]
+fn open_as_smart_object_dialog_opens_one_document_per_selected_file() {
+    let (dir, paths) = files("open-as-so", &["one.png", "two.png", "bad.png"], &png_bytes(8, 6));
+    std::fs::write(&paths[2], b"not an image").unwrap();
+    let (mut app, _) = app_with(None, None);
+    let selected = paths.clone();
+    app.services.file_dialog = Some(file_dialog::answering(move |_| Some(FileDialogAnswer::Paths(selected.clone()))));
+
+    menus::invoke(&mut app, &egui::Context::default(), "file.openAsSmartObject", json!({})).unwrap();
+
+    assert_eq!(app.session.documents().iter().map(|d| d.doc.name.as_str()).collect::<Vec<_>>(), ["one-1", "two-1"]);
+    assert!(app.session.documents().iter().all(|d| d.path.is_none() && d.doc.layers.len() == 1));
+    assert!(app.ui.status_error, "the unreadable file is reported");
+    let _ = std::fs::remove_dir_all(&dir);
+}

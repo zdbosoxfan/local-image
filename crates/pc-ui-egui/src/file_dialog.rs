@@ -164,6 +164,23 @@ impl PhotocraftApp {
         }
     }
 
+    /// File › Open as Smart Object…: the File › Open dialog (several files); each chosen file
+    /// opens as its own document holding one embedded smart object, in name order, reporting each
+    /// failure as File › Open does.
+    pub fn open_dialog_as_smart_object(&mut self) -> Result<Value, String> {
+        self.ask_file(FileDialogRequest::Open { multiple: true }, |app, answer| {
+            let FileDialogAnswer::Paths(mut paths) = answer else { return Err(UNEXPECTED.into()) };
+            paths.sort_by(|a, b| photocraft_engine::batch_io::natural_cmp(a, b));
+            for path in &paths {
+                if let Err(e) = crate::jobs_ui::run(app, "file.openAsSmartObject", json!({"path": path})) {
+                    app.open_failed(&display_name(path), &e);
+                }
+            }
+            app.sync_views();
+            Ok(Value::Null)
+        })
+    }
+
     /// `next` with `r`, a command's result: at once, or, when the command is waiting on its file
     /// dialog, with the result of the action that continues from the answer (which `next`'s then
     /// replaces).

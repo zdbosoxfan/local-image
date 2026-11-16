@@ -399,6 +399,7 @@ fn wraps(id: &str) -> bool {
     matches!(
         id,
         "file.openAs"
+            | "file.openAsSmartObject"
             | "file.saveACopy"
             | "file.placeEmbedded"
             | "file.placeLinked"
@@ -830,6 +831,7 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
     let dialog = |app: &mut PhotocraftApp, fields: Value, choices: Value| Some(Ok(json!({"dialog": form(app, id, label, fields, choices)})));
     match id {
         "file.openAs" => Some(app.open_dialog_file()),
+        "file.openAsSmartObject" => Some(app.open_dialog_as_smart_object()),
         "file.saveACopy" => Some(save_a_copy(app)),
         "file.placeEmbedded" | "file.placeLinked" => {
             let doc = match app.active_doc_id() {
