@@ -109,8 +109,12 @@ pub type PngEncode = Box<dyn Fn(&li_raster::Rgba8) -> Vec<u8>>;
 pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Open a URL in the user's browser.
 pub type OpenUrlFn = Box<dyn FnMut(&str) -> Result<(), String>>;
-/// Open a file in an application (`app` = "" for the system's default one).
+/// Open a file in an application: `app` = "" for the host's own editor (Edit In), or
+/// [`SYSTEM_DEFAULT_APP`].
 pub type OpenWithFn = Box<dyn FnMut(&str, &str) -> Result<(), String>>;
+/// The `app` an [`OpenWithFn`] gets for the system's default application (After Export with no
+/// application given). It can't be typed as an application name.
+pub const SYSTEM_DEFAULT_APP: &str = "\0system-default";
 /// Something the host does with the session (web: back up or restore the library in browser
 /// storage); the work may finish asynchronously.
 pub type HostAction = Box<dyn FnMut(&mut Session) -> Result<Value, String>>;
