@@ -134,12 +134,11 @@ fn write_converted(
     let mut tiles = s.try_take_tiles(r).map_err(out_of_memory)?;
     let written = {
         use rayon::prelude::*;
-        tiles.par_iter_mut().try_for_each(|(tc, tile)| -> Result<(), CodecError> {
-            let oom = |e: AllocationError| CodecError::LimitExceeded(format!("not enough memory to open this image: {e}"));
+        tiles.par_iter_mut().try_for_each(|(tc, tile)| -> Result<(), IoError> {
             if Arc::get_mut(tile).is_none() {
-                *tile = Arc::new(tile.try_clone().map_err(oom)?);
+                *tile = Arc::new(tile.try_clone().map_err(out_of_memory)?);
             }
-            let t = Arc::get_mut(tile).ok_or_else(|| oom(AllocationError::SizeOverflow))?;
+            let t = Arc::get_mut(tile).ok_or_else(|| out_of_memory(AllocationError::SizeOverflow))?;
             let tr = tc.rect().intersect(&r);
             let n = tr.width() as usize;
             for row_y in tr.y0..tr.y1 {
@@ -154,7 +153,7 @@ fn write_converted(
         })
     };
     s.put_tiles(tiles);
-    written.map_err(IoError::from)
+    written
 }
 
 /// A decoded flat image as a single-layer document.
