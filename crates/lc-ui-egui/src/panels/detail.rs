@@ -1338,9 +1338,6 @@ fn moved_shape(shape: &MaskShape, handle: u8, dn: Point, at: Point, map: &Canvas
     }
 }
 
-/// The Masking tool on the photo: outlines and handles of the selected mask, a pin per mask
-/// component (click selects its mask, drag moves the component), and brush painting. The mask
-/// itself shows as a rendered overlay ([`view_overlay`]).
 /// The mask whose pin is under `q` (within the 10 px a grip is grabbed at), not counting the
 /// `active` mask's own pins.
 fn other_pin_at(grips: &[(u32, usize, u8, Pos2)], active: Option<u32>, q: Pos2) -> Option<u32> {
@@ -1351,6 +1348,9 @@ fn other_pin_at(grips: &[(u32, usize, u8, Pos2)], active: Option<u32>, q: Pos2) 
         .map(|g| g.0)
 }
 
+/// The Masking tool on the photo: outlines and handles of the selected mask, a pin per mask
+/// component (click selects its mask, drag moves the component), and brush painting. The mask
+/// itself shows as a rendered overlay ([`view_overlay`]).
 fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap, d: &DevelopSettings) {
     let tint = {
         let [r, g, b] = app.ui.mask_overlay_color;
