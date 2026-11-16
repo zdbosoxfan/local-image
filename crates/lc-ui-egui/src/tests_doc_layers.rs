@@ -160,6 +160,5 @@ fn layer_rows_name_blend_modes_as_compositing_does() {
     overlay.blend = "Overlay".into();
     let _german = li_i18n::language_scope(li_i18n::Lang::De);
     let blend = crate::panels::doc_layers::detail(&overlay).split(" · ").nth(1).map(str::to_string);
-    assert_eq!(blend.as_deref(), Some(li_i18n::t("Overlay")));
     assert_eq!(blend.as_deref(), Some("Überlagern"));
 }
