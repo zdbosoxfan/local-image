@@ -844,6 +844,7 @@ fn build() -> Vec<CommandSpec> {
                 let locks = doc.effective_locks(id);
                 if let (Some(src), Some(dst)) = (from, board_rect_of(doc, id))
                     && let (Some(dx), Some(dy)) = (dst.x0.checked_sub(src.x0), dst.y0.checked_sub(src.y0))
+                    && (dx, dy) != (0, 0)
                     && !(pinned.position || pinned.all || locks.position || locks.all)
                 {
                     crate::layer_multi_cmds::move_layers(doc, &[(id, dx, dy)])?;
