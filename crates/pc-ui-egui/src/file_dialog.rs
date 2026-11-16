@@ -169,10 +169,13 @@ impl PhotocraftApp {
     /// failure as File › Open does.
     pub fn open_dialog_as_smart_object(&mut self) -> Result<Value, String> {
         self.ask_file(FileDialogRequest::Open { multiple: true }, |app, answer| {
-            let FileDialogAnswer::Paths(mut paths) = answer else { return Err(UNEXPECTED.into()) };
+            let FileDialogAnswer::Paths(paths) = answer else { return Err(UNEXPECTED.into()) };
+            // Each file is a tracked open like File › Open's, started in name order. Not
+            // `show_if_open`: the file opens as another document even when it is already open.
+            let mut paths: Vec<String> = paths.iter().map(|p| crate::file_open::absolute(p)).collect();
             paths.sort_by(|a, b| photocraft_engine::batch_io::natural_cmp(a, b));
             for path in &paths {
-                if let Err(e) = crate::jobs_ui::run(app, "file.openAsSmartObject", json!({"path": path})) {
+                if let Err(e) = crate::jobs_ui::start_open_as_smart_object(app, path) {
                     app.open_failed(&display_name(path), &e);
                 }
             }

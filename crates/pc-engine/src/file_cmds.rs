@@ -1239,7 +1239,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Open as Smart Object…",
             &["File"],
             None,
-            r##"{"path":str (or "paths":[str], one document each)} (opens the file as a new untitled document named "<file name without its last extension>-N" with the file's size, resolution, colour mode, bit depth and profile, holding one embedded smart object layer named after the file) → {document, name, layer} ({documents:[…]} for paths)"##,
+            r##"{"path":str} (opens the file as a new untitled document named "<file name without its last extension>-N" with the file's size, resolution, colour mode, bit depth and profile, holding one embedded smart object layer named after the file; Color Settings apply as on File › Open) → {document, documentId, name, layer, warnings, color}"##,
             native,
             open_as_smart_object
         ),
