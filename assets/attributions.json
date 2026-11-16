@@ -14190,7 +14190,7 @@
           "name": "PhotoCraft",
           "used_for": "feat: Black & White Auto (#9269)",
           "commit": "7e15585d92b04d57164b78e452052a8b9c292497",
-          "ours": "crates/pc-engine/src/adjust_cmds.rs, crates/pc-engine/src/adjust_cmds/tests.rs, crates/pc-ui-egui/src/adjust_editors.rs, crates/pc-ui-egui/src/adjust_editors_tests.rs, crates/pc-ui-egui/src/adjust_dialog.rs",
+          "ours": "crates/pc-engine/src/adjust_cmds.rs, crates/pc-engine/src/adjust_cmds/tests.rs, crates/pc-ui-egui/src/adjust_editors.rs, crates/pc-ui-egui/src/adjust_editors_tests.rs, crates/pc-ui-egui/src/adjust_dialog.rs, crates/li-i18n/catalogs/editor/.tsv",
           "licence": "MIT OR Apache-2.0",
           "licence_files": [
             "licenses/photocraft-ATTRIBUTION.md",
