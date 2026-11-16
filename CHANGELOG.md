@@ -26,6 +26,9 @@ All notable changes to Local Image are recorded here. The format follows
 - A raw's embedded preview is read in Adobe RGB when the raw's EXIF says the camera was set to it.
 - Incomplete ISO and EXIF timestamps no longer become capture times, so the next valid date is used. A JPEG ICC profile whose chunks are missing, repeated or cut off is dropped from metadata.
 - RAW/TIFF imports bound hostile tile, opcode, and maker-note work before it can multiply memory or CPU use. Truncated Deflate tiles are rejected, and non-finite DNG WhiteLevel uses the bit-depth default.
+- Answering OK to the "Rasterize?" prompt that a brush or pencil opens on a type, shape, Smart
+  Object or fill layer only rasterizes the layer, as in Photoshop. The click that opened the prompt
+  no longer paints; the next click does.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.

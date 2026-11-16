@@ -1456,3 +1456,13 @@ the same EXIF colour-space tag, and a preview with EXIF of its own is read by th
 | [`0133e139bb68`](https://github.com/storytold/photocraft/commit/0133e139bb6857af2d4a2749ffe0ba99a7697e8d) | A raw with damaged sensor data opens its camera JPEG instead of failing | `crates/pc-io/src/raw.rs` | MIT OR Apache-2.0 |
 | [`17248a205dd7`](https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df) | A preview fallback keeps the colour space the raw's EXIF states | `crates/lc-codecs/src/jpeg.rs`<br>`crates/lc-codecs/src/lib.rs`<br>`crates/lc-engine/src/files.rs` | MIT OR Apache-2.0 |
 | [`5d4b68f04cfe`](https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303) | Use craft-heif from craft-libs for HEIC/HEIF (#13076) | `crates/pc-codecs/src/codecs/heif.rs` | MIT OR Apache-2.0 |
+
+## Adopted PhotoCraft behaviour changes (2026-11-16)
+
+Each of these changes an existing test exactly as upstream changed its counterpart (owner decision 2026-11-15).
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`54515f94b347`](https://github.com/storytold/photocraft/commit/54515f94b34786dc4c3d04a57cb8d66f838ea59f) | fix(ui-egui): the rasterize prompt no longer replays the click that opened it (#8806) | `crates/pc-ui-egui/src/rasterize_prompt.rs`<br>`crates/pc-ui-egui/src/rasterize_prompt_tests.rs`<br>`crates/pc-ui-egui/src/vector_packages/persona.rs`<br>`docs/control-protocol.md` | MIT OR Apache-2.0 |
+
+`54515f94`: our `confirm()` keeps its local `persona::validate_rasterize_prompt` check before rasterizing; upstream's `confirm_filter` branch and scorecard rows have no counterpart here.
