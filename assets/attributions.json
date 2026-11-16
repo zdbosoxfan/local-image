@@ -14737,6 +14737,76 @@
           "url": "https://github.com/storytold/lightcraft/commit/64998a1acf2328caa6b3c4a56989a480b6cf4e38"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "Levels clipping: snapped area stays within the texture limit (#3328)",
+          "commit": "216a4260b04a998fae79a6a5c38f9889943053bd",
+          "ours": "crates/pc-ui-egui/src/levels_clipping.rs, crates/pc-ui-egui/src/levels_clipping_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/216a4260b04a998fae79a6a5c38f9889943053bd"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Levels clipping: cap the display at 2048 x 2048 blocks (#3328)",
+          "commit": "8878ff335fdb00d7eb8e34b91d0db9619c04ea43",
+          "ours": "crates/pc-ui-egui/src/levels_clipping.rs, crates/pc-ui-egui/src/levels_clipping_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/8878ff335fdb00d7eb8e34b91d0db9619c04ea43"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(type): commit a type edit when another layer or document becomes active (#6483)",
+          "commit": "3c91200d88feef46129c90d60ca15b3f1e261c47",
+          "ours": "crates/pc-ui-egui/src/type_tool.rs, crates/pc-ui-egui/src/type_commit_tests.rs, crates/pc-ui-egui/src/state.rs, crates/pc-ui-egui/src/lib.rs, crates/pc-ui-egui/src/hotfix_critical_tests.rs, crates/pc-ui-egui/src/panels/tests.rs, crates/pc-ui-egui/src/type_tool_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/3c91200d88feef46129c90d60ca15b3f1e261c47"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CLI convert: refuse to write over the input file unless --in-place (#7437)",
+          "commit": "4f0876958db142b61c790f1a23139e2cd5bd1854",
+          "ours": "apps/local-image-cli/src/lib.rs, apps/local-image-cli/tests/cli.rs, apps/local-image-cli/Cargo.toml",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/4f0876958db142b61c790f1a23139e2cd5bd1854"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "photocraft-cli run: refuse an --out that is the input file unless --in-place (#7437)",
+          "commit": "cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c",
+          "ours": "apps/local-image-cli/src/lib.rs, apps/local-image-cli/tests/cli.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
