@@ -62,6 +62,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
         fields.retain(|k, _| k.starts_with("__"));
         fields.extend(v);
     }
+    crate::levels_clipping::sync(ui.ctx(), cx.mem, fields);
     let mut preview = fields.get("__preview").and_then(Value::as_bool).unwrap_or(true);
     ui.add_space(6.0);
     if crate::widgets::checkbox(ui, &mut preview, tl!("Preview")).changed() {

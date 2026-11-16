@@ -17,6 +17,11 @@ All notable changes to Local Image are recorded here. The format follows
 - The Match Color dialog has a Source Layer menu: match to one layer of the Source document instead
   of its merged image. Layers with the same name stay separate choices, and choosing another
   Source document goes back to Merged.
+- Levels: hold Alt while dragging the black or white Input slider to see what it clips. The canvas
+  turns white with the clipped shadows in black or colour (black slider), or black with the clipped
+  highlights in white or colour (white slider); release Alt or the mouse to see the preview again.
+  The document is never changed. Grayscale shows black and white; CMYK and Lab documents, channel,
+  mask and Quick Mask targets, and Smart Filter Levels keep the normal preview.
 
 ### Changed
 
