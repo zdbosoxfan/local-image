@@ -200,8 +200,8 @@ pub fn parse_cube_with_domain(text: &str) -> Result<ParsedLut, LutError> {
 /// shaper line of input values, then integer RGB rows with **blue** varying fastest. The `Mesh`
 /// line declares the cube edge (2^inBits + 1) and the output code range (up to 2^outBits - 1),
 /// as Photoshop honours; without it the edge is the cube root of the row count and the output
-/// bit depth is inferred from the largest value.
-/// Linear identity shapers are accepted; nonlinear shapers are rejected explicitly.
+/// bit depth is inferred from the largest value. A shaper that isn't the even ramp is applied
+/// before the table, as Photoshop does: see [`apply_shaper`].
 pub fn parse_3dl(text: &str) -> Result<LutFile, LutError> {
     editor_limit(parse_3dl_inner(text)?)
 }
@@ -266,16 +266,6 @@ fn parse_3dl_inner(text: &str) -> Result<LutFile, LutError> {
         None => cube_edge(rows.len()).ok_or_else(|| LutError(format!("{} rows is not a cube", rows.len())))?,
     };
     checked_data_len(n)?;
-    if let Some(shaper) = shaper {
-        let peak = *shaper.last().unwrap_or(&0.0);
-        // Quantized integer identity shapers may differ by one code (OCIO allows two).
-        // The old normalized test dialect also permits a linear arbitrary integer range.
-        let tolerance = if peak > 16.0 { 2.0 } else { 1e-6 };
-        let step = peak / (shaper.len() - 1) as f64;
-        if !peak.is_finite() || peak <= 0.0 || shaper.iter().enumerate().any(|(i, &v)| !v.is_finite() || (v - i as f64 * step).abs() > tolerance) {
-            return err("unsupported nonlinear .3dl shaper; only linear identity shapers are supported");
-        }
-    }
     let max = rows.iter().flatten().fold(0.0f64, |a, &b| a.max(b));
     // A declared range covers every in-range code, so code 1 under 12 bits is 1/4095; a node
     // beyond it means a wrong declaration, and the inference keeps such a file loading.
@@ -292,7 +282,52 @@ fn parse_3dl_inner(text: &str) -> Result<LutFile, LutError> {
             data[at + k] = (row[k] / scale) as f32;
         }
     }
-    LutFile { title: String::new(), size: n, data }.check()
+    let lut = LutFile { title: String::new(), size: n, data }.check()?;
+    Ok(match shaper {
+        Some(shaper) => apply_shaper(lut, &shaper),
+        None => lut,
+    })
+}
+
+/// Bakes a `.3dl` shaper into the table. Photoshop applies the shaper row as a 1-D curve on each
+/// input channel ahead of the 3-D table (input `x` reads the shaper, sampled evenly over 0..1,
+/// at `x`, interpolated linearly), so each node becomes the table's own trilinear value at the
+/// shaped input. The shaper runs from 0 to its last value. An even ramp (the usual shaper)
+/// changes nothing and is skipped, and a shaper that isn't finite or doesn't rise to a positive
+/// peak is ignored rather than trusted. With as many shaper points as table nodes, as in Lustre
+/// files, the result is exact for an identity table and an approximation otherwise.
+fn apply_shaper(lut: LutFile, shaper: &[f64]) -> LutFile {
+    let m = shaper.len();
+    let peak = shaper.last().copied().unwrap_or(0.0);
+    if m < 2 || !peak.is_finite() || peak <= 0.0 || shaper.iter().any(|v| !v.is_finite()) {
+        return lut;
+    }
+    // Quantized integer identity shapers may differ by one code (OCIO allows two).
+    // The old normalized test dialect also permits a linear arbitrary integer range.
+    let tolerance = if peak > 16.0 { 2.0 } else { 1e-6 };
+    let step = peak / (m - 1) as f64;
+    if shaper.iter().enumerate().all(|(i, &v)| (v - i as f64 * step).abs() <= tolerance) {
+        return lut;
+    }
+    let curve = |x: f64| -> f32 {
+        let p = x.clamp(0.0, 1.0) * (m - 1) as f64;
+        let i = (p.floor() as usize).min(m - 2);
+        let f = p - i as f64;
+        let (a, b) = (shaper[i], shaper[i + 1]);
+        ((a + (b - a) * f) / peak).clamp(0.0, 1.0) as f32
+    };
+    let n = lut.size;
+    let step = (n - 1) as f64;
+    let mut data = Vec::with_capacity(lut.data.len());
+    for b in 0..n {
+        for g in 0..n {
+            for r in 0..n {
+                let at = [curve(r as f64 / step), curve(g as f64 / step), curve(b as f64 / step)];
+                data.extend(crate::lut::sample_rgb(&lut.data, n, at, false));
+            }
+        }
+    }
+    LutFile { data, ..lut }
 }
 
 /// SpeedGrade `.look`: `<size>` and a hex `<data>` string of little-endian float32 RGB triplets
@@ -544,7 +579,7 @@ mod tests {
         assert!(parse_cube_with_domain("LUT_3D_SIZE 2\nDOMAIN_MIN 1 0 0\nDOMAIN_MAX 0 1 1").is_err());
     }
     #[test]
-    fn three_dl_8bit_and_identity_shapers_reject_nonlinear() {
+    fn three_dl_8bit_and_identity_shapers_load() {
         let cube = |n: usize, scale: usize| {
             let mut s = String::new();
             for r in 0..n {
@@ -566,12 +601,49 @@ mod tests {
             assert_eq!(parse_3dl(&format!("{header}\n{table}")).unwrap().data, plain.data);
         }
         for header in ["200 1023", "0 64 1023"] {
-            assert!(parse_3dl(&format!("{header}\n{table}")).unwrap_err().0.contains("unsupported nonlinear .3dl shaper"));
+            assert!(parse_3dl(&format!("{header}\n{table}")).is_ok());
         }
         // A plain3³ table has27RGB rows: its first row is never stripped as a header.
         assert_eq!(parse_3dl(&cube(3, 4094)).unwrap().data.len(), 27 * 3);
-        let error = parse_3dl(&format!("0 64 512 1023\n{table}")).unwrap_err();
-        assert!(error.0.contains("unsupported nonlinear .3dl shaper"));
+        assert!(parse_3dl(&format!("0 64 512 1023\n{table}")).is_ok());
+    }
+
+    /// An identity `.3dl` of edge `n` (12-bit nodes, blue fastest) under `shaper`.
+    fn identity_3dl(shaper: &[u32], n: usize) -> String {
+        let mut t = shaper.iter().map(u32::to_string).collect::<Vec<_>>().join(" ") + "\n";
+        let node = |i: usize| (i * 4095 / (n - 1)).to_string();
+        for r in 0..n {
+            for g in 0..n {
+                for b in 0..n {
+                    t += &format!("{} {} {}\n", node(r), node(g), node(b));
+                }
+            }
+        }
+        t
+    }
+
+    #[test]
+    fn three_dl_shaper_applies_before_the_table() {
+        // Photoshop applies a .3dl's shaper row as a curve ahead of the 3-D table. On grey 128 an
+        // identity table with the shaper 0 114 455 1023 gives 71 there, and a 17-point squared
+        // shaper 64 (upstream's reported measurements); even ramps leave grey 128 as it is.
+        let sample = |l: &LutFile, rgb: [f32; 3]| crate::lut::sample_rgb(&l.data, l.size, rgb, false);
+        let grey = |l: &LutFile| (sample(l, [128.0 / 255.0; 3])[0] * 255.0).round();
+        let bent = parse_3dl(&identity_3dl(&[0, 114, 455, 1023], 4)).unwrap();
+        assert_eq!(grey(&bent), 71.0);
+        let squared: Vec<u32> = (0..17).map(|i| (1023.0 * (i as f64 / 16.0).powi(2)).round() as u32).collect();
+        assert_eq!(grey(&parse_3dl(&identity_3dl(&squared, 17)).unwrap()), 64.0);
+        let even4 = parse_3dl(&identity_3dl(&[0, 341, 682, 1023], 4)).unwrap();
+        assert_eq!(grey(&even4), 128.0);
+        assert_eq!(even4, parse_3dl(&identity_3dl(&[0, 341, 682, 1023], 4).lines().skip(1).collect::<Vec<_>>().join("\n")).unwrap());
+        let even17: Vec<u32> = (0..17).map(|i| (1023.0 * i as f64 / 16.0).round() as u32).collect();
+        assert_eq!(grey(&parse_3dl(&identity_3dl(&even17, 17)).unwrap()), 128.0);
+        // The ends stay put, and the shaper bends each channel on its own.
+        assert_eq!(sample(&bent, [0.0, 1.0, 0.0]), [0.0, 1.0, 0.0]);
+        let c = sample(&bent, [1.0 / 3.0, 0.0, 2.0 / 3.0]);
+        assert!((c[0] - 114.0 / 1023.0).abs() < 1e-4 && (c[2] - 455.0 / 1023.0).abs() < 1e-4, "{c:?}");
+        // A shaper that isn't finite is ignored rather than trusted.
+        assert!(parse_3dl(&identity_3dl(&[0, 341, 682, 1023], 4).replacen("341", "NaN", 1)).is_ok());
     }
 
     #[test]
