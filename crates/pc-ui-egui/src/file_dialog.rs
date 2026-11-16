@@ -124,6 +124,35 @@ impl PhotocraftApp {
         })
     }
 
+    /// [`Self::pick_save`] for the export flows (Export As, Quick Export, Save for Web): a bare
+    /// file name starts in the folder of the last successful export (a preference, kept across
+    /// restarts), as in Photoshop, while that folder still exists ([`export_start_dir`]). Once
+    /// `then` has exported, the chosen file's folder is remembered; a failed or cancelled export
+    /// leaves the remembered folder alone.
+    pub(crate) fn pick_export(&mut self, suggested: &str, then: impl FnOnce(&mut Self, String) -> Result<Value, String> + 'static) -> Result<Value, String> {
+        let mut suggested = std::path::PathBuf::from(suggested);
+        if suggested.parent().is_some_and(|p| p.as_os_str().is_empty())
+            && let Some(dir) = export_start_dir(&self.session.prefs().export.last_folder, std::path::Path::is_dir)
+        {
+            suggested = dir.join(suggested);
+        }
+        self.pick_save(&suggested.to_string_lossy(), move |app, path| {
+            let exported = then(app, path.clone())?;
+            app.remember_export_folder(&path);
+            Ok(exported)
+        })
+    }
+
+    /// Remember the folder of an export that succeeded as where the next export dialog starts.
+    /// The web answers a download name, which has no folder, and leaves it alone.
+    fn remember_export_folder(&mut self, path: &str) {
+        let Some(dir) = std::path::Path::new(path).parent().filter(|p| !p.as_os_str().is_empty()) else { return };
+        let dir = dir.to_string_lossy().into_owned();
+        if self.session.prefs().export.last_folder != dir {
+            self.session.prefs.edit(|p| p.export.last_folder = dir);
+        }
+    }
+
     /// Ask for a file a command reads (a script, notes, presets): `then` gets its name (the full
     /// path on the desktop) and bytes. A file that can't be read fails with "<file name>: <why>".
     pub(crate) fn pick_file_bytes(&mut self, then: impl FnOnce(&mut Self, String, Vec<u8>) -> Result<Value, String> + 'static) -> Result<Value, String> {
@@ -236,6 +265,13 @@ impl PhotocraftApp {
             self.ui.status_error = true;
         }
     }
+}
+
+/// The folder an export dialog starts in: the `remembered` folder of the last export while
+/// `exists` finds it (never on the web, which has no folders), else none, which leaves the
+/// choice to the system dialog.
+pub(crate) fn export_start_dir(remembered: &str, exists: impl Fn(&std::path::Path) -> bool) -> Option<std::path::PathBuf> {
+    Some(std::path::PathBuf::from(remembered)).filter(|d| !remembered.is_empty() && exists(d))
 }
 
 /// The name and bytes of the single file an open dialog answered with.

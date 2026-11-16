@@ -506,7 +506,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
         };
     }
     let f = f.clone();
-    app.pick_save(&suggested, move |app, path| {
+    app.pick_export(&suggested, move |app, path| {
         capture_current(app, &f)?;
         let out = export_document(&doc, &f, None)?;
         let export = app.services.export.as_ref().ok_or("no exporter configured")?;
@@ -536,7 +536,7 @@ pub fn quick_export_png(app: &mut PhotocraftApp) -> Result<Value, String> {
         let st = app.session.active().ok_or("no document")?;
         let stem = st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(a, _)| a);
         let (suggested, doc) = (format!("{stem}.{fmt}"), st.doc.id);
-        return app.pick_save(&suggested, move |app, path| {
+        return app.pick_export(&suggested, move |app, path| {
             app.refocus(doc)?;
             quick_export(app, json!({"path": path}))
         });
