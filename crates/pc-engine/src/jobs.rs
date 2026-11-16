@@ -68,9 +68,14 @@ pub(crate) fn authorize_render_command(id: &str, params: &Value) -> Result<()> {
     }
 }
 
+/// The gate installed on this thread, for a scratch session that runs nested commands.
+pub(crate) fn installed_authorization() -> Option<Authorization> {
+    RENDER_AUTHORIZATION.with(std::cell::Cell::get)
+}
+
 /// Whether the work on this thread is done for an untrusted session (a gate is installed).
 pub(crate) fn authorization_installed() -> bool {
-    RENDER_AUTHORIZATION.with(std::cell::Cell::get).is_some()
+    installed_authorization().is_some()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -842,7 +847,8 @@ impl Session {
         crate::edit_menu_cmds::after_command(self, id);
         crate::automate_cmds::after_command(self, id);
         self.sync_preset_store();
-        if journal && !crate::brush_cmds::coalesce_journal(self, id, &params) {
+        if journal && !crate::brush_cmds::coalesce_journal(self, id, &params) && !crate::type_cmds::coalesce_journal(self, id, &params) {
+            let params = crate::actions_cmds::recorded_params(self, id, params);
             self.journal.push((id.to_string(), params));
         }
     }

@@ -427,6 +427,35 @@ fn find_in_the_active_layer_finds_nothing_when_it_is_not_type() {
 }
 
 #[test]
+fn find_and_replace_change_needs_a_match_remembered_for_the_same_search() {
+    let mut s = session(8);
+    let id = LayerId(s.execute("type.create", json!({"text": "cat Cat", "x": 2, "y": 12})).unwrap()["layer"].as_u64().unwrap());
+    let text = |s: &Session| match &s.active().unwrap().doc.layer(id).unwrap().content {
+        LayerContent::Text(t) => t.text.clone(),
+        _ => String::new(),
+    };
+    // Change with nothing found yet replaces nothing and does not move on to a match.
+    let r = s.execute("edit.findAndReplaceText", json!({"find": "cat", "replace": "dog", "action": "change"})).unwrap();
+    assert!(r["changed"].is_null() && r["found"].is_null(), "{r}");
+    assert!(s.edit_state.find_cursor.is_none());
+    // A match found by one search is not another search's match.
+    let f = s.execute("edit.findAndReplaceText", json!({"find": "cat", "action": "find"})).unwrap();
+    assert_eq!(f["found"]["text"], "cat");
+    let steps = s.active().unwrap().history.entries().len();
+    let r = s.execute("edit.findAndReplaceText", json!({"find": "cat", "replace": "dog", "action": "change", "caseSensitive": true})).unwrap();
+    assert!(r["changed"].is_null(), "{r}");
+    assert_eq!(text(&s), "cat Cat");
+    assert_eq!(s.active().unwrap().history.entries().len(), steps);
+    // Found by the same search, Change replaces it; a second Change in a row does nothing.
+    s.execute("edit.findAndReplaceText", json!({"find": "cat", "action": "find"})).unwrap();
+    let r = s.execute("edit.findAndReplaceText", json!({"find": "cat", "replace": "dog", "action": "change"})).unwrap();
+    assert!(r["changed"].is_object(), "{r}");
+    let r = s.execute("edit.findAndReplaceText", json!({"find": "cat", "replace": "dog", "action": "change"})).unwrap();
+    assert!(r["changed"].is_null() && r["found"].is_null(), "{r}");
+    assert_eq!(text(&s), "dog Cat");
+}
+
+#[test]
 fn fade_allocation_failure_keeps_document_and_history() {
     for depth in [8, 16, 32] {
         let mut s = session(depth);

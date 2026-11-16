@@ -36,14 +36,28 @@ pub struct CustomShape {
     pub path: Path,
 }
 
+/// A remembered Find and Replace Text match (or the collapsed cursor after a replacement) and
+/// the search it belongs to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FindCursor {
+    pub layer: LayerId,
+    pub start: usize,
+    pub end: usize,
+    pub find: String,
+    pub case_sensitive: bool,
+    pub whole_word: bool,
+    pub forward: bool,
+    pub all_layers: bool,
+}
+
 /// Edit-menu state kept by the session.
 #[derive(Clone, Debug, Default)]
 pub struct EditState {
     pub fade: Option<FadeSource>,
     /// Custom shape library (the vector tools read it).
     pub custom_shapes: Vec<CustomShape>,
-    /// Find and Replace Text position: (layer, byte offset after the current match).
-    pub find_cursor: Option<(LayerId, usize, usize)>,
+    /// Find and Replace Text position and the search it belongs to.
+    pub find_cursor: Option<FindCursor>,
 }
 
 /// Commands whose result Edit › Fade can blend back against the previous state.
@@ -753,6 +767,7 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                 layers.iter().filter_map(|id| Some((*id, find_matches(&text_of(&doc, *id)?, &find, case, whole)))).filter(|(_, m)| !m.is_empty()).collect();
             let count: usize = plan.iter().map(|(_, m)| m.len()).sum();
             if count == 0 {
+                s.edit_state.find_cursor = None;
                 return Ok(json!({"count": 0, "layers": 0}));
             }
             s.edit("Replace All Text", |doc, _| {
@@ -772,7 +787,15 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
         }
         "find" | "change" | "changeFind" => {
             let doc = st.doc.clone();
-            let cursor = s.edit_state.find_cursor;
+            let remember =
+                |layer, start, end| FindCursor { layer, start, end, find: find.clone(), case_sensitive: case, whole_word: whole, forward, all_layers };
+            // A remembered match belongs to its search: another text or option starts over.
+            let same_search =
+                |c: &FindCursor| c.find == find && c.case_sensitive == case && c.whole_word == whole && c.forward == forward && c.all_layers == all_layers;
+            if !s.edit_state.find_cursor.as_ref().is_some_and(same_search) {
+                s.edit_state.find_cursor = None;
+            }
+            let cursor = s.edit_state.find_cursor.as_ref().map(|c| (c.layer, c.start, c.end));
             let mut changed = None;
             if action != "find"
                 && let Some((id, a, b)) = cursor
@@ -787,15 +810,19 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                     Ok(())
                 })?;
                 let end = a + replace.len();
-                s.edit_state.find_cursor = Some((id, end, end));
+                s.edit_state.find_cursor = Some(remember(id, end, end));
                 changed = Some((id, a, end));
                 if action == "change" {
                     return Ok(json!({"changed": {"layer": id.0, "start": a, "end": end}}));
                 }
             }
+            // Change alone never moves on to the next match.
+            if action == "change" {
+                return Ok(json!({"changed": null}));
+            }
             // Find the next match after the cursor (wrapping through the layers).
             let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
-            let cursor = s.edit_state.find_cursor;
+            let cursor = s.edit_state.find_cursor.as_ref().map(|c| (c.layer, c.start, c.end));
             let start = cursor.and_then(|(id, _, _)| layers.iter().position(|l| *l == id)).unwrap_or(0);
             for k in 0..=layers.len() {
                 // `allLayers: false` with a non-type layer active leaves no layers to search (#703).
@@ -819,7 +846,7 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                     }
                 };
                 if let Some((a, b)) = hit {
-                    s.edit_state.find_cursor = Some((id, a, b));
+                    s.edit_state.find_cursor = Some(remember(id, a, b));
                     let _ = s.select_layer(id);
                     return Ok(
                         json!({"found": {"layer": id.0, "start": a, "end": b, "text": &text[a..b]}, "changed": changed.map(|(l, a, b)| json!({"layer": l.0, "start": a, "end": b}))}),
