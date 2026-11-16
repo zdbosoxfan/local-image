@@ -1834,6 +1834,14 @@ Adapted port. Upstream makes `read_jpeg_app1`'s closure `FnMut`; we have no `rea
 
 Partial port, the `psd_import.rs` hunk only (owner-delegated decision 2026-11-16). The unfiltered copy a PSD import stages for a smart object with a masked filter is charged every whole tile its surface keeps, on top of the padded scratch our shared conversion budget already charged for the mix; tiles are counted inline (no `tile_storage_bytes` in `pc-raster`). As upstream, a copy past the budget is skipped and the layer keeps its stored pixels, where ours ended the import; upstream adds no warning for it, so neither do we. Our Affinity and SVG importers already charge whole tiles, and we have no ORA, PDN or XCF importer. Tests: `file_input_regressions::unfiltered_smart_copy_is_charged_the_whole_tiles_it_keeps`, `file_input_regressions::unfiltered_smart_copy_over_the_budget_keeps_the_stored_pixels`.
 
+## LightCraft re-read orientation, a WebP's last EXIF chunk by its IFD (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/lightcraft@`64998a1acf2328caa6b3c4a56989a480b6cf4e38`](https://github.com/storytold/lightcraft/commit/64998a1acf2328caa6b3c4a56989a480b6cf4e38) | LR-LIB-PEOPLE: a WebP's EXIF chunk of any size is read by its IFD, and the last one counts, as at import (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+
+Adapted port (owner-delegated decision 2026-11-16). Upstream's walk changes are taken whole: a file under the first MiB is read as the import reads it, a WebP's chunks are always walked and its last EXIF and last XMP chunk count, the EXIF chunk's first IFD is read whatever the chunk's size (`tiff_orientation` takes the stream's start and end), and a JPEG takes its first Exif segment, else its first XMP segment. Upstream's change to `read_jpeg_app1`'s pick lands in our `jpeg_orientation` on `jpeg_app1`, and the XMP packets are read with `parse_whole_xmp`, as in `4e350dc756`. In `the_file_orientation_is_found_after_the_image_data` the `huge.webp` expectation changes from Rotate270 to Rotate90, as upstream changed it, and upstream's new cases are added (`late-ifd.webp`, `outside.webp`, `last-exif.webp`, `span-xmp.webp`, `two-exif.jpg`, and the over-span `over-xmp.webp` check). Not ported: upstream's extra check of every existing case against `lightcraft_meta::extract`, which would change what the existing cases check.
+
 ## Upstream rows reviewed and not ported (2026-11-16)
 
 Upstream commits triaged as fixes (MUST or SHOULD) or offered as features in the 2026-11 pass and left out, with the reason. None of them is ported, so none has a row in a commit table. A row marked "owner decision" waits for the owner; the others wait for the base named.
@@ -1884,7 +1892,7 @@ Not ported: storytold/photocraft@`ec7ca9161d` (Place: wait for a preparing Free 
 
 Not ported: storytold/photocraft@`ec55bed7b0` (algo, engine, ui: Perspective Crop commits a quad mirrored on one axis, #12489). Already covered: our own Perspective Crop in `crates/pc-engine/src/perspective_crop_cmds.rs` accepts a convex quad of either winding and maps each corner onto its own, so a mirrored quad crops mirrored.
 
-Not ported: storytold/lightcraft@`64998a1acf` (LR-LIB-PEOPLE: a WebP's EXIF chunk of any size is read by its IFD, and the last one counts, as at import, #2674). Owner decision: the port changes an existing expectation in `crates/lc-engine/src/sidecar.rs` (`huge.webp` from Rotate270 to Rotate90 in `the_file_orientation_is_found_after_the_image_data`). Once approved it follows `4e350dc756`.
+Ported since: storytold/lightcraft@`64998a1acf` has its row in "LightCraft re-read orientation, a WebP's last EXIF chunk by its IFD (2026-11-16)" above.
 
 Not ported: storytold/lightcraft@`86f2ba81eb` (Originals: refuse a screenshot target when an original cannot be queried). Our screenshot check uses the lenient `li_fs::same_file` like an ordinary export; the strict hard-link identity scan this fixes (`check_identity`, `same_file_strict` from `545ed92d`) is not here and would be a new feature.
 
