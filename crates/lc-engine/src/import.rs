@@ -55,7 +55,7 @@ pub struct InheritedOrganization {
     pub flag: lightcraft_catalog::Flag,
     pub label: Option<lightcraft_catalog::ColorLabel>,
     pub keywords: Vec<String>,
-    /// IPTC text: a non-empty value replaces the one read from the new file.
+    /// IPTC text: a non-empty value fills the field when the new file has none of its own.
     pub title: String,
     pub caption: String,
     pub copyright: String,
@@ -1583,7 +1583,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                         }
                     }
                     let m = &mut p.meta;
-                    if !inherited.creator.is_empty() {
+                    if m.creator.is_empty() && !inherited.creator.is_empty() {
                         m.creators.clear();
                     }
                     for (field, value) in [
@@ -1596,7 +1596,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                         (&mut m.state, &inherited.state),
                         (&mut m.country, &inherited.country),
                     ] {
-                        if !value.is_empty() {
+                        if field.is_empty() && !value.is_empty() {
                             field.clone_from(value);
                         }
                     }

@@ -2467,6 +2467,26 @@ fn derived_edit_inherits_iptc_text_from_its_source() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
+fn derived_edit_keeps_its_own_iptc_text() {
+    let (dir, _path, mut lib, original) = library_with_photo("derived-own-iptc");
+    lib.session.execute("photo.setMeta", &json!({"ids":[original.0],"title":"Hero","creator":"Photographer","city":"Town"})).unwrap();
+    let saved = dir.join("derivative-own.png");
+    image::RgbaImage::from_pixel(7, 5, image::Rgba([100u8, 60, 30, 255])).save(&saved).unwrap();
+    let own = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Retouched</rdf:li></rdf:Alt></dc:title>
+<dc:creator><rdf:Seq><rdf:li>Retoucher</rdf:li></rdf:Seq></dc:creator>
+</rdf:Description></rdf:RDF></x:xmpmeta>"#;
+    std::fs::write(dir.join("derivative-own.xmp"), own).unwrap();
+    let Some(LibraryUpdate::Added { id, .. }) = add_saved_file(&mut lib.session, &saved.to_string_lossy(), Some(original.0), false).unwrap() else {
+        panic!("new derivative")
+    };
+    let m = &lib.session.catalog.photo(id).unwrap().meta;
+    assert_eq!([&m.title, &m.creator, &m.city], ["Retouched", "Retoucher", "Town"]);
+    drop(lib);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
 fn compositing_document_carries_the_library_title_and_copyright() {
     let (dir, path, mut lib, photo) = library_with_photo("document-iptc");
     lib.session.execute("photo.setMeta", &json!({"ids":[photo.0],"title":"Hero","copyright":"(c) Studio"})).unwrap();

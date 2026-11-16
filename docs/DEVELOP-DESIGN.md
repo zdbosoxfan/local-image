@@ -118,7 +118,7 @@ restore the earlier displayed image, including when caches are warm.
 **Library → Editor** (Photo › Edit in Local Image, ⌘E-style; replaces the TIFF path for our own editor):
 
 1. The editor opens a new document whose **Background is a Develop layer**: a `SmartObject` whose source is the original file (**Linked** to the library photo by path + photo id by default; **Embedded** on request or when saving portable PSDs) and whose new `develop: DevelopSettings` is applied *at source decode* — so a raw stays raw (full highlight recovery, white balance, lens correction).
-2. EXIF/XMP/IPTC come with it: the file's own, with the Library's title, caption, copyright, creator, keywords and location written over them in the document's XMP. The saved Edit's catalog entry inherits that text too, and Export As starts with Metadata: All for such a document.
+2. EXIF/XMP/IPTC come with it: the file's own, with the Library's title, caption, copyright, creator, keywords and location written over them in the document's XMP. The saved Edit's catalog entry inherits that text where the file has none of its own, and Export As starts with Metadata: All for such a document.
 3. Retouch, AI Remove, compositing all happen in **layers above** (the Develop layer is never rasterised; a pixel tool aimed at it offers "Work on a new layer above" — the Photoshop rasterise trap avoided).
 4. **Double-click the Develop layer** → the Develop workspace opens on that layer (same panels, layers, AI masks). Change it and the layer re-renders; layers above stay put.
 5. The saved document (`.pcraft`, or PSD/layered TIFF) is added to the Library **stacked with its original** as an *Edit*. Its thumbnail is the composite.
