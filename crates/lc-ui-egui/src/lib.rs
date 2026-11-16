@@ -113,8 +113,12 @@ pub type PngEncode = Box<dyn Fn(&li_raster::Rgba8) -> Vec<u8>>;
 pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Open a URL in the user's browser.
 pub type OpenUrlFn = Box<dyn FnMut(&str) -> Result<(), String>>;
-/// Open a file in an application (`app` = "" for the system's default one).
+/// Open a file in an application: `app` = "" for the host's own editor (Edit In), or
+/// [`SYSTEM_DEFAULT_APP`].
 pub type OpenWithFn = Box<dyn FnMut(&str, &str) -> Result<(), String>>;
+/// The `app` an [`OpenWithFn`] gets for the system's default application (After Export with no
+/// application given). It can't be typed as an application name.
+pub const SYSTEM_DEFAULT_APP: &str = "\0system-default";
 /// Something the host does with the session (web: back up or restore the library in browser
 /// storage); the work may finish asynchronously.
 pub type HostAction = Box<dyn FnMut(&mut Session) -> Result<Value, String>>;
@@ -407,6 +411,9 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        panels::enhance::poll(self, ctx);
+        export_task::poll(self, ctx);
+        proof_sheet::poll(self, ctx);
         smart_sort_task::poll(self, ctx);
         people_task::poll(self, ctx);
         self.session.persist_if_dirty();
@@ -846,6 +853,9 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        panels::enhance::poll(self, ctx);
+        export_task::poll(self, ctx);
+        proof_sheet::poll(self, ctx);
         people_task::poll(self, ctx);
         self.preview_build_status(ctx);
         self.save_status(ctx);
@@ -1022,11 +1032,8 @@ impl LightcraftApp {
         if !self.host_modal {
             self.ai_mask_detail(&ctx);
         }
-        panels::enhance::poll(self, &ctx);
         panels::develop_tools::upright_poll(self, &ctx);
-        // Completion/failure collection continues even while interactive windows are suspended.
-        export_task::poll(self, &ctx);
-        proof_sheet::poll(self, &ctx);
+        proof_sheet::progress(self, &ctx);
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| panels::detail::show(self, ui));

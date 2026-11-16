@@ -521,8 +521,9 @@ impl AfterExport {
             },
             "openIn" => match app.services.open_with.as_mut() {
                 Some(open) => {
+                    let target = if self.app.trim().is_empty() { crate::SYSTEM_DEFAULT_APP } else { self.app.as_str() };
                     for f in &written {
-                        if let Err(e) = open(f["path"].as_str().unwrap_or_default(), &self.app) {
+                        if let Err(e) = open(f["path"].as_str().unwrap_or_default(), target) {
                             notes.push(format!("couldn't open the files: {e}"));
                             break;
                         }
@@ -578,5 +579,23 @@ mod tests {
             assert!(error.contains("`ids`"), "{bad}: {error}");
         }
         Ok(())
+    }
+
+    #[test]
+    fn after_export_with_no_application_opens_the_files_in_the_system_default() {
+        let opened: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>> = Default::default();
+        let o = opened.clone();
+        let services = crate::Services {
+            open_with: Some(Box::new(move |path: &str, app: &str| {
+                o.lock().unwrap().push((path.to_string(), app.to_string()));
+                Ok(())
+            })),
+            ..Default::default()
+        };
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), services);
+        let after = AfterExport { after: "openIn".into(), ..Default::default() };
+        assert_eq!(after.run(&mut app, &[json!({"path": "a.jpg"}), json!({"path": "b.jpg"})]), None);
+        let want = |p: &str| (p.to_string(), crate::SYSTEM_DEFAULT_APP.to_string());
+        assert_eq!(*opened.lock().unwrap(), vec![want("a.jpg"), want("b.jpg")]);
     }
 }

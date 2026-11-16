@@ -8,7 +8,7 @@ and metadata kept re-editable, and with a Camera Raw Filter that has the same to
 
 * **Modules, not "Edit in…":** the title bar switches **Library | Develop | Compositing** (⌘⌥1 / ⌘⌥2 / ⌘⌥3), as Lightroom's module picker does. Develop → Compositing carries the photo across as a Develop layer; Compositing → Develop goes to the active Develop layer's photo; double-clicking a Develop layer goes to Develop. *(Shipped: module switch, Develop layers, live follow on return from Develop.)*
 * **Keymaps per module:** Library and Develop keep Lightroom Classic's keys, Compositing keeps Photoshop's; only the module switch is global.
-* **Develop layers follow the Library** (live link): coming back from Develop re-renders every Develop layer of that photo, one undo step per document. The layer stores the settings too, so a document opened without the Library still renders.
+* **Develop layers follow the Library** (live link): coming back from Develop re-renders every Develop layer of that photo, one undo step per document. When Develop changed the photo's size (crop, rotation, perspective), a document that is still just the photo takes the new canvas size in that step; one with compositing work keeps the photo as it was and says so. The layer stores the settings too, so a document opened without the Library still renders.
 * **darktable: port, don't track.** We do **not** vendor darktable or pull its updates automatically: it is C/GTK/OpenCL built around its own pipeline API, so its code can't be merged into a pure-Rust app mechanically, and depending on it would break "all Rust, standalone". Instead each algorithm is ported to Rust with its upstream path and commit recorded in `docs/PORTS.md`; `cargo xtask upstream-check` lists upstream commits that touched those files since the recorded commit, so improvements are reviewed and re-ported deliberately.
 * **Film negatives:** darktable's negadoctor, ported (Develop › Negative).
 * **Quick selections:** Subject, Background (U²-Net family) and Sky (PP-MobileSeg, Apache-2.0, 24 MB; TinySkyNet 0.2 MB as a preview) run on the CPU with no AI server, in Compositing (Select › Subject / Sky) and the Library's masks; the Qwen engines stay available for Remove Background and Subject (AI).
@@ -118,12 +118,12 @@ restore the earlier displayed image, including when caches are warm.
 **Library → Editor** (Photo › Edit in Local Image, ⌘E-style; replaces the TIFF path for our own editor):
 
 1. The editor opens a new document whose **Background is a Develop layer**: a `SmartObject` whose source is the original file (**Linked** to the library photo by path + photo id by default; **Embedded** on request or when saving portable PSDs) and whose new `develop: DevelopSettings` is applied *at source decode* — so a raw stays raw (full highlight recovery, white balance, lens correction).
-2. EXIF/XMP/IPTC come with it (today's raw import drops them — fixed as part of this).
+2. EXIF/XMP/IPTC come with it: the file's own, with the Library's title, caption, copyright, creator, keywords and location written over them in the document's XMP. The saved Edit's catalog entry inherits that text where the file has none of its own, and Export As starts with Metadata: All for such a document.
 3. Retouch, AI Remove, compositing all happen in **layers above** (the Develop layer is never rasterised; a pixel tool aimed at it offers "Work on a new layer above" — the Photoshop rasterise trap avoided).
 4. **Double-click the Develop layer** → the Develop workspace opens on that layer (same panels, layers, AI masks). Change it and the layer re-renders; layers above stay put.
 5. The saved document (`.pcraft`, or PSD/layered TIFF) is added to the Library **stacked with its original** as an *Edit*. Its thumbnail is the composite.
 
-**Settings stay re-editable and metadata stays:** the Develop layer's settings are the source of truth for that document (stored in the layer, and mirrored as `lc:settings` XMP in the smart object). Editing the original photo in the Library later does not silently change an existing composite (like a virtual copy); the layer shows "The Library's edit of this photo is newer · Update / Keep". In PSD the smart object is written with its source + our XMP so Photoshop sees a raw smart object, and `crs:` values are written for the subset Camera Raw understands.
+**Settings stay re-editable and metadata stays:** the Develop layer's settings are the source of truth for that document (stored in the layer, and mirrored as `lc:settings` XMP in the smart object). Editing the original photo in the Library later does not silently change an existing composite (like a virtual copy); the layer shows "The Library's edit of this photo is newer · Update / Keep". Built so far: a document with retouching keeps its layer and shows a text-only notice ("The Library's edit of ‹name› is newer"); opening Develop from that document and coming back takes the newer edit. The edit made in a Develop session entered from the document, and any edit for a document that is still only its Develop layer, applies on return as before. The Update / Keep buttons are not built. In PSD the smart object is written with its source + our XMP so Photoshop sees a raw smart object, and `crs:` values are written for the subset Camera Raw understands.
 
 **Editor → Library with a layered document** (your "flatten or merge visible" idea, made non-destructive):
 
@@ -176,8 +176,8 @@ restore the earlier displayed image, including when caches are warm.
   deleted when the session ends and at startup), shows Develop with the banner "Camera Raw
   Filter · ‹layer› — Cancel / OK" (↩ / Esc), hides the Library's chrome and Library-only
   shortcuts, and hides the Calibration panel, Crop and the lens-profile switch. OK hands the
-  settings back and runs `filter.develop` (one history step); Cancel, or the module switch,
-  changes nothing. The old `filter.cameraRaw` (the earlier, simpler engine) keeps working for
+  settings back and runs `filter.develop` (one history step); Cancel changes nothing. The
+  module switch waits until OK or Cancel. The old `filter.cameraRaw` (the earlier, simpler engine) keeps working for
   existing documents; without the Library (`LOCAL_IMAGE_NO_LIBRARY`) its dialog edits a
   `filter.develop` instead (its controls mapped onto the settings, previews from the same engine).
 * **PSD**: a `filter.develop` is written as Photoshop's Camera Raw Filter (the settings Camera Raw

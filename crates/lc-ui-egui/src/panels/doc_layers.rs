@@ -126,7 +126,7 @@ pub fn open_in_compositing(app: &mut LightcraftApp, ctx: &egui::Context, id: Pho
     match app.services.open_with.as_mut() {
         Some(f) => {
             if let Err(e) = f(&path, "") {
-                app.toast_error(ctx, format!("Couldn't open the editor: {e}"));
+                app.toast_error(ctx, format!("Couldn't open Compositing: {e}"));
             }
         }
         None => app.toast(ctx, li_i18n::library::t("Compositing isn't available here")),
@@ -194,6 +194,19 @@ fn thumb_texture(ctx: &egui::Context, key: &str, i: usize, img: &li_raster::Rgba
     tex
 }
 
+/// A row's kind, blend mode and opacity. Blend names come from the editor catalog so they read
+/// as in Compositing's Layers panel.
+pub(crate) fn detail(l: &DocLayer) -> String {
+    let mut parts = vec![li_i18n::library::t(l.kind.label()).to_string()];
+    if l.blend != "Normal" && l.blend != "Pass Through" {
+        parts.push(li_i18n::t(&l.blend).to_string());
+    }
+    if l.opacity < 0.995 {
+        parts.push(format!("{:.0}%", l.opacity * 100.0));
+    }
+    parts.join(" · ")
+}
+
 fn row(app: &mut LightcraftApp, ui: &mut egui::Ui, key: &str, i: usize, l: &DocLayer) {
     let t = Tokens::get(ui.ctx());
     let develop = l.kind == LayerKind::Develop;
@@ -221,15 +234,8 @@ fn row(app: &mut LightcraftApp, ui: &mut egui::Ui, key: &str, i: usize, l: &DocL
     let text_x = tile.right() + 10.0;
     let dim = if l.visible { t.text } else { t.text_dim };
     p.text(pos2(text_x, r.top() + 14.0), Align2::LEFT_CENTER, &l.name, t.font(13.0), dim);
-    let mut detail = vec![li_i18n::library::t(l.kind.label()).to_string()];
-    if l.blend != "Normal" && l.blend != "Pass Through" {
-        detail.push(li_i18n::library::t(&l.blend).to_string());
-    }
-    if l.opacity < 0.995 {
-        detail.push(format!("{:.0}%", l.opacity * 100.0));
-    }
     let detail_color = if develop { t.accent } else { t.text_dim };
-    p.text(pos2(text_x, r.top() + 32.0), Align2::LEFT_CENTER, detail.join(" · "), t.font(11.0), detail_color);
+    p.text(pos2(text_x, r.top() + 32.0), Align2::LEFT_CENTER, detail(l), t.font(11.0), detail_color);
     // a Develop layer's photo: click to go to it
     if develop {
         let label = match l.follows.map(|id| (id, app.session.catalog.photo(PhotoId(id)).map(|p| p.file_name.clone()))) {

@@ -82,7 +82,7 @@
 	File Info…	ファイル情報…
 	Print…	プリント…
 	Print One Copy	1 部プリント
-	Exit	終了
+	Quit Local Image	Local Image を終了
 	Undo	取り消し
 	Redo	やり直し
 	Toggle Last State	直前の状態と切り替え
@@ -2603,6 +2603,8 @@ ai	New	新着
 	Float Panel Group	パネルグループをフローティング
 	Save and Return to Library	保存してライブラリに戻る
 	Added your new Develop edits as layer {name}	新しい現像の編集をレイヤー {name} として追加しました
+	The photo's crop or size changed in Develop, so {name} was not updated	現像で写真の切り抜きまたはサイズが変わったため、{name} は更新されませんでした
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	レイヤーが新しい写真と揃わなくなるため、写真は元のまま保持されます。
 	Open the Library to save into it	ライブラリに保存するにはライブラリを開いてください
 	The layers below are unchanged; hide or delete the new layer to go back.	下のレイヤーは変更されていません。元に戻すには新しいレイヤーを非表示にするか削除してください。
 # Attributions page (li-attributions)

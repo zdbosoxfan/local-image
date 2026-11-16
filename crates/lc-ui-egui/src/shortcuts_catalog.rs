@@ -30,7 +30,7 @@ pub fn catalog() -> Vec<Binding> {
             key: format!("{PREFIX}{id}"),
             command: (*id).into(),
             label: li_i18n::library::t(label).into(),
-            menu: vec!["Library".into(), menu.split('>').next().unwrap_or("Other").into()],
+            menu: vec!["Library & Develop".into(), menu.split('>').next().unwrap_or("Other").into()],
             default: shortcut.map(str::to_string),
             params: None,
         });
@@ -44,7 +44,7 @@ pub fn catalog() -> Vec<Binding> {
             key: format!("{PREFIX}{}", c.id),
             command: c.id.into(),
             label: li_i18n::library::t(&crate::menus::action_label(c.label)).into(),
-            menu: vec!["Library".into(), c.menu.first().copied().unwrap_or("Other").into()],
+            menu: vec!["Library & Develop".into(), c.menu.first().copied().unwrap_or("Other").into()],
             default,
             params: None,
         });
@@ -68,7 +68,7 @@ pub fn catalog() -> Vec<Binding> {
             key: format!("{PREFIX}alias/{id}/{sc}"),
             command: (*id).into(),
             label,
-            menu: vec!["Library".into(), "Photo".into()],
+            menu: vec!["Library & Develop".into(), "Photo".into()],
             default: Some((*sc).into()),
             params: Some(params),
         });
@@ -84,7 +84,7 @@ pub fn catalog() -> Vec<Binding> {
                 } else {
                     li_i18n::library::t("Set rating {rating}").replace("{rating}", &rating.to_string())
                 },
-                menu: vec!["Library".into(), "Photo".into()],
+                menu: vec!["Library & Develop".into(), "Photo".into()],
                 default: Some(format!("{}{rating}", if advance { "Shift+" } else { "" })),
                 params: None,
             });
@@ -96,7 +96,7 @@ pub fn catalog() -> Vec<Binding> {
             key: format!("{PREFIX}{command}"),
             command,
             label: li_i18n::library::t("Set {color} label").replace("{color}", li_i18n::library::t(color)),
-            menu: vec!["Library".into(), "Photo".into()],
+            menu: vec!["Library & Develop".into(), "Photo".into()],
             default: Some(key.into()),
             params: None,
         });
@@ -106,7 +106,7 @@ pub fn catalog() -> Vec<Binding> {
             key: format!("{PREFIX}{command}"),
             command: command.into(),
             label: li_i18n::library::t(label).into(),
-            menu: vec!["Library".into(), "View".into()],
+            menu: vec!["Library & Develop".into(), "View".into()],
             default: Some(key.into()),
             params: None,
         });
@@ -115,7 +115,7 @@ pub fn catalog() -> Vec<Binding> {
         key: format!("{PREFIX}tool.erase"),
         command: "tool.erase".into(),
         label: "Erase mask".into(),
-        menu: vec!["Library".into(), "Tools".into()],
+        menu: vec!["Library & Develop".into(), "Tools".into()],
         default: None,
         params: None,
     });
@@ -123,7 +123,7 @@ pub fn catalog() -> Vec<Binding> {
         key: format!("{PREFIX}alias/tool.linear/L"),
         command: "tool.linear".into(),
         label: "Linear Gradient (current Capture One)".into(),
-        menu: vec!["Library".into(), "Tools".into()],
+        menu: vec!["Library & Develop".into(), "Tools".into()],
         default: None,
         params: Some(serde_json::json!({})),
     });

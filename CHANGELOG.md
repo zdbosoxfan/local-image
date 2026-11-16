@@ -101,6 +101,35 @@ All notable changes to Local Image are recorded here. The format follows
   a document that packs to well under 2 GB stays a PSD. A file over 2 GB is still saved as PSB
   automatically; if it can't be, the save warns.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
+- A Develop layer in Compositing renders as the Library does: with the photo's AI Denoise result, and without AI Remove patches made from another photo.
+- Cropping or rotating a photo in Develop no longer leaves its Compositing document at the old canvas size. A document that is still just the photo takes the new size; one with retouching keeps the photo as it was and says so, so its layers stay lined up.
+- Cancelling the unsaved-changes prompt after quitting from Library or Develop goes back to that module instead of leaving Compositing on screen.
+- A Camera Raw Filter session keeps its edits when another module is picked or the window is closed: the module switch asks to finish with OK or Cancel first, and cancelling the quit prompt returns to the session.
+- A saved `-Edit.psd` selected in the Library opens in Compositing with its layers, also when coming from Develop or after a restart, instead of as a second, flattened document.
+- Closing the window from Compositing when the Library couldn't save its catalog now shows the Library's Try Saving Again / Quit Anyway prompt instead of doing nothing.
+- Undoing an update from Develop in Compositing lasts: switching modules no longer puts it back. A Library edit made outside a Develop session entered from a retouched document (Sync, Paste, a preset) no longer adds a Develop layer over the retouching; a notice says the Library's edit is newer, and opening Develop from that document brings it in.
+- A file opened from the file manager or the command line is shown in Compositing instead of loading out of sight behind the Library, and a folder opened the same way is scanned for the Library's import instead of failing to open.
+- Develop's AI Remove keeps what was painted when the removal can't start, Remove is disabled while the chosen engine reports a problem, and a Camera Raw Filter session no longer offers the AI mode it can't run.
+- Crash recovery keeps autosaving Compositing documents while Library or Develop is shown, instead of pausing until Compositing is back.
+- Export's After Export "Open in Other Application" with no application given opens the exported files in the system's default application, as its hint says, instead of opening every file in Compositing.
+- A raw the Library has, opened in Compositing with File › Open, Open Recent, a drop, the filmstrip or the command line, opens as a Develop layer with its Develop edits instead of at camera defaults, and its saves join the Library.
+- Documents recovered after a crash are announced as a notice, so the count shows in the Library and Develop as well as in the Compositing status bar.
+- Ctrl/Cmd+Alt+1/2/3 no longer switches modules past an open Library dialog, Smart Sort or People, or past a running filter's progress window, which left the job without its Cancel.
+- Switching from Library to Compositing keeps the document being worked on in front instead of opening the last photo clicked in Library over it. The Library photo still comes across into an empty Compositing, and Develop still carries its photo.
+- Coming back from Compositing keeps the Library selection when it holds the edited photo, which becomes the active one, instead of collapsing it to that photo.
+- Opening Info or Keywords from Develop's tool strip keeps Develop in the title bar and as the module to start in, instead of switching both to Library.
+- Library Settings › Startup › Open in Photo Grid or Loupe now starts in the Library even when Develop or Compositing was last shown. The remembering choice is now called "Last workspace and view".
+- Photo › Edit In… (Cmd+E) with no other application named opens the photo in Compositing as a Develop layer, linked to Develop, instead of writing a stacked 16-bit TIFF copy every time. Naming an application in Settings › External Editor still sends it a TIFF copy.
+- A Library export, proof sheet or Develop AI result that finishes while Compositing is shown completes there (Show in Folder, Add to Library and the other After Export steps included) and its message shows as a Compositing notice, instead of waiting until the Library is opened again.
+- Develop and Compositing use one AI Remove engine choice: picking an engine in either one sets it in both, and both offer the same engines.
+- Preferences opened in Compositing no longer opens the Library's catalog first, so it doesn't wait on a slow or unreachable Library folder. The catalog opens when one of the Library's own pages is shown.
+- Cmd+Alt+Shift+K opens Keyboard Shortcuts in Library and Develop as well, the same chord as in Compositing.
+- Edit › Preferences › Raw Defaults… opens Library & Develop › Import, where the raw defaults Local Image uses are set, instead of an empty page. The empty Camera Raw Defaults row is gone from the Compositing list.
+- Edit › Search in Compositing also finds Library and Develop, and running one switches to that module.
+- A Library photo opened in Compositing carries its Library title, caption, copyright, creator, keywords and location in the document's metadata, the saved `-Edit` file's Library entry gets the same title, caption, copyright, creator and location where the file has none of its own, and Export As starts with Metadata: All for it, so a first export no longer leaves them out.
+- AI Denoise that can't use the GPU because AI work holds its memory now says so and points to waiting for AI jobs or to Eject in Compositing's status bar, instead of asking to retry after other GPU work finishes.
+- Compositing's File › Exit is now Quit Local Image, as in Library and Develop. Library and Develop messages and shortcut lists name Compositing and "Library & Develop" instead of "the editor" and "Library", and the Global shortcut F reads "Screen mode / Full Screen Preview".
+- Blend modes in Develop's and the Library's Layers list read as in Compositing's Layers panel; German showed "Überlagerung" for Overlay instead of "Überlagern".
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.

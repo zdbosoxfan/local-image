@@ -54,6 +54,9 @@ pub(super) fn services(opens: Opens) -> Services {
                 .unwrap_or_default()
         })),
         open_with: Some(Box::new(move |path: &str, app: &str| {
+            if app == lightcraft_ui_egui::SYSTEM_DEFAULT_APP {
+                return open::that(path).map_err(|e| e.to_string());
+            }
             let app = app.trim();
             // No other editor chosen: Local Image's own editor, in this window.
             if app.is_empty() || app.eq_ignore_ascii_case("local image") {

@@ -86,7 +86,7 @@
 	File Info…	檔案資訊…
 	Print…	列印…
 	Print One Copy	列印一份拷貝
-	Exit	結束
+	Quit Local Image	結束 Local Image
 	Undo	復原
 	Redo	重做
 	Toggle Last State	切換最後狀態
@@ -2597,6 +2597,8 @@ ai	New	最新
 	Float Panel Group	浮動面板群組
 	Save and Return to Library	儲存並返回圖庫
 	Added your new Develop edits as layer {name}	已將您新的 Develop 編輯加入為圖層 {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	相片的裁切或尺寸已在 Develop 中變更，因此未更新 {name}
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	其圖層將無法再與新相片對齊，因此相片保持原樣。
 	Open the Library to save into it	請先開啟圖庫再儲存至其中
 	The layers below are unchanged; hide or delete the new layer to go back.	下方圖層未變更；如需還原，請隱藏或刪除新圖層。
 # Attributions page (li-attributions)

@@ -565,8 +565,9 @@ fn main() -> eframe::Result {
             app.stylus.feed = stylus_feed;
             #[cfg(target_os = "linux")]
             tablet::spawn_x11(&app.stylus.feed, display);
-            // Paths on the command line (Linux/Windows file associations, `photocraft a.psd`).
-            app.open_paths(&files);
+            // Paths on the command line (Linux/Windows file associations, `photocraft a.psd`):
+            // documents open in Compositing, folders are imported into the Library.
+            let (documents, folders) = library_host::split_launch_paths(&files);
             // Portable marker found but its data folder isn't writable (#228): say where settings went.
             if let Some(w) = &lightcraft_sysmem::app_dirs::current().warning {
                 photocraft_ui_egui::notices::post(&mut app, "Portable mode is off", vec![w.clone()], false, None);
@@ -586,6 +587,8 @@ fn main() -> eframe::Result {
             }
             // The native bar and in-window menu visibility start in the remembered module.
             let mut host = library_host::Host::new(app);
+            host.open_at_launch(&documents);
+            host.import_at_launch(folders);
             host.sync_native_menu(&cc.egui_ctx);
             Ok(Box::new(host))
         }),

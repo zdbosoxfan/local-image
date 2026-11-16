@@ -31,6 +31,8 @@ pub const ALIASES: &[(&str, &str, &str)] = &[
     ("Alt+7", "keyword.toggleFromSet", r#"{"index": 7}"#),
     ("Alt+8", "keyword.toggleFromSet", r#"{"index": 8}"#),
     ("Alt+9", "keyword.toggleFromSet", r#"{"index": 9}"#),
+    // Compositing's chord for the same shared dialog
+    ("Cmd+Alt+Shift+K", "app.shortcuts", "{}"),
 ];
 
 /// Keep the Library's public Delete→Backspace representation; matching is shared.
