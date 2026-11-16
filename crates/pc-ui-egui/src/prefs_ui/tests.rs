@@ -922,6 +922,29 @@ fn autosave_runs_for_dirty_documents() {
     assert_eq!(saved.lock().unwrap().len(), 2, "autosave off");
 }
 
+/// While Library or Develop is shown the editor only gets `persist_background`; crash recovery
+/// keeps running there.
+#[test]
+fn autosave_runs_while_another_module_is_shown() {
+    let saved: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let s2 = saved.clone();
+    let services = crate::Services {
+        autosave: Some(Box::new(move |_doc: &Arc<photocraft_doc::Document>, rev: u64, _path: Option<&str>| {
+            s2.lock().unwrap().push(rev);
+            Ok(())
+        })),
+        ..Default::default()
+    };
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+    let ctx = egui::Context::default();
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    tick(&mut app, &ctx);
+    app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    autosave_now(&mut app);
+    persist_background(&mut app, &ctx);
+    assert_eq!(saved.lock().unwrap().len(), 1, "the dirty document is autosaved in the background");
+}
+
 #[test]
 fn recovered_documents_adopt_their_entries_until_saved_or_closed() {
     type Log = Arc<Mutex<Vec<String>>>;

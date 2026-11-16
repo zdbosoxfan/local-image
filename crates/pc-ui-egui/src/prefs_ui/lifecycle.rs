@@ -214,12 +214,14 @@ pub(super) fn sync_ai_preferences(app: &mut PhotocraftApp) {
     }
 }
 
-/// Persist hosted edits while Library/Develop is visible, without applying editor visuals.
+/// Persist hosted edits and autosave documents while Library/Develop is visible, without
+/// applying editor visuals.
 pub fn persist_background(app: &mut PhotocraftApp, ctx: &egui::Context) {
     sync_ai_preferences(app);
     if let Some(wait) = persist(app, ctx.input(|i| i.time)) {
         ctx.request_repaint_after(std::time::Duration::try_from_secs_f64(wait).unwrap_or_default());
     }
+    autosave(app);
 }
 
 /// Retry state of a failed preferences write (times are egui input time, in seconds).
