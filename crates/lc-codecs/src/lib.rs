@@ -150,6 +150,18 @@ pub fn decode(bytes: &[u8], opts: DecodeOptions) -> Result<Decoded> {
     std::panic::catch_unwind(|| decode_unguarded(bytes, format, &opts)).unwrap_or_else(|_| Err(Error::Malformed(format, "decoder panicked".into())))
 }
 
+/// Decode a raw file's embedded JPEG `preview`. A preview with no ICC profile or EXIF of its own is
+/// read in the colour space the raw's EXIF states: a Sony body set to Adobe RGB writes no profile
+/// into its preview.
+pub fn decode_raw_preview(raw: &[u8], preview: &[u8], opts: DecodeOptions) -> Result<Decoded> {
+    let adobe = lightcraft_tiff::exif::summarize(raw).adobe_rgb_hint;
+    if !adobe || sniff(preview) != Some(Format::Jpeg) {
+        return decode(preview, opts);
+    }
+    std::panic::catch_unwind(|| jpeg::decode_with_fallback(preview, &opts, Some(NamedSpace::AdobeRgb)))
+        .unwrap_or_else(|_| Err(Error::Malformed(Format::Jpeg, "decoder panicked".into())))
+}
+
 /// [`decode`] without the panic guard (for fuzzing our own code paths).
 #[doc(hidden)]
 pub fn decode_unguarded(bytes: &[u8], format: Format, opts: &DecodeOptions) -> Result<Decoded> {

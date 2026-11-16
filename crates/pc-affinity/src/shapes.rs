@@ -61,7 +61,8 @@ pub(crate) fn shape(r: &mut Reader, shape: ObjId, b: [f64; 4], world: Affine) ->
             };
             if let (true, Some(f)) = (rounded, radius) {
                 if let Some(Value::Array(types)) = last(r, shape, b"CTyp")
-                    && types.iter().any(|t| !matches!(t, Value::Enum { id: 0 | 4, .. }))
+                    // Only the four corners: a longer array is not scanned for every occurrence.
+                    && types.iter().take(4).any(|t| !matches!(t, Value::Enum { id: 0 | 4, .. }))
                 {
                     r.warn("rectangles with straight, concave or other corner types (imported with round corners)");
                 }

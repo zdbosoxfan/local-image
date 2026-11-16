@@ -17,7 +17,9 @@ pub(super) type XNode<'a, 'i> = roxmltree::Node<'a, 'i>;
 
 /// `name: value` declarations of a block or `style` attribute, with their `!important` flag.
 fn parse_decls(s: &str) -> Vec<(String, String, bool)> {
-    s.split(';')
+    let s = strip_comments(s);
+    split_decls(&s)
+        .into_iter()
         .filter_map(|d| {
             let (k, v) = d.split_once(':')?;
             let v = v.trim();
@@ -28,6 +30,70 @@ fn parse_decls(s: &str) -> Vec<(String, String, bool)> {
             Some((k.trim().to_ascii_lowercase(), v.to_string(), important))
         })
         .collect()
+}
+
+/// Splits on the `;`s that are outside quoted strings and parentheses (`url(data:…;base64,…)`).
+fn split_decls(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut start, mut depth, mut quote, mut escaped) = (0, 0usize, None::<char>, false);
+    for (i, c) in s.char_indices() {
+        if escaped {
+            escaped = false;
+        } else if c == '\\' {
+            escaped = true;
+        } else if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+        } else {
+            match c {
+                '\'' | '"' => quote = Some(c),
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                ';' if depth == 0 => {
+                    parts.push(s.get(start..i).unwrap_or_default());
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    parts.push(s.get(start..).unwrap_or_default());
+    parts
+}
+
+/// `css` without its `/* … */` comments (those inside quoted strings stay).
+fn strip_comments(css: &str) -> String {
+    let mut text = String::with_capacity(css.len());
+    let mut chars = css.chars().peekable();
+    let (mut quote, mut escaped) = (None, false);
+    while let Some(c) = chars.next() {
+        if let Some(q) = quote {
+            text.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+            }
+        } else if c == '\'' || c == '"' {
+            quote = Some(c);
+            text.push(c);
+        } else if c == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            let mut prev_star = false;
+            for c in chars.by_ref() {
+                if prev_star && c == '/' {
+                    break;
+                }
+                prev_star = c == '*';
+            }
+        } else {
+            text.push(c);
+        }
+    }
+    text
 }
 
 fn marker_property(name: &str) -> bool {
@@ -175,14 +241,7 @@ struct Rule {
 
 /// Rules from every `<style>` element, in source order.
 fn parse_sheet(css: &str, out: &mut Vec<Rule>) {
-    // Drop comments.
-    let mut text = String::with_capacity(css.len());
-    let mut rest = css;
-    while let Some(i) = rest.find("/*") {
-        text.push_str(&rest[..i]);
-        rest = rest[i + 2..].find("*/").map_or("", |j| &rest[i + 2 + j + 2..]);
-    }
-    text.push_str(rest);
+    let text = strip_comments(css);
     let mut s = text.as_str();
     loop {
         s = s.trim_start();
@@ -312,6 +371,35 @@ impl Styles {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    fn decl(k: &str, v: &str) -> (String, String, bool) {
+        (k.to_string(), v.to_string(), false)
+    }
+
+    #[test]
+    fn semicolons_in_quotes_and_parens_do_not_split() {
+        assert_eq!(parse_decls("font-family:'A;B'; fill:red"), [decl("font-family", "'A;B'"), decl("fill", "red")]);
+        assert_eq!(parse_decls("font-family:\"A;B\"; fill:red"), [decl("font-family", "\"A;B\""), decl("fill", "red")]);
+        assert_eq!(
+            parse_decls("fill:url(data:image/svg+xml;base64,AAA); stroke:red"),
+            [decl("fill", "url(data:image/svg+xml;base64,AAA)"), decl("stroke", "red")]
+        );
+        let _ = parse_decls("font-family:'A;B; fill:red");
+    }
+
+    #[test]
+    fn decl_comments_are_stripped() {
+        assert_eq!(parse_decls("fill:red /* note */; stroke:blue"), [decl("fill", "red"), decl("stroke", "blue")]);
+        assert_eq!(parse_decls("fill:red /* a;b */ ; stroke:blue"), [decl("fill", "red"), decl("stroke", "blue")]);
+        assert_eq!(parse_decls("font-family:'A /* x */ B'"), [decl("font-family", "'A /* x */ B'")]);
+    }
+
+    #[test]
+    fn comment_markers_inside_css_strings_are_not_comments() {
+        with_doc(r#"<svg xmlns="http://www.w3.org/2000/svg"><style>text { font-family: "A/*B"; fill: red }</style><text id="a">x</text></svg>"#, |doc, st| {
+            assert_eq!(st.own(by_id(doc, "a"), "fill").as_deref(), Some("red"))
+        });
+    }
 
     fn with_doc(svg: &str, f: impl FnOnce(&roxmltree::Document, &Styles)) {
         let doc = roxmltree::Document::parse(svg).unwrap();

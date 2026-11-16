@@ -3,8 +3,9 @@
 //! 1. At a reduced working resolution every pixel gets a *sky likelihood*: a colour prior
 //!    (blue and bright, or bright and unsaturated for overcast / cloud, or a bright warm glow
 //!    for sunsets) times a smoothness term (sky has little gradient energy).
-//! 2. Seeds are likely-sky pixels in the top rows; the sky region grows from them through
-//!    4-connected neighbours that stay likely-sky and change colour gradually.
+//! 2. Seeds are likely-sky pixels in the top rows, or, when an overhang or roofline hides the
+//!    top, large patches of more certain sky in the upper half. The sky region grows from them
+//!    through 4-connected neighbours that stay likely-sky and change colour gradually.
 //! 3. Sky seen through gaps (between branches) is not connected to the top: likely-sky pixels
 //!    that fit a colour model (GMM) of the grown sky are added too. Small holes are filled.
 //! 4. The binary working-resolution mask is upsampled and refined at full resolution with a
@@ -46,6 +47,11 @@ fn luma(p: [f32; 3]) -> f32 {
     li_color::convert::rgb_to_gray([p[0], p[1], p[2]])
 }
 
+#[inline]
+fn rgb_dist(a: [f32; 3], b: [f32; 3]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
 /// Colour prior: how sky-like a colour is on its own (0–1).
 pub fn colour_prior(p: [f32; 3]) -> f32 {
     let [r, g, b] = p;
@@ -79,7 +85,7 @@ pub fn likelihood(img: &RgbImage) -> Vec<f32> {
     img.px.iter().zip(&tex).map(|(p, t)| colour_prior(*p) * (1.0 - smooth(0.015, 0.07, *t))).collect()
 }
 
-/// Binary sky mask at working resolution (`None` when no sky touches the top of the image).
+/// Binary sky mask at working resolution (`None` when no plausible sky is found).
 pub fn sky_mask_low(img: &RgbImage, threshold: f32) -> Option<Vec<bool>> {
     let (w, h) = (img.w, img.h);
     if w < 2 || h < 2 {
@@ -97,11 +103,20 @@ pub fn sky_mask_low(img: &RgbImage, threshold: f32) -> Option<Vec<bool>> {
             stack.push(i);
         }
     }
+    let max_step = 0.12f32;
     if stack.len() * 20 < top * w {
-        return None; // less than 5 % of the top edge looks like sky
+        // Less than 5 % of the top edge looks like sky. Something may hide the whole top band:
+        // drop the sparse top seeds and look for more certain, connected sky below it.
+        mask.fill(false);
+        stack = obstructed_sky_seeds(img, &like, t + 0.1, max_step);
+        if stack.is_empty() {
+            return None;
+        }
+        for &i in &stack {
+            mask[i] = true;
+        }
     }
     // Region growing with a gradual-change constraint.
-    let max_step = 0.12f32;
     while let Some(i) = stack.pop() {
         let (x, y) = (i % w, i / w);
         let n = [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), (y > 0).then(|| i - w), (y + 1 < h).then(|| i + w)];
@@ -109,9 +124,7 @@ pub fn sky_mask_low(img: &RgbImage, threshold: f32) -> Option<Vec<bool>> {
             if mask[j] || like[j] <= t {
                 continue;
             }
-            let (a, b) = (img.px[i], img.px[j]);
-            let d = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
-            if d < max_step {
+            if rgb_dist(img.px[i], img.px[j]) < max_step {
                 mask[j] = true;
                 stack.push(j);
             }
@@ -133,6 +146,45 @@ pub fn sky_mask_low(img: &RgbImage, threshold: f32) -> Option<Vec<bool>> {
     }
     let mask = clean_mask(&mask, w, h, 0.002, 0.01);
     mask.iter().any(|v| *v).then_some(mask)
+}
+
+/// Seeds for a sky whose top band is hidden: the pixels of every 4-connected patch above
+/// `threshold` in the upper half that covers at least 0.5 % of the image (and 16 pixels). The
+/// upper half keeps water and blue ground out, and sizing each patch on its own keeps scattered
+/// bright specks out. Neighbours in a patch change colour as gradually as region growing asks
+/// (`max_step`).
+fn obstructed_sky_seeds(img: &RgbImage, like: &[f32], threshold: f32, max_step: f32) -> Vec<usize> {
+    let w = img.w;
+    let upper = w * img.h.div_ceil(2);
+    let minimum = (w * img.h).div_ceil(200).max(16);
+    let mut seen = vec![false; upper];
+    let mut seeds = Vec::new();
+    for start in 0..upper {
+        if seen[start] || like[start] <= threshold {
+            continue;
+        }
+        seen[start] = true;
+        // The patch is the tail of `seeds` from `first`, filled breadth first.
+        let first = seeds.len();
+        seeds.push(start);
+        let mut cursor = first;
+        while cursor < seeds.len() {
+            let i = seeds[cursor];
+            cursor += 1;
+            let x = i % w;
+            let n = [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), i.checked_sub(w), (i + w < upper).then(|| i + w)];
+            for j in n.into_iter().flatten() {
+                if !seen[j] && like[j] > threshold && rgb_dist(img.px[i], img.px[j]) < max_step {
+                    seen[j] = true;
+                    seeds.push(j);
+                }
+            }
+        }
+        if seeds.len() - first < minimum {
+            seeds.truncate(first);
+        }
+    }
+    seeds
 }
 
 /// Selects the sky over `canvas`. `None` if no sky was found.
@@ -267,6 +319,23 @@ mod tests {
         let img = RgbImage::from_fn(64, 64, |_, y| if y < 30 { [0.85, 0.86, 0.88] } else { [0.2, 0.3, 0.1] });
         let r = select_sky(&ImageSampler { img: &img, origin: (0, 0) }, Rect::new(0, 0, 64, 64), SkyParams::default()).expect("sky");
         assert!(r.at(30, 10) > 0.9 && r.at(30, 50) < 0.1);
+    }
+
+    /// A dark arch with two openings: no sky reaches the top edge, and the two patches of sky
+    /// are not connected to each other.
+    #[test]
+    fn finds_sky_in_openings_below_an_obstructed_top() {
+        for sky in [[0.35, 0.6, 0.95], [0.85, 0.86, 0.88]] {
+            let opening = |x: usize, y: usize| (15..65).contains(&y) && ((15..65).contains(&x) || (95..145).contains(&x));
+            let img = RgbImage::from_fn(160, 100, |x, y| if opening(x, y) { sky } else { [0.12, 0.2, 0.1] });
+            for threshold in [0.0, 50.0, 100.0] {
+                let p = SkyParams { threshold, ..SkyParams::default() };
+                let r = select_sky(&ImageSampler { img: &img, origin: (0, 0) }, Rect::new(0, 0, 160, 100), p).expect("sky beneath the arch");
+                assert!(r.at(40, 30) > 0.9 && r.at(120, 30) > 0.9, "both openings: {sky:?}, {threshold}");
+                assert!(r.at(40, 55) > 0.9, "the sky below the upper half: {sky:?}, {threshold}");
+                assert!(r.at(40, 5) < 0.1 && r.at(80, 30) < 0.1 && r.at(40, 85) < 0.1, "arch top, pillar and ground: {sky:?}, {threshold}");
+            }
+        }
     }
 
     #[test]

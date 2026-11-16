@@ -17,7 +17,9 @@ pub struct Limits {
     /// Maximum `width * height`.
     pub max_pixels: u64,
     /// Maximum bytes for the decoded pixel buffer (and passed on as the
-    /// allocation budget to underlying decoders).
+    /// allocation budget to underlying decoders). TIFF also charges its decode
+    /// working memory (each band worker's strip or tile scratch and decoder
+    /// state) and runs only as many workers at once as fit.
     pub max_alloc: u64,
 }
 

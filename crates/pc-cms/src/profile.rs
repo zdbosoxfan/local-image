@@ -184,6 +184,7 @@ pub struct Profile {
 impl Profile {
     /// Parses ICC profile bytes.
     pub fn parse(bytes: &[u8]) -> Result<Profile, CmsError> {
+        CLUT_VALUES_LEFT.with(|left| left.set(MAX_PROFILE_CLUT_VALUES));
         let mut p = parse_profile(bytes)?;
         p.bytes = Some(Arc::new(bytes.to_vec()));
         Ok(p)
@@ -433,6 +434,24 @@ fn sig(s: &[u8; 4]) -> u32 {
 /// Upper bound on CLUT nodes × outputs we accept, to reject hostile files.
 const MAX_CLUT_VALUES: usize = 16 * 1024 * 1024;
 
+/// CLUT values one profile may decode in all (128 MB of `f32`): the LUT tags can alias one
+/// table, and each reference decodes its own copy.
+const MAX_PROFILE_CLUT_VALUES: usize = 32 << 20;
+
+thread_local! {
+    /// What is left of [`MAX_PROFILE_CLUT_VALUES`] for the profile being parsed on this thread.
+    static CLUT_VALUES_LEFT: std::cell::Cell<usize> = const { std::cell::Cell::new(MAX_PROFILE_CLUT_VALUES) };
+}
+
+/// Charges `n` decoded CLUT values to the profile being parsed.
+fn charge_clut_values(n: usize) -> Result<(), CmsError> {
+    CLUT_VALUES_LEFT.with(|left| {
+        let rest = left.get().checked_sub(n).ok_or_else(|| CmsError::Invalid("the profile's lookup tables hold too many values".into()))?;
+        left.set(rest);
+        Ok(())
+    })
+}
+
 fn parse_profile(bytes: &[u8]) -> Result<Profile, CmsError> {
     let r = Reader { b: bytes };
     if bytes.len() < 132 {
@@ -646,6 +665,7 @@ fn parse_lut(d: &[u8], a2b: bool) -> Result<Lut, CmsError> {
                 return Err(CmsError::Invalid("CLUT too large".into()));
             }
             let total = nodes as usize * o;
+            charge_clut_values(total)?;
             let s = r.slice(off, total * bps)?;
             let data: Vec<f32> = if wide {
                 s.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]]) as f32 / 65535.0).collect()
@@ -696,6 +716,7 @@ fn parse_lut(d: &[u8], a2b: bool) -> Result<Lut, CmsError> {
                     return Err(CmsError::Invalid("CLUT too large".into()));
                 }
                 let total = nodes as usize * cout;
+                charge_clut_values(total)?;
                 let data: Vec<f32> = match prec {
                     1 => r.slice(off + 20, total)?.iter().map(|b| *b as f32 / 255.0).collect(),
                     2 => r.slice(off + 20, total * 2)?.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]]) as f32 / 65535.0).collect(),
@@ -779,5 +800,27 @@ fn parse_text(d: &[u8]) -> String {
             String::from_utf16_lossy(&units).trim_end_matches('\0').trim().to_string()
         }
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod clut_budget_tests {
+    use super::*;
+
+    #[test]
+    fn aliased_cluts_are_charged_for_each_decoded_table() {
+        // An `mft1` with a 255³ × 1 CLUT (within one table's limit); LUT tags can alias it.
+        let mut element = b"mft1\0\0\0\0".to_vec();
+        element.extend([3, 1, 255, 0]);
+        for k in 0..9 {
+            element.extend(if k % 4 == 0 { [0, 1, 0, 0] } else { [0; 4] });
+        }
+        element.resize(48 + 3 * 256 + 255 * 255 * 255 + 256, 0);
+        CLUT_VALUES_LEFT.with(|left| left.set(MAX_PROFILE_CLUT_VALUES));
+        assert!(parse_lut(&element, true).is_ok());
+        assert!(parse_lut(&element, true).is_ok());
+        assert!(parse_lut(&element, true).is_err(), "the third decoded copy passes the profile's allowance");
+        CLUT_VALUES_LEFT.with(|left| left.set(MAX_PROFILE_CLUT_VALUES));
+        assert!(parse_lut(&element, true).is_ok());
     }
 }

@@ -26,6 +26,13 @@ use photocraft_doc::text::{Caps, CharStyle, Kerning, Orientation, TextAlign, Tex
 
 use crate::fonts::FontDb;
 
+/// Index of the run containing byte offset `off`, given each run's start offset (non-decreasing):
+/// the last run starting at or before `off`, or 0 when none does. Binary search, so per-character
+/// lookups over a file's run counts are not quadratic.
+pub(crate) fn run_index_at(run_starts: &[usize], off: usize) -> usize {
+    run_starts.partition_point(|&s| s <= off).saturating_sub(1)
+}
+
 /// Index of the character run whose style a glyph uses, plus the vertical-type class of its
 /// characters ([`VClass`] as `u8`; always 0 in horizontal type).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -437,7 +444,7 @@ impl Layouter {
                 Some(s)
             })
             .collect();
-        let style_at = |off: usize| run_starts.iter().rposition(|&s| s <= off).unwrap_or(0);
+        let style_at = |off: usize| run_index_at(&run_starts, off);
         let para_starts: Vec<usize> = paras
             .iter()
             .scan(0, |a, r| {
@@ -446,7 +453,7 @@ impl Layouter {
                 Some(s)
             })
             .collect();
-        let para_style_at = |off: usize| &paras[para_starts.iter().rposition(|&s| s <= off).unwrap_or(0)].style;
+        let para_style_at = |off: usize| &paras[run_index_at(&para_starts, off)].style;
 
         let text = &t.text;
         let (box_rect, is_box) = match t.shape {

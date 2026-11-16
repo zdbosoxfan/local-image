@@ -44,6 +44,8 @@ fn open<'a, 'b>(input: &'a mut Cursor<&'b [u8]>, limits: &Limits) -> Result<Open
     // png's lazy text get_text() inflates without consulting its allocation limit.
     // Read text separately below, without retaining compressed copies in the decoder.
     decoder.set_ignore_text_chunk(true);
+    // png inflates iCCP up to the whole allocation limit; read the profile below with a cap.
+    decoder.set_ignore_iccp_chunk(true);
     {
         let info = decoder.read_header_info().map_err(map_png_err)?;
         let (w, h) = info.size();
@@ -86,8 +88,8 @@ pub struct PngExtras {
     pub source_bit_depth: u8,
 }
 
-/// Reads to the end of the file and collects what the reader holds: the profile, colour hint,
-/// EXIF and resolution. [`complete`] adds the text chunks and the warnings.
+/// Reads to the end of the file and collects what the reader holds: the colour hint, EXIF and
+/// resolution. [`complete`] adds the profile, the text chunks and the warnings.
 fn finish_reader(mut reader: png::Reader<&mut Cursor<&[u8]>>) -> Result<PngExtras, CodecError> {
     // Collect ancillary chunks after IDAT. Tolerate malformed tails once pixels
     // are complete, but never swallow an allocation-limit failure.
@@ -104,7 +106,7 @@ fn finish_reader(mut reader: png::Reader<&mut Cursor<&[u8]>>) -> Result<PngExtra
         meta.dpi = Some((dpi_of_ppm(d.xppu), dpi_of_ppm(d.yppu)));
     }
     Ok(PngExtras {
-        icc: info.icc_profile.as_ref().map(|c| c.to_vec()),
+        icc: None,
         meta,
         color_hint: container_hint(info),
         warnings: Vec::new(),
@@ -113,9 +115,10 @@ fn finish_reader(mut reader: png::Reader<&mut Cursor<&[u8]>>) -> Result<PngExtra
     })
 }
 
-/// `x` with the text chunks (read from `input`, the file up to where the reader stopped), the
-/// warnings and the EXIF orientation.
+/// `x` with the ICC profile, the text chunks (read from `input`, the file up to where the reader
+/// stopped), the warnings and the EXIF orientation.
 fn complete(mut x: PngExtras, input: &Cursor<&[u8]>, images: u64, limits: &Limits) -> Result<PngExtras, CodecError> {
+    x.icc = read_iccp(input.get_ref(), limits.max_alloc);
     let end = usize::try_from(input.position()).map_err(|_| err("invalid PNG reader position"))?;
     let consumed = input.get_ref().get(..end).ok_or_else(|| err("invalid PNG reader position"))?;
     read_text_metadata(consumed, limits.alloc_usize(), &mut x.meta)?;
@@ -239,6 +242,48 @@ fn latin1_len(bytes: &[u8]) -> Option<usize> {
     bytes.len().checked_add(bytes.iter().filter(|&&b| b >= 128).count())
 }
 
+/// Largest ICC profile a PNG's `iCCP` may inflate to: what a JPEG can carry at most (255 APP2
+/// segments of 65 519 bytes), far past any real profile.
+const MAX_ICC_BYTES: u64 = 255 * 65_519;
+
+/// The ICC profile of the first CRC-valid `iCCP` chunk before the image data, inflated to at
+/// most [`MAX_ICC_BYTES`] or `max_alloc`, whichever is smaller. `None` when there is none, or it
+/// is malformed or larger: the image then opens untagged, as png left a broken profile out.
+fn read_iccp(bytes: &[u8], max_alloc: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let cap = MAX_ICC_BYTES.min(max_alloc);
+    let mut rest = bytes.get(8..)?;
+    while let Some((length, tail)) = rest.split_first_chunk::<4>() {
+        let (kind, tail) = tail.split_first_chunk::<4>()?;
+        let length = usize::try_from(u32::from_be_bytes(*length)).ok().filter(|l| *l <= i32::MAX as usize)?;
+        let data = tail.get(..length)?;
+        let (checksum, next) = tail.get(length..).and_then(<[u8]>::split_first_chunk::<4>)?;
+        rest = next;
+        // The profile comes before the image data (PNG spec, 5.6 chunk ordering).
+        if matches!(kind, b"IDAT" | b"IEND") {
+            return None;
+        }
+        if kind != b"iCCP" {
+            continue;
+        }
+        let mut crc = flate2::Crc::new();
+        crc.update(kind);
+        crc.update(data);
+        if crc.sum() != u32::from_be_bytes(*checksum) {
+            return None;
+        }
+        let (name, value) = split_nul(data)?;
+        let (&0, deflated) = value.split_first()? else { return None };
+        if name.is_empty() || name.len() > 79 {
+            return None;
+        }
+        let mut profile = Vec::new();
+        flate2::read::ZlibDecoder::new(deflated).take(cap.saturating_add(1)).read_to_end(&mut profile).ok()?;
+        return (profile.len() as u64 <= cap).then_some(profile);
+    }
+    None
+}
+
 /// Read only CRC-valid text chunks, including those after IDAT, with one shared
 /// budget for decoded UTF-8 keywords and values (including overwritten XMP).
 /// Invalid ancillary text stays optional, as it was with png's text decoder.
@@ -293,8 +338,13 @@ fn read_text_metadata(bytes: &[u8], mut remaining: usize, meta: &mut Metadata) -
         };
         let keyword_len = latin1_len(keyword).ok_or_else(text_limit)?;
         let limit = remaining.saturating_sub(keyword_len);
-        let Some(text) = bounded_text(value, deflated, latin1, limit)? else { continue };
-        remaining = remaining.checked_sub(keyword_len).and_then(|left| left.checked_sub(text.len())).ok_or_else(text_limit)?;
+        // What a chunk inflated is charged even when its text is then dropped (bad UTF-8, a
+        // corrupt or truncated stream): otherwise every rejected chunk could inflate up to the
+        // whole remaining budget again.
+        let (text, produced) = bounded_text(value, deflated, latin1, limit)?;
+        remaining = remaining.checked_sub(produced).ok_or_else(text_limit)?;
+        let Some(text) = text else { continue };
+        remaining = remaining.checked_sub(keyword_len).ok_or_else(text_limit)?;
         let keyword: String = keyword.iter().map(|&b| char::from(b)).collect();
         match kind {
             b"tEXt" => plain.push((keyword, text)),
@@ -312,9 +362,11 @@ fn read_text_metadata(bytes: &[u8], mut remaining: usize, meta: &mut Metadata) -
 
 /// No input-sized allocation until its decoded size fits. Inflation uses a
 /// fixed scratch buffer and checks each batch before growing the output.
-fn bounded_text(input: &[u8], compressed: bool, latin1: bool, limit: usize) -> Result<Option<String>, CodecError> {
+/// Returns the text (`None` when it is dropped) and the bytes produced for it,
+/// which the caller charges whether or not the text is kept.
+fn bounded_text(input: &[u8], compressed: bool, latin1: bool, limit: usize) -> Result<(Option<String>, usize), CodecError> {
     let mut output = Vec::new();
-    let mut append = |bytes: &[u8]| -> Result<(), CodecError> {
+    let append = |output: &mut Vec<u8>, bytes: &[u8]| -> Result<(), CodecError> {
         let added = if latin1 { latin1_len(bytes).ok_or_else(text_limit)? } else { bytes.len() };
         if output.len().checked_add(added).is_none_or(|len| len > limit) {
             return Err(text_limit());
@@ -337,24 +389,34 @@ fn bounded_text(input: &[u8], compressed: bool, latin1: bool, limit: usize) -> R
         loop {
             let start_in = decoder.total_in();
             let start_out = decoder.total_out();
-            let Some(tail) = usize::try_from(start_in).ok().and_then(|at| input.get(at..)) else { return Ok(None) };
-            let Ok(status) = decoder.decompress(tail, &mut scratch, flate2::FlushDecompress::None) else { return Ok(None) };
-            let Some(batch) = usize::try_from(decoder.total_out() - start_out).ok().and_then(|len| scratch.get(..len)) else { return Ok(None) };
-            append(batch)?;
+            let Some(tail) = usize::try_from(start_in).ok().and_then(|at| input.get(at..)) else { return Ok((None, output.len())) };
+            let Ok(status) = decoder.decompress(tail, &mut scratch, flate2::FlushDecompress::None) else {
+                // The backend may write a batch before it reports corruption: charge it too, at
+                // its UTF-8 length for Latin-1 text, as on the success path.
+                let written = usize::try_from(decoder.total_out().saturating_sub(start_out)).unwrap_or(usize::MAX);
+                let charged = match scratch.get(..written) {
+                    Some(batch) if latin1 => latin1_len(batch).unwrap_or(usize::MAX),
+                    _ => written,
+                };
+                return Ok((None, output.len().saturating_add(charged)));
+            };
+            let Some(batch) = usize::try_from(decoder.total_out() - start_out).ok().and_then(|len| scratch.get(..len)) else { return Ok((None, output.len())) };
+            append(&mut output, batch)?;
             if status == flate2::Status::StreamEnd {
                 break;
             }
             if start_in == decoder.total_in() && start_out == decoder.total_out() {
-                return Ok(None); // Truncated stream: never keep partial text.
+                return Ok((None, output.len())); // Truncated stream: never keep partial text.
             }
         }
     } else {
         if !latin1 && std::str::from_utf8(input).is_err() {
-            return Ok(None);
+            return Ok((None, 0));
         }
-        append(input)?;
+        append(&mut output, input)?;
     }
-    Ok(String::from_utf8(output).ok())
+    let produced = output.len();
+    Ok((String::from_utf8(output).ok(), produced))
 }
 
 fn is_latin1_keyword(k: &str) -> bool {
@@ -674,6 +736,62 @@ mod resolution_tests {
         for (ppm, want) in [(11811, 300.0), (2835, 72.0), (3937, 100.0), (11812, 300.0248), (5906, 150.0)] {
             assert!((dpi_of_ppm(ppm) - want).abs() < 1e-4, "{ppm} px/m gave {}, wanted {want}", dpi_of_ppm(ppm));
         }
+    }
+}
+
+#[cfg(test)]
+mod iccp_tests {
+    use super::*;
+
+    /// A profile that inflates past the cap from a few kilobytes of zlib is left out and the
+    /// image still opens, untagged; one at the cap comes through whole.
+    #[test]
+    fn an_iccp_profile_past_the_cap_is_left_out_and_the_image_opens() {
+        let img = |icc: Vec<u8>| Image::from_raw(2, 2, ChannelLayout::Rgb, SampleType::U8, vec![9; 12]).unwrap().with_icc(Some(icc));
+        let cap = usize::try_from(MAX_ICC_BYTES).unwrap();
+        let png = crate::encode(&img(vec![0; cap + 1]), Format::Png, &EncodeOptions::default()).unwrap();
+        assert!(png.len() < 100_000, "the oversized profile compresses to a small chunk: {}", png.len());
+        let decoded = decode(&png, &Limits::default()).unwrap();
+        assert_eq!((decoded.icc.is_none(), decoded.data()), (true, &[9u8; 12][..]));
+        let png = crate::encode(&img(vec![7; cap]), Format::Png, &EncodeOptions::default()).unwrap();
+        assert_eq!(decode(&png, &Limits::default()).unwrap().icc.map(|p| p.len()), Some(cap));
+        // A smaller allocation limit bounds the profile too, as it did inside png.
+        let png = crate::encode(&img(vec![7; 2000]), Format::Png, &EncodeOptions::default()).unwrap();
+        assert_eq!(read_iccp(&png, 1999), None);
+        assert_eq!(read_iccp(&png, 2000).map(|p| p.len()), Some(2000));
+    }
+}
+
+#[cfg(test)]
+mod text_budget_tests {
+    use super::*;
+
+    /// A compressed iTXt chunk whose text inflates to `len` bytes of invalid UTF-8.
+    fn bad_itxt(len: usize) -> Vec<u8> {
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        z.write_all(&vec![0xff; len]).unwrap();
+        let mut data = b"Comment\0\x01\x00\0\0".to_vec();
+        data.extend_from_slice(&z.finish().unwrap());
+        let mut out = (data.len() as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(b"iTXt");
+        out.extend_from_slice(&data);
+        let mut crc = flate2::Crc::new();
+        crc.update(b"iTXt");
+        crc.update(&data);
+        out.extend_from_slice(&crc.sum().to_be_bytes());
+        out
+    }
+
+    #[test]
+    fn dropped_text_still_counts_against_the_budget() {
+        let one = [b"\x89PNG\r\n\x1a\n".to_vec(), bad_itxt(100_000)].concat();
+        let mut meta = Metadata::default();
+        read_text_metadata(&one, 1 << 20, &mut meta).unwrap();
+        assert!(meta.text.is_empty(), "invalid UTF-8 is dropped");
+        // Twenty chunks inflate 2 MB between them: each is dropped, but the work is charged.
+        let many = [b"\x89PNG\r\n\x1a\n".to_vec(), bad_itxt(100_000).repeat(20)].concat();
+        let mut meta = Metadata::default();
+        assert!(matches!(read_text_metadata(&many, 1 << 20, &mut meta), Err(CodecError::LimitExceeded(_))));
     }
 }
 

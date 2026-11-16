@@ -147,6 +147,13 @@ pub fn value_field_prec(ui: &mut Ui, value: &mut f32, range: std::ops::RangeIncl
     value_field_with_precision(ui, value, range, suffix, width, decimals as usize)
 }
 
+/// A [`value_field`] of whole numbers: a typed decimal rounds to the nearest one, `12.5` and `12,5`
+/// both giving `13`, and the value the field holds is never a fraction, so the number it shows is
+/// the number its caller reads. The Magic Wand's Tolerance, which the wand floors.
+pub fn value_field_int(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32) -> Response {
+    numeric_field(ui, value, range, suffix, width, 0, true)
+}
+
 /// A value field whose precision is independent of the backend's range (e.g. ComfyUI guidance).
 pub fn value_field_with_precision<T: egui::emath::Numeric>(
     ui: &mut Ui,
@@ -155,6 +162,19 @@ pub fn value_field_with_precision<T: egui::emath::Numeric>(
     suffix: &str,
     width: f32,
     decimals: usize,
+) -> Response {
+    numeric_field(ui, value, range, suffix, width, decimals, false)
+}
+
+/// The field behind [`value_field_with_precision`]; `integer` is [`value_field_int`]'s rounding.
+fn numeric_field<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    value: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    suffix: &str,
+    width: f32,
+    decimals: usize,
+    integer: bool,
 ) -> Response {
     let t = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(width, 24.0), Sense::hover());
@@ -178,7 +198,7 @@ pub fn value_field_with_precision<T: egui::emath::Numeric>(
             ui.style_mut().override_font_id = Some(theme::mono(12.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let layout = egui::Layout::centered_and_justified(ui.layout().main_dir());
-                ui.allocate_ui_with_layout(field.size(), layout, |ui| number_edit(ui, value, range, decimals)).inner
+                ui.allocate_ui_with_layout(field.size(), layout, |ui| number_edit(ui, value, range, decimals, integer)).inner
             })
             .inner
         }
@@ -195,7 +215,7 @@ const NUMERIC_INPUT_LIMIT: usize = 128;
 /// The number in a [`value_field`]. A typed number applies as it's typed; arithmetic waits for
 /// Enter, Tab or click-away, because per keystroke `5/2` would land first and a caller that
 /// rounds it would cut `5/2*2` short. `changed()` means a new value, not just a keystroke.
-fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::ops::RangeInclusive<T>, decimals: usize) -> Response {
+fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::ops::RangeInclusive<T>, decimals: usize, integer: bool) -> Response {
     let (id, ctx) = (ui.next_auto_id(), ui.ctx().clone());
     // Mirror DragValue's focus check before it builds its TextEdit: an oversized event must never
     // reach text layout. Registering interest also covers focus arriving by Tab this frame.
@@ -220,9 +240,10 @@ fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::
     let math = ui.memory(|m| m.has_focus(id)) && ui.data(|d| d.get_temp(held)).unwrap_or(false);
     ui.data_mut(|d| d.insert_temp(held, math));
     let before = *value;
+    let (lo, hi) = (range.start().to_f64(), range.end().to_f64());
     let mut resp = ui.add(
         egui::DragValue::new(value)
-            .range(range.start().to_f64()..=range.end().to_f64())
+            .range(lo..=hi)
             // Only edits are clamped: showing a value past the range, such as a type layer scaled
             // to 2400 pt in a 1296 pt field, must not change it.
             .clamp_existing_to_range(false)
@@ -240,8 +261,13 @@ fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::
                 if s.chars().nth(NUMERIC_INPUT_LIMIT).is_some() {
                     return None;
                 }
-                let v = parse_num(s);
-                if ctx.memory(|m| m.has_focus(id)) && plain(s).is_none() {
+                // A whole-number field takes the decimal comma too (`12,5` is `12.5`) and rounds
+                // what it reads here: the value it holds while the number is typed is then the one
+                // it keeps, where rounding it afterwards would rewrite the text under the typist.
+                let text = if integer { std::borrow::Cow::Owned(s.replace(',', ".")) } else { std::borrow::Cow::Borrowed(s) };
+                let v = parse_num(&text);
+                let v = if integer { v.map(f64::round) } else { v };
+                if ctx.memory(|m| m.has_focus(id)) && plain(&text).is_none() {
                     // Still typing arithmetic: hold it, and stop applying keystrokes once it parses.
                     ctx.data_mut(|d| d.insert_temp(held, v.is_some()));
                     return None;
@@ -249,6 +275,12 @@ fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::
                 v
             }),
     );
+    // A whole-number field keeps whole numbers whatever wrote the value: a scrub between two of
+    // them, a plain field on the same option, a preference file.
+    let shown = value.to_f64();
+    if integer && lo <= hi && shown.is_finite() && shown != shown.round() {
+        *value = T::from_f64(shown.round().clamp(lo, hi));
+    }
     resp.flags.set(egui::response::Flags::CHANGED, *value != before);
     resp
 }
@@ -914,6 +946,37 @@ mod tests {
         // `5/2` alone would round to 3 under the caller; the whole expression still applies.
         assert_eq!(type_and_press(1.0, "5/2*2", Tab, true), 5.0);
         assert_eq!(type_and_press(1.0, "1280/3*2", Enter, true), 853.0);
+    }
+
+    /// Upstream d0b24e1a (#11786): the Magic Wand floors its Tolerance, so the field must not
+    /// hold a fraction or refuse a decimal written with a comma.
+    #[test]
+    fn value_field_int_rounds_what_is_typed_and_what_it_is_given() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let field = |start: f32| {
+            Harness::builder().with_size(egui::vec2(300.0, 100.0)).build_ui_state(
+                |ui, v: &mut f32| {
+                    super::value_field_int(ui, v, 0.0..=255.0, "", 90.0);
+                },
+                start,
+            )
+        };
+        for (text, want) in [("12.5", 13.0), ("12,5", 13.0), ("12.4", 12.0), ("300", 255.0)] {
+            let mut h = field(32.0);
+            h.get_by_role(egui::accesskit::Role::SpinButton).click();
+            h.run();
+            for c in text.chars() {
+                h.event(egui::Event::Text(c.to_string()));
+                h.run();
+            }
+            h.key_press(egui::Key::Enter);
+            h.run();
+            assert_eq!(*h.state(), want, "typed {text}");
+        }
+        // A fraction left by another writer, such as the Paint Bucket's field on the same option.
+        let mut h = field(7.6);
+        h.run();
+        assert_eq!(*h.state(), 8.0);
     }
 
     /// The footer icon button names itself apart from its tooltip, and a disabled one is

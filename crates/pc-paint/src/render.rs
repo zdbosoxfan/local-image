@@ -570,6 +570,35 @@ pub struct StrokeRenderer {
     /// local-image: continuous coverage (soft round brushes, see [`crate::continuous`]).
     cont: Option<Continuous>,
     table: Table,
+    /// Dab-rectangle pixels the stroke may still rasterize (see [`MAX_STROKE_DAB_AREA`]).
+    area_left: u64,
+    /// The same budget for the Dual Brush's dabs, so primary and dual dabs are charged apart and
+    /// the result does not depend on how the input was chunked.
+    dual_area_left: u64,
+    /// A dab was left out for want of budget.
+    refused: bool,
+}
+
+/// Most dab-rectangle pixels one stroke rasterizes: past it the stroke stops painting, so a very
+/// large brush at the finest spacing over a very long path costs bounded time and memory instead
+/// of growing with path length times brush area. 2^31 pixels is, for example, 8 000 dabs of a
+/// 500 px brush (about a 40 000 px path at 1 % spacing) or 50 000 dabs of a 200 px brush.
+pub const MAX_STROKE_DAB_AREA: u64 = 1 << 31;
+
+/// Whether a dab (or continuous segment) with rectangle `rect` is painted: it fits `area_left`,
+/// which it is charged against.
+fn admit(area_left: &mut u64, refused: &mut bool, rect: Rect) -> bool {
+    if rect.is_empty() {
+        return false;
+    }
+    let area = u64::from(rect.width()) * u64::from(rect.height());
+    // A dab that does not fit is skipped; a smaller later one (pressure) may still fit.
+    if area > *area_left {
+        *refused = true;
+        return false;
+    }
+    *area_left -= area;
+    true
 }
 
 /// Continuous-coverage state: the user's spacing (the density), the tip hardness, the last dab
@@ -640,7 +669,22 @@ impl StrokeRenderer {
             all_dabs: None,
             cont,
             table: None,
+            area_left: MAX_STROKE_DAB_AREA,
+            dual_area_left: MAX_STROKE_DAB_AREA,
+            refused: false,
         }
+    }
+
+    /// Override the dab-area budget ([`MAX_STROKE_DAB_AREA`]) for this stroke.
+    pub fn with_dab_area_budget(mut self, pixels: u64) -> Self {
+        self.area_left = pixels;
+        self.dual_area_left = pixels;
+        self
+    }
+
+    /// Whether a dab was left out because the stroke used up its dab-area budget.
+    pub fn budget_exhausted(&self) -> bool {
+        self.refused
     }
 
     /// [`new`](Self::new), always stamping dabs (no continuous coverage): for comparisons.
@@ -685,6 +729,14 @@ impl StrokeRenderer {
                 if self.ctx.cancelled() {
                     return;
                 }
+                let reach = crate::continuous::dab_reach(d);
+                let reach = c.prev.map_or(reach, |p| reach.union(&crate::continuous::dab_reach(&p)));
+                if !admit(&mut self.area_left, &mut self.refused, reach) {
+                    // The next segment starts here; an undrawn segment owes no end cap.
+                    c.prev = Some(*d);
+                    c.capped = true;
+                    continue;
+                }
                 let (rect, ceil) = match c.prev {
                     // The stroke's first dab: its start cap (half a dab).
                     None => (
@@ -716,6 +768,9 @@ impl StrokeRenderer {
                 return;
             }
             let rect = self.ctx.dab_rect(d, false);
+            if !admit(&mut self.area_left, &mut self.refused, rect) {
+                continue;
+            }
             self.ctx.rasterize_into(d, false, rect, &mut self.scratch, wet.then_some(&mut self.depth_scratch));
             let col = match (self.per_dab_color, self.fmt) {
                 (true, Some(f)) => {
@@ -734,6 +789,9 @@ impl StrokeRenderer {
                     return;
                 }
                 let rect = self.ctx.dab_rect(d, true);
+                if !admit(&mut self.dual_area_left, &mut self.refused, rect) {
+                    continue;
+                }
                 self.ctx.rasterize(d, true, rect, &mut self.scratch);
                 dm.accumulate(rect, &self.scratch, 1.0, None, None);
             }
@@ -769,9 +827,12 @@ impl StrokeRenderer {
             && !c.capped
             && let Some(p) = c.prev
         {
+            c.capped = true;
+            if !admit(&mut self.area_left, &mut self.refused, crate::continuous::dab_reach(&p)) {
+                return;
+            }
             let rect = crate::continuous::end_cap_interruptible(&p, c.hardness, &mut self.scratch, self.ctx.cancel.as_deref(), self.ctx.executor.as_deref());
             self.cov.accumulate(rect, &self.scratch, p.opacity, None, None);
-            c.capped = true;
         }
     }
 
@@ -825,6 +886,9 @@ impl StrokeRenderer {
             all_dabs: None,
             cont: self.cont,
             table: self.table.clone(),
+            area_left: self.area_left,
+            dual_area_left: self.dual_area_left,
+            refused: self.refused,
         };
         t.raster_pending();
         t.end_cap();
@@ -1301,3 +1365,6 @@ mod live_tile_tests {
         assert!(r.cov.tiles.is_empty());
     }
 }
+
+#[cfg(test)]
+mod budget_tests;

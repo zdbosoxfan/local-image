@@ -7,7 +7,7 @@
 //! Join, Split Into Grid.
 
 use crate::geom::{Anchor, PathData, SubPath};
-use kurbo::{CubicBez, ParamCurve, ParamCurveArclen, ParamCurveExtrema, ParamCurveNearest, Point, Rect, Vec2};
+use kurbo::{CubicBez, ParamCurve, ParamCurveExtrema, ParamCurveNearest, Point, Rect, Vec2};
 
 use crate::kernel::boolean::{Seg, segs_to_subpath};
 use crate::kernel::fit::{end_tangent, fit_single, fit_single_from, sample, start_tangent};
@@ -109,7 +109,7 @@ fn simplify_impl(path: &PathData, opts: &SimplifyOptions, optimize: bool) -> Pat
             if opts.straight_lines {
                 let mut pts = Vec::new();
                 for (k, s) in run.iter().enumerate() {
-                    let len = s.c.arclen(1e-6);
+                    let len = crate::geom::path::measured_arclen(&kurbo::PathSeg::Cubic(s.c), 1e-6);
                     let m = ((len / (tol * 0.5)).ceil() as usize).clamp(4, 256);
                     sample(&s.c, m, &mut pts, k == 0);
                 }
@@ -172,10 +172,11 @@ fn rdp(pts: &[Point], tol: f64) -> Vec<Point> {
     while let Some((a, b)) = stack.pop() {
         let (pa, pb) = (pts[a], pts[b]);
         let chord = pb - pa;
-        let len = chord.hypot();
+        let len2 = chord.hypot2();
         let mut best = (0.0, a);
         for (i, &p) in pts.iter().enumerate().take(b).skip(a + 1) {
-            let d = if len < 1e-12 { p.distance(pa) } else { (p - pa).cross(chord).abs() / len };
+            // To the segment, not the infinite line: a point beyond an end is measured to that end.
+            let d = if len2 < 1e-24 { p.distance(pa) } else { p.distance(pa + chord * ((p - pa).dot(chord) / len2).clamp(0.0, 1.0)) };
             if d > best.0 {
                 best = (d, i);
             }
