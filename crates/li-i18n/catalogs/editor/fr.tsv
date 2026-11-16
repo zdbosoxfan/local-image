@@ -3933,3 +3933,8 @@ ai	New	Nouveautés
 	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Entrée numérique non valide. Une valeur comprise entre 1 et 30000 est requise. La valeur précédente a été rétablie.
 	A value between 1 and 12 is required. Closest value inserted.	Une valeur comprise entre 1 et 12 est requise. La valeur la plus proche a été insérée.
 	A value between 1 and 30000 is required. Closest value inserted.	Une valeur comprise entre 1 et 30000 est requise. La valeur la plus proche a été insérée.
+	Image Compression	Compression de l'image
+	Save Image Pyramid	Enregistrer la pyramide d'images
+	Save Transparency	Enregistrer la transparence
+	LZW	LZW
+	ZIP	ZIP

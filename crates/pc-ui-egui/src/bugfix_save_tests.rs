@@ -379,3 +379,143 @@ fn discard_shutdown_after_save_needs_no_extra_frame_and_keeps_unconfirmed_dirty_
     assert_eq!(*deleted.lock().unwrap(), vec![saved]);
     assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
 }
+
+// TIFF Options on Save As and Save a Copy: Image Compression, Save Image Pyramid, Save
+// Transparency and the layers choice.
+mod tiff_options {
+    use super::*;
+    use crate::FileDialogAnswer;
+    use egui_kittest::{Harness, kittest::Queryable};
+    use photocraft_codecs::TiffCompression;
+
+    /// What a write was asked for: compression, Save Transparency, pyramid, layers.
+    fn asked(compression: TiffCompression, transparency: Option<bool>, pyramid: bool, layers: bool) -> Vec<u8> {
+        format!("{compression:?} {transparency:?} {pyramid} {layers}").into_bytes()
+    }
+
+    /// A harness showing TIFF Options over one 8×8 document (`background`: "white" or
+    /// "transparent") whose exports record their TIFF settings; a save dialog answers `to`.
+    fn tiff_app(background: &str, to: &str) -> (Harness<'static, PhotocraftApp>, Writes) {
+        let writes: Writes = Arc::default();
+        let sink = writes.clone();
+        let to = to.to_string();
+        let mut app = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            Services {
+                export: Some(Arc::new(|_, _, s| Ok((asked(s.tiff_compression, s.tiff_transparency, s.tiff_pyramid, s.tiff_layers), Vec::new())))),
+                write: Some(Box::new(move |path, bytes| {
+                    sink.lock().unwrap().push((path.into(), bytes.to_vec()));
+                    Ok(())
+                })),
+                file_dialog: Some(crate::file_dialog::answering(move |_| Some(FileDialogAnswer::SaveTo(to.clone())))),
+                ..Default::default()
+            },
+        );
+        app.run("file.new", json!({"width": 8, "height": 8, "background": background})).unwrap();
+        let h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(|ui, app: &mut PhotocraftApp| crate::tiff_options_ui::show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        (h, writes)
+    }
+
+    /// A flat TIFF (one Background) asks too: compression and pyramid, but no transparency or
+    /// layers to choose. The answer is written and is where the next TIFF starts.
+    #[test]
+    fn save_as_to_a_flat_tiff_asks_for_compression_and_pyramid() {
+        let (mut h, writes) = tiff_app("white", "unused.tif");
+        h.state_mut().save_as(Some("p.tif".into())).unwrap();
+        h.run_steps(2);
+        let p = h.state().tiff_options.as_ref().expect("prompt");
+        assert_eq!((p.compression, p.pyramid, p.has_transparency, p.layered, p.copy.is_some()), (TiffCompression::Deflate, false, false, false, false));
+        assert!(h.query_by_label("Save Transparency").is_none(), "nothing transparent to save");
+        assert!(h.query_by_label("Discard Layers and Save a Copy").is_none());
+        assert!(writes.lock().unwrap().is_empty(), "nothing is written before the answer");
+        h.get_by_label("LZW").click();
+        h.get_by_label("Save Image Pyramid").click();
+        h.run_steps(2);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        assert_eq!(writes.lock().unwrap().as_slice(), &[("p.tif".to_string(), asked(TiffCompression::Lzw, None, true, true))]);
+        assert!(h.state().tiff_options.is_none());
+        assert_eq!(h.state().session.active().unwrap().path.as_deref(), Some("p.tif"));
+        h.state_mut().save_as(Some("q.tif".into())).unwrap();
+        h.run_steps(2);
+        assert_eq!(h.state().tiff_options.as_ref().map(|p| (p.compression, p.pyramid)), Some((TiffCompression::Lzw, true)));
+    }
+
+    /// A document without a Background offers Save Transparency, on to start. Its layers can be
+    /// discarded, which saves a copy.
+    #[test]
+    fn layered_transparent_documents_choose_transparency_and_layers() {
+        let (mut h, writes) = tiff_app("transparent", "unused.tif");
+        h.state_mut().run("layer.new.layer", json!({})).unwrap();
+        h.state_mut().save_as(Some("t.tif".into())).unwrap();
+        h.run_steps(4);
+        let p = h.state().tiff_options.as_ref().expect("prompt");
+        assert_eq!((p.has_transparency, p.transparency, p.layered), (true, true, true));
+        assert!(h.query_by_label("Including layers will increase file size.").is_some(), "the preference is on by default");
+        h.get_by_label("Save Transparency").click();
+        h.run_steps(2);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        assert_eq!(writes.lock().unwrap().as_slice(), &[("t.tif".to_string(), asked(TiffCompression::Deflate, Some(false), false, true))]);
+        assert_eq!(h.state().session.active().unwrap().path.as_deref(), Some("t.tif"));
+
+        h.state_mut().save_as(Some("u.tif".into())).unwrap();
+        h.run_steps(4);
+        h.get_by_label("Discard Layers and Save a Copy").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Including layers will increase file size.").is_none(), "no layers, no note");
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        assert_eq!(writes.lock().unwrap().last().unwrap(), &("u.tif".to_string(), asked(TiffCompression::Deflate, Some(true), false, false)));
+        assert_eq!(h.state().session.active().unwrap().path.as_deref(), Some("t.tif"), "a copy: the document keeps its file");
+    }
+
+    /// "Don't show again" turns off the layered-file note for the next save; TIFF Options still asks.
+    #[test]
+    fn dont_show_again_clears_the_layered_tiff_preference() {
+        let (mut h, _) = tiff_app("transparent", "unused.tif");
+        h.state_mut().run("layer.new.layer", json!({})).unwrap();
+        h.state_mut().save_as(Some("t.tif".into())).unwrap();
+        h.run_steps(4);
+        h.get_by_label("Don't show again").click();
+        h.run_steps(2);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        assert!(!h.state().session.prefs().file_handling.ask_before_saving_layered_tiff);
+        h.state_mut().save_as(Some("t.tif".into())).unwrap();
+        h.run_steps(4);
+        assert!(h.state().tiff_options.is_some(), "TIFF Options still asks");
+        assert!(h.query_by_label("Including layers will increase file size.").is_none());
+    }
+
+    /// Save a Copy asks too, and writes a copy: the document doesn't take the file.
+    #[test]
+    fn save_a_copy_asks() {
+        let (mut h, writes) = tiff_app("white", "copy.tif");
+        let ctx = h.ctx.clone();
+        crate::menus::invoke(h.state_mut(), &ctx, "file.saveACopy", json!({})).unwrap();
+        h.run_steps(3);
+        assert!(h.state().tiff_options.as_ref().is_some_and(|p| p.copy.is_some()));
+        assert!(writes.lock().unwrap().is_empty());
+        h.get_by_label("LZW").click();
+        h.run_steps(2);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        assert_eq!(writes.lock().unwrap().as_slice(), &[("copy.tif".to_string(), asked(TiffCompression::Lzw, None, false, true))]);
+        assert_eq!(h.state().session.active().unwrap().path, None, "a copy");
+    }
+
+    /// Cancel writes nothing.
+    #[test]
+    fn cancel_writes_nothing() {
+        let (mut h, writes) = tiff_app("white", "unused.tif");
+        h.state_mut().save_as(Some("p.tif".into())).unwrap();
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(h.state().tiff_options.is_none());
+        assert!(writes.lock().unwrap().is_empty());
+        assert_eq!(h.state().session.active().unwrap().path, None);
+    }
+}

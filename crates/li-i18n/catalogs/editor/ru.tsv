@@ -4033,3 +4033,8 @@ ai	New	Новые
 	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Недопустимое числовое значение. Требуется значение от 1 до 30000. Восстановлено предыдущее значение.
 	A value between 1 and 12 is required. Closest value inserted.	Требуется значение от 1 до 12. Подставлено ближайшее значение.
 	A value between 1 and 30000 is required. Closest value inserted.	Требуется значение от 1 до 30000. Подставлено ближайшее значение.
+	Image Compression	Сжатие изображения
+	Save Image Pyramid	Сохранить пирамиду изображения
+	Save Transparency	Сохранить прозрачность
+	LZW	LZW
+	ZIP	ZIP

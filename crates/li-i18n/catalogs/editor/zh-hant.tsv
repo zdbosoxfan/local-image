@@ -3928,3 +3928,8 @@ ai	New	最新
 	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	數值輸入無效。需要介於 1 到 30000 之間的值。已恢復先前的值。
 	A value between 1 and 12 is required. Closest value inserted.	需要介於 1 到 12 之間的值。已插入最接近的值。
 	A value between 1 and 30000 is required. Closest value inserted.	需要介於 1 到 30000 之間的值。已插入最接近的值。
+	Image Compression	影像壓縮
+	Save Image Pyramid	儲存影像金字塔
+	Save Transparency	儲存透明度
+	LZW	LZW
+	ZIP	ZIP

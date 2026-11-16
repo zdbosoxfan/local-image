@@ -1041,16 +1041,27 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
     let suggested = format!("{stem} copy.psd");
     // The copy is of the document as it was when asked.
     app.pick_save(&suggested, move |app, path| {
-        let export = app.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&doc, &path, &crate::ExportSettings::default())?;
-        let write = app.services.write.as_mut().ok_or("no writer configured")?;
-        write(&path, &bytes)?;
-        app.detach_others_from_file(&path, doc.id);
-        app.ui.status = format!("Saved a copy as {path}");
-        app.ui.status_error = false;
-        crate::notices::io_warnings(app, &format!("Saved a copy as {}", crate::file_open::display_name(&path)), &warnings);
-        Ok(json!({"path": path, "warnings": warnings}))
+        // A TIFF asks for its TIFF Options first; the copy is written from the prompt.
+        if crate::tiff_options_ui::wants_prompt(app, &path) {
+            crate::tiff_options_ui::park(app, path.clone(), Some(doc));
+            return Ok(json!({"path": path, "warnings": []}));
+        }
+        write_copy(app, &doc, path, &crate::ExportSettings::default())
     })
+}
+
+/// Encodes `doc` with `settings` and writes it to `path` as a copy: the document keeps its path
+/// and saved state.
+pub(crate) fn write_copy(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, path: String, settings: &crate::ExportSettings) -> Result<Value, String> {
+    let export = app.services.export.as_ref().ok_or("no exporter configured")?;
+    let (bytes, warnings) = export(doc, &path, settings)?;
+    let write = app.services.write.as_mut().ok_or("no writer configured")?;
+    write(&path, &bytes)?;
+    app.detach_others_from_file(&path, doc.id);
+    app.ui.status = format!("Saved a copy as {path}");
+    app.ui.status_error = false;
+    crate::notices::io_warnings(app, &format!("Saved a copy as {}", crate::file_open::display_name(&path)), &warnings);
+    Ok(json!({"path": path, "warnings": warnings}))
 }
 
 #[cfg(test)]

@@ -3921,3 +3921,8 @@ ai	New	새 항목
 	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	잘못된 숫자 입력입니다. 1에서 30000 사이의 값이 필요합니다. 이전 값으로 되돌렸습니다.
 	A value between 1 and 12 is required. Closest value inserted.	1에서 12 사이의 값이 필요합니다. 가장 가까운 값을 입력했습니다.
 	A value between 1 and 30000 is required. Closest value inserted.	1에서 30000 사이의 값이 필요합니다. 가장 가까운 값을 입력했습니다.
+	Image Compression	이미지 압축
+	Save Image Pyramid	이미지 피라미드 저장
+	Save Transparency	투명도 저장
+	LZW	LZW
+	ZIP	ZIP

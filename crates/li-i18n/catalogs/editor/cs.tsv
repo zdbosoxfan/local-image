@@ -3950,3 +3950,8 @@ ai	New	Nové
 	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Neplatná číselná hodnota. Je vyžadována hodnota od 1 do 30000. Byla vrácena předchozí hodnota.
 	A value between 1 and 12 is required. Closest value inserted.	Je vyžadována hodnota od 1 do 12. Byla vložena nejbližší hodnota.
 	A value between 1 and 30000 is required. Closest value inserted.	Je vyžadována hodnota od 1 do 30000. Byla vložena nejbližší hodnota.
+	Image Compression	Komprese obrazu
+	Save Image Pyramid	Uložit pyramidu obrazu
+	Save Transparency	Uložit průhlednost
+	LZW	LZW
+	ZIP	ZIP

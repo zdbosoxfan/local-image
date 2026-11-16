@@ -3933,3 +3933,8 @@ ai	New	新着
 	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	無効な数値です。1 から 30000 の値が必要です。以前の値に戻しました。
 	A value between 1 and 12 is required. Closest value inserted.	1 から 12 の値が必要です。最も近い値を入力しました。
 	A value between 1 and 30000 is required. Closest value inserted.	1 から 30000 の値が必要です。最も近い値を入力しました。
+	Image Compression	画像圧縮
+	Save Image Pyramid	画像ピラミッドを保存
+	Save Transparency	透明部分を保存
+	LZW	LZW
+	ZIP	ZIP
