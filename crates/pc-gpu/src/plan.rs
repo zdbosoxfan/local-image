@@ -1843,8 +1843,9 @@ mod tests {
             d
         };
         assert!(plan(&nested(4)).unwrap().slots <= MAX_PLAN_SLOTS);
-        let e = plan(&nested(48)).unwrap_err().to_string();
-        assert!(e.contains("accumulator slots"), "{e}");
+        // `let else`, not `unwrap_err`: an unexpected Ok would print the whole plan.
+        let Err(e) = plan(&nested(48)) else { panic!("48 nested groups must be refused") };
+        assert!(e.to_string().contains("accumulator slots"), "{e}");
 
         let fills = |n: usize| {
             let mut d = Document::with_background("t", Size::new(8, 8), ColorMode::Rgb, SampleType::U8, Color::WHITE);
@@ -1857,8 +1858,8 @@ mod tests {
             d
         };
         assert!(plan(&fills(16)).is_ok());
-        let e = plan(&fills(1100)).unwrap_err().to_string();
-        assert!(e.contains("gradient fills"), "{e}");
+        let Err(e) = plan(&fills(1100)) else { panic!("1100 gradient fills must be refused") };
+        assert!(e.to_string().contains("gradient fills"), "{e}");
     }
 
     #[test]
