@@ -665,15 +665,10 @@ impl Host {
     fn focus_library_document(&mut self, photo: u64) -> bool {
         let index = self.library.as_ref().and_then(|lib| document_of(&self.editor, &lib.session, lightcraft_catalog::PhotoId(photo)));
         if let Some(index) = index {
-            let Some(document) = self.editor.session.documents().get(index).map(|state| state.doc.id) else {
-                return false;
-            };
             if !self.editor.session.set_active(index) {
                 return false;
             }
             self.editor.sync_views();
-            // Supplied by the separately coordinated editor admission helper.
-            photocraft_ui_egui::toolsets_ui::persona::photo_admitted(&mut self.editor, document);
             true
         } else {
             false

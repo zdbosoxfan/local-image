@@ -240,8 +240,10 @@ pub fn open_library_photo(
     Ok(())
 }
 
+/// A newly opened photo starts in Pixel/Move; a document that was already open (the way back
+/// from Develop) keeps the persona and tool in use.
 fn admit_photo_result(app: &mut PhotocraftApp, result: &Value) {
-    if result["pending"].as_bool() == Some(true) {
+    if result["pending"].as_bool() == Some(true) || result["existing"].as_bool() == Some(true) {
         return;
     }
     if let Some(document) = result["documentId"].as_u64().map(photocraft_doc::DocId) {

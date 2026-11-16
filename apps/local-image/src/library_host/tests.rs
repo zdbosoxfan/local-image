@@ -2716,51 +2716,35 @@ fn library_workflow_lazy_palette_and_accent_warning_controls() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+/// A newly opened photo starts in Pixel/Move; coming back to it from Develop or the Library
+/// keeps the persona, tool and draft he was using.
 #[test]
-fn library_workflow_existing_photo_admission_runs_only_after_successful_focus() {
+fn library_workflow_returning_to_an_open_photo_keeps_its_persona_and_tool() {
     use photocraft_engine::toolsets::Persona;
     use photocraft_ui_egui::{state::Tool, toolsets_ui::persona};
     let (dir, mut host) = workflow_host("workflow-photo-admission");
     let photo = host.library.as_ref().unwrap().session.active().unwrap();
     let ctx = egui::Context::default();
-    // Finish setup admission before establishing the invalid-focus baseline.
     persona::frame(&mut host.editor, &ctx);
     assert!(host.editor.ui.photo_admission.is_none());
+    assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Pixel);
+    assert_eq!(host.editor.ui.tool, Tool::Move);
     persona::select(&mut host.editor, &ctx, Persona::Vector);
     persona::select_tool(&mut host.editor, &ctx, Tool::Pen);
     let document = host.editor.session.active().unwrap().doc.id;
     host.editor.ui.crop_rect = Some([1., 2., 20., 20.]);
     let draft = host.editor.ui.crop_rect;
     assert!(!host.focus_library_document(u64::MAX));
+    // back from Develop: the open document comes forward; from the Library: it is focused
+    let (id, path, settings, name) = host.active_photo().unwrap();
+    host.open_editor_photo(id, &path, &settings, &name).unwrap();
+    assert!(host.focus_library_document(photo.0));
     assert!(host.editor.ui.photo_admission.is_none());
     persona::frame(&mut host.editor, &ctx);
     assert_eq!(host.editor.session.active().unwrap().doc.id, document);
     assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector);
     assert_eq!(host.editor.ui.tool, Tool::Pen);
     assert_eq!(host.editor.ui.crop_rect, draft);
-    assert!(host.focus_library_document(photo.0));
-    assert_eq!(host.editor.ui.photo_admission, Some(document));
-    assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector, "admission is intentionally deferred");
-    persona::frame(&mut host.editor, &ctx);
-    assert!(host.editor.ui.photo_admission.is_none());
-    assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Pixel);
-    assert_eq!(host.editor.ui.tool, Tool::Move);
-    // A different document becoming active before the frame owns its own draft.
-    persona::select(&mut host.editor, &ctx, Persona::Vector);
-    persona::select_tool(&mut host.editor, &ctx, Tool::Pen);
-    assert!(host.focus_library_document(photo.0));
-    assert_eq!(host.editor.ui.photo_admission, Some(document));
-    let other = photocraft_doc::Document::new("Other", photocraft_doc::Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
-    let other_id = other.id;
-    host.editor.session.add_document(other, None);
-    host.editor.sync_views();
-    host.editor.ui.crop_rect = Some([3., 4., 12., 12.]);
-    persona::frame(&mut host.editor, &ctx);
-    assert!(host.editor.ui.photo_admission.is_none());
-    assert_eq!(host.editor.session.active().unwrap().doc.id, other_id);
-    assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector);
-    assert_eq!(host.editor.ui.tool, Tool::Pen);
-    assert_eq!(host.editor.ui.crop_rect, Some([3., 4., 12., 12.]));
     let previews = host.library.as_ref().unwrap().session.media.rendered.clone();
     drop(host);
     previews.retire();
