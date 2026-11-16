@@ -123,11 +123,12 @@ impl Ctx<'_> {
 
     /// The unfiltered copy of a smart object over `rect`, mixed back over `area`: the scratch
     /// [`Self::charge`] counts for `area` plus every whole tile the copy's surface keeps (a tiny
-    /// rect on a tile corner keeps four). A copy past the budget is skipped, so the layer keeps
-    /// its stored pixels and the open goes on.
-    fn charge_unfiltered(&mut self, rect: Rect, area: Rect) -> bool {
+    /// rect on a tile corner keeps four). Returns the tile bytes, to be given back once the copy
+    /// is dropped. A copy past the budget is skipped (`None`), so the layer keeps its stored
+    /// pixels and the open goes on.
+    fn charge_unfiltered(&mut self, rect: Rect, area: Rect) -> Option<usize> {
         if self.fatal.is_some() {
-            return false;
+            return None;
         }
         let tile = i64::from(TILE_SIZE);
         let span = |a: i32, b: i32| (i64::from(b) - 1).div_euclid(tile) - i64::from(a).div_euclid(tile) + 1;
@@ -135,10 +136,10 @@ impl Ctx<'_> {
         let kept = usize::try_from(tiles).unwrap_or(usize::MAX).saturating_mul((TILE_SIZE * TILE_SIZE) as usize).saturating_mul(self.fmt.bytes_per_pixel());
         let cost = self.padded_cost(area.width() as usize, area.height() as usize, self.fmt.channels().saturating_mul(4)).saturating_add(kept);
         if cost > self.remaining {
-            return false;
+            return None;
         }
         self.remaining -= cost;
-        true
+        Some(kept)
     }
 
     fn warn(&mut self, s: impl Into<String>) {
@@ -389,7 +390,7 @@ impl Ctx<'_> {
             let cache = match (&placed, filter_mask.as_ref().filter(|m| m.enabled && shown)) {
                 (Some(p), Some(mask)) => {
                     let index = self.filter_effects.iter().position(|i| i.id == p.placed);
-                    let unfiltered = index.and_then(|index| {
+                    let mixed = index.and_then(|index| {
                         if self.filter_effects[index].slots.get(..self.cc).is_none_or(|planes| planes.iter().any(Option::is_none)) {
                             return None;
                         }
@@ -397,15 +398,14 @@ impl Ctx<'_> {
                         rect.size().ok()?;
                         let rect = Rect::new(rect.left, rect.top, rect.right, rect.bottom);
                         let area = rect.union(&stored.content_bounds());
-                        if !self.charge_unfiltered(rect, area) {
-                            return None;
-                        }
-                        crate::smart_map::unfiltered_from_item(&self.filter_effects[index], self.fmt)
+                        let kept = self.charge_unfiltered(rect, area)?;
+                        let mixed = crate::smart_map::unfiltered_from_item(&self.filter_effects[index], self.fmt)
+                            .map(|base| photocraft_compose::filter_mask::mix(&base, &stored, mask));
+                        // The copy is gone; later layers get its tiles back.
+                        self.remaining = self.remaining.saturating_add(kept);
+                        mixed
                     });
-                    match unfiltered {
-                        Some(base) => photocraft_compose::filter_mask::mix(&base, &stored, mask),
-                        None => stored,
-                    }
+                    mixed.unwrap_or(stored)
                 }
                 _ => stored,
             };
@@ -1170,8 +1170,11 @@ mod file_input_regressions {
     /// `smart_mask_file` with an `FEid` item holding unfiltered pixels over `rect` and a black
     /// filter mask there (the unfiltered pixels show through it once mixed in).
     fn smart_file_with_unfiltered(rect: Rect) -> (PsdFile, Surface) {
+        with_unfiltered(smart_mask_file(false), rect)
+    }
+
+    fn with_unfiltered(mut file: PsdFile, rect: Rect) -> (PsdFile, Surface) {
         use photocraft_psd::filter_effects::FilterEffects;
-        let mut file = smart_mask_file(false);
         let mut base = Surface::new(PixelFormat::RGBA8);
         base.fill_rect(rect, &[0.1, 0.2, 0.3, 1.]);
         let mask = LayerMask { surface: Surface::with_default(PixelFormat::GRAY8, &[0.]), ..LayerMask::reveal_all() };
@@ -1196,6 +1199,20 @@ mod file_input_regressions {
         };
         assert_eq!(cache(exact_budget).pixel(256, 256), base.pixel(256, 256));
         assert_eq!(cache(exact_budget - 1).pixel(256, 256), [0.0; 4]);
+    }
+
+    #[test]
+    fn unfiltered_smart_copy_gives_its_tiles_back_to_later_layers() {
+        // The smart layer is read first; the raster layer above it needs 130 * 130 * 4 * 3,
+        // less than the four tiles the dropped copy held.
+        let (file, base) = with_unfiltered(smart_mask_file_of(layered_document(), false), Rect::new(255, 255, 257, 257));
+        let layer_and_mask = 130 * 130 * (4 + 1) * 3;
+        let mix_scratch = (257 + 128) * (257 + 128) * 16 * 3;
+        let tiles = 4 * 256 * 256 * 4;
+        let (doc, _) = psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, layer_and_mask + mix_scratch + tiles).unwrap();
+        assert_eq!(doc.layers.len(), 2);
+        let LayerContent::Smart(smart) = &doc.layers[0].content else { panic!("expected a smart object") };
+        assert_eq!(smart.cache.as_ref().unwrap().pixel(256, 256), base.pixel(256, 256));
     }
 
     #[test]
@@ -1233,9 +1250,14 @@ mod file_input_regressions {
     }
 
     fn smart_mask_file(force_psb: bool) -> PsdFile {
-        use photocraft_psd::filter_effects::{EffectsPlane, FilterEffects, FilterEffectsItem};
         let mut doc = layered_document();
         doc.layers.truncate(1);
+        smart_mask_file_of(doc, force_psb)
+    }
+
+    /// `doc` with its bottom layer made a smart object carrying a blur filter and a filter mask.
+    fn smart_mask_file_of(mut doc: Document, force_psb: bool) -> PsdFile {
+        use photocraft_psd::filter_effects::{EffectsPlane, FilterEffects, FilterEffectsItem};
         doc.layers[0].mask = None;
         let mut file = parsed_file(&doc, force_psb);
         let stack = crate::smart_map::FilterStack {
