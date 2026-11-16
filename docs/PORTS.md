@@ -1466,7 +1466,10 @@ Each of these changes an existing test exactly as upstream changed its counterpa
 | [`54515f94b347`](https://github.com/storytold/photocraft/commit/54515f94b34786dc4c3d04a57cb8d66f838ea59f) | fix(ui-egui): the rasterize prompt no longer replays the click that opened it (#8806) | `crates/pc-ui-egui/src/rasterize_prompt.rs`<br>`crates/pc-ui-egui/src/rasterize_prompt_tests.rs`<br>`crates/pc-ui-egui/src/vector_packages/persona.rs`<br>`docs/control-protocol.md` | MIT OR Apache-2.0 |
 | [`70e6b0e7b15c`](https://github.com/storytold/photocraft/commit/70e6b0e7b15c8c3bac05c14fa821c57011cc1b3c) | Magnetic Lasso: the edge comes from the visible composite, not the active layer (#11686) | `crates/pc-engine/src/magnetic_cmds.rs`<br>`crates/pc-engine/src/magnetic_cmds/tests.rs`<br>`crates/pc-ui-egui/src/magnetic_lasso_ui.rs` | MIT OR Apache-2.0 |
 | [`e25be5e77bfc`](https://github.com/storytold/photocraft/commit/e25be5e77bfc440cd21e7c8577a2a0a264d54b2a) | Magic Wand: Anti-alias keeps the region whole and softens only near-matching neighbours (#11776) | `crates/pc-algo/src/selection.rs` | MIT OR Apache-2.0 |
+| [`375d4894a119`](https://github.com/storytold/photocraft/commit/375d4894a119b6cd5933d53e8fe7f506d2783392) | Selecting subject now automatically applies to selected layer, and uses sampleAllLayers only when no layer is selected | `crates/pc-engine/src/smartselect_cmds.rs` | MIT OR Apache-2.0 |
 
 `54515f94`: our `confirm()` keeps its local `persona::validate_rasterize_prompt` check before rasterizing; upstream's `confirm_filter` branch and scorecard rows have no counterpart here.
 
 `e25be5e7`: the 8-bit fill is our `wand_region_within`, so its fringe measures the colour with `distance.rgb(p, target)` (upstream's follow-up hunk from `e0ca582b`) and the Magic Eraser's Spread distance applies to the fringe too. Upstream's `wand_antialias_tests.rs` sits in the `tests` module of `selection.rs`.
+
+`375d4894`: our `select.subject` is a background job with the learned-model `engine` option; the default changes in that job's `all` flag and in its spec string, which keeps the `engine` field.
