@@ -114,20 +114,27 @@ struct CacheEntry {
     key: CacheKey,
     image: SourceImage,
     decodes: u32,
+    /// The surface's real tile bytes, counted once when it is cached.
+    bytes: usize,
 }
 
 /// Decoded source composites by content hash, most recent last. Re-filtering or re-transforming
 /// a smart object never decodes its contents again.
 static SOURCE_CACHE: Mutex<Vec<CacheEntry>> = Mutex::new(Vec::new());
 const CACHE_ENTRIES: usize = 32;
+/// Accounted tile bytes; a source larger than this on its own isn't kept.
 const CACHE_BYTES: usize = 1 << 30;
+
+fn cache() -> std::sync::MutexGuard<'static, Vec<CacheEntry>> {
+    SOURCE_CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 fn cache_key(bytes: &[u8], fmt: PixelFormat, profile: &Profile) -> CacheKey {
     (*blake3::hash(bytes).as_bytes(), fmt, profile.content_hash())
 }
 
 fn cache_get(key: &CacheKey) -> Option<SourceImage> {
-    let mut c = SOURCE_CACHE.lock().ok()?;
+    let mut c = cache();
     let i = c.iter().position(|e| e.key == *key)?;
     let e = c.remove(i);
     let img = e.image.clone();
@@ -136,50 +143,142 @@ fn cache_get(key: &CacheKey) -> Option<SourceImage> {
 }
 
 fn cache_put(key: CacheKey, image: SourceImage) {
-    let Ok(mut c) = SOURCE_CACHE.lock() else { return };
+    cache_put_within(key, image, CACHE_BYTES);
+}
+
+/// [`cache_put`] with `limit` as the byte budget.
+fn cache_put_within(key: CacheKey, image: SourceImage, limit: usize) {
+    let bytes = surface_bytes(&image.surface);
+    let mut c = cache();
     let decodes = match c.iter().position(|e| e.key == key) {
         Some(i) => c.remove(i).decodes + 1,
         None => 1,
     };
-    c.push(CacheEntry { key, image, decodes });
-    let size = |e: &CacheEntry| e.image.bounds.width() as usize * e.image.bounds.height() as usize * e.key.1.channels() * 4;
-    while c.len() > CACHE_ENTRIES || (c.len() > 1 && c.iter().map(size).sum::<usize>() > CACHE_BYTES) {
+    if bytes > limit {
+        return;
+    }
+    c.push(CacheEntry { key, image, decodes, bytes });
+    while c.len() > CACHE_ENTRIES || c.iter().map(|e| e.bytes).sum::<usize>() > limit {
         c.remove(0);
     }
+}
+
+/// Bytes a surface holds: its default pixel and every tile. Tiles shared with a document are
+/// charged anyway, since the cache is what keeps them alive once the document moves on.
+fn surface_bytes(s: &Surface) -> usize {
+    s.tiles().fold(s.default_bytes().len(), |n, (_, t)| n.saturating_add(t.bytes().len()))
 }
 
 /// How many times these contents were decoded at this pixel format (0 = never / evicted).
 pub fn source_decode_count(bytes: &[u8], fmt: PixelFormat) -> u32 {
     let key = cache_key(bytes, fmt, &crate::color_cmds::working_profile(fmt.mode));
-    SOURCE_CACHE.lock().ok().and_then(|c| c.iter().find(|e| e.key == key).map(|e| e.decodes)).unwrap_or(0)
+    cache().iter().find(|e| e.key == key).map_or(0, |e| e.decodes)
 }
 
-fn buffer_to_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat, source: &Profile, target: &Profile) -> Result<Surface> {
+/// Bytes held by cached source composites.
+pub fn source_cache_bytes() -> usize {
+    cache().iter().map(|e| e.bytes).sum()
+}
+
+/// Drops every cached source composite (Edit › Purge › All, closing a document with smart
+/// objects). Returns the bytes released.
+pub fn purge_source_cache() -> usize {
+    let mut c = cache();
+    let freed = c.iter().map(|e| e.bytes).sum();
+    c.clear();
+    freed
+}
+
+/// How composited straight RGBA reaches `fmt` in `target`: copied as is between the same RGB
+/// colours (`None`), else through a colour transform.
+fn source_transform(fmt: PixelFormat, source: &Profile, target: &Profile) -> Result<Option<Transform>> {
     if target.color_space != crate::color_cmds::mode_space(fmt.mode) {
         return Err(other("smart-object destination profile does not match its pixel format"));
     }
-    let n = fmt.channels();
-    let mut data = vec![0.0f32; buf.px.len() * n];
     if fmt.mode == ColorMode::Rgb && source.same_colors(target) {
+        return Ok(None);
+    }
+    let transform =
+        Transform::new(source, target, Intent::RelativeColorimetric, true).map_err(|error| other(format!("smart-object colour conversion failed: {error}")))?;
+    if transform.inputs() != 3 || transform.outputs() != fmt.mode.color_channels() {
+        return Err(other("smart-object colour conversion has an unsupported channel layout"));
+    }
+    Ok(Some(transform))
+}
+
+/// Writes `buf` into `surface` through `transform`; `data` is scratch reused between calls.
+fn write_converted(surface: &mut Surface, buf: &photocraft_compose::Buffer, transform: Option<&Transform>, data: &mut Vec<f32>) {
+    let fmt = surface.format();
+    let n = fmt.channels();
+    data.clear();
+    data.resize(buf.px.len() * n, 0.0);
+    match transform {
         // Keep exact same-space HDR/negative values, and quantize only when storing
         // into the destination surface. Alpha is coverage, not a colour channel.
-        for (pixel, out) in buf.px.iter().zip(data.chunks_exact_mut(n)) {
-            out[..3].copy_from_slice(&pixel[..3]);
-            if fmt.alpha {
-                out[3] = pixel[3];
+        None => {
+            for (pixel, out) in buf.px.iter().zip(data.chunks_exact_mut(n)) {
+                out[..3].copy_from_slice(&pixel[..3]);
+                if fmt.alpha {
+                    out[3] = pixel[3];
+                }
             }
         }
-    } else {
-        let transform = Transform::new(source, target, Intent::RelativeColorimetric, true)
-            .map_err(|error| other(format!("smart-object colour conversion failed: {error}")))?;
-        if transform.inputs() != 3 || transform.outputs() != fmt.mode.color_channels() {
-            return Err(other("smart-object colour conversion has an unsupported channel layout"));
-        }
-        transform.convert_f32(buf.px.as_flattened(), 4, &mut data, n, fmt.alpha);
+        Some(transform) => transform.convert_f32(buf.px.as_flattened(), 4, data.as_mut_slice(), n, fmt.alpha),
     }
-    let mut surface = Surface::new(fmt);
     if !buf.rect.is_empty() {
-        surface.write_region(buf.rect, &data);
+        surface.write_region(buf.rect, data.as_slice());
+    }
+}
+
+fn buffer_to_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat, source: &Profile, target: &Profile) -> Result<Surface> {
+    let transform = source_transform(fmt, source, target)?;
+    let mut surface = Surface::new(fmt);
+    write_converted(&mut surface, buf, transform.as_ref(), &mut Vec::new());
+    surface.prune();
+    Ok(surface)
+}
+
+/// Most pixels one block of [`flattened_surface`] composites at a time.
+const SOURCE_BLOCK_PIXELS: u64 = 1 << 20;
+
+/// Width and height of a block of [`flattened_surface`] for a `width`-pixel source: whole tiles,
+/// the full width (up to [`SOURCE_BLOCK_PIXELS`] over one row of tiles) and as many rows of tiles
+/// as fit, so a very wide source never composites more than the budget at once.
+fn source_block_size(width: u32) -> (i32, i32) {
+    let tile = photocraft_geom::TILE_SIZE.unsigned_abs() as u64;
+    let across = u64::from(width.max(1)).div_ceil(tile) * tile;
+    let bw = across.min((SOURCE_BLOCK_PIXELS / tile / tile).max(1) * tile);
+    let bh = (SOURCE_BLOCK_PIXELS / bw / tile).max(1) * tile;
+    (i32::try_from(bw).unwrap_or(photocraft_geom::TILE_SIZE), i32::try_from(bh).unwrap_or(photocraft_geom::TILE_SIZE))
+}
+
+/// `doc`'s composite in `fmt` and `target`, rendered and converted a block at a time, so neither
+/// a full-size float composite (16 bytes a pixel) nor its converted copy is ever held.
+fn flattened_surface(doc: &Document, fmt: PixelFormat, target: &Profile) -> Result<Surface> {
+    let b = doc.bounds();
+    // `render` gives an empty buffer past this, which would cache an empty source.
+    if u64::from(b.width()) * u64::from(b.height()) > photocraft_compose::MAX_RENDER_PIXELS {
+        return Err(other(format!("the smart object's {}×{} contents are too large to render", b.width(), b.height())));
+    }
+    let transform = source_transform(fmt, &crate::color_cmds::composite_profile(doc), target)?;
+    let tile = photocraft_geom::TILE_SIZE;
+    let (bw, bh) = source_block_size(b.width());
+    let mut surface = Surface::new(fmt);
+    let mut data = Vec::new();
+    // On the tile grid even if the bounds aren't, so no tile is split between two blocks.
+    let mut y = b.y0 - b.y0.rem_euclid(tile);
+    while y < b.y1 {
+        let y1 = y.saturating_add(bh);
+        let mut x = b.x0 - b.x0.rem_euclid(tile);
+        while x < b.x1 {
+            let x1 = x.saturating_add(bw);
+            let block = Rect::new(x, y, x1, y1).intersect(&b);
+            if !block.is_empty() {
+                write_converted(&mut surface, &photocraft_compose::render(doc, block), transform.as_ref(), &mut data);
+            }
+            x = x1;
+        }
+        y = y1;
     }
     surface.prune();
     Ok(surface)
@@ -197,7 +296,7 @@ pub fn source_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, 
     let surface = plain_image_surface(&projected, fmt, target)?;
     let surface = match surface {
         Some(surface) => surface,
-        None => buffer_to_surface(&photocraft_compose::flatten(&projected), fmt, &crate::color_cmds::composite_profile(&projected), target)?,
+        None => flattened_surface(&projected, fmt, target)?,
     };
     let image = SourceImage { surface: Arc::new(surface), bounds: doc.bounds() };
     cache_put(key, image.clone());
@@ -217,7 +316,7 @@ pub fn developed_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelForma
     let surface = plain_image_surface(&doc, fmt, target)?;
     let surface = match surface {
         Some(surface) => surface,
-        None => buffer_to_surface(&photocraft_compose::flatten(&doc), fmt, &crate::color_cmds::composite_profile(&doc), target)?,
+        None => flattened_surface(&doc, fmt, target)?,
     };
     let image = SourceImage { surface: Arc::new(surface), bounds: doc.bounds() };
     cache_put(key, image.clone());
@@ -882,6 +981,11 @@ pub(crate) fn on_close(s: &mut Session, index: usize, discard: bool) {
         let _ = commit_child(s, index);
     }
     s.smart_links.retain(|l| l.child != id && l.parent != id);
+    // Decoded sources are shared by content hash across documents, so the closing document's
+    // can't be told apart: drop them all. Other documents decode again on their next re-render.
+    if s.docs.get(index).is_some_and(|st| st.doc.walk().iter().any(|(_, _, l)| matches!(l.content, LayerContent::Smart(_)))) {
+        purge_source_cache();
+    }
 }
 
 fn is_smart_child(s: &Session) -> std::result::Result<(), String> {
@@ -945,7 +1049,9 @@ fn set_filter_visible(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.smartFilter.setParams";
-    let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters)"))?;
+    let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters, or replacing them with `replace`)"))?;
+    // An editor holding all of a filter's settings replaces them, so a key it removed stops applying.
+    let replace = p.get("replace").and_then(Value::as_bool).unwrap_or(false);
     let authorize = s.authorize;
     let new_map = {
         let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
@@ -972,9 +1078,13 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
         if f.command == photocraft_io::smart_map::UNSUPPORTED_FILTER {
             return Err(bad(CMD, "this Photoshop filter isn't implemented in PhotoCraft: it is kept as is (it can be hidden, moved or deleted)"));
         }
-        match (&mut f.params, new) {
-            (Value::Object(old), Value::Object(n)) => old.extend(n),
-            (slot, n) => *slot = n,
+        if replace {
+            f.params = new;
+        } else {
+            match (&mut f.params, new) {
+                (Value::Object(old), Value::Object(n)) => old.extend(n),
+                (slot, n) => *slot = n,
+            }
         }
         // The request alone can't be trusted: authorize the filter's command with the complete
         // merged params, including paths already stored in the document, before re-rendering.
@@ -1233,7 +1343,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "layer.smartFilter.setParams",
             "Edit Smart Filter",
             &[],
-            r##"{"layer":id?,"index":u32?,"params":{…} (merged)}"##,
+            r##"{"layer":id?,"index":u32?,"params":{…} (merged),"replace":bool=false (params replace the stored ones instead)}"##,
             has_smart_filters,
             set_filter_params
         ),

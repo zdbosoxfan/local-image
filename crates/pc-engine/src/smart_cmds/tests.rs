@@ -1167,3 +1167,94 @@ fn gated_contents_exports_embed_no_file_a_nested_link_names() {
     assert!(!has_png(&export(&mut s)), "an untrusted export does not");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn source_composites_in_bounded_blocks_and_refuses_oversize_contents() {
+    let tile = photocraft_geom::TILE_SIZE;
+    for width in [1, 255, 1000, 4096, 4097, 300_000] {
+        let (bw, bh) = source_block_size(width);
+        assert!(bw > 0 && bh > 0 && bw % tile == 0 && bh % tile == 0, "{width}: {bw}×{bh}");
+        assert!(u64::from(bw.unsigned_abs()) * u64::from(bh.unsigned_abs()) <= SOURCE_BLOCK_PIXELS, "{width}: {bw}×{bh}");
+    }
+    assert_eq!(source_block_size(300_000), (4096, 256));
+
+    // Blocks give the whole-buffer composite bit for bit, across a block edge at x = 4096.
+    let mut doc = Document::new("source", Size::new(4200, 24), ColorMode::Rgb, photocraft_color::SampleType::U8);
+    let fmt = doc.pixel_format();
+    let block = |r: Rect| {
+        let mut s = Surface::new(fmt);
+        let mut data = Vec::new();
+        for y in r.y0..r.y1 {
+            for x in r.x0..r.x1 {
+                let v = ((x * 7 + y * 13) % 23) as f32 / 22.0;
+                data.extend(photocraft_raster::from_rgba(&fmt, [v, 1.0 - v, 0.5, if (x + y) % 5 == 0 { 0.5 } else { 1.0 }]));
+            }
+        }
+        s.write_region(r, &data);
+        s
+    };
+    let mut top = Layer::new("top", LayerContent::Raster(block(Rect::new(4000, 2, 4180, 20))));
+    top.blend = BlendMode::Multiply;
+    top.opacity = 0.7;
+    top.effects.items.push(photocraft_doc::Effect::default_drop_shadow());
+    top.effects.enabled = true;
+    doc.layers = vec![Layer::new("base", LayerContent::Raster(block(Rect::new(3900, 0, 4200, 24)))), top];
+    let target = crate::color_cmds::working_profile(ColorMode::Rgb);
+    let whole = buffer_to_surface(&photocraft_compose::flatten(&doc), fmt, &crate::color_cmds::composite_profile(&doc), &target).unwrap();
+    let blocks = flattened_surface(&doc, fmt, &target).unwrap();
+    let bits = |s: &Surface| s.read_region(doc.bounds()).iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+    assert!(bits(&whole) == bits(&blocks), "block composite differs from the whole-buffer one");
+
+    // Past the render limit `render` returns nothing; the source is refused, not cached empty.
+    let huge = Document::new("huge", Size::new(60_000, 60_000), ColorMode::Rgb, photocraft_color::SampleType::U8);
+    assert!(flattened_surface(&huge, huge.pixel_format(), &target).is_err());
+}
+
+#[test]
+fn source_cache_counts_real_bytes_and_keeps_no_oversize_source() {
+    let mut surface = Surface::new(PixelFormat::RGBA8);
+    surface.fill_rect(Rect::new(0, 0, 256, 256), &[0.2, 0.4, 0.6, 1.0]);
+    let img = SourceImage { surface: Arc::new(surface), bounds: Rect::new(0, 0, 256, 256) };
+    // 8-bit RGBA is 4 bytes a pixel (plus the default pixel), not the 16 of an f32 estimate.
+    let bytes = surface_bytes(&img.surface);
+    assert!((256 * 256 * 4..256 * 256 * 5).contains(&bytes), "{bytes}");
+    let key = cache_key(b"source cache budget test", PixelFormat::RGBA8, &crate::color_cmds::working_profile(ColorMode::Rgb));
+    // A lone source over the budget is returned to its caller but never kept.
+    cache_put_within(key, img.clone(), bytes - 1);
+    assert!(cache_get(&key).is_none(), "{bytes} bytes against a limit of {}", bytes - 1);
+    cache_put_within(key, img, bytes);
+    assert!(cache_get(&key).is_some());
+}
+
+/// `replace` makes `params` the filter's whole settings, so a key the edit left out stops
+/// applying; without it the params merge, as partial edits rely on. Either way it is one undo.
+#[test]
+fn set_params_replace_drops_the_keys_it_leaves_out() {
+    let mut s = session(8);
+    paint(&mut s);
+    convert(&mut s);
+    // An adjustment recorded on the smart object, as an imported PSD holds it.
+    s.edit("record adjustment", |doc, active| {
+        let Some(LayerContent::Smart(sm)) = doc.layer_mut(active.unwrap()).map(|l| &mut l.content) else { panic!("smart") };
+        sm.smart_filters.push(photocraft_doc::SmartFilter {
+            command: "image.adjustments.channelMixer".into(),
+            params: json!({"monochrome": true, "gray": [30, 30, 40, 0]}),
+            blend: BlendMode::Normal,
+            opacity: 1.0,
+            visible: true,
+        });
+        Ok(())
+    })
+    .unwrap();
+    let params = |s: &Session| active_smart(s).smart_filters[0].params.clone();
+
+    s.execute("layer.smartFilter.setParams", json!({"params": {"monochrome": false}})).unwrap();
+    assert_eq!(params(&s), json!({"monochrome": false, "gray": [30, 30, 40, 0]}), "merged by default");
+
+    let edit = json!({"monochrome": false, "red": [70, 30, 0, 0]});
+    s.execute("layer.smartFilter.setParams", json!({"params": edit, "replace": true})).unwrap();
+    assert_eq!(params(&s), edit, "replaced");
+
+    s.undo();
+    assert_eq!(params(&s), json!({"monochrome": false, "gray": [30, 30, 40, 0]}));
+}

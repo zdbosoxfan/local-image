@@ -209,6 +209,43 @@ fn export_comps_to_files_naming() {
 }
 
 #[test]
+fn export_comps_to_files_leaves_the_document_on_the_last_comp() {
+    let (mut s, a, b) = session(8);
+    s.execute("layerComp.new", json!({"name": "Both"})).unwrap();
+    s.edit("hide b", |d, _| {
+        d.layer_mut(b).unwrap().visible = false;
+        Ok(())
+    })
+    .unwrap();
+    let no_b = s.execute("layerComp.new", json!({"name": "NoB"})).unwrap()["comp"].as_u64().unwrap();
+    // A state neither comp shows.
+    s.edit("hide a", |d, _| {
+        d.layer_mut(a).unwrap().visible = false;
+        Ok(())
+    })
+    .unwrap();
+    let dir = std::env::temp_dir().join(format!("photocraft-comps-last-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let d = dir.to_string_lossy().into_owned();
+    let past = |s: &Session| s.active().unwrap().history.past_len();
+    let before = past(&s);
+    // A run that matches no comp fails before it writes or changes anything.
+    assert!(s.execute("file.export.layerCompsToFiles", json!({"dir": d, "comps": [9999]})).is_err());
+    assert_eq!(past(&s), before);
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+
+    s.execute("file.export.layerCompsToFiles", json!({"dir": d, "prefix": "doc"})).unwrap();
+    assert_eq!(past(&s), before + 2, "one Apply Layer Comp state per exported comp");
+    assert_eq!(doc(&s).last_applied_comp, Some(no_b as u32));
+    assert!(doc(&s).layer(a).unwrap().visible && !doc(&s).layer(b).unwrap().visible);
+    // One undo steps back to the first exported comp.
+    assert!(s.undo());
+    assert!(doc(&s).layer(a).unwrap().visible && doc(&s).layer(b).unwrap().visible);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn out_of_range_comp_ids_are_rejected_not_wrapped() {
     // #914: 2^32 + id used to wrap to a real comp.
     let mut s = Session::new();

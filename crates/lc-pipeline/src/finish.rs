@@ -128,9 +128,11 @@ pub(crate) fn vignette(s: &DevelopSettings) -> Option<Vig> {
     })
 }
 
-/// Grain parameters of `s` (amount, cell size px, roughness, seed) for a `px_per_long` render.
+/// Grain parameters of `s` (amount, cell size px, roughness, seed) for a `px_per_long` render. None
+/// on a degenerate frame (a zero-width crop makes `px_per_long` infinite), which has no finite grain
+/// mapping.
 pub(crate) fn grain(s: &DevelopSettings, px_per_long: f64) -> Option<(f32, f32, f32, u32)> {
-    (s.grain.amount > 0.0).then(|| {
+    (s.grain.amount > 0.0 && px_per_long.is_finite() && px_per_long > 0.0).then(|| {
         let cell = (0.0006 + (s.grain.size / 100.0) as f32 * 0.0024) * px_per_long as f32;
         ((s.grain.amount / 100.0) as f32 * 0.13, cell.max(0.6), (s.grain.roughness / 100.0) as f32, s.grain.seed)
     })
@@ -146,6 +148,10 @@ pub const GRAIN_HASH: [u32; 4] = [0x8da6_b343, 0xd816_3841, 0xcb1a_b31f, 0x5bd1_
 
 #[inline]
 fn grain_noise(x: f32, y: f32, seed: u32) -> f32 {
+    // a degenerate frame maps pixels to NaN / infinite coordinates: no grain there
+    if !x.is_finite() || !y.is_finite() {
+        return 0.0;
+    }
     let (x0, y0) = (x.floor(), y.floor());
     let (fx, fy) = (x - x0, y - y0);
     let h = |i: i32, j: i32| {
@@ -289,7 +295,10 @@ impl FinishParams {
         };
         let ev = s.light.exposure as f32;
         let gain = 2f32.powf(ev);
-        let grain = if effects { grain(s, px_per_long) } else { None };
+        let out_to_norm = frame.out_to_norm(w, h);
+        let finite_frame =
+            frame.ow.is_finite() && frame.oh.is_finite() && frame.ow.max(frame.oh) > 0.0 && out_to_norm.0.iter().all(|v| v.is_finite());
+        let grain = if effects && finite_frame { grain(s, px_per_long) } else { None };
         FinishParams {
             mode: FinishMode::Display,
             layer_contrast: 0.0,
@@ -321,7 +330,7 @@ impl FinishParams {
             gain,
             ev,
             grain,
-            out_to_norm: frame.out_to_norm(w, h),
+            out_to_norm,
             ow: frame.ow,
             oh: frame.oh,
             w,
@@ -881,7 +890,7 @@ fn grain_px(e: [f32; 3], (amt, cell, rough, seed): (f32, f32, f32, u32), n: Poin
     g = g * (1.0 - rough * 0.5) + grain_noise(gx * sc * 2.3, gy * sc * 2.3, seed ^ 0x55) * rough * 0.7;
     let lum = li_color::luminance_709(e);
     let k = amt * g * (0.35 + 2.6 * lum * (1.0 - lum));
-    e.map(|v| v + k)
+    if k.is_finite() { e.map(|v| v + k) } else { e }
 }
 
 /// A develop layer's local tone change (log2 gain) at a pixel: its highlights/shadows on the

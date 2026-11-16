@@ -19,7 +19,7 @@ fn a_hugely_scaled_clone_source_is_refused_before_the_dense_read() {
     let which = sample_layers(&json!({"sampleLayer": "current"}), "paint.cloneStamp").unwrap();
     // 1000x: a 100 x 100 destination asks for a 100000 x 100000 source window.
     let map = Mapping { source: (0.0, 0.0), anchor: (0.0, 0.0), m: [1000.0, 0.0, 0.0, 1000.0] };
-    assert!(clone_sample(&d.doc, Some(id), surf, which, Rect::new(0, 0, 100, 100), &map, "paint.cloneStamp").is_err());
+    assert!(clone_sample(&d.doc, Some(id), surf, which, &clone_sampling::CloneFrom::default(), Rect::new(0, 0, 100, 100), &map, "paint.cloneStamp").is_err());
 }
 
 /// Straight RGBA of the active layer at a pixel.

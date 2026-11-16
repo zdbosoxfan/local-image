@@ -316,7 +316,8 @@ fn decode_snapshot(bytes: &[u8]) -> Result<SnapFile> {
     if h.version < VERSION {
         return Err(older(format!("{SNAPSHOT} is catalog format v{}", h.version)));
     }
-    let s: SnapFile = serde_json::from_slice(bytes).map_err(|e| CatalogError::Corrupt(format!("{SNAPSHOT}: {e}")))?;
+    let mut s: SnapFile = serde_json::from_slice(bytes).map_err(|e| CatalogError::Corrupt(format!("{SNAPSHOT}: {e}")))?;
+    s.catalog.trim_histories();
     // real use never gets near this; the next record's seq would wrap
     if s.seq > MAX_SEQ {
         return Err(CatalogError::Corrupt(format!("{SNAPSHOT}: seq {} is out of range", s.seq)));

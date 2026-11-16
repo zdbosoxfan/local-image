@@ -486,10 +486,47 @@ fn layers_to_files_writes_each_visible_layer() {
     let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "prefix": "doc", "format": "png"})).unwrap();
     let files: Vec<String> = r["files"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
     assert_eq!(files.len(), 2, "{files:?}");
-    assert!(files[0].ends_with("doc_0000_Ink_1.png"), "{files:?}");
+    assert!(files[0].ends_with("doc_0001_Ink_1.png"), "{files:?}");
     assert!(files.iter().all(|f| std::path::Path::new(f).is_file()));
     let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "visibleOnly": false, "format": "psd"})).unwrap();
     assert_eq!(r["files"].as_array().unwrap().len(), 3);
+}
+
+/// Upstream ac7c119f: a layer skipped by Visible Layers Only keeps its number, so a file keeps the
+/// same name whether the option is on or off.
+#[test]
+fn layers_to_files_leaves_a_hidden_layers_number_unused() {
+    let dir = tmp("layers-hidden-number");
+    let mut s = session(4, 4, 8);
+    for name in ["Blue", "Hidden", "Top"] {
+        s.execute("layer.new.layer", json!({"name": name})).unwrap();
+        if name == "Hidden" {
+            s.execute("layer.setProps", json!({"visible": false})).unwrap();
+        }
+    }
+    let mut export = |visible_only: bool| -> Vec<String> {
+        let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "prefix": "doc", "visibleOnly": visible_only})).unwrap();
+        r["files"].as_array().unwrap().iter().map(|f| std::path::Path::new(f.as_str().unwrap()).file_name().unwrap().to_string_lossy().into_owned()).collect()
+    };
+    assert_eq!(export(true), ["doc_0000_Top.png", "doc_0002_Blue.png", "doc_0003_Background.png"]);
+    assert_eq!(export(false), ["doc_0000_Top.png", "doc_0001_Hidden.png", "doc_0002_Blue.png", "doc_0003_Background.png"]);
+}
+
+/// Upstream 7d21778f: an explicitly empty Layers to Files prefix stays empty instead of becoming
+/// sanitize's "layer" fallback; an omitted prefix still defaults to the document name.
+#[test]
+fn layers_to_files_keeps_an_empty_prefix() {
+    let dir = tmp("layers-empty-prefix");
+    let mut s = session(4, 3, 8);
+    s.execute("layer.new.layer", json!({"name": "Type"})).unwrap();
+    let background = sanitize(&doc(&s).layers[0].name);
+    let names = |r: Value| -> Vec<String> {
+        r["files"].as_array().unwrap().iter().map(|f| std::path::Path::new(f.as_str().unwrap()).file_name().unwrap().to_string_lossy().into_owned()).collect()
+    };
+    let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "prefix": ""})).unwrap();
+    assert_eq!(names(r), ["_0000_Type.png".to_string(), format!("_0001_{background}.png")]);
+    let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "prefix": "..."})).unwrap();
+    assert_eq!(names(r)[0], "layer_0000_Type.png", "a prefix that sanitizes to nothing keeps the fallback");
 }
 
 #[test]
@@ -656,6 +693,26 @@ fn batch_reports_inputs_that_share_an_output_name() {
     let kept = photocraft_io::import("a.png", &std::fs::read(join(&out, "a.png")).unwrap()).unwrap().document;
     let px = photocraft_compose::render(&kept, Rect::new(1, 1, 2, 2)).px[0];
     assert!(px[0] > 0.99 && px[1] < 0.01, "the first input's result is kept: {px:?}");
+}
+
+/// Saving into the source folder, `a.png` saved as JPEG would replace the source `a.jpg` before
+/// the batch reads it: that input is reported and `a.jpg` is saved over itself.
+#[test]
+fn batch_into_the_source_folder_does_not_replace_an_unread_source() {
+    let dir = tmp("in-place");
+    let red = png(&dir, "a.png", 8, 8, "#ff0000");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "background": "#0000ff"})).unwrap();
+    let blue = join(&dir, "a.jpg");
+    save_doc(doc(&s), &blue, None).unwrap();
+    let r = s.execute("file.automate.batch", json!({"steps": [], "input": [red, blue], "output": dir, "format": "jpg"})).unwrap();
+    let errors = r["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1, "{r}");
+    assert_eq!(errors[0]["file"], json!(red), "{r}");
+    assert_eq!(r["files"], json!([blue]), "{r}");
+    let kept = photocraft_io::import("a.jpg", &std::fs::read(&blue).unwrap()).unwrap().document;
+    let px = photocraft_compose::render(&kept, Rect::new(1, 1, 2, 2)).px[0];
+    assert!(px[2] > 0.9 && px[0] < 0.1, "a.jpg still holds its own image: {px:?}");
 }
 
 /// The editor's open, canvas-drop/Place and linked-source refresh routes all use pc-io's
@@ -847,6 +904,37 @@ fn batch_carries_the_authorization_gate_into_scratch_steps() {
         .unwrap();
     assert_eq!(r["files"], json!([]));
     assert!(r["errors"][0]["error"].as_str().unwrap().contains("denied test step"), "{r}");
+}
+
+#[test]
+fn image_processor_scratch_sessions_answer_to_the_authorization_gate() {
+    fn deny_image(id: &str, _: &Value) -> Result<()> {
+        if id.starts_with("image.") { Err(EngineError::Other(format!("automation command `{id}` is disabled"))) } else { Ok(()) }
+    }
+    let dir = tmp("proc-gate");
+    let input = png(&dir, "a.png", 40, 20, "#ff0000");
+    let mut s = Session::new();
+    s.authorize = Some(deny_image);
+    let r =
+        s.execute("file.scripts.imageProcessor", json!({"input": [input], "output": join(&dir, "out"), "format": "jpg", "width": 20, "height": 20})).unwrap();
+    assert_eq!(r["files"], json!([]), "{r}");
+    assert!(r["errors"][0]["error"].as_str().unwrap().contains("image.imageSize"), "{r}");
+}
+
+#[test]
+fn batch_save_points_answer_to_the_authorization_gate() {
+    fn deny_save(id: &str, _: &Value) -> Result<()> {
+        if id == "file.save" { Err(EngineError::Other(format!("automation command `{id}` is disabled"))) } else { Ok(()) }
+    }
+    let dir = tmp("batch-save-gate");
+    let input = png(&dir, "a.png", 8, 8, "#ff0000");
+    let out = join(&dir, "out");
+    let mut s = Session::new();
+    s.authorize = Some(deny_save);
+    let r = s.execute("file.automate.batch", json!({"steps": [["file.save", {}]], "input": [input], "output": out, "format": "png"})).unwrap();
+    assert_eq!(r["files"], json!([]), "{r}");
+    assert!(r["errors"][0]["error"].as_str().unwrap().contains("file.save"), "{r}");
+    assert!(!std::path::Path::new(&join(&out, "a.png")).exists());
 }
 
 #[test]

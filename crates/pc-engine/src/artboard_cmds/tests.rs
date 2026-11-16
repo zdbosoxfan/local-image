@@ -121,8 +121,8 @@ fn export_to_files_and_pdf() {
     let r = s.execute("file.export.artboardsToFiles", json!({"dir": d, "prefix": "site"})).unwrap();
     let files: Vec<String> = r["files"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
     assert_eq!(files.len(), 2);
-    assert!(files[0].ends_with("site_0000_Empty_One.png"), "{files:?}");
-    assert!(files[1].ends_with("site_0001_Red Board.png"), "{files:?}");
+    assert!(files[0].ends_with("/siteEmpty_One.png"), "{files:?}");
+    assert!(files[1].ends_with("/siteRed-Board.png"), "{files:?}");
     let img = photocraft_io::import("x.png", &std::fs::read(&files[1]).unwrap()).unwrap().document;
     assert_eq!((img.size.width, img.size.height), (10, 10));
     let img2 = photocraft_io::import("x.png", &std::fs::read(&files[0]).unwrap()).unwrap().document;
@@ -228,6 +228,36 @@ fn dsfix_v027_array_artboard_coordinates_already_bounded() {
         }
     }
     assert_eq!(rect_param(&json!({"rect":[-1_000_000.,999_990.,10.,10.]}), base, "test").unwrap(), Rect::from_xywh(-1_000_000, 999_990, 10, 10));
+}
+
+/// Upstream 9e79faf6 (#13643): Artboards to PDF starts with the bottom artboard of the Layers
+/// panel, also for chosen artboards listed in another order.
+#[test]
+fn artboards_to_pdf_pages_go_bottom_artboard_first() {
+    let mut s = session(8);
+    let mut board = |rect: [u32; 4], name: &str| s.execute("layer.new.artboard", json!({"rect": rect, "name": name})).unwrap()["layer"].as_u64().unwrap();
+    let (red, blue) = (board([0, 0, 20, 15], "Red"), board([30, 0, 20, 20], "Blue"));
+    board([60, 0, 10, 10], "Empty");
+    let k = 72.0 / f64::from(doc(&s).resolution_dpi.max(1.0));
+    let dir = std::env::temp_dir().join(format!("photocraft-artboard-pdf-order-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = join(&dir.to_string_lossy(), "boards.pdf");
+    let mut page_sizes = |params: Value| -> Vec<(u32, u32)> {
+        let mut params = params;
+        params["path"] = json!(path);
+        s.execute("file.export.artboardsToPdf", params).unwrap();
+        let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
+        text.split("/MediaBox [0 0 ")
+            .skip(1)
+            .map(|rest| {
+                let mut n = rest.split([' ', ']']).map(|v| (v.parse::<f64>().unwrap() / k).round() as u32);
+                (n.next().unwrap(), n.next().unwrap())
+            })
+            .collect()
+    };
+    assert_eq!(page_sizes(json!({})), [(20, 15), (20, 20), (10, 10)]);
+    assert_eq!(page_sizes(json!({"artboards": [blue, red]})), [(20, 15), (20, 20)]);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Dragging a layer from one artboard onto another (`layer.moveTo`) re-parented it but left it at

@@ -65,6 +65,20 @@ fn library_select_refuses_ids_that_are_not_photo_ids() {
     assert_eq!(s.selection.ids, vec![vis[2]]);
 }
 
+/// Replacing the selection with a repeated id holds each photo once, in the order first given.
+#[test]
+fn library_select_replace_drops_repeated_ids() {
+    let (mut s, vis, _) = session();
+    let (a, b) = (vis[0], vis[1]);
+    s.execute("library.select", &json!({"ids": [a.0, b.0, a.0]})).unwrap();
+    assert_eq!(s.selection.ids, vec![a, b]);
+    assert_eq!(s.selection.active, Some(a));
+    let r = s.execute("library.select", &json!({"ids": [b.0, a.0, b.0, b.0], "active": a.0})).unwrap();
+    assert_eq!(s.selection.ids, vec![b, a]);
+    assert_eq!(s.selection.active, Some(a));
+    assert_eq!(r["selected"], 2);
+}
+
 /// Malformed photo IDs must not target the active photo or mutate its metadata.
 #[test]
 fn single_photo_commands_refuse_an_id_that_is_not_a_photo_id() {
