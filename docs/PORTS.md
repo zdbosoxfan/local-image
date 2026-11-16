@@ -1930,8 +1930,9 @@ Adapted port, a follow-up to `be32a7c6` (#5612, which committed only on Layers-p
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [storytold/photocraft@`4f0876958db142b61c790f1a23139e2cd5bd1854`](https://github.com/storytold/photocraft/commit/4f0876958db142b61c790f1a23139e2cd5bd1854) | CLI convert: refuse to write over the input file unless --in-place (#7437) | `apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs`<br>`apps/local-image-cli/Cargo.toml` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c`](https://github.com/storytold/photocraft/commit/cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c) | photocraft-cli run: refuse an --out that is the input file unless --in-place (#7437) | `apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs` | MIT OR Apache-2.0 |
 
-Adapted port by hand (upstream's `apps/photocraft-cli` is unmapped), the CLI half of #7437 after `502d055c`. `refuse_overwriting_input` compares the files with `li_fs::same_file`, as our `502d055c` port does, in place of upstream's `file_cmds::same_file`, so `local-image-cli` now depends on the workspace's `li-fs`. The usage text keeps our TIFF Options flags.
+Adapted port by hand (upstream's `apps/photocraft-cli` is unmapped), the CLI half of #7437 after `502d055c`. `refuse_overwriting_input` compares the files with `li_fs::same_file`, as our `502d055c` port does, in place of upstream's `file_cmds::same_file`, so `local-image-cli` now depends on the workspace's `li-fs`. The usage text keeps our TIFF Options flags. `cc574bcf` reuses that helper in `run`, where our `Headless::save` with an explicit path never reaches `file.saveACopy`'s own guard; `--new` runs are unaffected.
 
 ## Upstream rows reviewed and not ported (2026-11-16)
 
