@@ -289,10 +289,10 @@ mod tests {
         let s = local_sharpen(&smooth, w, h, ch, None, win, 1.0, false);
         let so: Vec<f32> = (4..12).flat_map(|y| (4..12).map(move |x| (x, y))).map(|(x, y)| smooth[y * w + x]).collect();
         assert!(var(&s) > var(&so));
-        // Protect detail never exceeds the local range.
+        // Protect Detail sharpens too, but moves no pixel by more than its limit per unit of amount.
         let sp = local_sharpen(&smooth, w, h, ch, None, win, 4.0, true);
-        let hi = smooth.iter().cloned().fold(0.0, f32::max);
-        assert!(sp.iter().all(|v| *v <= hi + 1e-6));
+        assert!(var(&sp) > var(&so));
+        assert!(sp.iter().zip(&so).all(|(a, b)| (a - b).abs() < 4.0 * PROTECT_DETAIL_LIMIT));
     }
 
     #[test]
