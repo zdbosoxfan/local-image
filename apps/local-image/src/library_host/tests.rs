@@ -253,14 +253,18 @@ fn launch_documents_show_in_compositing_and_folders_go_to_the_library_import() {
     let dir = std::env::temp_dir().join(format!("li-launch-args-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("shoot")).unwrap();
-    std::fs::write(dir.join("photo.png"), b"").unwrap();
+    image::RgbImage::new(2, 2).save(dir.join("photo.png")).unwrap();
     let file = dir.join("photo.png").to_string_lossy().to_string();
     let folder = dir.join("shoot").to_string_lossy().to_string();
-    assert_eq!(super::split_launch_paths(&[file.clone(), folder.clone()]), (vec![file], vec![folder.clone()]));
+    assert_eq!(super::split_launch_paths(&[file.clone(), folder.clone()]), (vec![file.clone()], vec![folder.clone()]));
 
     let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    // Stands in for a document crash recovery reopened before the host starts.
     editor.run("file.new", serde_json::json!({"width": 8, "height": 8})).unwrap();
-    let host = Host::new(editor);
+    let mut host = Host::new(editor);
+    assert_eq!(host.mode, Module::Library, "a recovered document keeps the remembered module");
+    host.editor.services.import = Some(Box::new(|name, bytes| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())));
+    host.open_at_launch(&[file]);
     assert_eq!(host.mode, Module::Compositing, "a launch document is shown, not the remembered module");
 
     let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));

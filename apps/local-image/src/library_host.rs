@@ -195,9 +195,8 @@ impl Host {
         let mut editor = editor;
         editor.host_modes = std::env::var_os("LOCAL_IMAGE_NO_LIBRARY").is_none();
         editor.raw_opens = editor.host_modes.then(Vec::new);
-        // Files opened at launch are shown, not left loading behind the remembered module.
-        let launched = !editor.session.documents().is_empty() || !editor.jobs.opens.is_empty();
-        let mode = if editor.host_modes && !launched { startup_module(&editor.session.prefs().library) } else { Module::Compositing };
+        // Launch files switch to Compositing afterwards, in `open_at_launch`.
+        let mode = if editor.host_modes { startup_module(&editor.session.prefs().library) } else { Module::Compositing };
         Self {
             editor,
             library: None,
