@@ -126,23 +126,25 @@ fn contains_lower(hay: &str, needle: &str) -> bool {
 /// Whether `p` matches one search token, already lower-cased (see [`Filter::matches`]).
 fn token_matches(p: &Photo, t: &str) -> bool {
     if let Some((field, val)) = t.split_once(':') {
-        let num = |s: &str| -> Option<(char, f64)> {
-            let (op, rest) = match s.chars().next()? {
-                c @ ('>' | '<' | '=') => (c, &s[1..]),
-                _ => ('=', s),
-            };
-            rest.parse().ok().map(|v| (op, v))
+        // `>=` / `<=` before `>` / `<`, or `rating:>=3` reads `=3` as the number and matches nothing.
+        let num = |s: &str| -> Option<(&str, f64)> {
+            let op = [">=", "<=", ">", "<", "="].into_iter().find(|op| s.starts_with(op)).unwrap_or("");
+            s.get(op.len()..)?.parse().ok().map(|v| (op, v))
         };
         let cmp = |x: f64, s: &str| match num(s) {
-            Some(('>', v)) => x > v,
-            Some(('<', v)) => x < v,
+            Some((">", v)) => x > v,
+            Some(("<", v)) => x < v,
+            Some((">=", v)) => x >= v,
+            Some(("<=", v)) => x <= v,
             Some((_, v)) => (x - v).abs() < 1e-9,
             None => false,
         };
         // Compare at the precision of the stored camera fields.
         let cmp32 = |x: f32, s: &str| match num(s) {
-            Some(('>', v)) => x > v as f32,
-            Some(('<', v)) => x < v as f32,
+            Some((">", v)) => x > v as f32,
+            Some(("<", v)) => x < v as f32,
+            Some((">=", v)) => x >= v as f32,
+            Some(("<=", v)) => x <= v as f32,
             Some((_, v)) => x == v as f32,
             None => false,
         };

@@ -55,6 +55,43 @@ impl AutoWbWork {
     }
 }
 
+/// White balance on this source is edited in Kelvin (a raw with a measured camera scale), not on
+/// the relative scale (6500 K / 0 = as shot).
+fn kelvin(info: &SourceInfo) -> bool {
+    info.raw && !info.relative_wb
+}
+
+/// Auto Sync of a typed or dragged Temp or Tint: `synced.wb` for a photo (source `info`, settings
+/// `own` before the sync) when the active photo's white balance (source `active`) went from `old`
+/// to the Custom `new`. A photo on the active photo's scale gets the same number; one on another
+/// scale (a JPEG beside a raw) has no "same" number and moves by as much as the active photo did.
+/// Only the slider that moved changes: a Temp move keeps each photo's own tint.
+pub(crate) fn sync_custom_wb(
+    active: &SourceInfo,
+    old: &DevelopSettings,
+    new: &DevelopSettings,
+    info: &SourceInfo,
+    own: &DevelopSettings,
+    synced: &mut DevelopSettings,
+) {
+    use lightcraft_pipeline::local::effective_wb;
+    let (own_temp, own_tint) = effective_wb(info, own);
+    let ((was_temp, was_tint), (temp, tint)) = (effective_wb(active, old), effective_wb(active, new));
+    let same_scale = kelvin(active) == kelvin(info);
+    let pick = |own: f64, was: f64, now: f64| {
+        if (now - was).abs() < 1e-9 {
+            own
+        } else if same_scale {
+            now
+        } else {
+            own + (now - was)
+        }
+    };
+    synced.wb.mode = WbMode::Custom;
+    lightcraft_develop::controls::set(synced, "wb.temp", pick(own_temp, was_temp, temp));
+    lightcraft_develop::controls::set(synced, "wb.tint", pick(own_tint, was_tint, tint));
+}
+
 impl Session {
     /// Resolve the white balance mode that `partial` brings to photo `id` in its new `settings`:
     /// Auto measured on the photo's own source, a named mode or As Shot with the photo's values,
