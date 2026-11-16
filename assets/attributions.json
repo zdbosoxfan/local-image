@@ -10578,6 +10578,48 @@
           "url": "https://github.com/storytold/photocraft/commit/dcf5c61a64716bec507ee79735ef18ce0837fbce"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "TIFF: open images over 2^30 px, decoded a group of rows at a time into the layer (#8169)",
+          "commit": "4001a3092a5be314e2aeda2ff9bc4dc84e2115fb",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/src/lib.rs, crates/pc-codecs/src/options.rs, crates/pc-codecs/tests/it/tiff_pages.rs, crates/pc-io/src/flat.rs, crates/pc-raster/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/4001a3092a5be314e2aeda2ff9bc4dc84e2115fb"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "perf(io): build JPEG/PNG tiles straight from the decoded rows, in parallel (#10259) (#10281)",
+          "commit": "98bcbfab9005b4915b3143b4daed91df365db107",
+          "ours": "crates/pc-codecs/src/image.rs, crates/pc-codecs/src/lib.rs, crates/pc-io/src/flat.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/98bcbfab9005b4915b3143b4daed91df365db107"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "perf(io): stream large PNGs row by row into the layer's tiles (#10259) (#10305)",
+          "commit": "dde01384d2ab39995c28d4dbc68ce5c4b297a217",
+          "ours": "crates/pc-codecs/src/codecs/png.rs, crates/pc-codecs/src/lib.rs, crates/pc-codecs/tests/it/png_jpeg.rs, crates/pc-io/src/flat.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/dde01384d2ab39995c28d4dbc68ce5c4b297a217"
+        },
+        {
           "name": "LightCraft",
           "used_for": "LR-CROP-RECT: sidecar settings kept in range; a turned crop bounded to the photo (#2555)",
           "commit": "646566f1f389ed016b15515e13b4da4460da64fb",

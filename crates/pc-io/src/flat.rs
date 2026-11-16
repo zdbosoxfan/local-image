@@ -2,22 +2,31 @@
 
 use std::sync::Arc;
 
-use photocraft_codecs::{self as codecs, ChannelLayout, Format, Image, SampleType as CSample};
+use photocraft_codecs::{self as codecs, ChannelLayout, CodecError, Format, Image, SampleType as CSample};
 use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent};
 use photocraft_geom::{Rect, Size, TILE_SIZE};
-use photocraft_raster::Surface;
+use photocraft_raster::{AllocationError, Surface};
 
 use crate::{ExportOptions, ExportResult, ImportResult, IoError, XmpEmbed};
 
 /// Bytes per band when converting or exporting a band of rows at a time.
 const BAND_BYTES: usize = 32 << 20;
 
+/// Decoded size from which a PNG is read straight into the tiles: below it the whole-image path
+/// is faster, and the memory the stream saves is small.
+const STREAM_MIN_BYTES: u64 = 32 << 20;
+
 /// Decodes a flat image into a single-layer document; a TIFF with Photoshop layer data opens
 /// layered (see [`crate::tiff_layers`]).
 pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
     if codecs::detect(bytes) == Some(Format::Tiff) {
         return import_tiff_page(name, bytes, None);
+    }
+    if codecs::detect(bytes) == Some(Format::Png)
+        && let Some(r) = import_png_streamed(name, bytes, STREAM_MIN_BYTES)?
+    {
+        return Ok(r);
     }
     let img = codecs::decode_with(bytes, &codecs::DecodeOptions { limits: codecs::Limits::desktop_photo(), ..Default::default() })?;
     let mut r = image_to_document(name, &img)?;
@@ -32,89 +41,210 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
 
 /// Opens one page of a TIFF or BigTIFF file: `None` is the page Photoshop opens (the first
 /// full-resolution one), `Some(i)` an index into [`codecs::tiff_info`]'s pages (every IFD and
-/// SubIFD). A page with Photoshop layer data opens layered.
+/// SubIFD). A page with Photoshop layer data opens layered. Any other page is decoded a group of
+/// rows at a time straight into the layer's tiles, so it opens up to Photoshop's 300,000 px a
+/// side without a second full-size copy.
 pub fn import_tiff_page(name: &str, bytes: &[u8], page: Option<usize>) -> Result<ImportResult, IoError> {
-    // The orientation is applied after the layer check: rotating the composite but not the
-    // layers would misalign them, so a layered TIFF keeps its stored orientation.
+    let bands = codecs::TiffBands::open(bytes, page, &codecs::Limits::banded())?;
+    if bands.meta.photoshop_layers.as_deref().is_some_and(|l| !l.is_empty()) {
+        return import_layered_tiff(name, bytes, page);
+    }
+    tiff_to_document(name, bands.upright())
+}
+
+/// A layered TIFF, decoded whole: its layers are built from the composite.
+fn import_layered_tiff(name: &str, bytes: &[u8], page: Option<usize>) -> Result<ImportResult, IoError> {
+    // The orientation is ignored: rotating the composite but not the layers would misalign
+    // them, so a layered TIFF keeps its stored orientation.
     let keep = codecs::DecodeOptions { keep_orientation: true, limits: codecs::Limits::desktop_photo() };
     let (img, orientation) = match page {
         None => (codecs::decode_with(bytes, &keep)?, codecs::tiff_orientation(bytes)),
         Some(p) => (codecs::decode_tiff_page(bytes, p, &keep)?, codecs::tiff_page_orientation(bytes, p)),
     };
-    if let Some(layers) = img.meta.photoshop_layers.as_deref().filter(|l| !l.is_empty()) {
-        let mut r = crate::tiff_layers::import_layered(name, &img, layers)?;
-        if orientation != 1 {
-            r.warnings.push("the TIFF's orientation tag was ignored so the layers stay aligned with the image".to_string());
-        }
-        return Ok(r);
+    let mut r = crate::tiff_layers::import_layered(name, &img, img.meta.photoshop_layers.as_deref().unwrap_or_default())?;
+    if orientation != 1 {
+        r.warnings.push("the TIFF's orientation tag was ignored so the layers stay aligned with the image".to_string());
     }
-    image_to_document(name, &img.oriented(orientation)?)
+    Ok(r)
+}
+
+/// A flat TIFF page as a single-layer document, decoded a group of rows at a time into the
+/// layer's tiles: only one group exists beside the document.
+fn tiff_to_document(name: &str, mut bands: codecs::TiffBands<'_>) -> Result<ImportResult, IoError> {
+    let f = document_format(bands.layout(), bands.sample_type());
+    let mut s = Surface::new(PixelFormat::new(f.mode, f.depth, true));
+    bands.decode(|x, y, group| write_converted(&mut s, (x, y), group.data(), group.dimensions(), (group.layout(), group.sample_type()), &f))?;
+    s.prune();
+    let mut warnings: Vec<String> = bands.warnings.iter().map(ToString::to_string).collect();
+    warnings.extend(f.warning.clone());
+    let profile = bands.icc.take().map(Arc::new);
+    Ok(single_layer_document(name, bands.dimensions(), &f, s, profile, &bands.meta, warnings))
+}
+
+/// How a decoded image's pixels are kept in a document.
+struct DocumentFormat {
+    mode: ColorMode,
+    depth: SampleType,
+    /// The layer's layout (always with alpha) and sample type, as the codec names them.
+    layout: ChannelLayout,
+    sample: CSample,
+    /// The decoded image has alpha.
+    alpha: bool,
+    /// What the conversion loses.
+    warning: Option<String>,
+}
+
+fn document_format(layout: ChannelLayout, sample: CSample) -> DocumentFormat {
+    let alpha = layout.has_alpha();
+    let (mode, layout) = match layout {
+        ChannelLayout::Gray | ChannelLayout::GrayA => (ColorMode::Grayscale, ChannelLayout::GrayA),
+        ChannelLayout::Rgb | ChannelLayout::Rgba => (ColorMode::Rgb, ChannelLayout::Rgba),
+        ChannelLayout::Cmyk | ChannelLayout::CmykA => (ColorMode::Cmyk, ChannelLayout::CmykA),
+        ChannelLayout::Lab | ChannelLayout::LabA => (ColorMode::Lab, ChannelLayout::LabA),
+    };
+    let (depth, sample, warning) = match sample {
+        CSample::U8 => (SampleType::U8, CSample::U8, None),
+        CSample::U16 => (SampleType::U16, CSample::U16, None),
+        CSample::F16 => (SampleType::F32, CSample::F32, Some("16-bit float samples are stored as 32-bit float".to_string())),
+        CSample::F32 => (SampleType::F32, CSample::F32, None),
+    };
+    DocumentFormat { mode, depth, layout, sample, alpha, warning }
+}
+
+/// Writes decoded pixels (`data`, `w` x `h` of `from`) into `s` with their top-left pixel at
+/// `(x, y)`, in the document's layout and sample type. A conversion goes straight from the
+/// decoded rows into each tile, the tiles on all cores: no converted copy of the image or of a
+/// band of it is made.
+fn write_converted(
+    s: &mut Surface,
+    (x, y): (u32, u32),
+    data: &[u8],
+    (w, h): (u32, u32),
+    from: (ChannelLayout, CSample),
+    f: &DocumentFormat,
+) -> Result<(), IoError> {
+    let (x, y) = (x as i32, y as i32);
+    let r = Rect::new(x, y, x + w as i32, y + h as i32);
+    let out_of_memory = |e: AllocationError| IoError::Unsupported(format!("not enough memory to open this image: {e}"));
+    let to = (f.layout, f.sample);
+    if from == to {
+        return s.try_write_interleaved(r, data).map_err(out_of_memory);
+    }
+    let (src_px, dst_px) = (from.0.channels() * from.1.bytes(), s.format().bytes_per_pixel());
+    let mut tiles = s.try_take_tiles(r).map_err(out_of_memory)?;
+    let written = {
+        use rayon::prelude::*;
+        tiles.par_iter_mut().try_for_each(|(tc, tile)| -> Result<(), IoError> {
+            if Arc::get_mut(tile).is_none() {
+                *tile = Arc::new(tile.try_clone().map_err(out_of_memory)?);
+            }
+            let t = Arc::get_mut(tile).ok_or_else(|| out_of_memory(AllocationError::SizeOverflow))?;
+            let tr = tc.rect().intersect(&r);
+            let n = tr.width() as usize;
+            for row_y in tr.y0..tr.y1 {
+                let at = ((row_y - r.y0) as usize * w as usize + (tr.x0 - r.x0) as usize) * src_px;
+                let px = codecs::convert_samples(data.get(at..at + n * src_px).unwrap_or_default(), n as u32, 1, from, to)?;
+                let to_at = ((row_y - tc.ty * TILE_SIZE) as usize * TILE_SIZE as usize + (tr.x0 - tc.tx * TILE_SIZE) as usize) * dst_px;
+                let dst =
+                    t.bytes_mut().get_mut(to_at..to_at + px.len()).ok_or_else(|| CodecError::InvalidImage("converted row does not fit its tile".into()))?;
+                dst.copy_from_slice(&px);
+            }
+            Ok(())
+        })
+    };
+    s.put_tiles(tiles);
+    written
 }
 
 /// A decoded flat image as a single-layer document.
 pub(crate) fn image_to_document(name: &str, img: &Image) -> Result<ImportResult, IoError> {
     // What the decoder noticed (frames or pages left out, data ending early) comes first.
     let mut warnings: Vec<String> = img.warnings.iter().map(ToString::to_string).collect();
-    let (mode, target_layout) = match img.layout() {
-        ChannelLayout::Gray | ChannelLayout::GrayA => (ColorMode::Grayscale, ChannelLayout::GrayA),
-        ChannelLayout::Rgb | ChannelLayout::Rgba => (ColorMode::Rgb, ChannelLayout::Rgba),
-        ChannelLayout::Cmyk | ChannelLayout::CmykA => (ColorMode::Cmyk, ChannelLayout::CmykA),
-        ChannelLayout::Lab | ChannelLayout::LabA => (ColorMode::Lab, ChannelLayout::LabA),
-    };
-    let (depth, csample) = match img.sample_type() {
-        CSample::U8 => (SampleType::U8, CSample::U8),
-        CSample::U16 => (SampleType::U16, CSample::U16),
-        CSample::F16 => {
-            warnings.push("16-bit float samples are stored as 32-bit float".to_string());
-            (SampleType::F32, CSample::F32)
-        }
-        CSample::F32 => (SampleType::F32, CSample::F32),
-    };
-    let (w, h) = img.dimensions();
-    let mut doc = Document::new(name, Size::new(w, h), mode, depth);
-    let fmt = PixelFormat::new(mode, depth, true);
-    let mut s = Surface::new(fmt);
-    if img.layout() == target_layout && img.sample_type() == csample {
-        s.write_interleaved(Rect::new(0, 0, w as i32, h as i32), img.data());
-    } else {
-        // Converted a band of rows at a time: no second full-size copy of the image.
-        let row = img.data().len() / (h.max(1) as usize);
-        let band = (BAND_BYTES / row.max(1)).max(1);
-        for (i, rows) in img.data().chunks(row.max(1) * band).enumerate() {
-            let n = (rows.len() / row.max(1)) as u32;
-            let part = Image::from_raw(w, n, img.layout(), img.sample_type(), rows.to_vec())?.convert(target_layout, csample);
-            let y0 = (i * band) as i32;
-            s.write_interleaved(Rect::new(0, y0, w as i32, y0 + n as i32), part.data());
-        }
-    }
+    let f = document_format(img.layout(), img.sample_type());
+    warnings.extend(f.warning.clone());
+    let mut s = Surface::new(PixelFormat::new(f.mode, f.depth, true));
+    write_converted(&mut s, (0, 0), img.data(), img.dimensions(), (img.layout(), img.sample_type()), &f)?;
     s.prune();
+    Ok(single_layer_document(name, img.dimensions(), &f, s, decoded_profile(img), &img.meta, warnings))
+}
+
+/// A PNG opened straight into the tiles of its layer, a group of tile rows at a time, so the
+/// whole decoded image never exists beside them. `None` when it can't be or isn't worth it:
+/// under `min_bytes` decoded, interlaced, animated or turned by its EXIF orientation; the caller
+/// then decodes the whole image. Errors, limits and metadata are the whole-image decoder's.
+fn import_png_streamed(name: &str, bytes: &[u8], min_bytes: u64) -> Result<Option<ImportResult>, IoError> {
+    let header = std::cell::Cell::new(None::<codecs::PngHeader>);
+    let mut stream: Option<(Surface, DocumentFormat)> = None;
+    let extras = {
+        let mut begin = |h: &codecs::PngHeader| -> Result<bool, IoError> {
+            let decoded = u64::from(h.width).saturating_mul(u64::from(h.height)).saturating_mul((h.layout.channels() * h.sample.bytes()) as u64);
+            header.set(Some(*h));
+            Ok(decoded >= min_bytes)
+        };
+        let mut rows = |y0: u32, data: &[u8]| -> Result<(), IoError> {
+            let h = header.get().ok_or_else(|| IoError::Unsupported("PNG rows came before their header".into()))?;
+            let (s, f) = stream.get_or_insert_with(|| {
+                let f = document_format(h.layout, h.sample);
+                (Surface::new(PixelFormat::new(f.mode, f.depth, true)), f)
+            });
+            let row = (h.width as usize).saturating_mul(h.layout.channels() * h.sample.bytes()).max(1);
+            write_converted(s, (0, y0), data, (h.width, (data.len() / row) as u32), (h.layout, h.sample), f)
+        };
+        let opts = codecs::DecodeOptions { limits: codecs::Limits::desktop_photo(), ..Default::default() };
+        codecs::decode_png_rows::<IoError>(bytes, &opts, TILE_SIZE as u32, &mut begin, &mut rows)?
+    };
+    // An orientation in an `eXIf` after the image data: the whole-image path turns it upright.
+    let (Some(x), Some(h), Some((mut s, f))) = (extras.filter(|x| x.orientation == 1), header.get(), stream) else { return Ok(None) };
+    s.prune();
+    let mut warnings: Vec<String> = x.warnings.iter().map(ToString::to_string).collect();
+    warnings.extend(f.warning.clone());
+    let profile = container_profile(x.icc.as_deref(), x.color_hint.as_ref(), h.layout.is_gray());
+    Ok(Some(single_layer_document(name, (h.width, h.height), &f, s, profile, &x.meta, warnings)))
+}
+
+/// The document of one layer holding `s`, with the image's profile and metadata.
+fn single_layer_document(
+    name: &str,
+    (w, h): (u32, u32),
+    f: &DocumentFormat,
+    s: Surface,
+    profile: Option<Arc<Vec<u8>>>,
+    meta: &codecs::Metadata,
+    mut warnings: Vec<String>,
+) -> ImportResult {
+    let mut doc = Document::new(name, Size::new(w, h), f.mode, f.depth);
     let mut bg = Layer::new("Background", LayerContent::Raster(s));
-    if !img.layout().has_alpha() {
+    if !f.alpha {
         bg.locks.transparency = true;
         bg.locks.position = true;
     }
     doc.layers.push(bg);
-    doc.icc_profile = decoded_profile(img);
-    doc.metadata.exif = img.meta.exif.clone().map(Arc::new);
-    doc.metadata.xmp = img.meta.xmp.clone();
-    if let Some((x, _)) = img.meta.dpi {
+    doc.icc_profile = profile;
+    doc.metadata.exif = meta.exif.clone().map(Arc::new);
+    doc.metadata.xmp = meta.xmp.clone();
+    if let Some((x, _)) = meta.dpi {
         doc.resolution_dpi = x;
     }
-    if !img.meta.text.is_empty() {
-        warnings.push(format!("{} text metadata entries are not kept in the document", img.meta.text.len()));
+    if !meta.text.is_empty() {
+        warnings.push(format!("{} text metadata entries are not kept in the document", meta.text.len()));
     }
-    Ok(ImportResult { document: doc, warnings })
+    ImportResult { document: doc, warnings }
 }
 
 /// Container colour hints must accompany their device samples into a document too.
 /// Keep the embedded profile verbatim; only synthesize one when the container has no ICC.
 fn decoded_profile(img: &Image) -> Option<Arc<Vec<u8>>> {
-    if let Some(icc) = &img.icc {
-        return Some(Arc::new(icc.clone()));
+    container_profile(img.icc.as_deref(), img.color_hint.as_ref(), img.layout().is_gray())
+}
+
+/// [`decoded_profile`] of a gray (`gray`) or colour image's profile and colour hint.
+fn container_profile(icc: Option<&[u8]>, hint: Option<&codecs::ColorHint>, gray: bool) -> Option<Arc<Vec<u8>>> {
+    if let Some(icc) = icc {
+        return Some(Arc::new(icc.to_vec()));
     }
-    let hint = img.color_hint.as_ref()?;
-    let mut profile = if img.layout().is_gray() { photocraft_cms::Builtin::SGray.profile().clone() } else { photocraft_cms::Builtin::Srgb.profile().clone() };
-    if img.layout().is_gray() {
+    let hint = hint?;
+    let mut profile = if gray { photocraft_cms::Builtin::SGray.profile().clone() } else { photocraft_cms::Builtin::Srgb.profile().clone() };
+    if gray {
         profile.gray_trc = Some(hint.trc[1].to_curve());
     } else {
         profile.matrix = Some(hint.to_xyz_d50.0);
@@ -172,6 +302,55 @@ mod desktop_photo_tests {
         let error = crate::import("over-budget.jpg", &bytes).unwrap_err();
         assert!(matches!(error, IoError::Codec(codecs::CodecError::LimitExceeded(_))), "{error}");
         assert!(error.to_string().contains("pixels exceed max"), "the declared pixel ceiling must fire before decoding: {error}");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tile_write_tests {
+    use super::*;
+
+    fn image(w: u32, h: u32, layout: ChannelLayout, sample: CSample) -> Image {
+        let len = (w * h) as usize * layout.channels() * sample.bytes();
+        Image::from_raw(w, h, layout, sample, (0..len).map(|i| (i * 31 + i / 7) as u8).collect()).unwrap()
+    }
+
+    #[test]
+    fn converted_writes_land_where_the_whole_image_conversion_puts_them() {
+        // Not a multiple of the tile size, placed off the tile grid: rows and tiles split unevenly.
+        let (x, y, w, h) = (37u32, 300u32, 300u32, 270u32);
+        for (layout, sample) in [(ChannelLayout::Rgb, CSample::U8), (ChannelLayout::Gray, CSample::U16)] {
+            let img = image(w, h, layout, sample);
+            let f = document_format(layout, sample);
+            let mut got = Surface::new(PixelFormat::new(f.mode, f.depth, true));
+            write_converted(&mut got, (x, y), img.data(), (w, h), (layout, sample), &f).unwrap();
+            let mut want = Surface::new(PixelFormat::new(f.mode, f.depth, true));
+            let r = Rect::new(x as i32, y as i32, (x + w) as i32, (y + h) as i32);
+            want.write_interleaved(r, img.convert(f.layout, f.sample).data());
+            let around = Rect::new(0, 0, r.x1 + 5, r.y1 + 5);
+            assert!(got.to_interleaved(around) == want.to_interleaved(around), "{layout:?} {sample:?}");
+        }
+    }
+
+    #[test]
+    fn a_streamed_png_opens_as_the_whole_image_path_opens_it() {
+        let mut img = image(300, 530, ChannelLayout::Rgb, CSample::U8);
+        img.icc = Some(photocraft_cms::Builtin::Srgb.profile().to_bytes().to_vec());
+        img.meta.dpi = Some((300.0, 300.0));
+        let bytes = codecs::encode(&img, Format::Png, &codecs::EncodeOptions::default()).unwrap();
+        let got = import_png_streamed("big.png", &bytes, 0).unwrap().expect("streamed");
+        let want = image_to_document("big.png", &codecs::decode(&bytes).unwrap()).unwrap();
+        let (g, w) = (&got.document, &want.document);
+        assert_eq!((g.size, g.mode, g.depth, g.resolution_dpi), (w.size, w.mode, w.depth, w.resolution_dpi));
+        assert_eq!(g.icc_profile, w.icc_profile);
+        assert!(g.icc_profile.is_some());
+        assert_eq!(got.warnings, want.warnings);
+        let (gs, ws) = (g.layers[0].surface().unwrap(), w.layers[0].surface().unwrap());
+        assert!(gs.to_interleaved(g.bounds()) == ws.to_interleaved(w.bounds()));
+        assert_eq!(g.layers[0].locks.transparency, w.layers[0].locks.transparency);
+
+        let interlaced = codecs::encode(&img, Format::Png, &codecs::EncodeOptions { png_interlaced: true, ..Default::default() }).unwrap();
+        assert!(import_png_streamed("big.png", &interlaced, 0).unwrap().is_none());
     }
 }
 

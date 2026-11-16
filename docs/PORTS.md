@@ -1204,6 +1204,33 @@ Not applicable, the upstream file having no counterpart here as of `6f6d8ed8`: `
 
 Local limit on a ported guard: the refusal of an Original export under Remove Location Info from `db7e3784` (`crates/lc-engine/src/export/prepared.rs`) only trusts the containers `reads_container` allows (`crates/lc-meta/src/container.rs`). Everything else is refused, including HEIC, HEIF, HIF and JPEG XL, which have no metadata reader here yet. Within those containers `try_extract` refuses a malformed XMP packet in any of them, and any block `Embedded::unread` names: compressed or `zTXt`/`tEXt` PNG XMP, a raw metadata profile, a second Exif block or XMP packet, a cut-off block, and XMP that is not UTF-8. JPEG extended XMP is read, and `Metadata::other_location` adds the location fields `Metadata` has no field for. A local adaptation with no upstream match. This is best-effort, not a guarantee that a copied file holds no location: corrupt Exif outside PSD/PSB reads as no Exif (`try_extract_keeps_non_psd_exif_best_effort`), so a location inside it goes unseen, and nothing looks at JPEG data past the first scan, IPTC past the first APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3 preview boxes, or PNG text chunks under other keywords.
 
+## Giant-file imports (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4001a3092a5be314e2aeda2ff9bc4dc84e2115fb`](https://github.com/storytold/photocraft/commit/4001a3092a5be314e2aeda2ff9bc4dc84e2115fb) | TIFF: open images over 2^30 px, decoded a group of rows at a time into the layer (#8169) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-codecs/src/options.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs`<br>`crates/pc-io/src/flat.rs`<br>`crates/pc-raster/src/lib.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`98bcbfab9005b4915b3143b4daed91df365db107`](https://github.com/storytold/photocraft/commit/98bcbfab9005b4915b3143b4daed91df365db107) | perf(io): build JPEG/PNG tiles straight from the decoded rows, in parallel (#10259) (#10281) | `crates/pc-codecs/src/image.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`dde01384d2ab39995c28d4dbc68ce5c4b297a217`](https://github.com/storytold/photocraft/commit/dde01384d2ab39995c28d4dbc68ce5c4b297a217) | perf(io): stream large PNGs row by row into the layer's tiles (#10259) (#10305) | `crates/pc-codecs/src/codecs/png.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-codecs/tests/it/png_jpeg.rs`<br>`crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
+
+Adapted port of `4001a309`: `Limits::banded` raises the size to 300,000 px a side on top of
+`Limits::desktop_photo` (whose 2 GiB `max_alloc` bounds each group of bands), the banded decode is
+guarded against decoder panics like the whole-image decoders, a cut-off page keeps the warning order
+of `decode_page`, and `Surface::try_write_interleaved` writes serially (`pc-raster` has no rayon).
+`image_to_document` keeps the locked Background layer, container colour hints and text-metadata warning,
+and now shares the fallible tile writes with the banded TIFF path.
+Partial port of `98bcbfab`: `codecs::convert_samples` and the per-tile conversion from the decoded
+rows (on all cores, through `Surface::try_take_tiles`) are ported; a decode that already has the
+document's layout keeps the serial `try_write_interleaved` copy. Not ported: upstream's
+`Surface::try_write_rows_with` (`pc-raster` has no rayon), the RGB8 to RGBA8 inline loop, the scratch
+pool and the cancellation checks of `import_flat_with` (no `Interrupt` here). Its F16-target alpha fix
+is already covered: `document_format` stores 16-bit float as 32-bit float (`crates/pc-io/src/flat.rs`).
+Partial port of `dde01384`: `codecs::decode_png_rows` (with the PNG decoder split into open, finish
+and extras, which here also carry the container colour hint and source bit depth) and the streamed
+PNG import from 32 MiB decoded. Not ported: the free-memory checks before the tiles exist (no
+`crate::memory` probe here), cancellation and progress (no `Interrupt`), `ImportOptions` decode
+limits (the streamed path uses `Limits::desktop_photo`, as the whole-image path does), and the
+resolution-from-EXIF fallback, which the whole-image PNG path here does not apply either.
+
 ## LightCraft render ports, lc-render (2026-11)
 
 | Upstream commit | Subject | Our files | Licence |

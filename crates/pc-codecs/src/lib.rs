@@ -28,8 +28,10 @@ pub mod orientation;
 pub mod web;
 
 pub use crate::codecs::jpeg::{JpegPreview, JpegPreviewSource, decode_jpeg_scaled, jpeg_embedded_preview};
-pub use crate::codecs::png::encode_indexed as encode_png_indexed;
-pub use crate::codecs::tiff::{PhotoshopTags as TiffPhotoshopTags, photoshop_tags as tiff_photoshop_tags, writes_little_endian as tiff_writes_little_endian};
+pub use crate::codecs::png::{PngExtras, PngHeader, PngRowSink, encode_indexed as encode_png_indexed};
+pub use crate::codecs::tiff::{
+    PhotoshopTags as TiffPhotoshopTags, TiffBands, photoshop_tags as tiff_photoshop_tags, writes_little_endian as tiff_writes_little_endian,
+};
 pub use crate::codecs::tiff_ifd::{TiffInfo, TiffPage, TiffPageKind};
 pub use crate::error::CodecError;
 pub use crate::fidelity::{FidelityWarning, fidelity_warnings, fidelity_warnings_with};
@@ -37,7 +39,7 @@ pub use crate::format::{
     ASYMMETRIC_EXCEPTIONS, DetectedFormat, Format, FormatCaps, PHOTO_EXTENSIONS, RAW_EXTENSIONS, caps, detect, from_extension, identify, is_readable_extension,
     raw_from_extension, readable_extensions, writable_extensions,
 };
-pub use crate::image::{ChannelLayout, ColorHint, DecodeWarning, DeepChannel, DeepImage, Image, Metadata, SampleType};
+pub use crate::image::{ChannelLayout, ColorHint, DecodeWarning, DeepChannel, DeepImage, Image, Metadata, SampleType, convert_samples};
 pub use crate::options::{DecodeOptions, EncodeOptions, ExrCompression, Limits, PngCompression, TIFF_PYRAMID_MIN, TiffCompression};
 pub use half::f16;
 
@@ -100,6 +102,27 @@ fn decode_as_inner(format: Format, bytes: &[u8], opts: &DecodeOptions) -> Result
         _ => img.meta.exif.as_deref().map_or(1, lightcraft_tiff::exif::orientation),
     };
     finish_decode(img, o, opts)
+}
+
+/// Decodes a PNG a group of rows at a time, for a caller that builds its own pixel storage and
+/// never needs the whole decoded image. `begin` gets the [`PngHeader`] once and returns whether
+/// to go on, then `rows(y0, data)` gets whole rows `y0..` (`group` of them, fewer in the last
+/// call; native-endian) in final order, holding exactly the samples [`decode`] would return. The
+/// result is the metadata, complete once the file is read.
+///
+/// `Ok(None)`, with no row delivered, means the rows can't be had upright in final order (an
+/// interlaced, animated or turned PNG) or `begin` returned false: use [`decode_as_with`]. Damaged
+/// files fail as [`decode_as_with`] fails them, possibly after some rows. The orientation is not
+/// applied: a [`PngExtras::orientation`] other than 1 is for the caller to handle.
+pub fn decode_png_rows<E: From<CodecError>>(
+    bytes: &[u8],
+    opts: &DecodeOptions,
+    group: u32,
+    begin: &mut dyn FnMut(&PngHeader) -> Result<bool, E>,
+    rows: &mut PngRowSink<'_, E>,
+) -> Result<Option<PngExtras>, E> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| png::decode_rows(bytes, &opts.limits, group, begin, rows)))
+        .unwrap_or_else(|_| Err(CodecError::InvalidImage("Image decoder rejected malformed data".into()).into()))
 }
 
 /// Decode stored samples for the Library's colour interpreter. The same bounded decoders
