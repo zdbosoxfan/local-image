@@ -922,14 +922,15 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let prefix = if prefix.is_empty() { String::new() } else { sanitize(&prefix) };
     let doc = d.doc.clone();
     let mut files = Vec::new();
-    // Top-level layers (groups export merged), top to bottom like Photoshop's numbering.
-    let layers: Vec<&Layer> = doc.layers.iter().rev().filter(|l| l.visible || !visible_only).collect();
-    for (i, l) in layers.iter().enumerate() {
-        if matches!(l.content, LayerContent::Adjustment(_)) {
+    // Top-level layers (groups export merged), top to bottom like Photoshop's numbering. Every
+    // layer takes its panel-order number, even one skipped as hidden or as an adjustment, so a
+    // file keeps the same number whether Visible Layers Only is on or off.
+    for (i, l) in doc.layers.iter().rev().enumerate() {
+        if (!l.visible && visible_only) || matches!(l.content, LayerContent::Adjustment(_)) {
             continue;
         }
         let mut one = (*doc).clone();
-        let mut only = (*l).clone();
+        let mut only = l.clone();
         only.visible = true;
         only.clipped = false;
         one.layers = vec![only];

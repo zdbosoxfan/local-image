@@ -492,6 +492,26 @@ fn layers_to_files_writes_each_visible_layer() {
     assert_eq!(r["files"].as_array().unwrap().len(), 3);
 }
 
+/// Upstream ac7c119f: a layer skipped by Visible Layers Only keeps its number, so a file keeps the
+/// same name whether the option is on or off.
+#[test]
+fn layers_to_files_leaves_a_hidden_layers_number_unused() {
+    let dir = tmp("layers-hidden-number");
+    let mut s = session(4, 4, 8);
+    for name in ["Blue", "Hidden", "Top"] {
+        s.execute("layer.new.layer", json!({"name": name})).unwrap();
+        if name == "Hidden" {
+            s.execute("layer.setProps", json!({"visible": false})).unwrap();
+        }
+    }
+    let mut export = |visible_only: bool| -> Vec<String> {
+        let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "prefix": "doc", "visibleOnly": visible_only})).unwrap();
+        r["files"].as_array().unwrap().iter().map(|f| std::path::Path::new(f.as_str().unwrap()).file_name().unwrap().to_string_lossy().into_owned()).collect()
+    };
+    assert_eq!(export(true), ["doc_0000_Top.png", "doc_0002_Blue.png", "doc_0003_Background.png"]);
+    assert_eq!(export(false), ["doc_0000_Top.png", "doc_0001_Hidden.png", "doc_0002_Blue.png", "doc_0003_Background.png"]);
+}
+
 /// Upstream 7d21778f: an explicitly empty Layers to Files prefix stays empty instead of becoming
 /// sanitize's "layer" fallback; an omitted prefix still defaults to the document name.
 #[test]
