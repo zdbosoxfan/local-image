@@ -84,7 +84,7 @@
 	File Info…	Informations sur le fichier…
 	Print…	Imprimer…
 	Print One Copy	Imprimer un exemplaire
-	Exit	Quitter
+	Quit Local Image	Quitter Local Image
 	Undo	Annuler
 	Redo	Rétablir
 	Toggle Last State	Basculer sur le dernier état
@@ -3042,6 +3042,8 @@ ai	New	Nouveautés
 	Float Panel Group	Détacher le groupe de panneaux
 	Save and Return to Library	Enregistrer et retourner à la Bibliothèque
 	Added your new Develop edits as layer {name}	Vos nouvelles retouches de développement ont été ajoutées en tant que calque {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Le recadrage ou la taille de la photo a changé dans Développement, donc {name} n'a pas été mis à jour
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Ses calques ne seraient plus alignés sur la nouvelle photo, il conserve donc la photo telle qu'elle était.
 	Open the Library to save into it	Ouvrez la Bibliothèque pour y enregistrer
 	The layers below are unchanged; hide or delete the new layer to go back.	Les calques du dessous sont inchangés ; masquez ou supprimez le nouveau calque pour revenir en arrière.
 # Attributions page (li-attributions)

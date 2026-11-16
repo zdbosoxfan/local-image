@@ -267,9 +267,11 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Select › Subject: a background job (the model, or the classical saliency + GrabCut, on the
-/// whole composite); the selection mode is applied to the selection when it finishes.
+/// selected layer's pixels, or the composite when no pixel layer is selected); the selection mode
+/// is applied to the selection when it finishes.
 fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
-    let all = b(p, "sampleAllLayers", true);
+    // The selected layer's pixels; the composite only when no pixel layer is selected.
+    let all = b(p, "sampleAllLayers", false);
     // local-image: the learned model when one is installed (`"engine": "auto|classic|learned"`).
     let model = if crate::seg::wanted(p).map_err(|m| bad("select.subject", &m))? { crate::seg::SubjectModel::current() } else { None };
     let m = mode(p, "replace");
@@ -424,7 +426,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.subject",
             "Subject",
             ["Select"],
-            r##"{"sampleAllLayers":bool=true,"engine":"auto|classic|learned"="auto" (learned = the installed U²-Net/IS-Net model),"mode":"replace|add|subtract|intersect"="replace"}"##,
+            r##"{"sampleAllLayers":bool=false,"engine":"auto|classic|learned"="auto" (learned = the installed U²-Net/IS-Net model),"mode":"replace|add|subtract|intersect"="replace"} (samples the selected layer; the composite when no pixel layer is selected)"##,
             has_doc,
             select_subject
         ),
@@ -605,6 +607,23 @@ mod tests {
         assert!(s.active().unwrap().doc.selection.is_none());
     }
 
+    /// Select Subject looks at the selected layer only; with no layer selected it looks at the
+    /// whole image.
+    #[test]
+    fn select_subject_samples_the_selected_layer_else_the_composite() {
+        let (mut s, inside) = disc(8);
+        // A layer above holding only a small square in the corner: the disc is not on it.
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("paint.pencil", json!({"points": [[10, 10], [30, 10]], "size": 3, "color": "#000000"})).unwrap();
+        s.execute("select.subject", json!({})).unwrap();
+        assert!(cov(&s, 100, 80) < 0.5, "the disc on the layer below was selected");
+        s.execute("select.deselect", json!({})).unwrap();
+        // No layer selected: the whole image, so the disc is found.
+        s.execute("select.deselectLayers", json!({})).unwrap();
+        s.execute("select.subject", json!({})).unwrap();
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.9);
+    }
+
     /// A vertical Gaussian-blurred edge at x = 40 (warm left, cool right) with the left half selected.
     fn blurred_edge_selected() -> Session {
         let mut s = session_with(80, 40, 8, |x, _| {
@@ -685,8 +704,15 @@ mod tests {
     #[test]
     fn refine_edge_shift_and_contrast() {
         let mut s = blurred_edge_selected();
-        s.execute("select.refineEdge", json!({"shiftEdge": 100})).unwrap();
-        assert!(cov(&s, 42, 20) > 0.99);
+        // Shift Edge leaves a hard selection where it is (selected x < 40), at either end.
+        for shift in [100, -100] {
+            s.execute("select.refineEdge", json!({"shiftEdge": shift})).unwrap();
+            assert!(cov(&s, 39, 20) > 0.99 && cov(&s, 40, 20) < 0.01, "Shift Edge {shift}% moved a hard edge");
+            s.execute("edit.undo", json!({})).unwrap();
+        }
+        // A feathered one moves: -100% pulls its half-covered point inside the old edge.
+        s.execute("select.refineEdge", json!({"feather": 4, "shiftEdge": -100})).unwrap();
+        assert!(cov(&s, 37, 20) < 0.5 && cov(&s, 30, 20) > 0.99);
         s.execute("edit.undo", json!({})).unwrap();
         s.execute("select.refineEdge", json!({"feather": 8, "contrast": 100})).unwrap();
         assert!(cov(&s, 38, 20) == 1.0 && cov(&s, 42, 20) == 0.0);
@@ -939,7 +965,7 @@ mod tests {
         // Sample All Layers reads other pixels (the composite): its own map.
         run_job(&mut s, "select.object", json!({"point": [100, 80], "sampleAllLayers": true}));
         assert_eq!(mk.model.calls(), 2);
-        run_job(&mut s, "select.subject", json!({}));
+        run_job(&mut s, "select.subject", json!({"sampleAllLayers": true}));
         assert_eq!(mk.model.calls(), 2);
         // New pixels: the model runs again.
         s.edit("paint", |doc, _| {

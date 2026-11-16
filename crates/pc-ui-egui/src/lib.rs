@@ -621,6 +621,11 @@ pub struct PhotocraftApp {
     /// them): the Library adds a document that came from one of its photos, stacked on top of
     /// that photo, and reloads a file it already has (see [`develop_layer::LibrarySave`]).
     pub library_saves: Vec<develop_layer::LibrarySave>,
+    /// local-image: raw files File › Open, Open Recent, drops, the filmstrip and launch arguments
+    /// asked to open, while the host takes them (`Some`): it opens a raw its Library has with
+    /// that photo's Develop settings, and any other with [`open_path_here`](Self::open_path_here).
+    /// `None`: raws open here, at camera defaults.
+    pub raw_opens: Option<Vec<String>>,
     pub library_save_sources: develop_layer::LibrarySaveSources,
     /// local-image: Filter › Camera Raw Filter… sessions in the Library's Develop module (the host
     /// takes `develop_filter.request`), and the prompts around them.
@@ -816,6 +821,7 @@ impl PhotocraftApp {
             automation_browse: None,
             develop_request: None,
             library_saves: Vec::new(),
+            raw_opens: None,
             library_save_sources: Default::default(),
             develop_filter: Default::default(),
             current_module: Module::Compositing,

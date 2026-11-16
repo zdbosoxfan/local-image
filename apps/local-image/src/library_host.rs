@@ -18,8 +18,8 @@
 //! settings and name); the host opens the pixels as a temporary photo the Library never saves
 //! (`Session::open_ephemeral`), shows Develop with a "Camera Raw Filter · ‹layer› — Cancel / OK"
 //! banner (Library-only actions hidden), and on OK hands the settings back
-//! (`develop_filter_ui::finish`, one history step) and returns to Compositing; Cancel (or leaving
-//! the session with the module switch) changes nothing. Going from Compositing to Develop with a
+//! (`develop_filter_ui::finish`, one history step) and returns to Compositing; Cancel changes
+//! nothing. The module switch waits until OK or Cancel. Going from Compositing to Develop with a
 //! layered document that has no Develop layer asks how to develop it (`on_switch_to_develop`).
 //!
 //! **Back to the Library** (Photoshop's Edit In from Lightroom): a document that came from a
@@ -32,7 +32,8 @@
 //! to Library shows a non-blocking notice with Save and Keep Editing actions; saves report their
 //! destination and Library stack in both modules.
 //!
-//! The library opens lazily, the first time Library or Develop is shown.
+//! The library opens lazily, the first time Library or Develop, or one of its Preferences pages, is
+//! shown.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -51,6 +52,11 @@ use filmstrip::*;
 use roundtrip::*;
 use services_wiring::*;
 use settings::*;
+
+/// Launch arguments split into documents for Compositing and folders for the Library's import.
+pub fn split_launch_paths(paths: &[String]) -> (Vec<String>, Vec<String>) {
+    paths.iter().cloned().partition(|path| !std::path::Path::new(path).is_dir())
+}
 
 /// Files the Library asked the editor to open (Edit in External Editor with no other editor set).
 type Opens = Arc<Mutex<Vec<String>>>;
@@ -76,15 +82,33 @@ pub struct Host {
     /// The Library's active photo when Compositing was last left: coming back with the same photo
     /// returns to what was open there instead of bringing the photo forward again.
     left_compositing_with: Option<u64>,
+    /// Library develop settings last taken into, or turned down for, each photo's open documents:
+    /// an undone update is not put back, and a turned-down one is not offered again.
+    develop_sent: std::collections::HashMap<u64, DevelopSent>,
     library_seen: Option<(String, u64)>,
     save_sources_seen: Option<SaveSourcesKey>,
     /// The Camera Raw Filter session open in Develop.
     camera_raw: Option<CameraRawSession>,
+    /// The module a quit started from while Compositing asks about unsaved documents.
+    quit_from: Option<Module>,
+    /// Folders named at launch, imported once the Library exists.
+    launch_folders: Vec<String>,
     /// Composites of unsaved Compositing documents, rendered for the Library.
     composites: Composites,
     filmstrip_previews: FilmstripPreviews,
     /// One non-blocking round-trip notice, also visible while its preview is rendering.
     round_trip_notice: Option<RoundTripNotice>,
+    /// The newest Library message already shown, in the Library or as a Compositing notice.
+    library_toasts_seen: u64,
+    /// The AI Remove engine Develop and Compositing last agreed on: the one that differs from it
+    /// was just changed, and the other follows.
+    remove_engine_seen: Option<String>,
+}
+
+enum DevelopSent {
+    Applied(serde_json::Value),
+    /// Documents with retouching keep their Develop layer until Develop is entered from them.
+    Declined(serde_json::Value),
 }
 
 #[derive(Clone)]
@@ -170,18 +194,9 @@ impl Host {
     pub fn new(editor: PhotocraftApp) -> Self {
         let mut editor = editor;
         editor.host_modes = std::env::var_os("LOCAL_IMAGE_NO_LIBRARY").is_none();
-        let mode = if editor.host_modes {
-            editor
-                .session
-                .prefs()
-                .library
-                .get("module")
-                .and_then(serde_json::Value::as_str)
-                .map(|value| module_preference(Some(value)))
-                .unwrap_or(Module::Library)
-        } else {
-            Module::Compositing
-        };
+        editor.raw_opens = editor.host_modes.then(Vec::new);
+        // Launch files switch to Compositing afterwards, in `open_at_launch`.
+        let mode = if editor.host_modes { startup_module(&editor.session.prefs().library) } else { Module::Compositing };
         Self {
             editor,
             library: None,
@@ -194,12 +209,59 @@ impl Host {
             preserve_library_vectorize_return: false,
             frames: 0,
             left_compositing_with: None,
+            develop_sent: Default::default(),
             library_seen: None,
             save_sources_seen: None,
             camera_raw: None,
+            quit_from: None,
+            launch_folders: Vec::new(),
             composites: Composites::default(),
             filmstrip_previews: FilmstripPreviews::default(),
             round_trip_notice: None,
+            library_toasts_seen: 0,
+            remove_engine_seen: None,
+        }
+    }
+
+    /// Files named at launch open in Compositing, which is shown; a raw the Library has opens
+    /// with its Develop settings.
+    pub fn open_at_launch(&mut self, documents: &[String]) {
+        if self.editor.open_paths(documents) > 0 {
+            self.mode = Module::Compositing;
+        }
+    }
+
+    /// Folders named at launch go to the Library's import (scan, then its review), shown unless a
+    /// launch document is open in Compositing. Without the Library the editor reports them.
+    pub fn import_at_launch(&mut self, folders: Vec<String>) {
+        if folders.is_empty() {
+            return;
+        }
+        if !self.editor.host_modes {
+            self.editor.open_paths(&folders);
+            return;
+        }
+        if self.mode == Module::Compositing
+            && self.editor.session.documents().is_empty()
+            && self.editor.jobs.opens.is_empty()
+            && self.editor.raw_opens.as_ref().is_none_or(Vec::is_empty)
+        {
+            self.mode = Module::Library;
+        }
+        self.launch_folders = folders;
+    }
+
+    fn start_launch_import(&mut self, ctx: &egui::Context) {
+        if self.launch_folders.is_empty() {
+            return;
+        }
+        let Some(lib) = self.library.as_mut() else { return };
+        let folders = std::mem::take(&mut self.launch_folders);
+        if let Some(problem) = lib.library_problem.as_mut() {
+            // Imported once the user has chosen where (the Library, or a temporary session).
+            problem.pending_import.extend(folders);
+        } else if let Err(e) = lightcraft_ui_egui::import::open(lib, folders) {
+            lib.toast_error(ctx, e);
         }
     }
 
@@ -244,6 +306,21 @@ impl Host {
             sync_library_model_root(lib, &li_ai::AiSettings::cached_model_dir());
             lib.ui.language = language;
             li_i18n::set_current(language);
+        }
+        if let Some(lib) = self.library.as_mut() {
+            let compositing = &mut self.editor.ui.ai.remove_engine;
+            let develop = &mut lib.ui.remove_engine;
+            let develop_changed = match &self.remove_engine_seen {
+                Some(seen) => *develop != *seen,
+                // A Develop choice saved before the two were joined is kept over Compositing's default.
+                None => !develop.is_empty() && *compositing == "auto",
+            };
+            if develop_changed {
+                compositing.clone_from(develop);
+            } else {
+                develop.clone_from(compositing);
+            }
+            self.remove_engine_seen = Some(compositing.clone());
         }
         if let Some(lib) = &self.library {
             self.editor.host_preferences_values =
@@ -297,6 +374,9 @@ impl Host {
             let mut lib = open_library_app(opens, &mut self.prefs, saved);
             if mode == Module::Develop {
                 set_library_view(&mut lib, true);
+            } else if mode == Module::Library && lib.ui.right.is_edit_tool() {
+                // A develop tool saved at quit would turn a Library start back into Develop.
+                lib.ui.right = lightcraft_ui_egui::state::RightPanel::None;
             }
             lib
         });
@@ -409,6 +489,19 @@ impl Host {
             draw(&mut self.editor);
             return;
         }
+        // The Library opens for its own pages only: Compositing's pages never wait on its catalog.
+        let library_page = self
+            .editor
+            .ui
+            .dialogs
+            .iter()
+            .filter(|d| photocraft_ui_egui::prefs_ui::is_preferences(&d.fields))
+            .filter_map(|d| d.fields.get("section")?.as_str())
+            .any(|section| LIBRARY_PREFS_PAGES.iter().any(|(id, _)| *id == section));
+        if self.library.is_none() && !library_page {
+            draw(&mut self.editor);
+            return;
+        }
         // Preferences opened from Compositing also includes the current Library, loaded lazily.
         self.library();
         let Some(library) = self.library.take() else {
@@ -500,14 +593,26 @@ impl Host {
     /// The Library's active photo: its id, file and develop settings (JSON).
     fn active_photo(&mut self) -> Option<(u64, String, serde_json::Value, String)> {
         let lib = self.library.as_ref()?;
-        let id = lib.session.active()?;
-        let ph = lib.session.catalog.photo(id)?;
-        let path = match &ph.source {
-            lightcraft_catalog::Source::File { path } => path.clone(),
-            _ => return None,
-        };
-        let settings = serde_json::to_value(&*ph.develop).ok()?;
-        Some((id.0, path, settings, ph.file_name.clone()))
+        photo_to_open(lib, lib.session.active()?)
+    }
+
+    /// Raws opened in Compositing: one the Library has opens with its Develop settings, any other
+    /// as a plain file.
+    fn open_queued_raws(&mut self) {
+        let raws = self.editor.raw_opens.as_mut().map(std::mem::take).unwrap_or_default();
+        for raw in raws {
+            let photo = {
+                let lib = self.library();
+                photo_at_path(&lib.session, &raw).and_then(|id| photo_to_open(lib, id))
+            };
+            let opened = match photo {
+                Some((id, path, settings, name)) => self.open_editor_photo(id, &path, &settings, &name),
+                None => self.editor.open_path_here(&raw).map(|_| ()),
+            };
+            if let Err(e) = opened {
+                self.editor.open_failed(&photocraft_ui_egui::file_open::display_name(&raw), &e);
+            }
+        }
     }
 
     fn observe_library(&mut self) {
@@ -518,6 +623,7 @@ impl Host {
         }
         if self.library_seen.is_some() {
             self.left_compositing_with = None;
+            self.develop_sent.clear();
             self.round_trip_notice = None;
             self.composites.pending.clear();
             self.composites.failed.clear();
@@ -537,8 +643,21 @@ impl Host {
 
     fn open_editor_photo(&mut self, photo: u64, path: &str, settings: &serde_json::Value, name: &str) -> Result<(), String> {
         self.observe_library();
-        let identity = self.library().session.library_identity().to_string();
-        let result = photocraft_ui_egui::develop_layer::open_photo_in(&mut self.editor, &identity, photo, path, settings, name);
+        let session = &self.library().session;
+        let identity = session.library_identity().to_string();
+        // The camera's own fields are already in the file. Compositing's Export As has no Remove
+        // Location, so the Library's GPS position stays out; the place names come along.
+        let options = lightcraft_engine::export::ExportOptions { metadata: lightcraft_engine::export::MetadataPolicy::AllExceptCamera, ..Default::default() };
+        let metadata = session
+            .catalog
+            .photo(lightcraft_catalog::PhotoId(photo))
+            .and_then(|p| lightcraft_engine::export::export_metadata(p, &options))
+            .and_then(|mut m| {
+                m.gps = None;
+                serde_json::to_value(m).ok()
+            })
+            .unwrap_or_default();
+        let result = photocraft_ui_egui::develop_layer::open_library_photo(&mut self.editor, &identity, photo, path, settings, name, &metadata);
         self.refresh_save_sources();
         result
     }
@@ -714,19 +833,47 @@ impl Host {
     }
 
     /// The Library's "Open in Compositing" on a photo shown as its unsaved composite: back to that
-    /// document as it is.
+    /// document as it is. Edit In with no other editor named also lands here: a photo with no
+    /// document yet opens from the Library (from Develop, `switch` carries it across).
     fn open_composite(&mut self, ctx: &egui::Context) {
         let Some(id) = self.library.as_mut().and_then(|l| l.host_composite_open.take()) else { return };
         let doc = self.library.as_ref().and_then(|lib| document_of(&self.editor, &lib.session, id));
         if let Some(i) = doc {
             self.editor.session.set_active(i);
             self.editor.sync_views();
+        } else if self.mode == Module::Library
+            && let Some((photo, path, settings, name)) = self.library.as_ref().and_then(|lib| photo_to_open(lib, id))
+        {
+            let opened = if opens_with_layers(&path) {
+                self.editor.open_paths(&[path]);
+                Ok(())
+            } else {
+                self.open_editor_photo(photo, &path, &settings, &name)
+            };
+            if let Err(e) = opened {
+                self.editor.ui.status = e;
+                self.editor.ui.status_error = true;
+            }
         }
         let lib = self.library();
         let _ = lib.run("library.select", serde_json::json!({ "ids": [id.0], "active": id.0 }));
         // the photo is the one Compositing shows: switching doesn't open it again
         self.left_compositing_with = Some(id.0);
         self.switch(ctx, Module::Compositing);
+    }
+
+    /// Library results that arrive while Compositing is shown (an export, AI Denoise, a proof
+    /// sheet) become Compositing notices; ones the Library showed itself are only marked seen.
+    fn forward_library_toasts(&mut self) {
+        let Some(lib) = &self.library else { return };
+        let history = &lib.ui.toast_history.history;
+        let fresh: Vec<(String, bool)> = history.iter().filter(|n| n.id > self.library_toasts_seen).map(|n| (n.title.clone(), n.error)).collect();
+        self.library_toasts_seen = history.iter().map(|n| n.id).max().unwrap_or(0).max(self.library_toasts_seen);
+        if self.mode == Module::Compositing {
+            for (title, error) in fresh {
+                photocraft_ui_egui::notices::post(&mut self.editor, title, Vec::new(), error, None);
+            }
+        }
     }
 
     /// Save the document named by the notice, even if another editor tab is active now.
@@ -851,23 +998,37 @@ impl Host {
 
     /// Quitting from Library or Develop with unsaved documents: Compositing comes forward (as it
     /// is: the Library's photo isn't opened there) so its unsaved-changes prompt asks about them
-    /// (Save / Don't Save / Cancel). `true` when the editor must run this frame.
+    /// (Save / Don't Save / Cancel); Cancel goes back to the module the quit started from. `true`
+    /// when the editor must run this frame.
     fn quit_review(&mut self, ctx: &egui::Context) -> bool {
+        // The prompt closed with unsaved work left: it was cancelled.
+        if let Some(from) = self.quit_from
+            && !photocraft_ui_egui::discard_ui::asking(&self.editor)
+        {
+            self.quit_from = None;
+            if self.editor.has_unsaved() {
+                self.mode = from;
+                self.styled = None;
+                ctx.request_repaint();
+            }
+        }
         if self.mode == Module::Compositing || !ctx.input(|i| i.viewport().close_requested()) || !self.editor.has_unsaved() {
             return false;
         }
-        if self.camera_raw.is_some() {
-            self.end_camera_raw(ctx, false);
-        }
+        // A Camera Raw Filter session stays open: Cancel comes back to it, and `on_exit` drops it.
+        self.quit_from = Some(self.mode);
         self.mode = Module::Compositing;
         self.styled = None;
         ctx.request_repaint();
         true
     }
 
-    /// Re-renders Develop layers whose photo's develop settings changed in Develop.
-    fn sync_develop_layers(&mut self) {
+    /// Re-renders Develop layers whose photo's develop settings changed in the Library. Documents
+    /// with retouching take them only from a Develop session entered from them; otherwise they
+    /// keep their layer and a notice says so.
+    fn sync_develop_layers(&mut self, from: Module) {
         let ids = photocraft_ui_egui::develop_layer::linked_photos(&self.editor);
+        self.develop_sent.retain(|id, _| ids.contains(id));
         if ids.is_empty() {
             return;
         }
@@ -877,9 +1038,33 @@ impl Host {
             .filter_map(|id| lib.session.develop_of(lightcraft_catalog::PhotoId(id)).and_then(|d| serde_json::to_value(&*d).ok()).map(|v| (id, v)))
             .collect();
         for (id, settings) in updates {
-            if let Some((identity, path)) = self.library.as_ref().and_then(|lib| source_binding(&lib.session, id)) {
-                photocraft_ui_egui::develop_layer::sync_in(&mut self.editor, &identity, id, &path, &settings);
+            let Some((identity, path)) = self.library.as_ref().and_then(|lib| source_binding(&lib.session, id)) else { continue };
+            let follows = from == Module::Develop && self.left_compositing_with == Some(id);
+            match self.develop_sent.get(&id) {
+                Some(DevelopSent::Applied(sent)) if *sent == settings => continue,
+                Some(DevelopSent::Declined(sent)) if *sent == settings && !follows => continue,
+                _ => {}
             }
+            let retouched: Vec<String> = documents_behind(&self.editor, &identity, id, &settings)
+                .into_iter()
+                .filter(|doc| !photocraft_engine::develop_layer_cmds::is_untouched(doc))
+                .map(|doc| doc.name.clone())
+                .collect();
+            if follows || retouched.is_empty() {
+                photocraft_ui_egui::develop_layer::sync_in(&mut self.editor, &identity, id, &path, &settings);
+                self.develop_sent.insert(id, DevelopSent::Applied(settings));
+                continue;
+            }
+            for name in retouched {
+                photocraft_ui_egui::notices::post(
+                    &mut self.editor,
+                    li_i18n::fmt(li_i18n::t("The Library's edit of {name} is newer"), &[("name", name.as_str())]),
+                    vec![li_i18n::t("Its layers are unchanged. To use the newer edit, open Develop from this document (double-click its Develop layer), then come back.").into()],
+                    false,
+                    None,
+                );
+            }
+            self.develop_sent.insert(id, DevelopSent::Declined(settings));
         }
     }
 
@@ -962,9 +1147,9 @@ impl Host {
         if self.mode == to || !self.editor.host_modes {
             return;
         }
-        // Leaving a Camera Raw Filter session with the module switch cancels it.
+        // Leaving a Camera Raw Filter session would throw its edits away: OK or Cancel ends it.
         if self.camera_raw.is_some() {
-            self.end_camera_raw(ctx, false);
+            self.library().toast(ctx, li_i18n::library::t("Finish Camera Raw Filter with OK or Cancel first"));
             return;
         }
         // A custom full-canvas modal owns module navigation too. Otherwise a host chord or
@@ -1026,7 +1211,9 @@ impl Host {
                 })
             {
                 let lib = self.library();
-                let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
+                // A photo already in the selection becomes active without collapsing the selection.
+                let mode = if lib.session.selection.contains(lightcraft_catalog::PhotoId(id)) { "add" } else { "replace" };
+                let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id, "mode": mode }));
                 self.left_compositing_with = Some(id);
             }
             if to == Module::Library
@@ -1056,16 +1243,24 @@ impl Host {
                 }
             }
             Module::Compositing => {
-                self.sync_develop_layers();
+                self.sync_develop_layers(from);
                 let photo = self.active_photo();
-                let changed = photo.as_ref().map(|p| p.0) != self.left_compositing_with || self.editor.session.documents().is_empty();
-                if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop)
-                    // a file open in Compositing (a saved `-Edit.psd`) comes forward as it is
-                    && (from == Module::Develop || !self.focus_library_document(id))
-                    && let Err(e) = self.open_editor_photo(id, &path, &settings, &name)
-                {
-                    self.editor.ui.status = e;
-                    self.editor.ui.status_error = true;
+                // Develop carries its photo across. A plain switch from Library keeps the document
+                // being worked on; the Library photo comes across only into an empty Compositing.
+                let empty = self.editor.session.documents().is_empty() && self.editor.jobs.opens.is_empty();
+                if let Some((id, path, settings, name)) = photo.filter(|_| empty || from == Module::Develop) {
+                    // A layered document (a saved `-Edit.psd`) opens with its layers, or comes
+                    // forward if open; a Develop layer of it would flatten the retouch.
+                    if opens_with_layers(&path) {
+                        if !self.focus_library_document(id) {
+                            self.editor.open_paths(&[path]);
+                        }
+                    } else if (from == Module::Develop || !self.focus_library_document(id))
+                        && let Err(e) = self.open_editor_photo(id, &path, &settings, &name)
+                    {
+                        self.editor.ui.status = e;
+                        self.editor.ui.status_error = true;
+                    }
                 }
             }
         }
@@ -1103,6 +1298,12 @@ impl Host {
     /// ⌘⌥1 / ⌘⌥2 / ⌘⌥3 (Ctrl+Alt elsewhere) pick a module from anywhere.
     fn module_keys(&mut self, ctx: &egui::Context) {
         if !self.editor.host_modes {
+            return;
+        }
+        // A modal job's progress window and an open modal own the keyboard: switching away would
+        // hide their only Cancel.
+        let modal_job = self.editor.session.active_job().is_some_and(|job| photocraft_ui_egui::jobs_ui::non_modal_text(&job.command).is_none());
+        if modal_job || ctx.memory(|m| m.top_modal_layer().is_some()) {
             return;
         }
         let picked = Module::ALL.into_iter().find(|m| consume_host_chord(ctx, egui::Modifiers::COMMAND | egui::Modifiers::ALT, m.key()));
@@ -1144,6 +1345,23 @@ fn consume_host_chord(ctx: &egui::Context, modifiers: egui::Modifiers, key: egui
     })
 }
 
+/// Library photo `id` as Compositing opens it: its id, file, develop settings (JSON) and name.
+fn photo_to_open(lib: &LightcraftApp, id: lightcraft_catalog::PhotoId) -> Option<(u64, String, serde_json::Value, String)> {
+    let ph = lib.session.catalog.photo(id)?;
+    let path = match &ph.source {
+        lightcraft_catalog::Source::File { path } => path.clone(),
+        _ => return None,
+    };
+    let settings = serde_json::to_value(&*ph.develop).ok()?;
+    Some((id.0, path, settings, ph.file_name.clone()))
+}
+
+/// A Library photo Compositing opens as the document it is. TIFF is left out: most TIFFs in a
+/// catalog are flat photos that come across with their Develop settings.
+fn opens_with_layers(path: &str) -> bool {
+    std::path::Path::new(path).extension().and_then(|e| e.to_str()).is_some_and(|e| ["psd", "psb", "pcraft"].iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
 fn library_module(lib: &LightcraftApp) -> Module {
     if lib.ui.view == lightcraft_ui_egui::state::ViewMode::Detail && lib.ui.right.is_edit_tool() { Module::Develop } else { Module::Library }
 }
@@ -1152,6 +1370,7 @@ impl eframe::App for Host {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.observe_library();
         self.frames += 1;
+        self.start_launch_import(ctx);
         self.editor.current_module = self.mode;
         self.shared_shell(ctx);
         self.run_library_native_menu(ctx);
@@ -1177,7 +1396,9 @@ impl eframe::App for Host {
             {
                 photocraft_ui_egui::prefs_ui::open_preferences(&mut self.editor, "general");
             }
-            self.module_keys(ctx);
+            if self.mode == Module::Compositing || library_keys_available {
+                self.module_keys(ctx);
+            }
             self.preview_save_key(ctx);
         }
         // The editor installs the fonts (a superset of the Library's) on its first frame.
@@ -1225,6 +1446,7 @@ impl eframe::App for Host {
             self.editor.open_paths(&fresh);
             self.switch(ctx, Module::Compositing);
         }
+        self.open_queued_raws();
         if let Some(m) = self.editor.switch_module.take() {
             if let Some(browse) = self.editor.automation_browse.take() {
                 let mut hooks = self.automation_media.take();
@@ -1281,8 +1503,9 @@ impl eframe::App for Host {
                 // The Library's own navigation (D, G, Esc, the Edit button) moves between Library
                 // and Develop; the title bar follows.
                 if let Some(lib) = self.library.as_ref() {
-                    let auxiliary = lib.ui.view == lightcraft_ui_egui::state::ViewMode::Detail
-                        && matches!(lib.ui.right, lightcraft_ui_egui::state::RightPanel::Versions | lightcraft_ui_egui::state::RightPanel::Activity);
+                    use lightcraft_ui_egui::state::{RightPanel, ViewMode};
+                    let auxiliary = lib.ui.view == ViewMode::Detail
+                        && matches!(lib.ui.right, RightPanel::Versions | RightPanel::Activity | RightPanel::Keywords | RightPanel::Info);
                     let now = if auxiliary { self.mode } else { library_module(lib) };
                     if now != self.mode {
                         self.mode = now;
@@ -1293,9 +1516,17 @@ impl eframe::App for Host {
             _ => {
                 if let Some(lib) = self.library.as_mut() {
                     lib.background_tick(ctx);
+                    // A close the Library held back (its catalog wasn't saved): only the Library
+                    // draws the prompt that says why.
+                    if self.mode == Module::Compositing && lib.quit_prompt.is_some() {
+                        self.mode = Module::Library;
+                        self.styled = None;
+                        ctx.request_repaint();
+                    }
                 }
             }
         }
+        self.forward_library_toasts();
         self.capture_library_preferences(ctx, false);
         photocraft_ui_egui::prefs_ui::sync_shared_interface(&mut self.editor, ctx);
         self.restyle(ctx);

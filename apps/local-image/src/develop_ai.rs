@@ -11,9 +11,6 @@ use lightcraft_engine::enhance::{AiHost, RemoveEngine, RemoveRequest, RemoveResu
 use lightcraft_sysmem::JobCtl;
 use photocraft_ui_egui::ai_ui;
 
-/// The AI Remove engines, as Compositing's AI Remove tool offers them.
-const ENGINES: [(&str, &str); 3] = [("klein", "FLUX.2 Klein"), ("qwen-int8", "Qwen Compact"), ("qwen-bf16", "Qwen Full")];
-
 pub struct DevelopAi;
 
 impl DevelopAi {
@@ -84,12 +81,9 @@ impl AiHost for DevelopAi {
     fn remove_engines(&self) -> Vec<RemoveEngine> {
         let st = ai_ui::status();
         let local = RemoveEngine { key: "lama".into(), label: "On-device · LaMa".into(), problem: ai_ui::remove_ready("lama").err() };
-        let mut engines: Vec<_> = ENGINES
+        let mut engines: Vec<_> = ai_ui::REMOVE_ENGINES
             .iter()
-            .map(|(key, label)| {
-                let (model, variant) = ai_ui::remove_engine(key);
-                RemoveEngine { key: (*key).to_owned(), label: (*label).to_owned(), problem: st.ready(model, variant).err() }
-            })
+            .map(|(key, label, model, variant)| RemoveEngine { key: (*key).to_owned(), label: (*label).to_owned(), problem: st.ready(*model, variant).err() })
             .collect();
         engines.insert(0, local);
         engines.insert(0, RemoveEngine { key: "auto".into(), label: "Automatic".into(), problem: ai_ui::remove_ready("auto").err() });

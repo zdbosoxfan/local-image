@@ -70,6 +70,7 @@ pub mod profiles;
 pub mod redeye;
 pub mod source_color;
 pub mod spots;
+pub mod straighten;
 pub mod tone;
 pub mod tone2;
 pub mod toneeq;
@@ -1039,9 +1040,9 @@ pub fn skin_reference_sample(
     Some([c[0] as f64, c[1] as f64, c[2].to_degrees().rem_euclid(360.) as f64])
 }
 
-/// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) the
-/// one it would select once shown. Full coverage is drawn scalarly and needs no diagnostic plane
-/// either.
+/// The plane an overlay shows: a sharpening view's mask or detail band, the tone equalizer's zones,
+/// or the alpha of a mask overlay (the one the render evaluated, or for a hidden mask the one it
+/// would select once shown). Full coverage is drawn scalarly and needs no diagnostic plane either.
 fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared, info: &SourceInfo) -> Option<GrayFrame> {
     if let Some(skin) = o.skin(&plan.settings).filter(|s| s.reference.is_some()) {
         return Some(visualize::skin_alpha(&prep.img, skin, (plan.settings.light.exposure as f32).exp2()));
@@ -1052,6 +1053,12 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared, info: &SourceInfo
         let (b2, sigma) = prep.sharp.as_ref().map_or((&prep.log_l, 0.0), |(_, b2, sg)| (b2, *sg));
         let k = detail::SharpK::new(0.0, (plan.settings.detail.sharpen_masking / 100.0) as f32, sigma);
         return Some(detail::sharp_mask_plane(b2, &k));
+    }
+    if o == Overlay::SharpenDetail {
+        // without sharpening planes (Detail off, or a preview too small to sharpen) the band is empty
+        let (b1, b2) = prep.sharp.as_ref().map_or((&prep.log_l, &prep.log_l), |(b1, b2, _)| (b1, b2));
+        let k = detail::SharpK::new((plan.settings.detail.sharpen_detail / 100.0) as f32, 0.0, 0.0);
+        return Some(detail::sharp_detail_plane(&prep.log_l, b1, b2, &k));
     }
 
     if o == Overlay::ToneEqMask {

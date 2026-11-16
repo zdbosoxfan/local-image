@@ -92,6 +92,9 @@ pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
     "Assisted Culling cancelled",
     "Assisted Culling is already running",
     "Assisted Culling complete: {scored} scored, {failed} failed",
+    "Auto Settings is already running",
+    "Auto Settings: {skipped} photo(s) could not be read",
+    "Auto Settings was not applied because the library changed; try again",
     "The photo geometry changed while AI Remove was running; try again.",
     "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.",
     "Cannot read the ComfyUI queue: {error}",
@@ -295,4 +298,7 @@ pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
     "Versions are snapshots of your edit that you can restore.",
     "Remove (Spot Removal)",
     "Reset all edits",
+    "Last workspace and view",
+    "Compositing",
+    "Photo ▸ Edit In… (⌘E) opens the photo in Compositing, linked to Develop. Name another application here (an app name on macOS, a program path elsewhere) to render a 16-bit TIFF copy, stack it with the original and open it there.",
 ];

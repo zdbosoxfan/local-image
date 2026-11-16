@@ -358,9 +358,10 @@ pub struct UiState {
     /// The develop control whose slider is being dragged (geometry sliders show a grid).
     #[serde(skip)]
     pub dragging_control: Option<String>,
-    /// Temporary Alt-drag sharpening mask preview.
+    /// Alt (Option on macOS) is held while an Edit slider is dragged: the loupe shows that
+    /// control's temporary preview ([`lightcraft_pipeline::Overlay::for_control`]).
     #[serde(skip)]
-    pub sharpen_mask_preview: bool,
+    pub alt_preview: bool,
     pub search: String,
     /// Focus the search field on the next frame (Edit → Find…).
     #[serde(skip)]
@@ -738,7 +739,7 @@ impl Default for UiState {
             collapsed_sidebar: Vec::new(),
             hidden_locations: Vec::new(),
             dragging_control: None,
-            sharpen_mask_preview: false,
+            alt_preview: false,
             external_edits: Vec::new(),
             was_focused: true,
             auto_import_at: 0.0,

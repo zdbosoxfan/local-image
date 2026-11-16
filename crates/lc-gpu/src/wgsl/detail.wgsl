@@ -161,3 +161,9 @@ fn sharp_preview(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgro
     let gx=(a[y*w+xr]-a[y*w+xl])*0.5;let gy=(a[yd*w+x]-a[yu*w+x])*0.5;
     var m=1.0;if(pf(3u)>0.0){m=sstep(pf(3u)*0.5,pf(3u),sqrt(gx*gx+gy*gy)*pf(4u));}dst[i]=m;
 }
+// a log_l, b its blur, c the blur's blur, P:n,detail; lc-pipeline detail.rs detail_band
+@compute @workgroup_size(256)
+fn sharp_detail_preview(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}
+    let h1=a[i]-b[i];dst[i]=h1+pf(1u)*(h1-(b[i]-c[i]));
+}

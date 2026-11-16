@@ -121,8 +121,19 @@ fn render_source(
     settings: &lightcraft_develop::DevelopSettings,
 ) -> Result<ImportResult, IoError> {
     use lightcraft_pipeline::{OutputDepth, OutputSpace, RenderRequest};
-    let req = RenderRequest { space: OutputSpace::ProPhoto, depth: OutputDepth::U16, ..RenderRequest::fit(src.width, src.height) };
-    let rendered = lightcraft_engine::media::develop(src, info, settings, &req, None, true);
+    // The developed geometry's full size (orientation and crop applied), asked for as the
+    // Library's full-size export asks: the source's own box would shrink a photo turned 90 degrees.
+    let (w, h) = lightcraft_pipeline::native_output_size(src.width, src.height, settings);
+    let req = RenderRequest {
+        space: OutputSpace::ProPhoto,
+        depth: OutputDepth::U16,
+        exact_size: true,
+        ..RenderRequest::fit(w.round().max(1.0) as usize, h.round().max(1.0) as usize)
+    };
+    // The Library's content key of an imported file is its BLAKE3 identity; a Duplicate's own
+    // `:dupN` key is not known from the bytes, so its own AI results are left out here.
+    let content_key = blake3::hash(bytes).to_hex();
+    let rendered = lightcraft_engine::media::develop_original(src, info, settings, content_key.as_str(), &req);
     let Some((width, height, lightcraft_pipeline::DeepSamples::U16(samples))) = rendered.deep.as_ref().map(|d| (d.width, d.height, &d.samples)) else {
         return Err(IoError::Unsupported(format!("{name}: the develop pipeline produced no 16-bit output")));
     };
@@ -178,6 +189,44 @@ mod tests {
         let back = develop_with_settings("a.dng", &a, &plain).unwrap();
         assert_eq!(decodes() - n0, 3);
         assert_eq!(pixels(&first), pixels(&back));
+    }
+
+    /// A Develop layer renders as the Library does: an AI patch made from another photo (settings
+    /// synced from another frame) is left out.
+    #[test]
+    fn develop_leaves_out_ai_patches_of_other_photos() {
+        let _test = CACHE_TEST.lock().unwrap();
+        let bytes = dng(40, 24, [0.6, 1.0, 0.8]);
+        let key = "pc-io-raw-foreign-patch";
+        let red = lightcraft_pipeline::patches::PatchPixels { width: 8, height: 8, data: vec![[1.0, 0.0, 0.0, 1.0]; 64] };
+        lightcraft_pipeline::patches::insert(key, Arc::new(red));
+        let mut settings = lightcraft_develop::DevelopSettings::default();
+        let plain = develop_with_settings("a.dng", &bytes, &settings.to_json()).unwrap();
+        settings.spots.push(lightcraft_develop::Spot {
+            mode: lightcraft_develop::SpotMode::Ai,
+            patch: Some(lightcraft_develop::AiPatch {
+                orientation: lightcraft_geom::Orientation::Normal,
+                key: key.into(),
+                source: "another photo".into(),
+                rect: [0.0, 0.0, 1.0, 1.0],
+                engine: "test".into(),
+                seed: 0,
+                geometry: String::new(),
+            }),
+            ..Default::default()
+        });
+        let foreign = develop_with_settings("a.dng", &bytes, &settings.to_json()).unwrap();
+        assert_eq!(pixels(&foreign), pixels(&plain));
+    }
+
+    /// A photo turned 90 degrees in Develop arrives at its full size, upright: not fitted into the
+    /// unturned box.
+    #[test]
+    fn develop_turned_a_quarter_keeps_the_full_size() {
+        let _test = CACHE_TEST.lock().unwrap();
+        let bytes = dng(64, 40, [0.6, 1.0, 0.8]);
+        let turned = develop_with_settings("a.dng", &bytes, &serde_json::json!({ "orientation": "Rotate90" })).unwrap();
+        assert_eq!(turned.document.size, photocraft_geom::Size::new(40, 64));
     }
 
     #[test]

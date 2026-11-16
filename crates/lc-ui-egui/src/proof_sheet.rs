@@ -121,15 +121,18 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             app.proof = None;
             app.toast_error(ctx, "Proof sheet worker stopped");
         }
-        Err(std::sync::mpsc::TryRecvError::Empty) => {
-            egui::Window::new(li_i18n::library::t("Export Proof Sheet")).collapsible(false).show(ctx, |ui| {
-                let t = Tokens::get(ui.ctx());
-                ui.label(egui::RichText::new(format!("{} / {}", task.done.load(Ordering::Relaxed), task.total)).color(t.text));
-                if widgets::text_button(ui, "proofCancel", "Cancel", false).clicked() {
-                    task.cancel.store(true, Ordering::Relaxed);
-                }
-            });
-            ctx.request_repaint_after(std::time::Duration::from_millis(50));
-        }
+        Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(50)),
     }
+}
+
+/// The running proof sheet's progress window, drawn with the Library.
+pub fn progress(app: &LightcraftApp, ctx: &egui::Context) {
+    let Some(task) = &app.proof else { return };
+    egui::Window::new(li_i18n::library::t("Export Proof Sheet")).collapsible(false).show(ctx, |ui| {
+        let t = Tokens::get(ui.ctx());
+        ui.label(egui::RichText::new(format!("{} / {}", task.done.load(Ordering::Relaxed), task.total)).color(t.text));
+        if widgets::text_button(ui, "proofCancel", "Cancel", false).clicked() {
+            task.cancel.store(true, Ordering::Relaxed);
+        }
+    });
 }
