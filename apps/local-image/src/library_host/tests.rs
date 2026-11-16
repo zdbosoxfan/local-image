@@ -280,6 +280,32 @@ fn a_catalogued_raw_opened_in_compositing_keeps_its_develop_edits() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// The filmstrip knows a catalogued raw the host opened for it: picking it again shows its tab,
+/// and stepping on goes to the next file instead of back to the first.
+#[test]
+fn the_filmstrip_steps_on_from_a_catalogued_raw() {
+    use photocraft_ui_egui::filmstrip_ui;
+    let (dir, png, mut lib, _) = library_with_photo("raw-strip");
+    let raw = dir.join("photo.dng").to_string_lossy().to_string();
+    std::fs::copy(&png, &raw).unwrap();
+    let id = lib.session.catalog.alloc_photo_id();
+    let photo = lightcraft_catalog::Photo::new(id, lightcraft_catalog::Source::File { path: raw.clone() }, "photo.dng", "DNG", 40, 30, "2026-11-16");
+    lib.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    lib.run("library.select", json!({"ids": [id.0], "active": id.0})).unwrap();
+    let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));
+    host.editor.raw_opens = Some(Vec::new());
+    host.library = Some(lib);
+    host.mode = Module::Compositing;
+    filmstrip_ui::set_folder(&dir, vec![PathBuf::from(&raw), PathBuf::from(&png)]);
+    filmstrip_ui::open(&mut host.editor, std::path::Path::new(&raw));
+    host.open_queued_raws();
+    filmstrip_ui::open(&mut host.editor, std::path::Path::new(&raw));
+    assert_eq!(host.editor.raw_opens, Some(Vec::new()), "the open raw's tab is shown, not queued again");
+    assert!(filmstrip_ui::step(&mut host.editor, 1));
+    assert_eq!(host.editor.session.active().and_then(|d| d.path.clone()), Some(png));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn shared_decode_add_photos_picker_uses_readable_registry() {
     let extensions = add_photos_extensions();
