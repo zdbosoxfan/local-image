@@ -23,7 +23,7 @@
 use std::sync::{Arc, Mutex};
 
 use photocraft_algo::resample::translate_surface;
-use photocraft_algo::transform::Homography;
+use photocraft_algo::transform::{Homography, Interp};
 use photocraft_cms::{Intent, Profile, Transform};
 use photocraft_color::{BlendMode, ColorMode, PixelFormat};
 use photocraft_doc::{DocId, Document, Layer, LayerContent, LayerId, LayerMask, Metadata, SmartObject, SmartSource};
@@ -473,12 +473,7 @@ pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
         crate::jobs::authorize_render_command(&f.command, &f.params)?;
     }
     let Some((name, bytes)) = source_bytes(&doc.metadata, &sm.source) else { return Ok(None) };
-    let target = crate::color_cmds::document_profile(doc);
-    let img = match (&sm.develop, sm.stack_mode) {
-        (Some(d), _) => developed_image_in_profile(&name, &bytes, doc.pixel_format(), &d.settings, &target)?,
-        (None, Some(mode)) => stack_image_in_profile(&name, &bytes, doc.pixel_format(), mode, &target)?,
-        (None, None) => source_image_in_profile(&name, &bytes, doc.pixel_format(), &target)?,
-    };
+    let img = source_image(doc, sm, &name, &bytes)?;
     // Through the warp (source space) and the transform in one pass; whole-pixel moves are exact.
     let placed = match &sm.perspective {
         Some(p) => photocraft_algo::warp::place_source_projective(&img.surface, img.bounds, &Homography(*p), sm.warp.as_ref()),
@@ -491,6 +486,23 @@ pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
         .then(|| crate::color_cmds::composite_profile(doc));
     let cmyk = photocraft_compose::cmyk_space(doc);
     photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || apply_smart_filters_in(&placed, sm, doc.bounds(), profile.as_deref())).map(Some)
+}
+
+/// Decodes a smart object's source as it renders: developed, stacked or composited, in the
+/// document's profile.
+fn source_image(doc: &Document, sm: &SmartObject, name: &str, bytes: &[u8]) -> Result<SourceImage> {
+    let target = crate::color_cmds::document_profile(doc);
+    match (&sm.develop, sm.stack_mode) {
+        (Some(d), _) => developed_image_in_profile(name, bytes, doc.pixel_format(), &d.settings, &target),
+        (None, Some(mode)) => stack_image_in_profile(name, bytes, doc.pixel_format(), mode, &target),
+        (None, None) => source_image_in_profile(name, bytes, doc.pixel_format(), &target),
+    }
+}
+
+/// The contents' own box in source pixels. `Ok(None)` when the source is unavailable.
+fn source_box(doc: &Document, sm: &SmartObject) -> Result<Option<Rect>> {
+    let Some((name, bytes)) = source_bytes(&doc.metadata, &sm.source) else { return Ok(None) };
+    Ok(Some(source_image(doc, sm, &name, &bytes)?.bounds))
 }
 
 /// The smart object's pixels below smart filter `index` (the input that filter edits): the placed
@@ -617,6 +629,45 @@ pub(crate) fn transform_placement(sm: &mut SmartObject, a: &Affine) {
         None => sm.transform = snap_affine(a.mul(&sm.transform)),
         Some(_) => set_placement(sm, affine_homography(a).mul(&placement(sm))),
     }
+}
+
+/// Layer › Smart Objects › Reset Transform: the placement goes back to 100 % of the current
+/// contents' own size with rotation, skew, Distort and Perspective cleared, centred where the
+/// object sits now. Photoshop resets the *transform*, so the Warp (kept in source space) and the
+/// smart filters stay as they are.
+fn reset_transform(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = layer_param(s, p)?;
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let sm = smart(&st.doc, id)?;
+    // 100 % maps the contents' own box one-to-one onto the document.
+    let b = source_box(&st.doc, sm)?.ok_or_else(|| other("the smart object's contents are unavailable"))?;
+    let (cx, cy) = ((f64::from(b.x0) + f64::from(b.x1)) / 2.0, (f64::from(b.y0) + f64::from(b.y1)) / 2.0);
+    let old = placement(sm);
+    let (dx, dy) = old.apply(cx, cy);
+    let to = Affine { m: [1.0, 0.0, 0.0, 1.0, dx - cx, dy - cy] };
+    let new = affine_homography(&to);
+    // Everything the accumulated transform moved the pixels by, so a linked mask and the Smart
+    // Filter mask follow the placement back as they do under Free Transform.
+    let rel = new.mul(&old.inverse().ok_or_else(|| other("the smart object has a degenerate transform"))?);
+    if ![dx, dy, cx, cy].iter().all(|v| v.is_finite()) || !rel.0.iter().all(|v| v.is_finite()) {
+        return Err(other("the smart object's placement is not a usable transform"));
+    }
+    s.edit("Reset Transform", |doc, _| {
+        let group = crate::transform_cmds::group_locks(doc, id);
+        let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+        // The step from a Distorted placement to an axis-aligned one is not affine.
+        crate::transform_cmds::transform_layer(None, group, l, &rel, None, Interp::Bicubic)?;
+        // `new ∘ old⁻¹ ∘ old` only lands on the reset map to within float noise, and could leave a
+        // Distort placement behind as a nearly affine one: store the exact map before rendering.
+        if let LayerContent::Smart(sm) = &mut l.content {
+            set_placement(sm, new);
+        }
+        let snapshot = doc.clone();
+        if let Some(l) = doc.layer_mut(id) {
+            crate::transform_cmds::refresh_text(&snapshot, l)?;
+        }
+        Ok(json!({"layer": id.0, "transform": to.m}))
+    })
 }
 
 /// Moves a smart object by whole pixels without re-rendering.
@@ -1167,6 +1218,14 @@ pub fn specs() -> Vec<CommandSpec> {
             r##"{"layer":id?} → opens the contents as a new document; saving (layer.smartObjects.saveContents) or closing it updates the smart object"##,
             has_smart,
             edit_contents
+        ),
+        spec!(
+            "layer.smartObjects.resetTransform",
+            "Reset Transform",
+            SO,
+            r##"{"layer":id?} (the placement returns to 100 % of the current contents' own size, rotation, skew, Distort and Perspective cleared, centred where the object is; the Warp and the smart filters stay; one undo step)"##,
+            has_smart,
+            reset_transform
         ),
         spec!("layer.smartObjects.saveContents", "Save Contents", &[], "{} (in an Edit Contents document)", is_smart_child, |s, _| {
             let i = s.active_index().ok_or(EngineError::NoDocument)?;

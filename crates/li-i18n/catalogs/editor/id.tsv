@@ -3908,3 +3908,29 @@ ai	New	Baru
 	GPU Memory (MB, 0 = Automatic)	Memori GPU (MB, 0 = Otomatis)
 	{path} was saved over	{path} telah ditimpa
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	"{doc}" tidak lagi terkait dengan file dan ditandai belum disimpan: simpan dengan nama baru untuk mempertahankannya.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Gabungan
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Campuran abu-abu yang menyebarkan nada gambar
+	File Type	Jenis File
+	Save as JPEG	Simpan sebagai JPEG
+	Save as PSD	Simpan sebagai PSD
+	Save as TIFF	Simpan sebagai TIFF
+	Convert Profile to sRGB	Konversi Profil ke sRGB
+	LZW Compression	Kompresi LZW
+	Resize to Fit	Ubah Ukuran agar Pas
+	Run	Jalankan
+	You must save to at least one file type.	Anda harus menyimpan ke setidaknya satu jenis file.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Entri angka tidak valid. Diperlukan nilai antara 1 dan 12. Nilai sebelumnya dikembalikan.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Entri angka tidak valid. Diperlukan nilai antara 1 dan 30000. Nilai sebelumnya dikembalikan.
+	A value between 1 and 12 is required. Closest value inserted.	Diperlukan nilai antara 1 dan 12. Nilai terdekat dimasukkan.
+	A value between 1 and 30000 is required. Closest value inserted.	Diperlukan nilai antara 1 dan 30000. Nilai terdekat dimasukkan.
+	Image Compression	Kompresi Gambar
+	Save Image Pyramid	Simpan Piramida Gambar
+	Save Transparency	Simpan Transparansi
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Buka sebagai Smart Object…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	Tepi Keras
+	Last folder	Folder terakhir

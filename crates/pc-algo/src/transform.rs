@@ -134,6 +134,73 @@ fn turn_signs(q: &[[f64; 2]; 4]) -> [f64; 4] {
     })
 }
 
+/// How much the depth must change across the quad, as a fraction, for a pair of sides to count as
+/// converging. Below this the recovered proportions are dominated by a pixel of click error.
+const MIN_FORESHORTENING: f64 = 0.005;
+/// How many times larger or smaller than the quad's longest edge an estimated side may be.
+const MAX_ESTIMATE_RATIO: f64 = 4.0;
+/// How far, as a fraction, one pixel of error on one corner may move the recovered proportions.
+/// Quads from a camera model move about 1 %; the skewed quad of the engine's free-crop test moves
+/// 5.3 %.
+const MAX_ASPECT_SWING: f64 = 0.1;
+
+/// The free output size of a Perspective Crop of `q` (TL, TR, BR, BL) in an image centred on
+/// `center`: the rectangle the quad shows in perspective, or the quad's longest edges when its
+/// sides are too close to parallel to recover that, the estimate would not survive a pixel of
+/// click error, or it is implausible.
+pub fn quad_free_size(q: &[[f64; 2]; 4], center: [f64; 2]) -> (f64, f64) {
+    let len = |a: [f64; 2], b: [f64; 2]| (b[0] - a[0]).hypot(b[1] - a[1]);
+    let [tl, tr, br, bl] = *q;
+    let (edge_w, edge_h) = (len(tl, tr).max(len(bl, br)), len(tl, bl).max(len(tr, br)));
+    let near = |v: f64, edge: f64| (edge / MAX_ESTIMATE_RATIO..=edge * MAX_ESTIMATE_RATIO).contains(&v);
+    match perspective_size(q, center) {
+        Some((w, h)) if near(w, edge_w) && near(h, edge_h) => (w, h),
+        _ => (edge_w, edge_h),
+    }
+}
+
+/// The size [`perspective_estimate`] gives `q`, or `None` when moving any corner one pixel along
+/// either axis loses the estimate or swings its proportions by more than [`MAX_ASPECT_SWING`].
+fn perspective_size(q: &[[f64; 2]; 4], center: [f64; 2]) -> Option<(f64, f64)> {
+    let (width, aspect) = perspective_estimate(q, center)?;
+    for corner in 0..4 {
+        for axis in 0..2 {
+            for step in [-1.0, 1.0] {
+                let mut nudged = *q;
+                nudged[corner][axis] += step;
+                let (_, other) = perspective_estimate(&nudged, center)?;
+                if (other / aspect - 1.0).abs() > MAX_ASPECT_SWING {
+                    return None;
+                }
+            }
+        }
+    }
+    Some((width, width / aspect))
+}
+
+/// The width and the aspect ratio of the rectangle `q` shows. The width is the largest horizontal
+/// scale at a corner of the unit-square-to-quad map, so the nearest part of the quad keeps its
+/// detail. The aspect ratio is recovered with the principal point at `center` (Zhang and He,
+/// "Whiteboard scanning and image enhancement", 2007). `None` when two sides are nearly parallel,
+/// which leaves the focal length undefined.
+fn perspective_estimate(q: &[[f64; 2]; 4], [cx, cy]: [f64; 2]) -> Option<(f64, f64)> {
+    let Homography([a, b, _, d, e, _, g, h, _]) = Homography::rect_to_quad([0.0, 0.0, 1.0, 1.0], *q)?;
+    if g.abs().min(h.abs()) < MIN_FORESHORTENING {
+        return None;
+    }
+    let (ux, uy, vx, vy) = (a - g * cx, d - g * cy, b - h * cx, e - h * cy);
+    let focal2 = -(ux * vx + uy * vy) / (g * h);
+    if !focal2.is_finite() || focal2 <= 0.0 {
+        return None;
+    }
+    let focal = focal2.sqrt();
+    let aspect = ux.hypot(uy).hypot(g * focal) / vx.hypot(vy).hypot(h * focal);
+    let scale_at = |[s, t]: [f64; 2], [x, y]: [f64; 2]| (a - x * g).hypot(d - y * g) / (1.0 + g * s + h * t);
+    let [tl, tr, br, bl] = *q;
+    let width = [scale_at([0.0, 0.0], tl), scale_at([1.0, 0.0], tr), scale_at([1.0, 1.0], br), scale_at([0.0, 1.0], bl)].into_iter().fold(0.0, f64::max);
+    Some((width, aspect))
+}
+
 /// Where a Free Transform frame goes: a projective map for convex quads, or — when Distort or
 /// Perspective drags a corner past its neighbours (a concave or folded quad, which a homography
 /// would turn inside out through the horizon) — Compositor's fallback: the frame is split along a
@@ -524,6 +591,18 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One pixel on one corner carried this quad across the parallel-sides limit and swung its
+    /// free crop size from 602 x 400 to 719 x 289. Both sides of the limit keep the longest edges.
+    #[test]
+    fn a_pixel_of_click_error_cannot_swing_a_free_crop_size() {
+        for x in [697.0, 698.0] {
+            let q = [[100.0, 50.0], [700.0, 50.0], [x, 384.0], [100.0, 450.0]];
+            let (w, h) = quad_free_size(&q, [400.0, 250.0]);
+            let bottom = (x - 100.0_f64).hypot(66.0);
+            assert!((w - bottom).abs() < 1e-9 && (h - 400.0).abs() < 1e-9, "bottom right at x = {x}: {w} x {h}");
+        }
+    }
 
     #[test]
     fn projective_distort_draws_only_the_front_of_the_horizon() {

@@ -3920,3 +3920,29 @@ ai	New	新着
 	GPU Memory (MB, 0 = Automatic)	GPU メモリ（MB、0 = 自動）
 	{path} was saved over	{path} は上書き保存されました
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	「{doc}」はファイルとの関連付けが解除され、未保存としてマークされました。内容を保持するには新しい名前で保存してください。
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	統合
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	画像の階調を広げるグレーの配合
+	File Type	ファイル形式
+	Save as JPEG	JPEG として保存
+	Save as PSD	PSD として保存
+	Save as TIFF	TIFF として保存
+	Convert Profile to sRGB	プロファイルを sRGB に変換
+	LZW Compression	LZW 圧縮
+	Resize to Fit	サイズに合わせる
+	Run	実行
+	You must save to at least one file type.	少なくとも 1 つのファイル形式で保存してください。
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	無効な数値です。1 から 12 の値が必要です。以前の値に戻しました。
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	無効な数値です。1 から 30000 の値が必要です。以前の値に戻しました。
+	A value between 1 and 12 is required. Closest value inserted.	1 から 12 の値が必要です。最も近い値を入力しました。
+	A value between 1 and 30000 is required. Closest value inserted.	1 から 30000 の値が必要です。最も近い値を入力しました。
+	Image Compression	画像圧縮
+	Save Image Pyramid	画像ピラミッドを保存
+	Save Transparency	透明部分を保存
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	スマートオブジェクトとして開く…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	ハードエッジ
+	Last folder	最後のフォルダー

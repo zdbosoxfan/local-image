@@ -585,6 +585,38 @@ fn zoo_long_random_mutations() {
     }
 }
 
+#[test]
+fn banded_decode_matches_the_whole_image_under_a_per_group_allocation_cap() {
+    // A 64x40 gray image in strips of 4 rows, turned by Orientation 6. 512 bytes hold two strips
+    // but not the image: the whole decode refuses it, the banded one goes a group at a time.
+    let (w, h) = (64u32, 40u32);
+    let t = truth((w * h) as usize, 77);
+    let d = strips(w, h, 8, 1, 1, 4, &t.u8s).tag(274, SHORT, &[6]);
+    let b = build(true, false, &[d], &[0]);
+    let small = Limits { max_alloc: 512, ..Limits::default() };
+    assert!(decode_with(&b.bytes, &DecodeOptions { limits: small, ..Default::default() }).is_err());
+    let whole = decode_ok(&b.bytes);
+    let mut bands = TiffBands::open(&b.bytes, None, &small).unwrap().upright();
+    assert_eq!(bands.dimensions(), whole.dimensions());
+    let (ow, oh) = bands.dimensions();
+    let mut out = vec![0u8; (ow * oh) as usize];
+    let mut groups = 0;
+    bands
+        .decode(|x, y, g| -> Result<(), CodecError> {
+            groups += 1;
+            let (gw, gh) = (g.width() as usize, g.height() as usize);
+            for r in 0..gh {
+                let at = (y as usize + r) * ow as usize + x as usize;
+                out[at..at + gw].copy_from_slice(&g.data()[r * gw..(r + 1) * gw]);
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert!(groups > 1, "{groups} groups");
+    assert_eq!(out, whole.data());
+    assert_eq!(bands.warnings, []);
+}
+
 /// A 64-bit gray page whose strips decode through a scratch buffer four times the size of their
 /// output rows: every sample of row `y` is `y << 48` (it reads back as the 16-bit value `y`).
 fn wide_gray(w: u32, h: u32, rows: u32) -> Vec<u8> {

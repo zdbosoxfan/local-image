@@ -131,6 +131,17 @@ pub(crate) fn decode_for_color(bytes: &[u8], limits: &Limits) -> Result<Image, C
 }
 
 fn decode_page_with(bytes: &[u8], page: Option<usize>, limits: &Limits, keep_associated: bool) -> Result<Image, CodecError> {
+    let (file, dir, more) = open_page(bytes, page)?;
+    let mut img = decode_ifd(&file, &dir, limits, keep_associated)?;
+    img.meta = metadata(&file, &dir, &mut img.icc);
+    img.orientation = ifd::orientation_of(&file, &dir);
+    img.warnings.extend(more);
+    Ok(img)
+}
+
+/// The file, page `page`'s directory (`None`: the default page) and the
+/// [`DecodeWarning::MorePages`] the page opens with when the file holds more.
+fn open_page(bytes: &[u8], page: Option<usize>) -> Result<(File<'_>, Ifd, Option<DecodeWarning>), CodecError> {
     if camera_raw(bytes) {
         return Err(CodecError::unsupported(
             F,
@@ -148,14 +159,165 @@ fn decode_page_with(bytes: &[u8], page: Option<usize>, limits: &Limits, keep_ass
         .get(index)
         .ok_or_else(|| CodecError::InvalidImage(format!("TIFF page {index} does not exist (the file has {} directories)", info.pages.len())))?;
     let dir = file.ifd(p.ifd_offset).ok_or_else(|| err("image directory cut off"))?;
-    let mut img = decode_ifd(&file, &dir, limits, keep_associated)?;
-    img.meta = metadata(&file, &dir, &mut img.icc);
-    img.orientation = ifd::orientation_of(&file, &dir);
     let pages = info.page_count();
-    if pages > 1 {
-        img.warnings.push(DecodeWarning::MorePages { total: info.complete.then_some(u32::try_from(pages).unwrap_or(u32::MAX)) });
+    let more = (pages > 1).then(|| DecodeWarning::MorePages { total: info.complete.then_some(u32::try_from(pages).unwrap_or(u32::MAX)) });
+    Ok((file, dir, more))
+}
+
+/// Output bytes [`TiffBands::decode`] aims to decode at once (at least one band per worker).
+const GROUP_BYTES: usize = 64 << 20;
+
+/// A TIFF page opened for decoding a group of bands at a time, for images too large to hold
+/// twice: [`TiffBands::decode`] hands each group to its caller, who writes it into the document,
+/// so only one group exists beside it. The pixels, layout and metadata are those [`decode_page`]
+/// returns; [`TiffBands::upright`] applies the orientation as [`Image::oriented`] does.
+pub struct TiffBands<'a> {
+    b: &'a [u8],
+    p: Prepared,
+    /// The page's Orientation tag (1-8).
+    stored: u16,
+    /// The orientation the bands are turned by (1: as stored).
+    turn: u16,
+    /// `Limits::max_alloc`: the most one group of bands may take.
+    cap: u64,
+    pub icc: Option<Vec<u8>>,
+    pub meta: Metadata,
+    /// What the decoder noticed: more pages, and after [`TiffBands::decode`] data cut off.
+    pub warnings: Vec<DecodeWarning>,
+}
+
+impl<'a> TiffBands<'a> {
+    /// Opens page `page` (`None`: the page [`decode_page`] opens by default) and checks it
+    /// against `limits`. On 64-bit targets `max_alloc` bounds each group of bands, not the whole
+    /// image; 32-bit targets keep the whole-image check, since the document shares their small
+    /// address space.
+    pub fn open(bytes: &'a [u8], page: Option<usize>, limits: &Limits) -> Result<Self, CodecError> {
+        guarded(|| {
+            let (file, dir, more) = open_page(bytes, page)?;
+            let p = prepare(&file, &dir, limits, false, cfg!(target_pointer_width = "32"))?;
+            let band = p.band_bytes()?;
+            if band as u64 > limits.max_alloc {
+                return Err(CodecError::LimitExceeded(format!(
+                    "one strip or row of tiles of this {}x{} image decodes to {band} bytes, over the {} byte limit",
+                    p.w, p.h, limits.max_alloc
+                )));
+            }
+            let mut icc = None;
+            let meta = metadata(&file, &dir, &mut icc);
+            let stored = ifd::orientation_of(&file, &dir);
+            Ok(TiffBands { b: bytes, p, stored, turn: 1, cap: limits.max_alloc, icc, meta, warnings: more.into_iter().collect() })
+        })
     }
-    Ok(img)
+
+    /// The bands turned upright for the page's Orientation tag, as [`Image::oriented`] turns a
+    /// whole image: the size and resolution swap for 5-8, and the EXIF and XMP orientation are
+    /// rewritten to 1.
+    pub fn upright(mut self) -> Self {
+        let o = self.stored;
+        if !(2..=8).contains(&o) || self.turn == o {
+            return self;
+        }
+        self.turn = o;
+        if let Some(e) = &mut self.meta.exif
+            && let Cow::Owned(fixed) = lightcraft_tiff::exif::upright(e)
+        {
+            *e = fixed;
+        }
+        if let Some(x) = &mut self.meta.xmp
+            && let Cow::Owned(fixed) = lightcraft_meta::upright_xmp(x)
+        {
+            *x = fixed;
+        }
+        if o >= 5 {
+            self.meta.dpi = self.meta.dpi.map(|(x, y)| (y, x));
+        }
+        self
+    }
+
+    /// The size of the image the bands make up (upright when [`TiffBands::upright`] was applied).
+    pub fn dimensions(&self) -> (u32, u32) {
+        if self.turn >= 5 { (self.p.h, self.p.w) } else { (self.p.w, self.p.h) }
+    }
+
+    pub fn layout(&self) -> ChannelLayout {
+        self.p.lay.out_layout
+    }
+
+    pub fn sample_type(&self) -> SampleType {
+        self.p.lay.out
+    }
+
+    /// Decodes the image a group of bands at a time, in order, handing each group to `sink`
+    /// with the position of its top-left pixel in the image [`TiffBands::dimensions`] gives. A
+    /// group is about 64 MiB (at least one strip or row of tiles per worker, at most
+    /// `max_alloc`). Data cut off by the end of the file adds a [`DecodeWarning::Truncated`].
+    pub fn decode<E: From<CodecError>>(&mut self, mut sink: impl FnMut(u32, u32, &Image) -> Result<(), E>) -> Result<(), E> {
+        let (p, b, turn, cap) = (&self.p, self.b, self.turn, self.cap);
+        let missing = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decode_groups(p, b, turn, cap, &mut sink)))
+            .unwrap_or_else(|_| Err(CodecError::InvalidImage("Image decoder rejected malformed data".into()).into()))?;
+        if missing {
+            // First, as `decode_page` orders them.
+            self.warnings.insert(0, DecodeWarning::Truncated { format: F });
+        }
+        Ok(())
+    }
+}
+
+/// `f`, with a panic in the `tiff` crate turned into an error as [`crate::decode_as_with`] does.
+fn guarded<T>(f: impl FnOnce() -> Result<T, CodecError>) -> Result<T, CodecError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| Err(CodecError::InvalidImage("Image decoder rejected malformed data".into())))
+}
+
+/// The loop of [`TiffBands::decode`]; `true` when some chunks were cut off.
+fn decode_groups<E: From<CodecError>>(
+    p: &Prepared,
+    b: &[u8],
+    turn: u16,
+    cap: u64,
+    sink: &mut impl FnMut(u32, u32, &Image) -> Result<(), E>,
+) -> Result<bool, E> {
+    let band = p.band_bytes()?.max(1);
+    let threads = worker_threads();
+    // Room for the group beside at least one band worker.
+    let room = usize::try_from(cap.saturating_sub(p.per_worker)).unwrap_or(usize::MAX);
+    let per_group = (GROUP_BYTES / band).max(threads).min(room / band).max(1);
+    let bands = (p.h as usize).div_ceil(p.band_rows.max(1));
+    let mut buf: Vec<u8> = Vec::new();
+    let mut tally = Tally::default();
+    let mut first = 0;
+    while first < bands {
+        let n = per_group.min(bands - first);
+        let y0 = first * p.band_rows;
+        let rows = (n * p.band_rows).min(p.h as usize - y0);
+        let len = p.lay.out_row().checked_mul(rows).ok_or_else(|| CodecError::LimitExceeded("band size".into()))?;
+        let workers = budget_workers(len as u64, p.per_worker, cap, threads)?;
+        // Missing chunks leave their rows as they are: they must start empty in every group.
+        buf = refill_zeroed(buf, len)?;
+        tally = tally + decode_bands(p, b, &mut buf, band, first, workers)?;
+        if let Some(c) = p.ycbcr {
+            c.convert(&mut buf, p.lay.out_channels(), p.lay.out);
+        }
+        if let Some(signed) = p.lab {
+            convert_ab(&mut buf, p.lay.out_channels(), p.lay.out, signed, false);
+        }
+        let rows = u32::try_from(rows).map_err(|_| err("band too tall"))?;
+        let y0 = u32::try_from(y0).map_err(|_| err("band out of range"))?;
+        let group = Image::from_raw(p.w, rows, p.lay.out_layout, p.lay.out, std::mem::take(&mut buf))?;
+        let (x, y) = match turn {
+            3 | 4 => (0, p.h.saturating_sub(y0 + rows)),
+            5 | 8 => (y0, 0),
+            6 | 7 => (p.h.saturating_sub(y0 + rows), 0),
+            _ => (0, y0),
+        };
+        let group = group.oriented(turn)?;
+        sink(x, y, &group)?;
+        buf = group.into_data();
+        first += n;
+    }
+    if tally.decoded == 0 && tally.missing > 0 {
+        return Err(err("the image data is missing (cut off or past the end of the file)").into());
+    }
+    Ok(tally.missing > 0)
 }
 
 /// The Orientation (1–8) of page `page` (`None`: the default page); 1 when absent, malformed
@@ -399,8 +561,68 @@ fn jpeg_dimensions(data: &[u8], steps: &mut u64) -> Result<(u16, u16, u8), Codec
     Err(err("JPEG chunk without SOF"))
 }
 
+/// A directory checked and laid out for decoding, before any pixel is read.
+struct Prepared {
+    w: u32,
+    h: u32,
+    lay: Layout,
+    /// Rows per band: one strip, or one row of tiles.
+    band_rows: usize,
+    patches: Vec<(u64, Vec<u8>)>,
+    tl: tiff::decoder::Limits,
+    /// Bytes each band worker holds while it decodes: its decoder's chunk tables and scratch.
+    per_worker: u64,
+    /// YCbCr samples: their conversion to RGB.
+    ycbcr: Option<tiff_ycbcr::YCbCr>,
+    /// Lab samples: `Some(true)` for CIELab (a* and b* stored signed), `Some(false)` for ICCLab.
+    lab: Option<bool>,
+    bits: u64,
+    float: bool,
+    associated: bool,
+}
+
+impl Prepared {
+    /// A decoder over `b` (the file the directory was read from) that opens the directory.
+    fn open<'a>(&'a self, b: &'a [u8]) -> Result<Decoder<Patched<'a>>, CodecError> {
+        Decoder::new(Patched { b, patches: &self.patches, pos: 0 }).map(|d| d.with_limits(self.tl.clone())).map_err(map_err)
+    }
+
+    /// Output bytes of one full band.
+    fn band_bytes(&self) -> Result<usize, CodecError> {
+        self.lay.out_row().checked_mul(self.band_rows).ok_or_else(|| CodecError::LimitExceeded("band size".into()))
+    }
+}
+
 /// Decodes the pixels of one directory.
 fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -> Result<Image, CodecError> {
+    let p = prepare(f, dir, limits, keep_associated, true)?;
+    let len = p.lay.out_row().checked_mul(p.h as usize).ok_or_else(|| CodecError::LimitExceeded("image size".into()))?;
+    let workers = budget_workers(len as u64, p.per_worker, limits.max_alloc, worker_threads())?;
+    // The output, allocated once and fallibly.
+    let mut data = zeroed(len)?;
+    let tally = decode_bands(&p, f.b, &mut data, p.band_bytes()?, 0, workers)?;
+    if tally.decoded == 0 && tally.missing > 0 {
+        return Err(err("the image data is missing (cut off or past the end of the file)"));
+    }
+    if let Some(c) = p.ycbcr {
+        c.convert(&mut data, p.lay.out_channels(), p.lay.out);
+    }
+    if let Some(signed) = p.lab {
+        convert_ab(&mut data, p.lay.out_channels(), p.lay.out, signed, false);
+    }
+    let mut img = Image::from_raw(p.w, p.h, p.lay.out_layout, p.lay.out, data)?;
+    img.source_bit_depth = Some(p.bits as u8);
+    img.source_float = Some(p.float);
+    img.associated_alpha = p.associated;
+    if tally.missing > 0 {
+        img.warnings.push(DecodeWarning::Truncated { format: F });
+    }
+    Ok(img)
+}
+
+/// Checks one directory and lays it out for decoding. `whole`: the image is decoded into one
+/// buffer, which `limits.max_alloc` bounds; otherwise only its size is checked here.
+fn prepare(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool, whole: bool) -> Result<Prepared, CodecError> {
     // The values the `tiff` crate reads must exist: a count past the end of the file is
     // neither allocated nor read.
     if let Some(e) = dir.entries.iter().find(|e| ifd::STRUCTURAL_TAGS.contains(&e.tag) && f.data(e).is_none()) {
@@ -568,8 +790,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         l.intermediate_buffer_size = f.b.len().max(1);
         l
     };
-    let open = || Decoder::new(Patched { b: f.b, patches: &patches, pos: 0 }).map(|d| d.with_limits(tl.clone())).map_err(map_err);
-    let mut dec = open()?;
+    let mut dec = Decoder::new(Patched { b: f.b, patches: &patches, pos: 0 }).map(|d| d.with_limits(tl.clone())).map_err(map_err)?;
     if dec.dimensions().map_err(map_err)? != (w, h) || (dec.get_chunk_type() == ChunkType::Tile) != tiled {
         return Err(err("inconsistent image directory"));
     }
@@ -617,7 +838,11 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         (Some(_), _) => SampleType::U8,
         _ => src.out(),
     };
-    limits.check(w, h, out_layout, out)?;
+    if whole {
+        limits.check(w, h, out_layout, out)?;
+    } else {
+        limits.check_size(w, h)?;
+    }
     // Decompression-bomb guard: no compression method expands data by more than a few thousand
     // times (Deflate at most ~1032:1, LZW ~2730:1, PackBits 128:1), so a file far too small for
     // its declared size is refused before the image is allocated. CCITT Group 4 codes a blank row
@@ -700,6 +925,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         let plane1 = u32::try_from(chunks_per_plane).map_err(|_| err("too many tiles"))?;
         largest = largest.max(dec.image_chunk_buffer_layout(plane1).map_err(map_err)?.len);
     }
+    drop(dec);
     let in_place = lay.direct() && first.len == band_bytes && first.row_stride.map(|s| s.get()) == Some(out_row);
     let scratch = if in_place { 0 } else { largest };
     if scratch > lay.scratch_cap {
@@ -709,32 +935,39 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let tables = u64::from(total).saturating_mul(DECODER_BYTES_PER_CHUNK);
     let jpeg_copy = if matches!(compression, 6 | 7) { largest as u64 } else { 0 };
     let per_worker = (scratch as u64).saturating_add(jpeg_copy).saturating_add(tables);
-    let len = out_row.checked_mul(hu).ok_or_else(|| CodecError::LimitExceeded("image size".into()))?;
-    // The output and the first decoder (kept open next to the workers).
-    let held = (len as u64).saturating_add(tables);
-    let workers = budget_workers(held, per_worker, limits.max_alloc, worker_threads())?;
+    let ycbcr = ycbcr.then(|| tiff_ycbcr::YCbCr::of(f, dir, compression, if out == SampleType::U16 { 65535.0 } else { 255.0 }));
+    let associated = keep_associated && out_layout.has_alpha() && alpha_kind == Some(1);
+    Ok(Prepared {
+        w,
+        h,
+        lay,
+        band_rows: ch.min(hu),
+        patches,
+        tl,
+        per_worker,
+        ycbcr,
+        lab: lab.then_some(photometric == 8),
+        bits,
+        float: format == 3,
+        associated,
+    })
+}
 
-    // The output, allocated once and fallibly.
-    let mut data = zeroed(len)?;
-    let tally = decode_bands(&lay, &mut data, band_bytes, workers, &mut dec, &open)?;
-    if tally.decoded == 0 && tally.missing > 0 {
-        return Err(err("the image data is missing (cut off or past the end of the file)"));
+/// `v` refilled with `len` zero bytes, reusing its allocation when it is large enough.
+fn refill_zeroed(mut v: Vec<u8>, len: usize) -> Result<Vec<u8>, CodecError> {
+    if v.capacity() < len {
+        drop(v);
+        return zeroed(len);
     }
-    if ycbcr {
-        let max = if out == SampleType::U16 { 65535.0 } else { 255.0 };
-        tiff_ycbcr::YCbCr::of(f, dir, compression, max).convert(&mut data, out_layout.channels(), out);
+    v.clear();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        v.par_extend(rayon::iter::repeat_n(0u8, len));
     }
-    if lab {
-        convert_ab(&mut data, out_layout.channels(), out, photometric == 8, false);
-    }
-    let mut img = Image::from_raw(w, h, out_layout, out, data)?;
-    img.source_bit_depth = Some(bits as u8);
-    img.source_float = Some(format == 3);
-    img.associated_alpha = keep_associated && out_layout.has_alpha() && alpha_kind == Some(1);
-    if tally.missing > 0 {
-        img.warnings.push(DecodeWarning::Truncated { format: F });
-    }
-    Ok(img)
+    #[cfg(target_arch = "wasm32")]
+    v.resize(len, 0);
+    Ok(v)
 }
 
 /// A zero-filled buffer, allocated fallibly. On native targets the zeroing (and the first
@@ -800,49 +1033,29 @@ fn bands_per_task(bands: usize, workers: usize, threads: usize) -> usize {
     if workers >= threads { 1 } else { bands.div_ceil(workers.max(1)).max(1) }
 }
 
-/// Decodes every band into `data`, in parallel on native targets (one decoder and scratch
-/// buffer per worker, at most `workers` of them at once).
+/// Decodes the bands from `first` on into `data` (`band_bytes` each), in parallel on native
+/// targets (one decoder and scratch buffer per worker, at most `workers` of them at once).
 #[cfg(not(target_arch = "wasm32"))]
-fn decode_bands<'a, O>(
-    lay: &Layout,
-    data: &mut [u8],
-    band_bytes: usize,
-    workers: usize,
-    _first: &mut Decoder<Patched<'a>>,
-    open: &O,
-) -> Result<Tally, CodecError>
-where
-    O: Fn() -> Result<Decoder<Patched<'a>>, CodecError> + Sync,
-{
+fn decode_bands(p: &Prepared, b: &[u8], data: &mut [u8], band_bytes: usize, first: usize, workers: usize) -> Result<Tally, CodecError> {
     use rayon::prelude::*;
     let band_bytes = band_bytes.max(1);
     let per_task = bands_per_task(data.len().div_ceil(band_bytes), workers, worker_threads());
     data.par_chunks_mut(band_bytes.saturating_mul(per_task))
         .enumerate()
         .map_init(
-            || open().map(|d| (d, Vec::new())).map_err(|e| e.to_string()),
+            || p.open(b).map(|d| (d, Vec::new())).map_err(|e| e.to_string()),
             |worker, (t, task)| {
                 let (dec, scratch) = worker.as_mut().map_err(|e| err(e.clone()))?;
-                decode_task(lay, dec, scratch, t.saturating_mul(per_task), task, band_bytes)
+                decode_task(&p.lay, dec, scratch, first.saturating_add(t.saturating_mul(per_task)), task, band_bytes)
             },
         )
         .try_reduce(Tally::default, |a, b| Ok(a + b))
 }
 
-/// Decodes every band into `data`, one after the other.
+/// Decodes the bands from `first` on into `data` (`band_bytes` each), one after the other.
 #[cfg(target_arch = "wasm32")]
-fn decode_bands<'a, O>(
-    lay: &Layout,
-    data: &mut [u8],
-    band_bytes: usize,
-    _workers: usize,
-    first: &mut Decoder<Patched<'a>>,
-    _open: &O,
-) -> Result<Tally, CodecError>
-where
-    O: Fn() -> Result<Decoder<Patched<'a>>, CodecError> + Sync,
-{
-    decode_task(lay, first, &mut Vec::new(), 0, data, band_bytes.max(1))
+fn decode_bands(p: &Prepared, b: &[u8], data: &mut [u8], band_bytes: usize, first: usize, _workers: usize) -> Result<Tally, CodecError> {
+    decode_task(&p.lay, &mut p.open(b)?, &mut Vec::new(), first, data, band_bytes.max(1))
 }
 
 /// Decodes the consecutive bands in `task` (the first is band `b0`), one after the other.
@@ -1178,6 +1391,8 @@ struct TagSet<'a> {
     alpha: bool,
     photoshop_resources: Option<&'a [u8]>,
     photoshop_layers: Option<&'a [u8]>,
+    /// An image pyramid level: written with `NewSubfileType` 1 (reduced resolution).
+    reduced: bool,
 }
 
 /// Writes one image directory. (The `tiff` encoder only compresses through `write_data`, which
@@ -1211,6 +1426,9 @@ where
         im.y_resolution(dpi_rational(y));
     }
     let d = im.encoder();
+    if tags.reduced {
+        d.write_tag(Tag::Unknown(ifd::TAG_NEW_SUBFILE_TYPE), 1u32)?;
+    }
     if tags.alpha {
         // 2 = unassociated alpha
         d.write_tag(Tag::ExtraSamples, &[2u16][..])?;
@@ -1283,6 +1501,116 @@ fn write_image<K: TiffKind>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>, img:
     }
 }
 
+/// Writes the image pyramid after the full image: each level half the size of the one before
+/// (rounded up), colour and alpha only, until the longer side is at most
+/// [`crate::TIFF_PYRAMID_MIN`]. An image already that small gets no levels.
+fn write_pyramid<K: TiffKind>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>, img: &Image, tags: &TagSet<'_>) -> tiff::TiffResult<()> {
+    let mut level: Option<Image> = None;
+    loop {
+        let prev = level.as_ref().unwrap_or(img);
+        let (w, h) = prev.dimensions();
+        if w.max(h) <= crate::TIFF_PYRAMID_MIN {
+            return Ok(());
+        }
+        let next = half_size(prev).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+        write_image::<K>(enc, &next, tags)?;
+        level = Some(next);
+    }
+}
+
+/// `img` at half its size, rounded up, by averaging each 2×2 block (an odd last row or column
+/// averages what it has). Colour is weighted by alpha, so transparent pixels don't darken
+/// the edges of what they surround. Rows are worked in parallel on native targets.
+fn half_size(img: &Image) -> Result<Image, CodecError> {
+    let (w, h) = img.dimensions();
+    let (nw, nh) = (w.div_ceil(2).max(1), h.div_ceil(2).max(1));
+    let layout = img.layout();
+    let sample = img.sample_type();
+    let ch = layout.channels();
+    let bps = sample.bytes();
+    let src_row = (w as usize).checked_mul(ch).and_then(|n| n.checked_mul(bps)).ok_or_else(|| CodecError::encode(F, "image row size overflows"))?;
+    let out_row = (nw as usize).checked_mul(ch).and_then(|n| n.checked_mul(bps)).ok_or_else(|| CodecError::encode(F, "pyramid row size overflows"))?;
+    let len = out_row.checked_mul(nh as usize).ok_or_else(|| CodecError::encode(F, "pyramid level size overflows"))?;
+    if img.data().len() < src_row.saturating_mul(h as usize) {
+        return Err(CodecError::encode(F, "image buffer is shorter than its dimensions"));
+    }
+    let mut out = zeroed(len)?;
+    let level = Level { data: img.data(), w: w as usize, h: h as usize, ch, sample, src_row, alpha: layout.has_alpha() };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        out.par_chunks_mut(out_row.max(1)).enumerate().for_each(|(y, row)| level.row(y, row));
+    }
+    #[cfg(target_arch = "wasm32")]
+    out.chunks_mut(out_row.max(1)).enumerate().for_each(|(y, row)| level.row(y, row));
+    let mut half = Image::from_raw(nw, nh, layout, sample, out)?;
+    half.icc = img.icc.clone();
+    Ok(half)
+}
+
+/// The source of one [`half_size`] level.
+struct Level<'a> {
+    data: &'a [u8],
+    w: usize,
+    h: usize,
+    ch: usize,
+    sample: SampleType,
+    src_row: usize,
+    /// The last channel is alpha.
+    alpha: bool,
+}
+
+impl Level<'_> {
+    /// Source row `y` as numbers (empty past the bottom).
+    fn samples(&self, y: usize) -> Vec<f64> {
+        let Some(row) = (y < self.h).then(|| self.data.get(y * self.src_row..(y + 1) * self.src_row)).flatten() else { return Vec::new() };
+        match self.sample {
+            SampleType::U8 => row.iter().map(|&v| f64::from(v)).collect(),
+            SampleType::U16 => row.as_chunks::<2>().0.iter().map(|b| f64::from(u16::from_ne_bytes(*b))).collect(),
+            SampleType::F32 => row.as_chunks::<4>().0.iter().map(|b| f64::from(f32::from_ne_bytes(*b))).collect(),
+            SampleType::F16 => row.as_chunks::<2>().0.iter().map(|b| f64::from(f16::from_bits(u16::from_ne_bytes(*b)).to_f32())).collect(),
+        }
+    }
+
+    /// Writes output row `y` into `out`.
+    fn row(&self, y: usize, out: &mut [u8]) {
+        let rows = [self.samples(y * 2), self.samples(y * 2 + 1)];
+        let ch = self.ch;
+        let bps = self.sample.bytes();
+        let mut sums = vec![0f64; ch];
+        for (x, px) in out.chunks_exact_mut(ch * bps).enumerate() {
+            sums.iter_mut().for_each(|s| *s = 0.0);
+            let (mut n, mut weight) = (0f64, 0f64);
+            for row in rows.iter().filter(|r| !r.is_empty()) {
+                for sx in [x * 2, x * 2 + 1].into_iter().filter(|&sx| sx < self.w) {
+                    let Some(p) = row.get(sx * ch..(sx + 1) * ch) else { continue };
+                    let a = if self.alpha { p.last().copied().unwrap_or(1.0) } else { 1.0 };
+                    for (c, (sum, v)) in sums.iter_mut().zip(p).enumerate() {
+                        *sum += if self.alpha && c + 1 == ch { *v } else { v * a };
+                    }
+                    n += 1.0;
+                    weight += a;
+                }
+            }
+            for (c, (sum, dst)) in sums.iter().zip(px.chunks_exact_mut(bps)).enumerate() {
+                let v = if self.alpha && c + 1 == ch {
+                    sum / n.max(1.0)
+                } else if weight > 0.0 {
+                    sum / weight
+                } else {
+                    0.0
+                };
+                match self.sample {
+                    SampleType::U8 => dst.copy_from_slice(&[v.round().clamp(0.0, 255.0) as u8]),
+                    SampleType::U16 => dst.copy_from_slice(&(v.round().clamp(0.0, 65535.0) as u16).to_ne_bytes()),
+                    SampleType::F32 => dst.copy_from_slice(&(v as f32).to_ne_bytes()),
+                    SampleType::F16 => dst.copy_from_slice(&f16::from_f32(v as f32).to_bits().to_ne_bytes()),
+                }
+            }
+        }
+    }
+}
+
 /// Classic TIFF offsets are 32-bit: a file that may grow past this is written as BigTIFF.
 const CLASSIC_LIMIT: u64 = u32::MAX as u64;
 
@@ -1337,6 +1665,19 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
         // Document content, not metadata: written whenever present.
         photoshop_resources: img.meta.photoshop_resources.as_deref().filter(|r| !r.is_empty()),
         photoshop_layers: img.meta.photoshop_layers.as_deref().filter(|l| !l.is_empty()),
+        reduced: false,
+    };
+    // A pyramid level holds the colour and alpha only, with the profile so it shows the same.
+    let level_tags = TagSet {
+        exif: None,
+        icc: tags.icc,
+        xmp: None,
+        dpi: None,
+        text: Vec::new(),
+        alpha: tags.alpha,
+        photoshop_resources: None,
+        photoshop_layers: None,
+        reduced: true,
     };
 
     // BigTIFF when asked, or when the file could pass the 4 GiB a classic TIFF can address. A
@@ -1347,13 +1688,22 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
         if big {
             let mut enc = TiffEncoder::new_big(&mut cursor)?.with_compression(compression).with_predictor(predictor);
             write_image::<TiffKindBig>(&mut enc, &img, &tags)?;
+            if opts.tiff_pyramid {
+                write_pyramid::<TiffKindBig>(&mut enc, &img, &level_tags)?;
+            }
         } else {
             let mut enc = TiffEncoder::new(&mut cursor)?.with_compression(compression).with_predictor(predictor);
             write_image::<TiffKindStandard>(&mut enc, &img, &tags)?;
+            if opts.tiff_pyramid {
+                write_pyramid::<TiffKindStandard>(&mut enc, &img, &level_tags)?;
+            }
         }
         Ok(cursor.into_inner())
     };
-    let big = opts.tiff_bigtiff || estimated_size(&img, &tags) > CLASSIC_LIMIT;
+    let estimate = estimated_size(&img, &tags);
+    // The pyramid adds at most a third of the image (1/4 + 1/16 + …).
+    let estimate = if opts.tiff_pyramid { estimate.saturating_add(img.data().len() as u64 / 3) } else { estimate };
+    let big = opts.tiff_bigtiff || estimate > CLASSIC_LIMIT;
     match write(big) {
         Ok(v) => Ok(v),
         Err(tiff::TiffError::IntSizeError) if !big => write(true).map_err(|e| CodecError::encode(F, e)),

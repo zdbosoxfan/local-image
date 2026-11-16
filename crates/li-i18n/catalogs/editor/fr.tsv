@@ -3920,3 +3920,29 @@ ai	New	Nouveautés
 	GPU Memory (MB, 0 = Automatic)	Mémoire GPU (Mo, 0 = Automatique)
 	{path} was saved over	{path} a été écrasé
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	« {doc} » n’est plus associé à un fichier et est marqué comme non enregistré : enregistrez-le sous un nouveau nom pour le conserver.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Calques fusionnés
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Un mélange de gris qui étale les tons de l'image
+	File Type	Type de fichier
+	Save as JPEG	Enregistrer en JPEG
+	Save as PSD	Enregistrer en PSD
+	Save as TIFF	Enregistrer en TIFF
+	Convert Profile to sRGB	Convertir le profil en sRVB
+	LZW Compression	Compression LZW
+	Resize to Fit	Redimensionner pour adapter
+	Run	Exécuter
+	You must save to at least one file type.	Vous devez enregistrer dans au moins un type de fichier.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Entrée numérique non valide. Une valeur comprise entre 1 et 12 est requise. La valeur précédente a été rétablie.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Entrée numérique non valide. Une valeur comprise entre 1 et 30000 est requise. La valeur précédente a été rétablie.
+	A value between 1 and 12 is required. Closest value inserted.	Une valeur comprise entre 1 et 12 est requise. La valeur la plus proche a été insérée.
+	A value between 1 and 30000 is required. Closest value inserted.	Une valeur comprise entre 1 et 30000 est requise. La valeur la plus proche a été insérée.
+	Image Compression	Compression de l'image
+	Save Image Pyramid	Enregistrer la pyramide d'images
+	Save Transparency	Enregistrer la transparence
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Ouvrir en tant qu'objet intelligent…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	Bord net
+	Last folder	Dernier dossier

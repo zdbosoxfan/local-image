@@ -97,8 +97,16 @@ impl Headless {
             }
             "doc.new" => self.command_run("file.new", p),
             "doc.save" => {
-                let mut opts =
-                    photocraft_io::ExportOptions { tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false), ..Default::default() };
+                let tiff_bool = |key| photocraft_engine::file_cmds::tiff_bool_param(&p, key, "doc.save").map_err(|e| bad(e.to_string()));
+                let mut opts = photocraft_io::ExportOptions {
+                    tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false),
+                    tiff_transparency: tiff_bool("tiffTransparency")?,
+                    ..Default::default()
+                };
+                if let Some(c) = photocraft_engine::file_cmds::tiff_compression_param(&p, "doc.save").map_err(|e| bad(e.to_string()))? {
+                    opts.encode.tiff_compression = c;
+                }
+                opts.encode.tiff_pyramid = tiff_bool("tiffPyramid")?.unwrap_or(false);
                 match p.get("quality") {
                     None | Some(Value::Null) => {}
                     Some(v) => {

@@ -722,6 +722,9 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                 opts.encode.webp_quality = q;
             }
             opts.tiff_layers = settings.tiff_layers;
+            opts.tiff_transparency = settings.tiff_transparency;
+            opts.encode.tiff_compression = settings.tiff_compression;
+            opts.encode.tiff_pyramid = settings.tiff_pyramid;
             opts.read_linked_files = settings.read_linked_files;
             opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
             crate::crash_guard::guard("Export", || {
@@ -1466,6 +1469,9 @@ pub(crate) fn prepare_document_save(
         options.encode.webp_quality = value;
     }
     options.tiff_layers = settings.tiff_layers;
+    options.tiff_transparency = settings.tiff_transparency;
+    options.encode.tiff_compression = settings.tiff_compression;
+    options.encode.tiff_pyramid = settings.tiff_pyramid;
     options.read_linked_files = settings.read_linked_files;
     options.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
     let progress = |fraction| interrupt.progress(fraction * 0.8);
@@ -1608,6 +1614,37 @@ mod save_worker_native_tests {
         assert_eq!(std::fs::read(&a).unwrap(), b"old source");
         assert_eq!(std::fs::read(&link).unwrap(), b"old source");
         assert!(!std::fs::read_dir(&dir.0).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().ends_with(".pcsave.tmp")));
+    }
+    /// What TIFF Options sets in `ExportSettings` reaches the file the app writes, through the
+    /// export service and the background save: the compression, Save Transparency and Save
+    /// Image Pyramid.
+    #[test]
+    fn tiff_options_reach_the_written_file() {
+        photocraft_engine::vector_integration::initialize();
+        let mut doc = Document::new("transparent", Size::new(200, 100), ColorMode::Rgb, SampleType::U8);
+        let mut layer = Layer::raster("pixels", doc.pixel_format());
+        layer.surface_mut().unwrap().fill_rect(photocraft_doc::Rect::new(0, 0, 100, 100), &[0.2, 0.4, 0.7, 1.0]);
+        doc.layers.push(layer);
+        let doc = Arc::new(doc);
+        let settings = photocraft_ui_egui::ExportSettings {
+            tiff_compression: photocraft_codecs::TiffCompression::Lzw,
+            tiff_transparency: Some(false),
+            tiff_pyramid: true,
+            ..Default::default()
+        };
+        let check = |bytes: &[u8]| {
+            let info = photocraft_codecs::tiff_info(bytes).unwrap();
+            assert_eq!(info.pages.iter().map(|p| (p.width, p.compression)).collect::<Vec<_>>(), [(200, 5), (100, 5), (50, 5)]);
+            assert!(!photocraft_codecs::decode(bytes).unwrap().layout().has_alpha());
+        };
+        let export = native(None).export.unwrap();
+        let (bytes, _) = export(&doc, "t.tif", &settings).unwrap();
+        check(&bytes);
+        let dir = Dir::new();
+        let path = path(&dir, "t.tif");
+        let prepared = prepare_document_save(doc, &path, &settings, &Interrupt::NONE).unwrap();
+        (prepared.write.commit)().unwrap();
+        check(&std::fs::read(&path).unwrap());
     }
     #[test]
     fn background_save_native_rejects_a_new_file_created_after_staging() {

@@ -109,6 +109,16 @@ pub struct SaveParams {
     /// TIFF: keep the layers (Photoshop layer data). Off by default: a flat TIFF.
     #[serde(default, rename = "tiffLayers")]
     pub tiff_layers: bool,
+    /// TIFF: image compression, "none", "lzw" or "zip" (the default).
+    #[serde(default, rename = "tiffCompression")]
+    pub tiff_compression: Option<String>,
+    /// TIFF: Save Transparency. Off composites the image over white; unset or on keeps the
+    /// transparency.
+    #[serde(default, rename = "tiffTransparency")]
+    pub tiff_transparency: Option<bool>,
+    /// TIFF: Save Image Pyramid, half-size copies after the full image.
+    #[serde(default, rename = "tiffPyramid")]
+    pub tiff_pyramid: bool,
     #[serde(default)]
     pub index: Option<usize>,
 }
@@ -809,6 +819,10 @@ impl PhotocraftMcp {
         if let Some(q) = p.quality.filter(|q| !(1..=100).contains(q)) {
             return Ok(fail(format!("`quality` must be a whole number from 1 to 100, got {q}")));
         }
+        let tiff_compression = match photocraft_engine::file_cmds::tiff_compression_param(&json!({"tiffCompression": p.tiff_compression}), "save") {
+            Ok(c) => c,
+            Err(e) => return Ok(fail(e.to_string())),
+        };
         if let Some(b) = self.bridge_client() {
             let Some(path) = p.path else {
                 return Ok(fail("bridge mode needs `path`"));
@@ -817,7 +831,11 @@ impl PhotocraftMcp {
         }
         let Some(r) = self
             .headless_op(move |h| {
-                let mut opts = photocraft_io::ExportOptions { tiff_layers: p.tiff_layers, ..Default::default() };
+                let mut opts = photocraft_io::ExportOptions { tiff_layers: p.tiff_layers, tiff_transparency: p.tiff_transparency, ..Default::default() };
+                if let Some(c) = tiff_compression {
+                    opts.encode.tiff_compression = c;
+                }
+                opts.encode.tiff_pyramid = p.tiff_pyramid;
                 if let Some(q) = p.quality {
                     opts.encode.jpeg_quality = q;
                     opts.encode.webp_quality = q;

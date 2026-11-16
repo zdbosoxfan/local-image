@@ -1,4 +1,4 @@
-//! Photo metadata for LightCraft: EXIF (TIFF/raw files, JPEG APP1, PNG `eXIf`, WebP `EXIF`), XMP packets
+//! Photo metadata for LightCraft: EXIF (TIFF/raw files, JPEG APP1, PNG `eXIf`, WebP `EXIF`, HEIF items), XMP packets
 //! (read + write, standard namespaces plus our own `lc:` namespace) and basic IPTC-IIM.
 //!
 //! Entry points:
@@ -7,7 +7,8 @@
 //! - [`parse_xmp`] / [`write_xmp`] — XMP packets (interchange fields + the opaque `lc:settings` JSON).
 //! - [`parse_iptc`] — IPTC-IIM record 2 datasets.
 //! - [`parse_gpx`] — GPS track logs (GPX) for geotagging by capture time.
-//! - [`extract`] — all of the above for a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, Canon CR3, PSD/PSB).
+//! - [`extract`] — all of the above for a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, Canon CR3, PSD/PSB,
+//!   HEIF/HEIC/AVIF).
 //! - [`cr3`] — the Canon CR3 container (metadata blocks, XMP, the JPEG and raw tracks).
 #![forbid(unsafe_code)]
 #![expect(clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
@@ -26,6 +27,7 @@ pub use sony::{SonyLensCorrection, SonyMetadata, SonyPixelShift};
 mod exif;
 mod file_info;
 mod gpx;
+mod heif;
 mod iptc;
 pub mod tags;
 mod xmp;
@@ -338,7 +340,7 @@ impl Metadata {
     }
 }
 
-/// Read metadata from a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, CR3, PSD/PSB).
+/// Read metadata from a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, CR3, PSD/PSB, HEIF/HEIC/AVIF).
 /// Precedence: EXIF, then IPTC fills gaps, then XMP overrides user fields and fills the rest.
 pub fn extract(bytes: &[u8]) -> Metadata {
     extract_with_xmp(bytes).0
@@ -366,7 +368,8 @@ fn exif_metadata(bytes: &[u8], e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff
 /// The promise has limits. Corrupt Exif outside PSD/PSB stays best-effort and reads as no Exif, so a
 /// location inside it goes unseen. Nothing looks at JPEG data past the first scan, IPTC past the first
 /// APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3
-/// preview boxes, or PNG text chunks under other keywords.
+/// preview boxes, or PNG text chunks under other keywords. HEIF items are read best-effort and carry
+/// no promise at all: [`reads_container`] refuses the format.
 pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
     if !bytes.starts_with(b"8BPS") {
         let (e, tiff) = container::blocks(bytes);

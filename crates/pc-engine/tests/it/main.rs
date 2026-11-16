@@ -3,6 +3,7 @@
 
 mod brush_smoothing;
 mod camera_raw_noise_clamp;
+mod convert_profile_dither;
 mod eraser_locked;
 mod finite_command_params;
 mod gallery_colours;

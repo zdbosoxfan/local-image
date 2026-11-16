@@ -6,6 +6,39 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Edit > Convert to Profile can dither 8-bit documents, so a change of profile that lands between
+  whole 8-bit steps no longer bands smooth gradients. It is off by default and the same image
+  always dithers the same way.
+- Layer > Smart Objects > Reset Transform puts a smart object back at 100 % of its contents' own
+  size with rotation, skew, Distort and Perspective cleared, centred where it sits, in one undo
+  step. Its Warp and smart filters stay, and it re-renders from its contents without losing detail.
+- The Match Color dialog has a Source Layer menu: match to one layer of the Source document instead
+  of its merged image. Layers with the same name stay separate choices, and choosing another
+  Source document goes back to Merged.
+- Levels: hold Alt while dragging the black or white Input slider to see what it clips. The canvas
+  turns white with the clipped shadows in black or colour (black slider), or black with the clipped
+  highlights in white or colour (white slider); release Alt or the mouse to see the preview again.
+  The document is never changed. Grayscale shows black and white; CMYK and Lab documents, channel,
+  mask and Quick Mask targets, and Smart Filter Levels keep the normal preview.
+- Hue/Saturation: drag between a colour range's handles to move them together. The fully-on span
+  moves all four, each fade moves its own two; a side stops at the other and the range never grows
+  past a full turn. Each drag is one undo step.
+- Black & White has an Auto button beside Default, in the Properties panel and in Image >
+  Adjustments. It sets the colour weights for the image (what lies under the adjustment layer, or
+  the layer's own pixels) so colours the default mix turns into the same grey are told apart, with
+  the mildest change that does it. It is one undo step; automation can ask for the weights with
+  `image.adjustments.blackWhite.auto`, which changes nothing.
+
+### Changed
+
+- Filter > Other > Frequency Separation now puts its Low and High Frequency layers in a
+  "Frequency Separation" group above the source, in one undo step, and rebuilds the source
+  exactly at 16 and 32 bits (within one level at 8 bits). It asks for a radius of 0.1 to 1000 px
+  (default 4) and is refused on an empty layer, a non-pixel layer, a targeted alpha channel, Quick
+  Mask or shown layer mask, and in CMYK and Lab, where the split does not add back up.
+
 ### Security
 
 - HEIF decoding bounds metadata parsing, extent-record allocations, item reconstruction,
@@ -63,6 +96,8 @@ All notable changes to Local Image are recorded here. The format follows
 - Remove Location Info now checks JPEG extended XMP, IPTC Location Created and Location Shown, country codes, GPS destination and area fields, and GPS values short of a full position.
 - Remove Location Info offers DNG in its refusals only for raw photos.
 - Remove Location Info on an Original export is best-effort, not a guarantee. Corrupt Exif in a file other than PSD or PSB reads as no Exif, so a location inside it isn't seen and the file is copied. The same goes for JPEG data past the first scan, IPTC past the first JPEG APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside a TIFF's first directory, CR3 previews and PNG text chunks under other keywords. Export as JPEG or TIFF when the location must go.
+- Perspective Crop with no size set makes the canvas the rectangle the frame shows in perspective, so a façade or page shot at an angle keeps its proportions. It used the average length of the frame's opposite edges, which squashed it. A frame whose sides barely converge takes its longest edges.
+- HEIC, HEIF and AVIF photos import with the capture time, camera, lens, location and keywords in their Exif and XMP items. They used to import with none of it, dated by the file's modification time. Remove Location Info still refuses to copy these originals.
 
 ## [0.8.0-alpha] - 2026-10-29
 

@@ -67,7 +67,10 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
         _ => None,
     };
     let cx = EditorCx { mem: egui::Id::new(("adjust-dialog", kind.as_str())), hist, gray, swatches: adjust_editors::swatches(app) };
-    let e = adjust_editors::editor(ui, &kind, &mut values, &cx);
+    let mut e = adjust_editors::editor(ui, &kind, &mut values, &cx);
+    if e.auto {
+        adjust_editors::apply_auto(app, &mut values, active, &mut e);
+    }
     if e.changed
         && let Value::Object(v) = values
     {
@@ -75,6 +78,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
         fields.retain(|k, _| k.starts_with("__"));
         fields.extend(v);
     }
+    crate::levels_clipping::sync(ui.ctx(), cx.mem, fields);
     let mut preview = fields.get("__preview").and_then(Value::as_bool).unwrap_or(true);
     ui.add_space(6.0);
     if crate::widgets::checkbox(ui, &mut preview, tl!("Preview")).changed() {
