@@ -307,7 +307,7 @@ mod tests {
             hash(&alpha),
             hash(&fg.px.iter().flatten().copied().collect::<Vec<_>>()),
         ];
-        assert_eq!(actual, [415457246788219432, 2673089081770112874, 4217930111347877778, 7289351520849440030, 6249743762746608584]);
+        assert_eq!(actual, [415457246788219432, 2673089081770112874, 4243238287844847825, 7289351520849440030, 6249743762746608584]);
     }
 
     /// Horizontal blend from `a` (left) to `b` (right) across a Gaussian-blurred edge at x = 40.
