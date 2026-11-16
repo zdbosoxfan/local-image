@@ -292,9 +292,15 @@ mod tests {
         let mut s = Surface::new(PixelFormat::RGBA8);
         s.fill_rect(Rect::new(0, 0, 4, 1), &[1.0, 1.0, 1.0, 0.5]);
         s.fill_rect(Rect::new(4, 0, 8, 1), &white);
+        // From an opaque seed the fill is the wand region composited at its own coverage, no more.
+        let mut plain = s.clone();
+        let img = crate::selection::rgba8_image(&plain, a);
+        let region = crate::selection::wand_region(&img, a, (6, 0), 0.0, true, true).unwrap();
+        composite_area(&mut plain, region.bbox, BlendMode::Normal, |x, y| region.at(x, y), |_, _| white, false, None);
         assert!(bucket_fill(&mut s, a, (6, 0), 0.0, true, true, white, 1.0, None));
-        let edge = s.rgba(3, 0)[3];
-        assert!(edge > 0.5 && edge < 0.6, "only the anti-aliased coverage lands: {edge}");
+        for x in 0..8 {
+            assert_eq!(s.rgba(x, 0), plain.rgba(x, 0), "at {x}");
+        }
         assert!((s.rgba(1, 0)[3] - 0.5).abs() < 0.01, "outside the region");
     }
 }
