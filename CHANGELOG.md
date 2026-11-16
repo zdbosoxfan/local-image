@@ -33,7 +33,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Remove Location Info now checks JPEG extended XMP, IPTC Location Created and Location Shown, country codes, GPS destination and area fields, and GPS values short of a full position.
 - Remove Location Info offers DNG in its refusals only for raw photos.
 - Remove Location Info on an Original export is best-effort, not a guarantee. Corrupt Exif in a file other than PSD or PSB reads as no Exif, so a location inside it isn't seen and the file is copied. The same goes for JPEG data past the first scan, IPTC past the first JPEG APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside a TIFF's first directory, CR3 previews and PNG text chunks under other keywords. Export as JPEG or TIFF when the location must go.
-- HEIC and HEIF photos import with the capture time, camera, lens, location and keywords in their Exif and XMP items. They used to import with none of it, dated by the file's modification time. Remove Location Info still refuses to copy these originals.
+- HEIC, HEIF and AVIF photos import with the capture time, camera, lens, location and keywords in their Exif and XMP items. They used to import with none of it, dated by the file's modification time. Remove Location Info still refuses to copy these originals.
 
 ## [0.8.0-alpha] - 2026-10-29
 
