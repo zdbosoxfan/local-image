@@ -67,7 +67,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
             let background = l.name == "Background" && l.locks.position && matches!(l.content, LayerContent::Raster(_));
             if background && let Some(surf) = l.surface_mut() {
                 let src = surf.content_bounds();
-                let warped = photocraft_algo::transform::warp_surface(surf, src, &hm, interp);
+                let warped = photocraft_algo::transform::warp_surface_clipped(surf, src, &hm, interp, canvas);
                 let mut base = photocraft_raster::Surface::new(fmt);
                 let fill = photocraft_raster::from_rgba(&fmt, bg);
                 base.write_region(canvas, &fill.repeat(canvas.width() as usize * canvas.height() as usize));
@@ -146,5 +146,18 @@ mod tests {
         let r = s.execute("image.perspectiveCrop", json!({"quad": q})).unwrap();
         let (w, h) = (r["width"].as_u64().unwrap(), r["height"].as_u64().unwrap());
         assert!(w.abs_diff(732) <= 1 && h.abs_diff(588) <= 1, "{w} x {h}, want 732 x 588 within 1 px");
+    }
+
+    /// #7557: a quad low on a strongly converging photo (its horizon crosses the canvas, with the
+    /// canvas centre beyond it) is cropped, not left blank in the background colour.
+    #[test]
+    fn a_quad_below_a_horizon_across_the_canvas_keeps_its_content() {
+        use photocraft_color::{Color, ColorMode, SampleType};
+        let doc = photocraft_doc::Document::with_background("red", Size::new(100, 100), ColorMode::Rgb, SampleType::U8, Color::rgb(1.0, 0.0, 0.0));
+        let mut s = Session::new();
+        s.add_document(doc, None);
+        s.execute(CMD, json!({"quad": [[40, 70], [60, 70], [90, 95], [10, 95]], "width": 50, "height": 39})).unwrap();
+        let px = s.active().unwrap().doc.layers[0].surface().unwrap().rgba(25, 20);
+        assert_eq!(px, [1.0, 0.0, 0.0, 1.0]);
     }
 }

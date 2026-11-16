@@ -431,6 +431,17 @@ pub fn warp_output_bounds(src_rect: Rect, h: &Homography) -> Option<Rect> {
 /// The result has the same format as `src`, with alpha added if `src` had none; pixels outside
 /// the warped quad are transparent.
 pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp) -> Surface {
+    warp(src, src_rect, h, interp, None)
+}
+
+/// [`warp_surface`] drawn only inside `clip` (destination space), as a crop to a new canvas
+/// needs: the clip, not the source, says which side of the horizon is drawn when it lies wholly
+/// on one side.
+pub fn warp_surface_clipped(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Rect) -> Surface {
+    warp(src, src_rect, h, interp, Some(clip))
+}
+
+fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Option<Rect>) -> Surface {
     let mut fmt = src.format();
     let converted;
     let mut src = if fmt.alpha {
@@ -441,15 +452,19 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
         &converted
     };
     let mut out = Surface::new(fmt);
-    if src_rect.is_empty() {
+    if src_rect.is_empty() || clip.is_some_and(|c| c.is_empty()) {
         return out;
     }
     let mut h = *h;
     let mut src_rect = src_rect;
     // A Bicubic reduction first resizes the source by the whole local scale with the same Keys
     // cubic widened by 1 / scale (`BicubicSharper` is a = −0.75), so the warp samples it at about
-    // 1:1; a plain 4×4 kernel aliases at 50 %. Bilinear samples the source directly.
-    let (cx, cy) = ((f64::from(src_rect.x0) + f64::from(src_rect.x1)) / 2.0, (f64::from(src_rect.y0) + f64::from(src_rect.y1)) / 2.0);
+    // 1:1; a plain 4×4 kernel aliases at 50 %. Bilinear samples the source directly. With a clip,
+    // the scale that matters is the one at the source point landing in the clip's centre.
+    let (cx, cy) = match clip.and_then(|c| Some((c, h.inverse()?))) {
+        Some((c, inv)) => inv.apply((f64::from(c.x0) + f64::from(c.x1)) / 2.0, (f64::from(c.y0) + f64::from(c.y1)) / 2.0),
+        None => ((f64::from(src_rect.x0) + f64::from(src_rect.x1)) / 2.0, (f64::from(src_rect.y0) + f64::from(src_rect.y1)) / 2.0),
+    };
     let scale = h.local_scale(cx, cy);
     let reduced;
     if interp == Interp::Bicubic && scale < 0.999 && scale > 0.0 {
@@ -460,8 +475,23 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
         src_rect = crate::resample::scaled_rect(src_rect, f, f);
     }
     let Some(inv) = h.inverse() else { return out };
-    let front = h.front_side([src_rect.x0 as f64, src_rect.y0 as f64, src_rect.x1 as f64, src_rect.y1 as f64]);
-    let Some(dst) = warp_output_bounds(src_rect, &h) else { return out };
+    // A clip wholly on one side of the inverse horizon only samples that side, so that side is drawn
+    // (a Perspective Crop low on a converging photo has most of the layer beyond its horizon, #7557);
+    // otherwise the source's majority side is (#4863).
+    let clip_w = clip.map(|c| [(c.x0, c.y0), (c.x1, c.y0), (c.x1, c.y1), (c.x0, c.y1)].map(|(x, y)| inv.w(f64::from(x), f64::from(y))));
+    let clip_side = clip_w.and_then(|cw| [1.0, -1.0].into_iter().find(|&s| cw.iter().all(|&w| s * w > 0.0)));
+    let front = clip_side.unwrap_or_else(|| h.front_side([src_rect.x0 as f64, src_rect.y0 as f64, src_rect.x1 as f64, src_rect.y1 as f64]));
+    // The warped corners only bound the result while the whole source (plus the margin the sampler
+    // reads) is on one side of the horizon; past it they bound nothing, and the clip does.
+    let (sx0, sy0, sx1, sy1) = (src_rect.x0 as f64 - 1.0, src_rect.y0 as f64 - 1.0, src_rect.x1 as f64 + 1.0, src_rect.y1 as f64 + 1.0);
+    let fwd_w = [(sx0, sy0), (sx1, sy0), (sx1, sy1), (sx0, sy1)].map(|(x, y)| h.w(x, y));
+    let one_side = [1.0, -1.0].iter().any(|s| fwd_w.iter().all(|&w| s * w > 0.0));
+    let dst = match clip {
+        Some(c) if one_side => warp_output_bounds(src_rect, &h).map(|b| b.intersect(&c)),
+        Some(c) => Some(c),
+        None => warp_output_bounds(src_rect, &h),
+    };
+    let Some(dst) = dst else { return out };
     let n = fmt.channels();
     let a = n - 1;
     let tiles: Vec<Rect> = dst.tiles().map(|tc| tc.rect().intersect(&dst)).filter(|r| !r.is_empty()).collect();
@@ -700,6 +730,22 @@ mod tests {
         let (bx, by) = h.apply(x, y);
         assert!((bx - 90.0).abs() < 1e-9 && (by - 60.0).abs() < 1e-9);
         assert!(Homography::rect_to_quad(r, [[0.0, 0.0]; 4]).is_none() || Homography::rect_to_quad(r, [[0.0, 0.0]; 4]).unwrap().inverse().is_none());
+    }
+
+    /// #7557: a Perspective Crop quad low on a strongly converging photo puts the horizon across
+    /// the layer with most of it (and its centre) on the far side. The clip maps wholly into the
+    /// quad, so its side is the one drawn, not the source's majority.
+    #[test]
+    fn a_clip_wholly_on_one_side_draws_that_side() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 100, 100), &[1.0, 0.0, 0.0, 1.0]);
+        let q = [[40.0, 70.0], [60.0, 70.0], [90.0, 95.0], [10.0, 95.0]];
+        let h = Homography::rect_to_quad([0.0, 0.0, 50.0, 39.0], q).unwrap().inverse().unwrap();
+        assert!(h.front_side([0.0, 0.0, 100.0, 100.0]) * h.w(50.0, 80.0) < 0.0, "the source's majority is behind the quad's side");
+        for interp in [Interp::Nearest, Interp::Bilinear, Interp::Bicubic] {
+            let w = warp_surface_clipped(&s, s.content_bounds(), &h, interp, Rect::new(0, 0, 50, 39));
+            assert_eq!(w.rgba(25, 20), [1.0, 0.0, 0.0, 1.0], "{interp:?}");
+        }
     }
 
     #[test]
