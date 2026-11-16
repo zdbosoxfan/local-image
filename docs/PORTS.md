@@ -1908,6 +1908,14 @@ Partial port, the `psd_import.rs` hunk only (owner-delegated decision 2026-11-16
 
 Adapted port (owner-delegated decision 2026-11-16). Upstream's walk changes are taken whole: a file under the first MiB is read as the import reads it, a WebP's chunks are always walked and its last EXIF and last XMP chunk count, the EXIF chunk's first IFD is read whatever the chunk's size (`tiff_orientation` takes the stream's start and end), and a JPEG takes its first Exif segment, else its first XMP segment. Upstream's change to `read_jpeg_app1`'s pick lands in our `jpeg_orientation` on `jpeg_app1`, and the XMP packets are read with `parse_whole_xmp`, as in `4e350dc756`. In `the_file_orientation_is_found_after_the_image_data` the `huge.webp` expectation changes from Rotate270 to Rotate90, as upstream changed it, and upstream's new cases are added (`late-ifd.webp`, `outside.webp`, `last-exif.webp`, `span-xmp.webp`, `two-exif.jpg`, and the over-span `over-xmp.webp` check). Not ported: upstream's extra check of every existing case against `lightcraft_meta::extract`, which would change what the existing cases check.
 
+## PhotoCraft Levels clipping display bounds (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`216a4260b04a998fae79a6a5c38f9889943053bd`](https://github.com/storytold/photocraft/commit/216a4260b04a998fae79a6a5c38f9889943053bd) | Levels clipping: snapped area stays within the texture limit (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs` | MIT OR Apache-2.0 |
+
+Follow-up to the `69147701` + `0a209116` bundle. Taken as upstream wrote it; the test's `xf_over` view drops `aspect`, which our `ViewXform` does not have (as the bundle's `view` helper does), and relies on the same 2 px margin our `visible_doc_rect` keeps.
+
 ## Upstream rows reviewed and not ported (2026-11-16)
 
 Upstream commits triaged as fixes (MUST or SHOULD) or offered as features in the 2026-11 pass and left out, with the reason. Apart from the two marked "Ported" below, which have their own sections, none of them is ported, so none has a row in a commit table. A row marked "owner decision" waits for the owner; the others wait for the base named.
