@@ -13,6 +13,7 @@
 )]
 #![cfg_attr(test, expect(clippy::unused_result_ok, reason = "baseline 2026-10-25: unreviewed"))]
 
+mod auto_settings;
 mod color_icons;
 pub mod control;
 pub mod credits;

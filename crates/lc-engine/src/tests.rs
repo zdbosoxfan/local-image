@@ -180,6 +180,50 @@ fn masks_crop_and_render() {
     s.execute("develop.wbPick", &json!({"x": 0.5, "y": 0.5})).unwrap();
 }
 
+/// Auto applies to every selected photo, not only the highlighted one, each measured on its own
+/// source.
+#[test]
+fn auto_applies_to_every_selected_photo() {
+    use crate::media::SourceLevel;
+    use lightcraft_catalog::PhotoId;
+    let mut s = demo();
+    let ids: Vec<u64> = s.catalog.photos().take(3).map(|p| p.id.0).collect();
+    assert_eq!(ids.len(), 3, "the demo library has enough photos to select");
+    let contrast: Vec<f64> = ids
+        .iter()
+        .map(|id| {
+            let id = PhotoId(*id);
+            let src = s.source_now(id, SourceLevel::Thumb).unwrap();
+            let d = s.develop_of(id).unwrap();
+            lightcraft_pipeline::auto::auto_tone(&src, &s.source_info(id), &d).contrast
+        })
+        .collect();
+    s.execute("library.select", &json!({"ids": ids.clone(), "active": ids[1]})).unwrap();
+    s.execute("develop.auto", &json!({})).unwrap();
+    for (id, contrast) in ids.into_iter().zip(contrast) {
+        let d = (*s.develop_of(PhotoId(id)).unwrap()).clone();
+        assert_eq!(d.light.contrast, contrast, "photo {id} got Auto's contrast");
+        assert_eq!(d.color.vibrance, 12.0, "photo {id} got Auto's vibrance");
+    }
+}
+
+/// A photo that can't be read is left out: the rest of the selection still gets Auto.
+#[test]
+fn auto_skips_a_selected_photo_it_cannot_read() {
+    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+    let mut s = demo();
+    let good = s.catalog.photos().next().unwrap().id;
+    let missing = s.catalog.alloc_photo_id();
+    let photo = Photo::new(missing, Source::File { path: "/local-image-test/missing.jpg".into() }, "missing.jpg", "JPEG", 100, 100, "");
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    s.execute("library.select", &json!({"ids": [missing.0, good.0], "active": good.0})).unwrap();
+    s.execute("develop.auto", &json!({})).unwrap();
+    assert_eq!(s.develop_of(PhotoId(good.0)).unwrap().color.vibrance, 12.0, "the readable photo got Auto");
+    s.execute("library.select", &json!({"ids": [missing.0], "active": missing.0})).unwrap();
+    assert!(s.execute("develop.auto", &json!({})).is_err(), "with nothing readable the error is reported");
+    assert!(s.execute("develop.auto", &json!({"ids": [good.0, 999_999]})).is_err(), "a wrong id is refused, not skipped");
+}
+
 #[test]
 fn versions_history_and_reset() {
     let mut s = demo();

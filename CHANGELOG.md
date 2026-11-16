@@ -33,6 +33,10 @@ All notable changes to Local Image are recorded here. The format follows
 - Develop: Auto straighten levels a sea or landscape horizon among waves and clouds, and levels
   a building shot upward by where its verticals converge instead of by their lean. It turns a
   photo by at most 5° (was 10°).
+- Develop: Auto Settings applies to every selected photo, each measured on its own source, as
+  one undo step. The photos are decoded in the background, with progress and Cancel in the task
+  panel; a photo that can't be read is skipped and counted, and a result that arrives after an
+  edit or undo is not applied.
 
 ### Fixed
 

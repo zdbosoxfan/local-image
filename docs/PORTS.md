@@ -1481,6 +1481,14 @@ same loop, slideshow pause included; the test sets `shortcut_overrides` (we have
 drops upstream's `view.toolOverlay` step, since our pins show whenever Show Pins is on. Our pin drag
 on a shape `moved_shape` cannot move ends in `end_interaction`, which records no step when the
 settings are unchanged. Not ported: upstream's what's-new and parity checklist lines.
+`aa52251d`: our shortcut stays Cmd+U (upstream Shift+A) and the engine command documents `{ids?}`. The
+app hook is a `develop.auto` arm in our `menus.rs` `run_ui_command` (upstream `menus/run.rs`); the task
+runs on `tasks::spawn_job` with its `JobCtl` (upstream `spawn_tracked` with a cancel flag), wrapped
+in `guard::catch` like the Auto white balance task, and a cancelled run is discarded by the runner
+instead of returning an error. Toasts go through `li_i18n::library` and the new strings are listed
+in `PENDING_DEVELOP_TRANSLATIONS`. Our demo's Auto gives vibrance 12 and a contrast measured per
+photo, so the engine test compares each photo with `auto_tone` on its own source instead of
+upstream's fixed 68 and 30; the UI test waits with `tasks::wait` (we have no `wait_for`).
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
@@ -1490,3 +1498,4 @@ settings are unchanged. Not ported: upstream's what's-new and parity checklist l
 | [`9e305d642e3e`](https://github.com/storytold/lightcraft/commit/9e305d642e3e091235e8a651079f6dafd798c224) | KEY-TOGGLEZOOM: a click down and up within one frame keeps its zoom on Space's release | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
 | [`c9c3870ab387`](https://github.com/storytold/lightcraft/commit/c9c3870ab38718a63c5faaa7b677b39cbbc002eb) | KEY-TOGGLEZOOM: Toggle Zoom bound to Space in the keymap takes the hand and toggles once | `crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
 | [`63b7d0766e18`](https://github.com/storytold/lightcraft/commit/63b7d0766e18726ba35a2f4be645280acd478984) | LR-MASK-PINS: Object and Describe masks show a pin that selects them | `crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_masking.rs` | MIT OR Apache-2.0 |
+| [`aa52251d2ef3`](https://github.com/storytold/lightcraft/commit/aa52251d2ef3bb2e4014f20943c4c4c83ce0d931) | LR-EDIT-AUTO: Auto Settings applies to every selected photo, decoded off the UI thread | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/auto_settings.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/li-i18n/src/pending_library.rs` | MIT OR Apache-2.0 |
