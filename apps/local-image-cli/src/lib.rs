@@ -18,17 +18,22 @@ pub const USAGE: &str = "\
 local-image-cli: headless Local Image
 
 USAGE:
-  local-image-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers]
+  local-image-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tiff-compression <none|lzw|zip>]
+      [--tiff-transparency <on|off>] [--tiff-pyramid]
       Convert between formats (.pcraft, .psd, .png, .jpg, .tif, .webp, .exr, …).
-      TIFF output is flat unless --tiff-layers keeps the layers (Photoshop layer data).
+      TIFF output is flat unless --tiff-layers keeps the layers (Photoshop layer data). TIFF Options:
+      --tiff-compression (default zip), --tiff-transparency off composites the image over white (on,
+      the default, keeps the transparency), --tiff-pyramid also writes half-size copies after the image.
       --quality sets the JPEG or WebP quality; a WebP written with a quality is lossy, without one lossless.
   local-image-cli info <file> [--compact]
       Print the document as JSON (size, mode, depth, layer tree).
-  local-image-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>] [--tiff-layers]
+  local-image-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>]
+      [--tiff-layers] [--tiff-compression <none|lzw|zip>] [--tiff-transparency <on|off>] [--tiff-pyramid]
       Open a file, run engine commands in order, save the result. Each --params
       applies to the preceding --cmd. Prints each command's JSON result.
   local-image-cli batch --actions <actions.json> --in <dir> --out <dir> [--recursive] [--naming <template>] [--start-serial <n>]
       [--stop-on-error] [--error-log <file>] [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers]
+      [--tiff-compression <none|lzw|zip>] [--tiff-transparency <on|off>] [--tiff-pyramid]
       Apply an action list to every image in a directory (--recursive: its subfolders too, mirrored
       under --out). --naming names the results, default {name}.{ext}; tokens: {name} {NAME} {Name},
       {serial} {serial:2} {serial:3} {serial:4} (from --start-serial, default 1), {letter} {LETTER},
@@ -112,13 +117,34 @@ enum Run {
 }
 
 const SUBCOMMANDS: &[Subcommand] = &[
-    Subcommand { name: "convert", values: &["--format", "--quality"], bare: &["--tiff-layers"], run: Run::Plain(convert) },
+    Subcommand {
+        name: "convert",
+        values: &["--format", "--quality", "--tiff-compression", "--tiff-transparency"],
+        bare: &["--tiff-layers", "--tiff-pyramid"],
+        run: Run::Plain(convert),
+    },
     Subcommand { name: "info", values: &[], bare: &["--compact"], run: Run::Plain(|a, out, _| info(a, out)) },
-    Subcommand { name: "run", values: &["--new", "--cmd", "--params", "--out", "--format", "--quality"], bare: &["--tiff-layers"], run: Run::Plain(run_cmds) },
+    Subcommand {
+        name: "run",
+        values: &["--new", "--cmd", "--params", "--out", "--format", "--quality", "--tiff-compression", "--tiff-transparency"],
+        bare: &["--tiff-layers", "--tiff-pyramid"],
+        run: Run::Plain(run_cmds),
+    },
     Subcommand {
         name: "batch",
-        values: &["--actions", "--in", "--out", "--naming", "--start-serial", "--error-log", "--format", "--quality"],
-        bare: &["--in-place", "--tiff-layers", "--recursive", "--stop-on-error"],
+        values: &[
+            "--actions",
+            "--in",
+            "--out",
+            "--naming",
+            "--start-serial",
+            "--error-log",
+            "--format",
+            "--quality",
+            "--tiff-compression",
+            "--tiff-transparency",
+        ],
+        bare: &["--in-place", "--tiff-layers", "--tiff-pyramid", "--recursive", "--stop-on-error"],
         run: Run::Plain(batch),
     },
     Subcommand { name: "droplet", values: &["--out"], bare: &[], run: Run::Plain(droplet) },
@@ -274,7 +300,22 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
 
 fn export_opts(a: &Args) -> Result<ExportOptions, String> {
     // TIFF output is flat unless asked: scripted conversions keep predictable sizes.
-    let mut o = ExportOptions { tiff_layers: a.has("--tiff-layers"), ..Default::default() };
+    let tiff_transparency = match a.get("--tiff-transparency") {
+        None => None,
+        Some("on") => Some(true),
+        Some("off") => Some(false),
+        Some(v) => return Err(format!("bad --tiff-transparency `{v}`: expected on or off")),
+    };
+    let mut o = ExportOptions { tiff_layers: a.has("--tiff-layers"), tiff_transparency, ..Default::default() };
+    if let Some(c) = a.get("--tiff-compression") {
+        o.encode.tiff_compression = match c {
+            "none" => photocraft_codecs::TiffCompression::None,
+            "lzw" => photocraft_codecs::TiffCompression::Lzw,
+            "zip" => photocraft_codecs::TiffCompression::Deflate,
+            _ => return Err(format!("bad --tiff-compression `{c}`: expected none, lzw or zip")),
+        };
+    }
+    o.encode.tiff_pyramid = a.has("--tiff-pyramid");
     if let Some(q) = a.get("--quality") {
         let q = q.parse().ok().filter(|q| (1..=100).contains(q)).ok_or_else(|| format!("bad --quality `{q}`: expected a whole number from 1 to 100"))?;
         o.encode.jpeg_quality = q;

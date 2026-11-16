@@ -763,6 +763,10 @@ pub fn export_flat(doc: &Document, format: Format, opts: &ExportOptions) -> Resu
         // per placed document (#647).
         img.meta.xmp = None;
     }
+    if format == Format::Tiff && opts.tiff_transparency == Some(false) && img.layout().has_alpha() {
+        // Save Transparency off: the user chose the matted image, so it needs no warning.
+        img = matte_over_white(&img)?;
+    }
     if img.layout().has_alpha() && !format.caps().alpha {
         // Flattened over white, as saving a transparent document without transparency does.
         img = matte_over_white(&img)?;
@@ -815,16 +819,17 @@ fn map_bands(img: &Image, layout: ChannelLayout, sample: CSample, f: impl Fn(Vec
     Ok(Image::from_raw(w, h, layout, sample, data)?.with_icc(img.icc.clone()).with_meta(img.meta.clone()))
 }
 
-/// Straight-alpha pixels composited over white (no ink for CMYK), without the alpha channel.
+/// Straight-alpha pixels composited over white (no ink for CMYK; L* 100 with a* and b* 0, held
+/// mid-range, for Lab), without the alpha channel.
 fn matte_over_white(img: &Image) -> Result<Image, IoError> {
     let layout = img.layout();
-    let white = if layout.is_cmyk() { 0.0 } else { 1.0 };
+    let white = |c: usize| if layout.is_cmyk() { 0.0 } else if layout.is_lab() && c > 0 { 128.0 / 255.0 } else { 1.0 };
     map_bands(img, layout.without_alpha(), img.sample_type(), |vals| {
         let mut out = Vec::with_capacity(vals.len() / layout.channels() * layout.color_channels());
         for px in vals.chunks_exact(layout.channels()) {
             if let Some((&a, color)) = px.split_last() {
                 let a = a.clamp(0.0, 1.0);
-                out.extend(color.iter().map(|&c| c * a + white * (1.0 - a)));
+                out.extend(color.iter().enumerate().map(|(i, &c)| c * a + white(i) * (1.0 - a)));
             }
         }
         out

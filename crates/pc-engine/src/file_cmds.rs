@@ -183,21 +183,34 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
     photocraft_io::import(name, bytes).map(|r| r.document).map_err(|e| EngineError::Other(format!("{name}: {e}")))
 }
 
-/// What a headless save writes beyond the format: JPEG quality, TIFF layers and compression.
+/// What a headless save writes beyond the format: JPEG quality and the TIFF Options.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SaveOpts {
     /// Photoshop's 0–12 JPEG scale.
     pub quality: Option<f64>,
     /// TIFF: keep the layers. Off unless a command's params ask (`"tiffLayers": true`).
     pub tiff_layers: bool,
-    /// TIFF: the compression; unset keeps the encoder's default.
+    /// TIFF: the compression (`"tiffCompression": "none" | "lzw" | "zip"`); unset keeps the
+    /// encoder's default, ZIP.
     pub tiff_compression: Option<photocraft_codecs::TiffCompression>,
+    /// TIFF: Save Transparency (`"tiffTransparency": bool`); unset, the transparency is kept
+    /// ([`photocraft_io::ExportOptions::tiff_transparency`]).
+    pub tiff_transparency: Option<bool>,
+    /// TIFF: Save Image Pyramid (`"tiffPyramid": bool`); unset, off.
+    pub tiff_pyramid: bool,
 }
 
 impl SaveOpts {
-    /// `quality` and `tiffLayers` from a command's params.
-    pub(crate) fn from_params(p: &Value) -> Self {
-        SaveOpts { quality: f64_param(p, "quality"), tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false), ..Default::default() }
+    /// `quality`, `tiffLayers` and the TIFF Options from command `cmd`'s params; a TIFF Option
+    /// of the wrong kind is a bad parameter.
+    pub(crate) fn from_params(p: &Value, cmd: &str) -> Result<Self> {
+        Ok(SaveOpts {
+            quality: f64_param(p, "quality"),
+            tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false),
+            tiff_compression: tiff_compression_param(p, cmd)?,
+            tiff_transparency: tiff_bool_param(p, "tiffTransparency", cmd)?,
+            tiff_pyramid: tiff_bool_param(p, "tiffPyramid", cmd)?.unwrap_or(false),
+        })
     }
 
     pub(crate) fn or_quality(mut self, q: f64) -> Self {
@@ -212,11 +225,42 @@ impl From<Option<f64>> for SaveOpts {
     }
 }
 
+/// The TIFF compression in `p` (`"tiffCompression": "none" | "lzw" | "zip"`, Photoshop's TIFF
+/// Options; absent or null: unset). Anything else is a bad parameter of command `cmd`. Shared by
+/// every save that takes it (the engine's commands, the JSON-lines server and the MCP server).
+pub fn tiff_compression_param(p: &Value, cmd: &str) -> Result<Option<photocraft_codecs::TiffCompression>> {
+    use photocraft_codecs::TiffCompression;
+    match p.get("tiffCompression") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => match v.as_str() {
+            Some("none") => Ok(Some(TiffCompression::None)),
+            Some("lzw") => Ok(Some(TiffCompression::Lzw)),
+            Some("zip") => Ok(Some(TiffCompression::Deflate)),
+            _ => Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("`tiffCompression` must be \"none\", \"lzw\" or \"zip\", got {v}") }),
+        },
+    }
+}
+
+/// A TIFF Options checkbox in `p`: `"tiffTransparency"` (Save Transparency) or `"tiffPyramid"`
+/// (Save Image Pyramid), `true` or `false`; absent or null: unset. Anything else is a bad
+/// parameter of command `cmd`.
+pub fn tiff_bool_param(p: &Value, key: &str, cmd: &str) -> Result<Option<bool>> {
+    match p.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
+        Some(v) => Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("`{key}` must be true or false, got {v}") }),
+    }
+}
+
 /// Encodes `doc` for `path`'s extension.
 pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> Result<(Vec<u8>, Vec<String>)> {
     let save = save.into();
-    let mut opts =
-        photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, read_linked_files: !crate::jobs::authorization_installed(), ..Default::default() };
+    let mut opts = photocraft_io::ExportOptions {
+        tiff_layers: save.tiff_layers,
+        tiff_transparency: save.tiff_transparency,
+        read_linked_files: !crate::jobs::authorization_installed(),
+        ..Default::default()
+    };
     if let Some(q) = save.quality {
         let q = (q.clamp(0.0, 12.0) / 12.0 * 99.0 + 1.0).round() as u8;
         opts.encode.jpeg_quality = q;
@@ -227,6 +271,7 @@ pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> R
     if let Some(compression) = save.tiff_compression {
         opts.encode.tiff_compression = compression;
     }
+    opts.encode.tiff_pyramid = save.tiff_pyramid;
     crate::vector_integration::export_document(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| EngineError::Other(format!("{path}: {e}")))
 }
 
@@ -356,7 +401,7 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
         let px = flattened_checked(&doc, fmt, "file.saveACopy")?;
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(px))];
     }
-    let warnings = save_doc(&doc, &path, SaveOpts::from_params(p))?;
+    let warnings = save_doc(&doc, &path, SaveOpts::from_params(p, "file.saveACopy")?)?;
     Ok(json!({"path": path, "warnings": warnings}))
 }
 
@@ -801,7 +846,7 @@ fn image_processor(_s: &mut Session, p: &Value) -> Result<Value> {
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
     let options = crate::batch::Options::from_params(p, cmd)?;
-    process_files(&inputs, &output, &format, SaveOpts::from_params(p).or_quality(8.0), &options, None, &|scratch, _| {
+    process_files(&inputs, &output, &format, SaveOpts::from_params(p, cmd)?.or_quality(8.0), &options, None, &|scratch, _| {
         process_image(scratch, to_srgb, fit.as_ref())?;
         Ok(false)
     })
@@ -965,7 +1010,7 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
         only.clipped = false;
         one.layers = vec![only];
         let path = join(&dir, &format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&l.name)));
-        save_doc(&one, &path, SaveOpts::from_params(p))?;
+        save_doc(&one, &path, SaveOpts::from_params(p, cmd)?)?;
         files.push(path);
     }
     Ok(json!({"files": files}))
@@ -1174,7 +1219,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save a Copy…",
             &["File"],
             Some("Cmd+Alt+S"),
-            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"overwrite":bool=false (replace the document's own file),"tiffLayers":bool=false (TIFF: keep the layers; flat by default)}"##,
+            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"overwrite":bool=false (replace the document's own file),"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tiffCompression":"none|lzw|zip"? (TIFF: image compression; unset, zip),"tiffTransparency":bool? (TIFF: Save Transparency; off composites over white; unset, kept),"tiffPyramid":bool=false (TIFF: Save Image Pyramid, half-size copies after the image)}"##,
             native_doc,
             save_a_copy
         ),
@@ -1231,7 +1276,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action; Save, Save As and Save a Copy mark the output document; recorded save paths are ignored),"source":"folder|open"="folder" (open: the steps run on every open document; "input" is ignored, "output" optional: a copy of each is saved there, else they just stay changed),"input":folder|[paths],"includeSubfolders":bool=false (the output mirrors the subfolders),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","naming":"{name}.{ext}"? (template: {name} {NAME} {Name} {serial} {serial:2..4} {letter} {LETTER} {date:mmddyy|mmdd|yyyymmdd|yymmdd|yyddmm|ddmmyy} (UTC) {ext} {EXT}, other text literal),"startSerial":int=1,"stopOnError":bool=false (else every file is tried),"errorLog":path? (the errors, one per line),"quality":0..12?,"tiffLayers":bool=false} → {files, errors, stopped?, skipped?, errorLog?, documents? (source open)} (runs as a job: progress per file, Cancel stops after the current one; up to 16 nested scripts/batches and 100000 input/step units per run, including nested actions; each input and action step counts once; an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action; Save, Save As and Save a Copy mark the output document; recorded save paths are ignored),"source":"folder|open"="folder" (open: the steps run on every open document; "input" is ignored, "output" optional: a copy of each is saved there, else they just stay changed),"input":folder|[paths],"includeSubfolders":bool=false (the output mirrors the subfolders),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","naming":"{name}.{ext}"? (template: {name} {NAME} {Name} {serial} {serial:2..4} {letter} {LETTER} {date:mmddyy|mmdd|yyyymmdd|yymmdd|yyddmm|ddmmyy} (UTC) {ext} {EXT}, other text literal),"startSerial":int=1,"stopOnError":bool=false (else every file is tried),"errorLog":path? (the errors, one per line),"quality":0..12?,"tiffLayers":bool=false,"tiffCompression":"none|lzw|zip"?,"tiffTransparency":bool?,"tiffPyramid":bool=false} → {files, errors, stopped?, skipped?, errorLog?, documents? (source open)} (runs as a job: progress per file, Cancel stops after the current one; up to 16 nested scripts/batches and 100000 input/step units per run, including nested actions; each input and action step counts once; an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),
@@ -1240,7 +1285,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Image Processor…",
             &["File", "Scripts"],
             None,
-            r##"{"input":folder|[paths],"includeSubfolders":bool=false,"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","naming":"{name}.{ext}"? (as file.automate.batch),"startSerial":int=1,"stopOnError":bool=false,"errorLog":path? (naming to errorLog: with format only),"quality":0..12=8,"tiffLayers":bool=false,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false,"jpeg":{enabled?:bool=true,quality?:1..12=5,convertToSrgb?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"psd":{enabled?:bool=true,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"tiff":{enabled?:bool=true,lzw?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?} → {files, errors, stopped?, skipped?, errorLog?} (an input whose output name was already written in the run goes to errors; without format, supplying jpeg/psd/tiff writes each enabled one from every input with its own settings, the TIFF with layers; at least one must be enabled, and each error then names its format)"##,
+            r##"{"input":folder|[paths],"includeSubfolders":bool=false,"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","naming":"{name}.{ext}"? (as file.automate.batch),"startSerial":int=1,"stopOnError":bool=false,"errorLog":path? (naming to errorLog: with format only),"quality":0..12=8,"tiffLayers":bool=false,"tiffCompression":"none|lzw|zip"?,"tiffTransparency":bool?,"tiffPyramid":bool=false,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false,"jpeg":{enabled?:bool=true,quality?:1..12=5,convertToSrgb?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"psd":{enabled?:bool=true,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"tiff":{enabled?:bool=true,lzw?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?} → {files, errors, stopped?, skipped?, errorLog?} (an input whose output name was already written in the run goes to errors; without format, supplying jpeg/psd/tiff writes each enabled one from every input with its own settings, the TIFF with layers; at least one must be enabled, and each error then names its format)"##,
             native,
             image_processor
         ),
@@ -1268,7 +1313,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Layers to Files…",
             &["File", "Export"],
             None,
-            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name,"visibleOnly":bool=true,"quality":0..12?,"tiffLayers":bool=false} → {files}"##,
+            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name,"visibleOnly":bool=true,"quality":0..12?,"tiffLayers":bool=false,"tiffCompression":"none|lzw|zip"?,"tiffTransparency":bool?,"tiffPyramid":bool=false} → {files}"##,
             native_doc,
             layers_to_files
         ),

@@ -423,7 +423,7 @@ fn lens_batch(_s: &mut Session, p: &Value) -> Result<Value> {
         m.entry("profile").or_insert(json!("auto"));
     }
     let options = crate::batch::Options::from_params(p, LENS_BATCH)?;
-    crate::file_cmds::process_files(&inputs, &output, &format, crate::file_cmds::SaveOpts::from_params(p), &options, None, &|scratch, _| {
+    crate::file_cmds::process_files(&inputs, &output, &format, crate::file_cmds::SaveOpts::from_params(p, LENS_BATCH)?, &options, None, &|scratch, _| {
         if scratch.active().is_some_and(|d| d.doc.layers.len() > 1) {
             scratch.execute("layer.flattenImage", json!({}))?;
         }

@@ -23,7 +23,7 @@ fn batch_inner(s: &mut Session, p: &Value) -> Result<Value> {
     if !matches!(source, "folder" | "open") {
         return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("unknown source `{source}` (folder or open)") });
     }
-    let save = SaveOpts::from_params(p);
+    let save = SaveOpts::from_params(p, cmd)?;
     if source == "open" {
         let documents = s.documents().len();
         charge_steps(s, documents, steps.len(), cmd)?;

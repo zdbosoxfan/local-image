@@ -957,3 +957,50 @@ fn image_processor_invalid_settings_fail_before_any_format_writes() {
         assert!(!std::path::Path::new(&out).exists());
     }
 }
+
+/// Upstream e3a84b62: `tiffPyramid` writes reduced-resolution levels after the image,
+/// `tiffTransparency` false composites a transparent document over white and `tiffCompression`
+/// picks the compression. Bad values are refused before anything is written.
+#[test]
+fn save_a_copy_writes_the_tiff_options_asked_for() {
+    let dir = tmp("tiff-options");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 200, "height": 100, "background": "transparent"})).unwrap();
+    let out = join(&dir, "p.tif");
+    s.execute("file.saveACopy", json!({"path": out, "tiffPyramid": true})).unwrap();
+    let bytes = std::fs::read(&out).unwrap();
+    let sizes: Vec<(u32, u32)> = photocraft_codecs::tiff_info(&bytes).unwrap().pages.iter().map(|p| (p.width, p.height)).collect();
+    assert_eq!(sizes, [(200, 100), (100, 50), (50, 25)]);
+    for (t, alpha) in [(None, true), (Some(true), true), (Some(false), false)] {
+        let mut p = json!({"path": out});
+        if let Some(t) = t {
+            p["tiffTransparency"] = json!(t);
+        }
+        s.execute("file.saveACopy", p).unwrap();
+        let img = photocraft_codecs::decode(&std::fs::read(&out).unwrap()).unwrap();
+        assert_eq!(img.layout().has_alpha(), alpha, "{t:?}");
+    }
+    // Unset keeps the encoder's ZIP.
+    for (c, tag) in [(None, 8), (Some("none"), 1), (Some("lzw"), 5), (Some("zip"), 8)] {
+        let mut p = json!({"path": out});
+        if let Some(c) = c {
+            p["tiffCompression"] = json!(c);
+        }
+        s.execute("file.saveACopy", p).unwrap();
+        let info = photocraft_codecs::tiff_info(&std::fs::read(&out).unwrap()).unwrap();
+        assert_eq!(info.pages[0].compression, tag, "{c:?}");
+    }
+    for (key, bad) in [
+        ("tiffPyramid", json!("yes")),
+        ("tiffPyramid", json!(1)),
+        ("tiffTransparency", json!("off")),
+        ("tiffTransparency", json!([])),
+        ("tiffCompression", json!("jpeg")),
+        ("tiffCompression", json!(5)),
+    ] {
+        let out = join(&dir, "bad.tif");
+        let r = s.execute("file.saveACopy", json!({"path": out, key: bad}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{key} {bad}: {r:?}");
+        assert!(!std::path::Path::new(&out).exists(), "{key} {bad}: nothing written");
+    }
+}
