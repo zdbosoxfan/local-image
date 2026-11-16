@@ -255,7 +255,25 @@ fn blur_reduces_local_variance_and_sharpen_increases_it() {
         assert!(var(&s, 10) > v0 * 1.5, "depth {depth}: {v0} → {}", var(&s, 10));
         s.execute("paint.sharpen", json!({"points": [[35, 15], [55, 15]], "size": 20, "hardness": 100, "strength": 100})).unwrap();
         let hi = (10..20).flat_map(|y| (40..50).map(move |x| (x, y))).map(|(x, y)| rgba(&s, x, y)[0]).fold(0.0, f32::max);
-        assert!(hi <= 0.55 + tol(depth), "protect detail: {hi}");
+        assert!(hi > 0.55 + tol(depth) && hi <= 0.55 + 4.0 * 6.0 / 255.0 + tol(depth), "protect detail: {hi}");
+    }
+}
+
+/// One dab on a black-to-white step at x = 60: a size-20 brush leaves x = 45 and x = 75 alone,
+/// and a size-60 brush carries the other side's tone that far.
+#[test]
+fn blur_spreads_farther_with_a_larger_brush() {
+    for depth in [8u64, 16] {
+        let run = |size: u32| {
+            let mut s = session(120, 40, depth, "rgb");
+            paint_layer(&mut s, |x, _| if x < 60 { [0.0, 0.0, 0.0, 1.0] } else { [1.0, 1.0, 1.0, 1.0] });
+            s.execute("paint.blur", json!({"points": [[60, 20]], "size": size, "hardness": 100, "strength": 100})).unwrap();
+            (0..120).map(|x| rgba(&s, x, 20)[0]).collect::<Vec<_>>()
+        };
+        let (p20, p60) = (run(20), run(60));
+        assert_eq!((p20[45], p20[75]), (0.0, 1.0), "depth {depth}: outside the size-20 dab");
+        assert!(p60[45] > 0.0 && p60[75] < 1.0, "depth {depth}: size 60 reaches x = 45 and x = 75: {} {}", p60[45], p60[75]);
+        assert!(p60[55] > p20[55], "depth {depth}: size 60 blurs more near the step: {} vs {}", p60[55], p20[55]);
     }
 }
 
@@ -1017,5 +1035,103 @@ fn clone_and_heal_with_a_far_source_are_plain_errors() {
         // A source far outside the canvas but inside the coordinate range still clones transparency.
         s.execute(cmd, json!({"points": [[10, 10]], "source": [1e6, 1e6]})).unwrap();
         s.execute(cmd, json!({"points": [[10, 10], [30, 10]], "source": [2147483000, 0]})).unwrap();
+    }
+}
+
+/// `smoothing` (the options bar's %) overrides the session brush's amount and keeps its other
+/// options; without it the stroke takes the session brush's. The UI sends 0 for a ⇧-click line.
+#[test]
+fn retouch_brush_takes_the_smoothing_param() {
+    let mut s = session(20, 20, 8, "rgb");
+    s.tools.brush.smoothing.amount = 0.6;
+    s.tools.brush.smoothing.pulled_string = true;
+    let brush = |p: Value| parse_brush(&s, &p, "paint.burn").unwrap().0.brush.smoothing;
+    assert_eq!(brush(json!({"points": [[5, 5]]})), s.tools.brush.smoothing);
+    let line = brush(json!({"points": [[5, 5]], "smoothing": 0}));
+    assert_eq!(line.amount, 0.0);
+    assert!(line.pulled_string);
+    assert_eq!(brush(json!({"points": [[5, 5]], "smoothing": 25})).amount, 0.25);
+    assert_eq!(brush(json!({"points": [[5, 5]], "smoothing": 1e9})).amount, 1.0);
+    assert_eq!(brush(json!({"points": [[5, 5]], "smoothing": -5})).amount, 0.0);
+}
+
+#[test]
+fn clone_stamp_samples_the_layer_and_document_its_source_was_picked_on() {
+    // Upstream 9b8536f5: after the source was picked, a stroke sampled whatever layer and
+    // document it painted on.
+    let mut s = session(64, 64, 8, "rgb");
+    paint_layer(&mut s, |x, y| [x as f32 / 64.0, y as f32 / 64.0, 0.25, 1.0]);
+    let want = rgba(&s, 16, 16);
+    s.execute("cloneSource.set", json!({"source": [16, 16]})).unwrap();
+    let stamp = json!({"points": [[48, 48]], "size": 8, "hardness": 100});
+    let cloned = |s: &Session, onto: &str| {
+        let got = rgba(s, 48, 48);
+        for c in 0..4 {
+            assert!((got[c] - want[c]).abs() <= tol(8), "{onto}: {got:?} vs {want:?}");
+        }
+    };
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("paint.cloneStamp", stamp.clone()).unwrap();
+    cloned(&s, "an empty layer above the source");
+    s.execute("file.new", json!({"width": 64, "height": 64, "depth": 8, "mode": "rgb"})).unwrap();
+    s.execute("paint.cloneStamp", stamp.clone()).unwrap();
+    cloned(&s, "another document");
+    // Closing the source's document leaves nothing to sample.
+    assert!(s.close(0).is_some());
+    let err = s.execute("paint.cloneStamp", stamp).unwrap_err();
+    assert!(matches!(err, EngineError::BadParams { .. }), "{err:?}");
+}
+
+#[test]
+fn unaligned_clone_strokes_report_their_offset_without_becoming_the_aligned_pairing() {
+    // Upstream b7143324: the slot's offset stayed empty after an unaligned stroke.
+    let mut s = session(64, 64, 8, "rgb");
+    paint_layer(&mut s, |x, y| [x as f32 / 64.0, y as f32 / 64.0, 0.25, 1.0]);
+    s.execute("cloneSource.set", json!({"source": [16, 16]})).unwrap();
+    for (x, y) in [(40, 30), (50, 40)] {
+        s.execute("paint.cloneStamp", json!({"points": [[x, y]], "size": 8, "hardness": 100, "aligned": false})).unwrap();
+        let listed = s.execute("cloneSource.list", json!({})).unwrap();
+        assert_eq!(listed["sources"][0]["offset"], json!([16.0 - f64::from(x), 16.0 - f64::from(y)]), "stroke at {x},{y}");
+        assert!(s.presets.clone.active().anchor.is_none(), "reporting an offset must not start aligned sampling");
+    }
+}
+
+#[test]
+fn clone_onto_a_layer_without_alpha_leaves_pixels_whose_source_is_off_the_canvas() {
+    // Upstream 967e987e: a surface without alpha reads as its default colour outside the canvas,
+    // and that colour was cloned as if it were a sample.
+    let mut s = session(64, 64, 8, "rgb");
+    s.edit("no alpha", |doc, active| {
+        let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+        let fmt = PixelFormat::new(surf.format().mode, surf.format().sample, false);
+        let mut opaque = Surface::with_default(fmt, &[0.0, 0.0, 1.0]);
+        opaque.fill_rect(Rect::new(0, 0, 8, 8), &[1.0, 0.0, 0.0]);
+        opaque.fill_rect(Rect::new(24, 24, 40, 40), &[0.0, 1.0, 0.0]);
+        *surf = opaque;
+        Ok(())
+    })
+    .unwrap();
+    s.execute("paint.cloneStamp", json!({"points": [[32, 32]], "source": [0, 0], "size": 12, "hardness": 100})).unwrap();
+    assert_eq!(rgba(&s, 34, 34), [1.0, 0.0, 0.0, 1.0], "a source inside the canvas is cloned");
+    assert_eq!(rgba(&s, 29, 29), [0.0, 1.0, 0.0, 1.0], "a source off the canvas clones nothing");
+    let d = s.active().unwrap();
+    assert!(!d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().format().alpha, "the layer keeps its format");
+}
+
+#[test]
+fn sharpen_with_protect_detail_gives_a_step_a_low_halo_that_follows_strength() {
+    // Upstream 0f205f03 (#12938): Protect Detail clamped each pixel to its 3×3 range, which always
+    // holds the pixel itself, so a step did not change. One hard 40 px click on a grey 96 | 160
+    // step; the reference application gives 90 | 164 at the edge at 100 % and 93 | 162 at 50 %.
+    let level = |s: &Session, x: i32| (rgba(s, x, 20)[0] * 255.0).round() as i32;
+    for (strength, dark, light, within) in [(100, 90, 164, 3), (50, 93, 162, 2), (1, 96, 160, 0)] {
+        let mut s = session(80, 40, 8, "rgb");
+        paint_layer(&mut s, |x, _| {
+            let g = if x < 40 { 96.0 / 255.0 } else { 160.0 / 255.0 };
+            [g, g, g, 1.0]
+        });
+        s.execute("paint.sharpen", json!({"points": [[40, 20]], "size": 40, "hardness": 100, "strength": strength})).unwrap();
+        let (d, l) = (level(&s, 39), level(&s, 40));
+        assert!((d - dark).abs() <= within && (l - light).abs() <= within, "{strength} %: {d} | {l}, want {dark} | {light} ± {within}");
     }
 }
