@@ -441,6 +441,7 @@ pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.disable();
     } else {
         airbrush_tick(app, ui.ctx());
+        crate::layer_transfer::prepare(app, ui.ctx());
     }
     documents(app, ui);
     // Input is dispatched by `documents`; start its batch before an otherwise idle tap frame ends.

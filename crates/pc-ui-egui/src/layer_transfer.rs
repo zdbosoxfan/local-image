@@ -9,8 +9,7 @@
 //! (Photoshop's ⇧-drag). With Window › Arrange tiling several documents, releasing over another
 //! document's tile drops there.
 //!
-//! A Move-tool drag starting inside a selection or moving a floating piece stays a move: Photoshop
-//! would copy just the selected pixels, which is not supported yet.
+//! A Move drag with a pixel selection copies only those pixels into a new layer.
 
 use photocraft_doc::{DocId, LayerId};
 use serde_json::json;
@@ -27,6 +26,7 @@ struct Transfer {
     grab: Option<[f64; 2]>,
     /// What the ghost by the pointer says.
     label: String,
+    selection_only: bool,
 }
 
 fn key() -> egui::Id {
@@ -49,7 +49,8 @@ fn begin(app: &PhotocraftApp, ctx: &egui::Context, id: LayerId, grab: Option<[f6
         [one] => st.doc.layer(*one).map_or_else(String::new, |l| l.name.clone()),
         many => li_i18n::trn(li_i18n::current(), many.len() as u64, "{n} layer", "{n} layers"),
     };
-    let t = Transfer { source: st.doc.id, layers: layers.iter().map(|l| l.0).collect(), grab, label };
+    let selection_only = grab.is_some() && st.doc.selection.is_some();
+    let t = Transfer { source: st.doc.id, layers: layers.iter().map(|l| l.0).collect(), grab, label, selection_only };
     ctx.data_mut(|d| d.insert_temp(key(), t));
     true
 }
@@ -59,11 +60,11 @@ pub fn begin_from_panel(app: &PhotocraftApp, ctx: &egui::Context, layer: LayerId
     begin(app, ctx, layer, None);
 }
 
-/// A Move-tool drag of whole layers (not a selection or a floating piece) under way.
+/// A Move-tool drag of whole layers, or of a selection's pixels, under way.
 fn move_drag(app: &PhotocraftApp) -> Option<[f64; 2]> {
     let d = app.drag.as_ref().filter(|d| d.tool == Tool::Move && d.sel_move.is_none())?;
     let st = app.session.active()?;
-    let plain = app.ui.transform.is_none() && app.guide_drag.is_none() && st.doc.selection.is_none() && st.floating.is_none();
+    let plain = app.ui.transform.is_none() && app.guide_drag.is_none() && (st.doc.selection.is_some() || st.floating.is_none());
     plain.then_some(d.start)
 }
 
@@ -76,15 +77,14 @@ pub fn pointer_if_armed(app: &PhotocraftApp, ctx: &egui::Context) -> Option<egui
     ctx.input(|i| i.pointer.latest_pos())
 }
 
-/// The pointer is over document tab `index` while layers are dragged: a Move drag becomes a
-/// transfer (the source layers stay where they were), the tab's document is shown, and a release
-/// right here drops the layers into it.
-pub fn over_tab(app: &mut PhotocraftApp, ctx: &egui::Context, index: usize) {
+/// A Move drag toward document `index` becomes a transfer (the source layers stay where they
+/// were); false when nothing is being transferred.
+fn arm_move_transfer(app: &mut PhotocraftApp, ctx: &egui::Context, index: usize) -> bool {
     if get(ctx).is_none() {
-        let Some(grab) = move_drag(app) else { return };
-        let Some(active) = app.session.active().and_then(|st| st.active_layer) else { return };
+        let Some(grab) = move_drag(app) else { return false };
+        let Some(active) = app.session.active().and_then(|st| st.active_layer) else { return false };
         if app.session.active_index() == Some(index) {
-            return;
+            return false;
         }
         // The Move drag ends without moving anything; an ⌥-drag's copy is taken back.
         app.drag = None;
@@ -93,8 +93,17 @@ pub fn over_tab(app: &mut PhotocraftApp, ctx: &egui::Context, index: usize) {
         crate::move_mods::abandon(app);
         let active = app.session.active().and_then(|st| st.active_layer).unwrap_or(active);
         if !begin(app, ctx, active, Some(grab)) {
-            return;
+            return false;
         }
+    }
+    true
+}
+
+/// The pointer is over document tab `index` while layers are dragged: a Move drag becomes a
+/// transfer, the tab's document is shown, and a release right here drops the layers into it.
+pub fn over_tab(app: &mut PhotocraftApp, ctx: &egui::Context, index: usize) {
+    if !arm_move_transfer(app, ctx, index) {
+        return;
     }
     if app.session.active_index() != Some(index) {
         app.session.set_active(index);
@@ -111,6 +120,10 @@ pub fn over_tab(app: &mut PhotocraftApp, ctx: &egui::Context, index: usize) {
 /// layers there; while the button is held a ghost follows the pointer.
 pub fn finish(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(t) = get(ctx) else { return };
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        clear(ctx);
+        return;
+    }
     let (pos, released, down) = ctx.input(|i| (i.pointer.latest_pos(), i.pointer.any_released(), i.pointer.primary_down()));
     let target = pos.and_then(|p| target_at(app, p));
     if !released {
@@ -132,14 +145,35 @@ pub fn finish(app: &mut PhotocraftApp, ctx: &egui::Context) {
     clear(ctx);
 }
 
-/// The document under screen point `p` that isn't the source, and the document point there
-/// (`None` in a tile: tiles keep their own views).
+/// Run before canvases process release: a tiled destination must take over the
+/// drag before the source can commit it as an ordinary move.
+pub(crate) fn prepare(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if get(ctx).is_some() {
+        return;
+    }
+    let Some(pos) = pointer_if_armed(app, ctx) else { return };
+    let Some((dest, _)) = target_at(app, pos) else { return };
+    if app.session.active_index() != Some(dest) && arm_move_transfer(app, ctx, dest) {
+        app.session.set_active(dest);
+        app.jobs.focus = None;
+    }
+}
+
+/// The document under screen point `p` that isn't the source, and the document point there in
+/// that document's view (a tile's own view when Window › Arrange tiles them).
 fn target_at(app: &PhotocraftApp, p: egui::Pos2) -> Option<(usize, Option<[f64; 2]>)> {
     if !app.last_canvas_rect.contains(p) {
         return None;
     }
     match crate::canvas::arranged_cells(app, app.last_canvas_rect) {
-        Some(cells) => cells.into_iter().find(|(_, r)| r.contains(p)).map(|(d, _)| (d, None)),
+        Some(cells) => cells.into_iter().find(|(_, r)| r.contains(p)).and_then(|(d, r)| {
+            let view = app.ui.views.get(d)?;
+            // Laid out as `canvas::canvas_view` lays out a tile: only the active one has rulers.
+            let cell = r.shrink(1.0);
+            let rect = if app.session.active_index() == Some(d) { crate::rulers::content_rect(app, cell) } else { cell };
+            let xf = crate::canvas::ViewXform { rect, zoom: view.zoom, center: view.center, flip: app.ui.view.flip_horizontal, rotation: view.rotation };
+            Some((d, Some(xf.to_doc(p))))
+        }),
         None => Some((app.session.active_index()?, crate::canvas::ViewXform::active(app).map(|xf| xf.to_doc(p)))),
     }
 }
@@ -153,6 +187,7 @@ fn drop(app: &mut PhotocraftApp, ctx: &egui::Context, dest: usize, at: Option<[f
     let Some(to) = docs.get(dest).filter(|_| dest != src) else { return };
     let same_size = to.doc.size == docs[src].doc.size;
     let mut p = json!({"document": dest, "source": src, "layers": t.layers});
+    p["selectionOnly"] = json!(t.selection_only);
     match at.filter(|_| !ctx.input(|i| i.modifiers.shift)) {
         Some(at) => match t.grab {
             Some(g) => p["offset"] = json!([(at[0] - g[0]).round(), (at[1] - g[1]).round()]),
