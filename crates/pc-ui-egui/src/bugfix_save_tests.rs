@@ -412,7 +412,9 @@ mod tiff_options {
             },
         );
         app.run("file.new", json!({"width": 8, "height": 8, "background": background})).unwrap();
-        let h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(|ui, app: &mut PhotocraftApp| crate::tiff_options_ui::show(app, ui.ctx()), app);
+        let h = Harness::builder()
+            .with_size(egui::vec2(800.0, 600.0))
+            .build_ui_state(|ui, app: &mut PhotocraftApp| crate::tiff_options_ui::show(app, ui.ctx()), app);
         PhotocraftApp::setup_context(&h.ctx, Default::default());
         (h, writes)
     }

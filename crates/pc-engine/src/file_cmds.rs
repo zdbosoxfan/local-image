@@ -845,8 +845,8 @@ mod image_processor_formats;
 mod open_as_smart_object;
 
 use batch_actions::batch;
-use open_as_smart_object::open_as_smart_object;
 pub(crate) use batch_actions::batch_save_point;
+use open_as_smart_object::open_as_smart_object;
 
 /// Image Processor's edits to one scratch document before it is saved.
 fn process_image(scratch: &mut Session, to_srgb: bool, fit: Option<&Value>) -> Result<()> {

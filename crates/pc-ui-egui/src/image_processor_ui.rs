@@ -45,7 +45,8 @@ pub(crate) fn finish(ui: &mut UiState, interactive: bool, alert_text: Option<&st
 /// Opens `text` as an alert unless the same one is already showing.
 fn alert(ui: &mut UiState, text: &str) {
     let message = tl!(text).to_owned();
-    let shown = ui.dialogs.iter().any(|dialog| dialog.kind == DialogKind::Error && dialog.fields.get("message").and_then(Value::as_str) == Some(message.as_str()));
+    let shown =
+        ui.dialogs.iter().any(|dialog| dialog.kind == DialogKind::Error && dialog.fields.get("message").and_then(Value::as_str) == Some(message.as_str()));
     if !shown {
         let mut fields = Fields::new();
         fields.insert("message".into(), json!(message));
@@ -142,7 +143,11 @@ fn invalid_entry(key: &str) -> &'static str {
 }
 
 fn closest_value(key: &str) -> &'static str {
-    if key == "quality" { "A value between 1 and 12 is required. Closest value inserted." } else { "A value between 1 and 30000 is required. Closest value inserted." }
+    if key == "quality" {
+        "A value between 1 and 12 is required. Closest value inserted."
+    } else {
+        "A value between 1 and 30000 is required. Closest value inserted."
+    }
 }
 
 #[cfg(test)]

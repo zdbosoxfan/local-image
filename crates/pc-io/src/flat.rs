@@ -834,7 +834,15 @@ fn map_bands(img: &Image, layout: ChannelLayout, sample: CSample, f: impl Fn(Vec
 /// mid-range, for Lab), without the alpha channel.
 fn matte_over_white(img: &Image) -> Result<Image, IoError> {
     let layout = img.layout();
-    let white = |c: usize| if layout.is_cmyk() { 0.0 } else if layout.is_lab() && c > 0 { 128.0 / 255.0 } else { 1.0 };
+    let white = |c: usize| {
+        if layout.is_cmyk() {
+            0.0
+        } else if layout.is_lab() && c > 0 {
+            128.0 / 255.0
+        } else {
+            1.0
+        }
+    };
     map_bands(img, layout.without_alpha(), img.sample_type(), |vals| {
         let mut out = Vec::with_capacity(vals.len() / layout.channels() * layout.color_channels());
         for px in vals.chunks_exact(layout.channels()) {
