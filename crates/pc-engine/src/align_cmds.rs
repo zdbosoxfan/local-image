@@ -161,6 +161,11 @@ fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
     if area.is_empty() {
         return Err(EngineError::Other("the selected layers are empty".into()));
     }
+    // Held per work-area pixel as f32: each layer's pixels, luminance, alpha and mask weight, plus
+    // the merged picture and the depth map. Refused before any layer is expanded.
+    let channels = ids.iter().filter_map(|id| doc.layer(*id).and_then(|l| l.surface()).map(|s| s.channels() as u64)).max().unwrap_or(4);
+    let per_px = (ids.len() as u64).saturating_mul(channels.saturating_add(3)).saturating_add(channels.saturating_mul(2)).saturating_mul(4);
+    crate::allocation::check_dense(area, per_px, "Auto-Blend")?;
     let (w, h) = (area.width() as usize, area.height() as usize);
     let mut imgs: Vec<Vec<f32>> = Vec::new();
     let mut luma: Vec<Vec<f32>> = Vec::new();

@@ -406,6 +406,8 @@ fn highlights(p: Px, l: f32, area: f32, intensity: f32) -> Px {
 
 /// Pixels an effect reads around an output pixel.
 pub(crate) fn effect_reach(e: &GalleryEffect) -> i32 {
+    // Stored values come from a project file unclamped; keep the arithmetic below inside i32.
+    let e = &e.clamped();
     let g = |k: &str| e.get(k);
     match e.filter {
         F::ColoredPencil => 2,
@@ -477,7 +479,7 @@ fn glass_cell(e: &GalleryEffect) -> f32 {
 
 /// Total reach of a stack of effects.
 pub(crate) fn reach(effects: &[GalleryEffect]) -> i32 {
-    effects.iter().map(effect_reach).sum()
+    effects.iter().map(effect_reach).fold(0, i32::saturating_add)
 }
 
 /// Runs a stack of effects over `out` (the source covers `out` grown by [`reach`]).
@@ -489,8 +491,9 @@ pub(crate) fn run(effects: &[GalleryEffect], src: &Image, out: Rect, ctx: &Ctx) 
         return src.crop(out);
     }
     let mut win = Win { r, w, h, c: src.data.chunks_exact(n).map(|px| rgb(rgba(ctx, px))).collect() };
-    for e in effects {
-        apply(e, &mut win, ctx);
+    // The reach that sized `src` comes from the clamped values, so the pixels must use them too.
+    for e in effects.iter().map(GalleryEffect::clamped) {
+        apply(&e, &mut win, ctx);
     }
     let mut res = src.crop(out);
     let ow = out.width() as usize;
@@ -1190,6 +1193,38 @@ mod tests {
             }
         }
         s
+    }
+
+    /// Every range value of `filter` set to `v`, past the clamp `GalleryEffect::set` applies (as a
+    /// project file can store them).
+    fn with_all_ranges(filter: crate::GalleryFilter, v: impl Fn(f32) -> f32) -> GalleryEffect {
+        let mut e = GalleryEffect::new(filter);
+        for p in filter.params() {
+            if let crate::GalleryParamKind::Range { max, .. } = p.kind {
+                e.values.insert(p.key.to_string(), v(max));
+            }
+        }
+        e
+    }
+
+    #[test]
+    fn gallery_reach_survives_extreme_stored_values() {
+        for &filter in crate::GalleryFilter::ALL {
+            for v in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN, 3.0e9] {
+                let r = reach(&[with_all_ranges(filter, |_| v), with_all_ranges(filter, |_| v), with_all_ranges(filter, |_| v)]);
+                assert!(r >= 0, "{filter:?} with every range at {v}: reach {r}");
+            }
+        }
+    }
+
+    #[test]
+    fn gallery_pixels_past_a_range_render_as_the_clamped_value() {
+        let s = pattern(SampleType::F32);
+        let b = Rect::new(0, 0, 56, 40);
+        for &filter in crate::GalleryFilter::ALL {
+            let run = |e: GalleryEffect| apply_tiled(&s, &FilterParams::FilterGallery { effects: vec![e] }, b, b, None, 16, None).read_region(b);
+            assert!(run(with_all_ranges(filter, |m| m * 3.0)) == run(with_all_ranges(filter, |m| m)), "{filter:?}");
+        }
     }
 
     #[test]
