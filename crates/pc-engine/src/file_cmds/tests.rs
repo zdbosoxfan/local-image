@@ -486,7 +486,7 @@ fn layers_to_files_writes_each_visible_layer() {
     let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "prefix": "doc", "format": "png"})).unwrap();
     let files: Vec<String> = r["files"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
     assert_eq!(files.len(), 2, "{files:?}");
-    assert!(files[0].ends_with("doc_0000_Ink_1.png"), "{files:?}");
+    assert!(files[0].ends_with("doc_0001_Ink_1.png"), "{files:?}");
     assert!(files.iter().all(|f| std::path::Path::new(f).is_file()));
     let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "visibleOnly": false, "format": "psd"})).unwrap();
     assert_eq!(r["files"].as_array().unwrap().len(), 3);
