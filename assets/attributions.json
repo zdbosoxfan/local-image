@@ -11859,48 +11859,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Add per-format Image Processor output settings",
-          "commit": "7b7dde38c1d5375fd8ba1d2f72efc811b3432b11",
-          "ours": "crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/file_cmds/image_processor_formats.rs, crates/pc-engine/src/file_cmds/tests.rs",
-          "licence": "MIT OR Apache-2.0",
-          "licence_files": [
-            "licenses/photocraft-ATTRIBUTION.md",
-            "licenses/photocraft-LICENSE-APACHE",
-            "licenses/photocraft-LICENSE-MIT",
-            "licenses/photocraft-NOTICE"
-          ],
-          "url": "https://github.com/storytold/photocraft/commit/7b7dde38c1d5375fd8ba1d2f72efc811b3432b11"
-        },
-        {
-          "name": "PhotoCraft",
-          "used_for": "Batch: subfolders, open documents, file naming, stop on error, error log, progress and cancel (#219)",
-          "commit": "bc08629d292e1383a41e0db254a00a907f42c9e2",
-          "ours": "crates/pc-engine/src/batch.rs, crates/pc-engine/src/batch/tests.rs, crates/pc-engine/src/lib.rs, crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/file_cmds/batch_actions.rs, crates/pc-engine/src/file_cmds/image_processor_formats.rs, crates/pc-engine/src/lens_cmds.rs, crates/pc-engine/Cargo.toml",
-          "licence": "MIT OR Apache-2.0",
-          "licence_files": [
-            "licenses/photocraft-ATTRIBUTION.md",
-            "licenses/photocraft-LICENSE-APACHE",
-            "licenses/photocraft-LICENSE-MIT",
-            "licenses/photocraft-NOTICE"
-          ],
-          "url": "https://github.com/storytold/photocraft/commit/bc08629d292e1383a41e0db254a00a907f42c9e2"
-        },
-        {
-          "name": "PhotoCraft",
-          "used_for": "Batch: subfolders, open documents, file naming, stop on error, error log, progress and cancel (#219)",
-          "commit": "bc08629d292e1383a41e0db254a00a907f42c9e2",
-          "ours": "apps/local-image-cli/src/lib.rs, apps/local-image-cli/tests/cli.rs, crates/pc-ui-egui/src/view_cmds.rs, crates/pc-ui-egui/src/view_cmds/tests.rs",
-          "licence": "MIT OR Apache-2.0",
-          "licence_files": [
-            "licenses/photocraft-ATTRIBUTION.md",
-            "licenses/photocraft-LICENSE-APACHE",
-            "licenses/photocraft-LICENSE-MIT",
-            "licenses/photocraft-NOTICE"
-          ],
-          "url": "https://github.com/storytold/photocraft/commit/bc08629d292e1383a41e0db254a00a907f42c9e2"
-        },
-        {
-          "name": "PhotoCraft",
           "used_for": "automation: save_bytes never reads linked files (#11233)",
           "commit": "bf162c2215e84f7f96f4894bc7fa2008c45ef4d8",
           "ours": "crates/pc-automation/src/files.rs, crates/pc-automation/src/headless.rs, crates/pc-automation/tests/it/linked_save_bytes.rs, crates/pc-automation/tests/it/main.rs",
@@ -14073,6 +14031,216 @@
             "licenses/photocraft-NOTICE"
           ],
           "url": "https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Add per-format Image Processor output settings",
+          "commit": "7b7dde38c1d5375fd8ba1d2f72efc811b3432b11",
+          "ours": "crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/file_cmds/image_processor_formats.rs, crates/pc-engine/src/file_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/7b7dde38c1d5375fd8ba1d2f72efc811b3432b11"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Add Image Processor format controls and output regressions",
+          "commit": "11c77d26858cc76309822851d7fdbf8ef0ced810",
+          "ours": "crates/pc-ui-egui/src/image_processor_ui.rs, crates/pc-ui-egui/src/image_processor_ui/tests.rs, crates/pc-ui-egui/src/dialogs.rs, crates/pc-ui-egui/src/view_cmds.rs, crates/pc-ui-egui/src/lib.rs, crates/pc-engine/src/file_cmds/tests.rs, crates/li-i18n/catalogs/editor/.tsv",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/11c77d26858cc76309822851d7fdbf8ef0ced810"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Batch: subfolders, open documents, file naming, stop on error, error log, progress and cancel (#219)",
+          "commit": "bc08629d292e1383a41e0db254a00a907f42c9e2",
+          "ours": "crates/pc-engine/src/batch.rs, crates/pc-engine/src/batch/tests.rs, crates/pc-engine/src/lib.rs, crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/file_cmds/batch_actions.rs, crates/pc-engine/src/file_cmds/image_processor_formats.rs, crates/pc-engine/src/lens_cmds.rs, crates/pc-engine/Cargo.toml",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/bc08629d292e1383a41e0db254a00a907f42c9e2"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Batch: subfolders, open documents, file naming, stop on error, error log, progress and cancel (#219)",
+          "commit": "bc08629d292e1383a41e0db254a00a907f42c9e2",
+          "ours": "apps/local-image-cli/src/lib.rs, apps/local-image-cli/tests/cli.rs, crates/pc-ui-egui/src/view_cmds.rs, crates/pc-ui-egui/src/view_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/bc08629d292e1383a41e0db254a00a907f42c9e2"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "TIFF Options: compression, image pyramid and Save Transparency (#10932)",
+          "commit": "e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b",
+          "ours": "crates/pc-codecs/src/codecs/tiff.rs, crates/pc-codecs/src/options.rs, crates/pc-codecs/src/lib.rs, crates/pc-codecs/tests/it/tiff_pyramid.rs, crates/pc-codecs/tests/it/main.rs, crates/pc-codecs/tests/it/tiff_bench.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "TIFF Options: compression, image pyramid and Save Transparency (#10932)",
+          "commit": "e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b",
+          "ours": "crates/pc-io/src/lib.rs, crates/pc-io/src/flat.rs, crates/pc-io/src/tiff_layers.rs, crates/pc-io/tests/it/tiff_save_options.rs, crates/pc-io/tests/it/main.rs, crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/file_cmds/batch_actions.rs, crates/pc-engine/src/file_cmds/tests.rs, crates/pc-engine/src/artboard_cmds.rs, crates/pc-engine/src/comps_cmds.rs, crates/pc-engine/src/lens_cmds.rs, crates/pc-automation/src/rpc.rs, crates/pc-automation/src/server.rs, crates/pc-automation/tests/it/mcp.rs, apps/local-image-cli/src/lib.rs, apps/local-image-cli/tests/cli.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "TIFF Options: compression, image pyramid and Save Transparency (#10932)",
+          "commit": "e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b",
+          "ours": "crates/pc-ui-egui/src/tiff_options_ui.rs, crates/pc-ui-egui/src/lib.rs, crates/pc-ui-egui/src/view_cmds.rs, crates/pc-ui-egui/src/bugfix_save_tests.rs, apps/local-image/src/services.rs, crates/li-i18n/catalogs/editor/.tsv",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "File: Open as Smart Object... opens a file as a new document holding one embedded smart object (#11678)",
+          "commit": "5e583a3f9fb2aa164f3a76f68be3b573ad7bd598",
+          "ours": "crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/file_cmds/open_as_smart_object.rs, crates/pc-engine/src/file_cmds/open_as_smart_object_tests.rs, crates/pc-ui-egui/src/menu_catalog.rs, crates/li-i18n/catalogs/editor/.tsv",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/5e583a3f9fb2aa164f3a76f68be3b573ad7bd598"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Open as Smart Object: tests (#11678)",
+          "commit": "c1f630791a89a06cf7ac801073074fae72d3acbd",
+          "ours": "crates/pc-engine/src/file_cmds/open_as_smart_object_tests.rs, crates/pc-engine/src/file_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/c1f630791a89a06cf7ac801073074fae72d3acbd"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "File: Open as Smart Object... opens the same file dialog as Open and takes several files (#11678)",
+          "commit": "e2471998de0d283f7bfb8d905e254d60a63da7ec",
+          "ours": "crates/pc-ui-egui/src/file_dialog.rs, crates/pc-ui-egui/src/view_cmds.rs, crates/pc-ui-egui/src/file_open/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/e2471998de0d283f7bfb8d905e254d60a63da7ec"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Open as Smart Object: the opening snapshot shows the placed smart object (#11678)",
+          "commit": "b29fdc5a295f2a63245d6cb2523b38e93e4f7f09",
+          "ours": "crates/pc-engine/src/file_cmds/open_as_smart_object.rs, crates/pc-engine/src/file_cmds/open_as_smart_object_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/b29fdc5a295f2a63245d6cb2523b38e93e4f7f09"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Open as Smart Object: import on a worker and complete through File > Open's colour policy and prompts (#11678)",
+          "commit": "2341642056e63f2ded1b42ee20ab554249e57a84",
+          "ours": "crates/pc-engine/src/file_cmds.rs, crates/pc-engine/src/file_cmds/open_as_smart_object.rs, crates/pc-engine/src/file_cmds/open_as_smart_object_tests.rs, crates/pc-ui-egui/src/jobs_ui.rs, crates/pc-ui-egui/src/file_dialog.rs, crates/pc-ui-egui/src/file_open.rs, crates/pc-ui-egui/src/file_open/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/2341642056e63f2ded1b42ee20ab554249e57a84"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "feat(ui-egui): export dialogs start in the last exported folder (#10192)",
+          "commit": "13f84218e3cdcc2ca39159d32bf51bd34becc8e4",
+          "ours": "crates/pc-engine/src/prefs.rs, crates/pc-ui-egui/src/file_dialog.rs, crates/pc-ui-egui/src/file_dialog/tests.rs, crates/pc-ui-egui/src/export_dialog.rs, crates/pc-ui-egui/src/file_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/13f84218e3cdcc2ca39159d32bf51bd34becc8e4"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Export As: Scale All rows write one file per size with its suffix (#13734)",
+          "commit": "d8891fe31c0bc23dc97fd7d1390d15dd9ed28e12",
+          "ours": "crates/pc-ui-egui/src/export_dialog.rs, crates/pc-ui-egui/src/export_dialog/scale_all_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/d8891fe31c0bc23dc97fd7d1390d15dd9ed28e12"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Transfer selected pixels between tabs and tiled documents",
+          "commit": "386a6804220ddb971867467eca2c00b9cdec7a06",
+          "ours": "crates/pc-engine/src/float_cmds.rs, crates/pc-engine/src/layer_copy_cmds.rs, crates/pc-engine/src/layer_copy_cmds/tests.rs, crates/pc-ui-egui/src/canvas.rs, crates/pc-ui-egui/src/layer_transfer.rs, crates/pc-ui-egui/src/layer_transfer/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/386a6804220ddb971867467eca2c00b9cdec7a06"
         },
         {
           "name": "vkdt",
