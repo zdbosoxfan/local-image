@@ -1015,6 +1015,7 @@ preflight has its own bounded reader) and `830cefca` (we don't read XMP from PDF
 | [`ea826b11cc5b`](https://github.com/storytold/lightcraft/commit/ea826b11cc5bec456c2b71e6bc6ea59a4f91af45) | engine: refuse negative indices instead of targeting element 0 | `crates/lc-engine/src/cmd/color.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/masks.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`de44200a8ddd`](https://github.com/storytold/lightcraft/commit/de44200a8dddfa2677f71a48ef978d1c8a616266) | Issue #2097: reject fractional command indices | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`1162c2a01832`](https://github.com/storytold/lightcraft/commit/1162c2a01832cd424704f17aa9405fd48ffed445) | crop.set refuses a crop smaller than the crop tool allows, instead of exporting 1×1 (part of #1952) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-geom/src/crop.rs`<br>`crates/lc-geom/src/lib.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
+| [`be34283943e0`](https://github.com/storytold/lightcraft/commit/be34283943e0170fdf508b693b09fc5f38e45e6c) | crop.set checks the minimum on the crop it stores, so an oversized rect can't come out a sliver (part of #1952) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`9ef40b98866c`](https://github.com/storytold/lightcraft/commit/9ef40b98866ca7270fa4621c83028357c7ed79b8) | Commands: Refuse malformed photo ids instead of using the selection (#1506) | `crates/lc-engine/src/cmd/browse.rs`<br>`crates/lc-engine/src/cmd/convert.rs`<br>`crates/lc-engine/src/cmd/cull.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/keywords.rs`<br>`crates/lc-engine/src/cmd/library.rs`<br>`crates/lc-engine/src/cmd/manage.rs`<br>`crates/lc-engine/src/cmd/merge.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/cmd/organize.rs`<br>`crates/lc-engine/src/cmd/previews.rs`<br>`crates/lc-engine/src/cmd/xmp.rs`<br>`crates/lc-engine/src/lib.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/lc-ui-egui/src/merge.rs`<br>`crates/lc-ui-egui/src/panels/dialogs.rs`<br>`crates/lc-ui-egui/src/panels/grid.rs`<br>`crates/lc-ui-egui/src/tasks.rs` | MIT OR Apache-2.0 |
 
 Adapted ports: `436ca356` applies the clamp in `li_gpu::device_limits`, where both editors take
@@ -1023,7 +1024,10 @@ its unit test; its GPU sweep test needs the upstream mip readback harness. `502d
 `li_fs::same_file`; its Windows file-identity change does not apply. `8b61a8b1` checks `zoom`,
 `center` and `dockWidth` (our `ui.set` has no `rotation`) before anything changes. `de44200a` also
 moves our `history.restore` onto the checked index. `1162c2a0` adds `MIN_CROP_FRACTION` to
-`lc-geom`, shared by `crop.set` and the crop tool's drag.
+`lc-geom`, shared by `crop.set` and the crop tool's drag. `be342839` follows `1162c2a0`: the second check
+follows our single `constrained` call (no `with_angle` branch here) and keeps our NaN-refusing
+form, so a rect whose fit overflows (`1e308`) is refused rather than stored; its oversized-rect
+cases are a new test, and upstream's `crop_set_huge_rect_stays_finite` edit has no counterpart.
 
 Not applicable or deferred: `e14db894` (our export options fall back to the format's own depth by
 design and have no strict parameter validator), VectorCraft `025ce255` and `32dbc4b6` (our PDF
@@ -1356,6 +1360,7 @@ Not applicable: `479f8e64`'s `actions.load` set-name clip (there is no `.atn` im
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [storytold/lightcraft@`55e7c335fd9170302e89f86bdccbe84884aec9a7`](https://github.com/storytold/lightcraft/commit/55e7c335fd9170302e89f86bdccbe84884aec9a7) | Do not read a sibling's shared stem sidecar for a non-owner photo (#1523) | `crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/cmd/query.rs`<br>`crates/lc-engine/src/tests_xmp.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`5bf0d45ba87be9e99cfaaf14dd1a1b41d04e14da`](https://github.com/storytold/lightcraft/commit/5bf0d45ba87be9e99cfaaf14dd1a1b41d04e14da) | Do not read a sibling's shared stem sidecar on import (#1905) | `crates/lc-engine/src/import.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/tests_import.rs`<br>`docs/upstream/lightcraft/xmp-interop.md` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`87af6eb9db71b6f25dcb787cbfa720f96f70d35d`](https://github.com/storytold/lightcraft/commit/87af6eb9db71b6f25dcb787cbfa720f96f70d35d) | LR-CROP-RECT: a free crop corner on a straightened photo grows both sides (#2308) | `crates/lc-geom/src/crop_drag.rs` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`15434d87acbed5ee4c3c85a7f335c0d19e728f6f`](https://github.com/storytold/lightcraft/commit/15434d87acbed5ee4c3c85a7f335c0d19e728f6f) | LR-CROP-RECT: a too-small crop's corner drag reaches the minimum size (#2308) | `crates/lc-geom/src/crop_drag.rs` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`4f94e0c5928a0d76d0d77d9cf3606504658419e3`](https://github.com/storytold/lightcraft/commit/4f94e0c5928a0d76d0d77d9cf3606504658419e3) | LR-META-LOCATION: validate typed GPS coordinates | `crates/lc-engine/src/cmd/library.rs` | MIT OR Apache-2.0 |
@@ -1369,8 +1374,11 @@ Not applicable: `479f8e64`'s `actions.load` set-name clip (there is no `.atn` im
 | [storytold/lightcraft@`e69f8b160dbede254f66d6e0062cc4b4ba59af77`](https://github.com/storytold/lightcraft/commit/e69f8b160dbede254f66d6e0062cc4b4ba59af77) | LR-LIB-PEOPLE: the image's own size decides, and its orientation is found past the first MiB (#2674) | `crates/lc-engine/src/files.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/tests_xmp.rs`<br>`docs/upstream/lightcraft/xmp-interop.md` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`4eecf8b8a053b53fc419309306af75c5892d08d1`](https://github.com/storytold/lightcraft/commit/4eecf8b8a053b53fc419309306af75c5892d08d1) | LR-LIB-PEOPLE: find a late orientation by the file's structure, not by reading it whole (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`26f73e49781c577cad109fc48c76bd8e01a1706d`](https://github.com/storytold/lightcraft/commit/26f73e49781c577cad109fc48c76bd8e01a1706d) | LR-LIB-PEOPLE: a late TIFF orientation is one SHORT; a late WebP one may be in its XMP (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`72a074b9bc844566999a790727f502056c7135d9`](https://github.com/storytold/lightcraft/commit/72a074b9bc844566999a790727f502056c7135d9) | LR-LIB-PEOPLE: a size only the XMP states doesn't turn face boxes (#2674) | `crates/lc-meta/src/exif.rs`<br>`crates/lc-meta/src/lib.rs`<br>`docs/upstream/lightcraft/xmp-interop.md` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`85c1265da7653f2c231ca0d33e99a97985ab9f93`](https://github.com/storytold/lightcraft/commit/85c1265da7653f2c231ca0d33e99a97985ab9f93) | LR-LIB-PEOPLE: face boxes turn only by an orientation the Exif states (#2674, review) | `crates/lc-meta/src/exif.rs`<br>`crates/lc-meta/src/lib.rs`<br>`crates/lc-engine/src/tests_xmp.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`a763c3c180241ab85b6e706cff610e22da9da4ca`](https://github.com/storytold/lightcraft/commit/a763c3c180241ab85b6e706cff610e22da9da4ca) | LR-LIB-PEOPLE: a re-read finds a PNG's or PSD's orientation past the first MiB (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
 
-Adapted ports: `55e7c335`'s Synchronize Folder hunks (`sync.rs`) have no counterpart here, and `find_sidecar` and `read_packet` keep reading a stem sidecar for callers outside the catalog. `4f94e0c5`, `64712276`, `96d7a38b` and `647ed93d` are ported together as one parser, and `6ea79061` is adapted onto that parser. `30780eb9` has no Synchronize Folder hunks here, and Read Metadata from File opens the original through `li_fs::read`, as do `e69f8b16`, `4eecf8b8` and `26f73e49`, ported together. The JPEG walk is written for the orientation alone (no upstream `read_jpeg_xmp` to generalise), and the WebP walk stops at the first chunk that states an orientation, as upstream did at `26f73e49`.
+Adapted ports: `55e7c335`'s Synchronize Folder hunks (`sync.rs`) have no counterpart here, and `find_sidecar` and `read_packet` keep reading a stem sidecar for callers outside the catalog. `4f94e0c5`, `64712276`, `96d7a38b` and `647ed93d` are ported together as one parser, and `6ea79061` is adapted onto that parser. `30780eb9` has no Synchronize Folder hunks here, and Read Metadata from File opens the original through `li_fs::read`, as do `e69f8b16`, `4eecf8b8` and `26f73e49`, ported together. The JPEG walk is written for the orientation alone (no upstream `read_jpeg_xmp` to generalise), and the WebP walk stops at the first chunk that states an orientation, as upstream did at `26f73e49`. `85c1265d` follows `30780eb9`: a TIFF-based file is not copied into `Embedded::exif` here, so the Exif orientation is taken from the file's own parse (`ifd0_orientation` takes a parsed TIFF, and `from_tiff` uses it too), and its engine test checks the import only, since Read Metadata from File here reads no JPEG's embedded XMP. `72a074b9` also follows `30780eb9` and is ported after `85c1265d`, onto it; its lightcraft-meta test is ported, and its engine test is not: it builds a preview-only raw that our `lightcraft_raw::probe` does not take for a raw (no preview-container check here), so the same behaviour is checked in lightcraft-meta alone. `a763c3c1` follows `4eecf8b8` and `26f73e49`: the file stays opened through `li_fs::read`, and a PNG's XMP is parsed with `parse_whole_xmp`, as the import and the other walks here parse it. `5bf0d45b` follows `55e7c335`: the job takes the library's files (`ImportStems::library_files`) when it is set up, since it keeps no catalog snapshot, ranks each batch's arrivals against them and adds each batch's arrivals to them, so a file prepared in a later batch than its raw (the app prepares 8 files at a time) still yields the stem sidecar to it; this goes beyond upstream, whose import ranks a later batch without the earlier ones; a non-owner reads through `find_sidecar_in` without the stem name (no `sidecar_candidates` or `.Xmp` case here), and a file with no ending reads none. Not ported: its Synchronize Folder hunk (no `sync.rs`), its `StemOwners::among` test edits (no `among` here), and its parity checklist line; its stem-owner test uses a shorter list of paths.
 
 ## LightCraft library parity, part 3 (2026-11-15)
 
@@ -1388,13 +1396,14 @@ Adapted ports: `b90679da` has no Local-photo skipping here, so `album_targets` o
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [storytold/lightcraft@`5260206fd41b800ec6e51744ea152c017cfd2baa`](https://github.com/storytold/lightcraft/commit/5260206fd41b800ec6e51744ea152c017cfd2baa) | Issue #3405: Auto Import waits for an import that starts during its listing | `crates/lc-ui-egui/src/import.rs`<br>`crates/lc-ui-egui/src/lib.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`1c1bb4f6328341a44506f24ef301295771bfe35f`](https://github.com/storytold/lightcraft/commit/1c1bb4f6328341a44506f24ef301295771bfe35f) | Issue #3405: Auto Import also waits for a scan, and its race tests apply the listing on cue | `crates/lc-ui-egui/src/import.rs`<br>`crates/lc-ui-egui/src/lib.rs` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`fe632e05f9f9d90dd9f30054296662c71d4d1f41`](https://github.com/storytold/lightcraft/commit/fe632e05f9f9d90dd9f30054296662c71d4d1f41) | Keep a stitched panorama at the photos' own resolution (#3806) | `crates/lc-merge/src/pano/mod.rs`<br>`crates/lc-merge/tests/it/pano.rs` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`a856df5f422bc07044a6beaf5bfdb920292bb1c7`](https://github.com/storytold/lightcraft/commit/a856df5f422bc07044a6beaf5bfdb920292bb1c7) | Write camera make and lens make to EXIF on export (#3828) | `crates/lc-catalog/src/model.rs`<br>`crates/lc-engine/src/cmd/convert.rs`<br>`crates/lc-engine/src/export.rs`<br>`crates/lc-engine/src/files.rs`<br>`crates/lc-engine/src/tests_export.rs` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`3335fffb872a51cf9072c20f9208b39685798b1d`](https://github.com/storytold/lightcraft/commit/3335fffb872a51cf9072c20f9208b39685798b1d) | Limit tone-curve steps between pixel populations in the camera look fit (#1904) | `crates/lc-engine/src/camera_preview.rs`<br>`crates/lc-engine/src/media.rs` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`67782d8f659a958552bff5cc8180d3a470bb85eb`](https://github.com/storytold/lightcraft/commit/67782d8f659a958552bff5cc8180d3a470bb85eb) | Auto Sync: As Shot, Auto and Temp apply to each selected photo's own white balance (#3571) | `crates/lc-engine/src/auto_wb.rs`<br>`crates/lc-engine/src/lib.rs`<br>`crates/lc-engine/src/tests_per_photo.rs` | MIT OR Apache-2.0 |
 | [storytold/lightcraft@`7b99ed3903f9f305f0e5fd6fb12f705aec0c1adb`](https://github.com/storytold/lightcraft/commit/7b99ed3903f9f305f0e5fd6fb12f705aec0c1adb) | Presets change only the settings they name (fixes #2159) (#2207) | `crates/lc-develop/src/presets.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/presets.rs` | MIT OR Apache-2.0 |
 
-Adapted ports: `fe632e05` adds no `PanoResult::native_megapixels`; its test checks the canvas width against the field of view at the lens's focal length. `3335fffb` limits the steps in our single `fit_tone`, after its pooling (no `fit_tone_conditional` or `LOOK_VERSION` here), and bumps `RENDER_CACHE_VERSION` to 25. `67782d8f` ports only the Custom branch, as `auto_wb::sync_custom_wb`; the other modes were already resolved per photo, and `WbScale::Legacy` has no counterpart. `7b99ed39` folds `compose_named` and `interpolate_leaf` into a scaling base for `scale_patch`, and adds no `Session::preset_applied` or white balance scale preparation.
+Adapted ports: `fe632e05` adds no `PanoResult::native_megapixels`; its test checks the canvas width against the field of view at the lens's focal length. `3335fffb` limits the steps in our single `fit_tone`, after its pooling (no `fit_tone_conditional` or `LOOK_VERSION` here), and bumps `RENDER_CACHE_VERSION` to 25. `67782d8f` ports only the Custom branch, as `auto_wb::sync_custom_wb`; the other modes were already resolved per photo, and `WbScale::Legacy` has no counterpart. `7b99ed39` folds `compose_named` and `interpolate_leaf` into a scaling base for `scale_patch`, and adds no `Session::preset_applied` or white balance scale preparation. `1c1bb4f6` follows `5260206f`: both Auto Import guards also wait for `app.scan` (no `import::running` helper and no pending-review state here), and its test calls `auto_listed` directly with a browse scan set, as the `5260206f` test does, instead of upstream's headless `tasks::wait_for` rewrite of the race tests.
 
 ## PhotoCraft document files, text and importer budgets (2026-11-15)
 
@@ -1705,6 +1714,7 @@ same loop, slideshow pause included; the test sets `shortcut_overrides` (we have
 drops upstream's `view.toolOverlay` step, since our pins show whenever Show Pins is on. Our pin drag
 on a shape `moved_shape` cannot move ends in `end_interaction`, which records no step when the
 settings are unchanged. Not ported: upstream's what's-new and parity checklist lines.
+`71748919` follows `63b7d076`: the pin check sits in the Object tool branch of our `mask_overlay` (upstream has a separate `object_tool`), selecting with `app.run`; its test sets Show Pins instead of `view.toolOverlay`. Not ported: upstream's what's-new line.
 `aa52251d`: our shortcut stays Cmd+U (upstream Shift+A) and the engine command documents `{ids?}`. The
 app hook is a `develop.auto` arm in our `menus.rs` `run_ui_command` (upstream `menus/run.rs`); the task
 runs on `tasks::spawn_job` with its `JobCtl` (upstream `spawn_tracked` with a cancel flag), wrapped
@@ -1722,6 +1732,7 @@ upstream's fixed 68 and 30; the UI test waits with `tasks::wait` (we have no `wa
 | [`9e305d642e3e`](https://github.com/storytold/lightcraft/commit/9e305d642e3e091235e8a651079f6dafd798c224) | KEY-TOGGLEZOOM: a click down and up within one frame keeps its zoom on Space's release | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
 | [`c9c3870ab387`](https://github.com/storytold/lightcraft/commit/c9c3870ab38718a63c5faaa7b677b39cbbc002eb) | KEY-TOGGLEZOOM: Toggle Zoom bound to Space in the keymap takes the hand and toggles once | `crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
 | [`63b7d0766e18`](https://github.com/storytold/lightcraft/commit/63b7d0766e18726ba35a2f4be645280acd478984) | LR-MASK-PINS: Object and Describe masks show a pin that selects them | `crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_masking.rs` | MIT OR Apache-2.0 |
+| [`71748919396d`](https://github.com/storytold/lightcraft/commit/71748919396d7fb0adb8b96d02eb31dd6fc6bcad) | LR-MASK-PINS: with the Object tool on, a click on another mask's pin selects it (#3049) | `crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_masking.rs` | MIT OR Apache-2.0 |
 | [`aa52251d2ef3`](https://github.com/storytold/lightcraft/commit/aa52251d2ef3bb2e4014f20943c4c4c83ce0d931) | Apply Auto settings to every selected photo (#3808) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/auto_settings.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/li-i18n/src/pending_library.rs` | MIT OR Apache-2.0 |
 
 ## Content-Aware Fill geometric options (2026-11-15)
@@ -2087,3 +2098,69 @@ Not ported: storytold/lightcraft@`749a63ba58` (mask geometry review fixes 2). Sa
 Not ported: storytold/lightcraft@`d729c80a5a` (Detail: Remove Hot Pixels, on for newly imported raws, #1345). Owner decision: we already remove hot and dead photosites on every raw (`crates/lc-raw/src/hotpixels.rs`); ported as written it would switch that off for existing edits and add a saved field that needs a catalog version bump.
 
 Not ported: storytold/vectorcraft@`63dab14ee7` (Image Trace seam fills for Abutting traces). It conflicts with our design: Abutting traces are drawn as a seamless mosaic, which a seam-fill group would break or hide; seams at export would be a new design for the owner to approve.
+
+## Upstream follow-ups left for the next round (2026-11-16)
+
+These upstream commits follow commits we already ported and were judged improvements, not defects, so they wait for the next round; none is ported, so none has a row in a commit table.
+
+Not ported: storytold/photocraft@`cc51a09f81` (Image Size: a key that does nothing keeps an earlier pick). Several Alt-digit events in one frame can drop typing (`sizing.rs:285-308`); rare. Port it without `resample_offered`.
+
+Not ported: storytold/photocraft@`325229e4e1` (Export As: decide a layer export from the parsed layer id). Consistency cleanup only; all our writers insert an integer id (`export_dialog.rs:500-503`).
+
+Not ported: storytold/photocraft@`46c8e1e9b1` (Object Selection Hard Edge off: add the reference's line of 1s). Our 1-2-1 tent rim (`smartselect_cmds.rs:192-228`) works but is not reference-exact. Port it as the final 4-tap state.
+
+Not ported: storytold/photocraft@`d4b296a8e6` (Object Selection Hard Edge off: fit the re-measured rim). Intermediate step; take it only as part of the `46c8e1e9b1` final state.
+
+Not ported: storytold/photocraft@`bf550d8fc` (Only build the rim ring when an unlocked Blend fill can read it). Performance guard for `rim_ring`; it rides with `3a23cf3e6b` (condition: not `lock_transparency` and the mask has a 0).
+
+Not ported: storytold/photocraft@`901286fef3` (Pen: Enter deselects the Work Path it finished). New parity behaviour; our Delete port is correct without it.
+
+Not ported: storytold/photocraft@`109a5aa405` (A broken iCCP CRC skips that chunk instead of ending the walk). Malformed PNGs open untagged (`png.rs:266`). The fix is one `continue` plus a test.
+
+Not ported: storytold/photocraft@`080d10c500` (Brush: Catch-up on Stroke End starts unchecked). Parity default flip (`brush.rs:355`); it needs the `3a21e14f06` test opt-ins.
+
+Not ported: storytold/photocraft@`f1427bba65` (Save for Web: refuse slice numbers with a whole-image path). API validation; `numbers` is silently ignored with a path or folder (`web_cmds.rs:764-788`).
+
+Not ported: storytold/photocraft@`dfdb3a7827` (Typing in another document is a step of its own). Mostly covered by `d9355e1ec2`; the remaining scripted case that names no layer is rare (`type_cmds.rs:536`).
+
+Not ported: storytold/photocraft@`c0b08120a6` (Reveal All's crop passes the session gate). The gate call is missing (`extra_cmds.rs:686-687`), but no installed gate would refuse numeric parameters.
+
+Not ported: storytold/photocraft@`0b779b4fec` (Report a failed directory flush after a save). Durability improvement in li-fs (`lib.rs:539`, `:671`); a hand port of about 120 lines.
+
+Not ported: storytold/photocraft@`2cd1bd8664` (Cap text fields and oversized text events). A new bound for plain text and paste events (`lib.rs:1604`); the numeric-field port is fine.
+
+Not ported: storytold/photocraft@`abd3755d41` (RecoveryStore::flush keeps each entry's key). After a lost-device flush a stale recovery entry can remain (`autosave.rs:403-418`); a 5-line fix.
+
+Not ported: storytold/photocraft@`01cbd41e2b` (Levels clipping: drop the cache when the last document closes). A small allocation is kept after all documents close (`lib.rs:1147`).
+
+Not ported: storytold/photocraft@`fadef65cc8` (Levels clipping: draw nothing while a background job runs). A possible UI stall during jobs (`levels_clipping.rs:337-345`); no correctness issue.
+
+Not ported: storytold/photocraft@`a78e9f05fc` (Save: ask before replacing a file that an added extension names). Only the rfd fallback lacks the prompt (`services.rs:203`); it needs a dialog plus 20 catalogs.
+
+Not ported: storytold/photocraft@`0ce7e00fee` (Brush: the Dual Brush tip keeps its proportion at tiny main sizes). The 0.5 px floor loses the dual-tip ratio (`brush.rs:500`); precision only.
+
+Not ported: storytold/photocraft@`4e131ecf2d` (Pen: an unclosed path stays with its document). A real bug in the Pen, a sibling of the ported lasso fix; there is no `pen_doc` (`lib.rs:1538`).
+
+Not ported: storytold/photocraft@`a62ef68ca2` (CMYK: Hue/Saturation and Color Balance keep the black ink). It needs the unported CMYK ink stack first.
+
+Not ported: storytold/photocraft@`1e6f565a7b` (CMYK: adjustment layers composite on the document's own inks). A new ink-native compositor; feature work of about 330 lines.
+
+Not ported: storytold/photocraft@`92c7922230` (CMYK: Brightness/Contrast curves each ink). It depends on the unported `cmyk_channel_adjustment`.
+
+Not ported: storytold/photocraft@`4c450b3879` (Lab: adjustment layers composite on the stored L, a and b). A new `native_lab` compositor; a Lab parity feature.
+
+Not ported: storytold/photocraft@`e6238ad399` (PSD save: widen RLE row counts while writing a promoted PSB). Our in-place promotion is correct; this is only a memory and speed gain over 2 GB.
+
+Not ported: storytold/photocraft@`3a307a757e` (TrueGrit .atn mappings and fixes). We have no .atn importer; the side fixes (Crystallize at `pixelate.rs:98`, clipboard resolution, Spatter) can be taken separately.
+
+Not ported: storytold/photocraft@`2006c72e98` (Warp, transform a copy, flip/rotate and live preview for several layers). A multi-layer capability (`extra_cmds.rs:263-282`); the preview needs the unported Follow.
+
+Not ported: storytold/lightcraft@`419373a84a` (Re-read uses a raw's decoder orientation). Not needed now: our decoders use IFD0, so only a raw with no IFD0 orientation plus XMP is left. Do it after `a763c3c180`.
+
+Not ported: storytold/lightcraft@`cb841a3fe1` (A click on the selected mask's own pin adds no Object click). A wasted click on its own pin (`detail.rs:1437-1446`); it depends on `7174891939`.
+
+Not ported: storytold/lightcraft@`b84d9a8cff` (view.maskOverlayColor refuses signed hex digits). `parse_rgb` accepts "#+f+f+f" (`menus.rs:306-313`); one condition, colour only.
+
+Not ported: storytold/lightcraft@`43a47e5a3b` (Clip non-finite float image samples safely). NaN and Inf pass through (`convert.rs:48`, `:183`, `:359`); robustness for float TIFFs only.
+
+Not ported: storytold/lightcraft@`38973dba3a` (Imported LUTs leave no copy in the temp folder). Temp-file clutter only (`lut_profiles.rs:146-150`); the writes are already atomic and symlink-safe.

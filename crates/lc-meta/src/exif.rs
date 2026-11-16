@@ -39,6 +39,12 @@ fn pos(v: Option<f64>) -> Option<f64> {
     v.filter(|x| x.is_finite() && *x > 0.0)
 }
 
+/// The orientation the Exif's own first IFD states. [`from_tiff`] also reports one that only the XMP packet in
+/// the Exif's tag 700 states; a photo is displayed by the Exif's alone, so that one can't tell how a photo is stored.
+pub(crate) fn ifd0_orientation(tiff: &Tiff) -> Option<Orientation> {
+    tiff.ifds.first().and_then(|i| i.u16(t::ORIENTATION)).filter(|v| (1..=8).contains(v)).map(Orientation::from_exif)
+}
+
 /// Build [`Metadata`] from a parsed TIFF stream (IFD0 + Exif + GPS; DNG tags as fallbacks).
 pub fn from_tiff(tiff: &Tiff) -> Metadata {
     let ifd0 = tiff.ifds.first();
@@ -63,7 +69,7 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
     if let Some(s) = spec.filter(|s| s.len() == 4 && s[0] > 0.0) {
         m.lens_spec = Some([s[0], s[1], s[2], s[3]]);
     }
-    m.orientation = ifd0.and_then(|i| i.u16(t::ORIENTATION)).filter(|v| (1..=8).contains(v)).map(Orientation::from_exif);
+    m.orientation = ifd0_orientation(tiff);
     m.rating = ifd0.and_then(|i| i.i64(t::RATING)).map(|r| r.clamp(-1, 5) as i8);
 
     m.exposure_time = pos(either(t::EXPOSURE_TIME).and_then(|v| v.get_f64(0)))
@@ -123,8 +129,11 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
     if let Some(x) = ifd0.and_then(|i| i.bytes(t::XMP)).map(String::from_utf8_lossy)
         && let Ok(x) = crate::parse_whole_xmp(&x)
     {
+        // the size stays the one Exif states: `extract` turns regions by it, and a size only the XMP states may be the upright one
+        let size = (m.width, m.height);
         m.overlay_user_fields(&x.metadata);
         m.fill_missing(&x.metadata);
+        (m.width, m.height) = size;
     }
     m.fill_dji_gps();
     m

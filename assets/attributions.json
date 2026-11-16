@@ -10187,6 +10187,19 @@
         },
         {
           "name": "LightCraft",
+          "used_for": "crop.set checks the minimum on the crop it stores, so an oversized rect can't come out a sliver (part of #1952)",
+          "commit": "be34283943e0170fdf508b693b09fc5f38e45e6c",
+          "ours": "crates/lc-engine/src/cmd/develop.rs, crates/lc-engine/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/be34283943e0170fdf508b693b09fc5f38e45e6c"
+        },
+        {
+          "name": "LightCraft",
           "used_for": "Commands: Refuse malformed photo ids instead of using the selection (#1506)",
           "commit": "9ef40b98866ca7270fa4621c83028357c7ed79b8",
           "ours": "crates/lc-engine/src/cmd/browse.rs, crates/lc-engine/src/cmd/convert.rs, crates/lc-engine/src/cmd/cull.rs, crates/lc-engine/src/cmd/develop.rs, crates/lc-engine/src/cmd/keywords.rs, crates/lc-engine/src/cmd/library.rs, crates/lc-engine/src/cmd/manage.rs, crates/lc-engine/src/cmd/merge.rs, crates/lc-engine/src/cmd/mod.rs, crates/lc-engine/src/cmd/organize.rs, crates/lc-engine/src/cmd/previews.rs, crates/lc-engine/src/cmd/xmp.rs, crates/lc-engine/src/lib.rs, crates/lc-engine/src/tests.rs, crates/lc-ui-egui/src/menus.rs, crates/lc-ui-egui/src/merge.rs, crates/lc-ui-egui/src/panels/dialogs.rs, crates/lc-ui-egui/src/panels/grid.rs, crates/lc-ui-egui/src/tasks.rs",
@@ -11602,6 +11615,19 @@
         },
         {
           "name": "LightCraft",
+          "used_for": "Do not read a sibling's shared stem sidecar on import (#1905)",
+          "commit": "5bf0d45ba87be9e99cfaaf14dd1a1b41d04e14da",
+          "ours": "crates/lc-engine/src/import.rs, crates/lc-engine/src/sidecar.rs, crates/lc-engine/src/tests_import.rs, docs/upstream/lightcraft/xmp-interop.md",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/5bf0d45ba87be9e99cfaaf14dd1a1b41d04e14da"
+        },
+        {
+          "name": "LightCraft",
           "used_for": "LR-CROP-RECT: a free crop corner on a straightened photo grows both sides (#2308)",
           "commit": "87af6eb9db71b6f25dcb787cbfa720f96f70d35d",
           "ours": "crates/lc-geom/src/crop_drag.rs",
@@ -11771,6 +11797,45 @@
         },
         {
           "name": "LightCraft",
+          "used_for": "LR-LIB-PEOPLE: a size only the XMP states doesn't turn face boxes (#2674)",
+          "commit": "72a074b9bc844566999a790727f502056c7135d9",
+          "ours": "crates/lc-meta/src/exif.rs, crates/lc-meta/src/lib.rs, docs/upstream/lightcraft/xmp-interop.md",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/72a074b9bc844566999a790727f502056c7135d9"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-LIB-PEOPLE: face boxes turn only by an orientation the Exif states (#2674, review)",
+          "commit": "85c1265da7653f2c231ca0d33e99a97985ab9f93",
+          "ours": "crates/lc-meta/src/exif.rs, crates/lc-meta/src/lib.rs, crates/lc-engine/src/tests_xmp.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/85c1265da7653f2c231ca0d33e99a97985ab9f93"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-LIB-PEOPLE: a re-read finds a PNG's or PSD's orientation past the first MiB (#2674)",
+          "commit": "a763c3c180241ab85b6e706cff610e22da9da4ca",
+          "ours": "crates/lc-engine/src/sidecar.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/a763c3c180241ab85b6e706cff610e22da9da4ca"
+        },
+        {
+          "name": "LightCraft",
           "used_for": "LR-FILT-SEARCH-META: >= and <= in fielded search tokens",
           "commit": "8fe7198dbdac3d90ee0f6bd15f6150e5b4649611",
           "ours": "crates/lc-catalog/src/query.rs, crates/lc-catalog/src/tests.rs",
@@ -11833,6 +11898,19 @@
             "licenses/lightcraft-NOTICE"
           ],
           "url": "https://github.com/storytold/lightcraft/commit/5260206fd41b800ec6e51744ea152c017cfd2baa"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Issue #3405: Auto Import also waits for a scan, and its race tests apply the listing on cue",
+          "commit": "1c1bb4f6328341a44506f24ef301295771bfe35f",
+          "ours": "crates/lc-ui-egui/src/import.rs, crates/lc-ui-egui/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/1c1bb4f6328341a44506f24ef301295771bfe35f"
         },
         {
           "name": "LightCraft",
@@ -14248,6 +14326,19 @@
             "licenses/lightcraft-NOTICE"
           ],
           "url": "https://github.com/storytold/lightcraft/commit/63b7d0766e18726ba35a2f4be645280acd478984"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LR-MASK-PINS: with the Object tool on, a click on another mask's pin selects it (#3049)",
+          "commit": "71748919396d7fb0adb8b96d02eb31dd6fc6bcad",
+          "ours": "crates/lc-ui-egui/src/panels/detail.rs, crates/lc-ui-egui/src/tests_masking.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/commit/71748919396d7fb0adb8b96d02eb31dd6fc6bcad"
         },
         {
           "name": "LightCraft",
