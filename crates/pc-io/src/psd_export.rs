@@ -16,12 +16,15 @@ use crate::pixels::{deinterleave, encode_be, psd_depth};
 use crate::psd_import::REGENERATED;
 use crate::vector_map::fallback;
 
+/// The largest file written as PSD: past it, the document is saved as PSB (Large Document Format),
+/// as Photoshop does.
 const PSD_MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+/// Room kept under [`PSD_MAX_FILE_SIZE`] for what the save adds after the conversion (the image
+/// preview resource, a few KB).
+const PSD_SAVE_HEADROOM: u64 = 1024 * 1024;
 /// How many times larger than the tiles holding its pixels a layer's box must be to count as
 /// sparse ([`gather_refused`]).
 const SPARSE_GATHER_FACTOR: u64 = 8;
-const PSD_ESTIMATE_FIXED_OVERHEAD: u64 = 1024 * 1024;
-const PSD_ESTIMATE_LAYER_OVERHEAD: u64 = 64 * 1024;
 
 /// Options for [`document_to_psd_with`].
 #[derive(Debug, Clone)]
@@ -1070,109 +1073,6 @@ pub fn document_to_psd_with(doc: &Document, opts: &PsdExportOptions) -> (PsdFile
     document_to_psd_nested(doc, opts, 0, lightcraft_sysmem::profile().memory_budget())
 }
 
-/// Adds headroom for compressed channel streams and their per-row length tables.
-fn estimate_encoded_size(raw_bytes: u64, rows: u64, structural_bytes: u64) -> Option<u64> {
-    raw_bytes.checked_add(raw_bytes.checked_add(63)?.checked_div(64)?)?.checked_add(rows.checked_mul(8)?)?.checked_add(structural_bytes)
-}
-
-fn add_plane_estimate(raw_bytes: &mut u64, rows: &mut u64, width: u64, height: u64, channels: u64, bytes_per_sample: u64) -> Option<()> {
-    let plane_bytes = width.checked_mul(height)?.checked_mul(channels)?.checked_mul(bytes_per_sample)?;
-    let plane_rows = height.checked_mul(channels)?;
-    *raw_bytes = raw_bytes.checked_add(plane_bytes)?;
-    *rows = rows.checked_add(plane_rows)?;
-    Some(())
-}
-
-fn exceeds_psd_size_limit(estimated_size: Option<u64>) -> bool {
-    estimated_size.is_none_or(|size| size > PSD_MAX_FILE_SIZE)
-}
-
-fn surface_dimensions(surface: &Surface) -> Option<(u64, u64)> {
-    let bounds = surface.content_bounds();
-    Some((u64::from(bounds.width()), u64::from(bounds.height())))
-}
-
-pub(crate) fn estimate_psd_size(doc: &Document) -> Option<u64> {
-    let mut raw_bytes = 0;
-    let mut rows = 0;
-    let mut structural_bytes = PSD_ESTIMATE_FIXED_OVERHEAD;
-
-    let width = u64::from(doc.size.width);
-    let height = u64::from(doc.size.height);
-
-    if doc.mode == ColorMode::Multichannel {
-        let channels = u64::try_from(doc.channels.len().clamp(1, 56)).ok()?;
-        let sample_bytes = u64::try_from(if doc.depth == SampleType::F32 { SampleType::U16.bytes() } else { doc.depth.bytes() }).ok()?;
-        add_plane_estimate(&mut raw_bytes, &mut rows, width, height, channels, sample_bytes)?;
-    } else {
-        let format = doc.pixel_format();
-        let color_channels = u64::try_from(format.mode.color_channels()).ok()?;
-        let bytes_per_sample = u64::try_from(format.sample.bytes()).ok()?;
-        let layer_channels = color_channels.checked_add(1)?;
-
-        for (_, _, layer) in doc.walk() {
-            structural_bytes = structural_bytes.checked_add(PSD_ESTIMATE_LAYER_OVERHEAD)?.checked_add(u64::try_from(layer.name.len()).ok()?)?;
-            for (_, data) in &layer.psd_blocks {
-                structural_bytes = structural_bytes.checked_add(u64::try_from(data.len()).ok()?)?;
-            }
-
-            let surface = match &layer.content {
-                LayerContent::Fill(fill) => {
-                    let mut fill_width = width;
-                    let mut fill_height = height;
-                    if let Some(cache) = &layer.fill_cache
-                        && cache.fill == *fill
-                    {
-                        let (cache_width, cache_height) = surface_dimensions(&cache.surface)?;
-                        fill_width = fill_width.max(cache_width);
-                        fill_height = fill_height.max(cache_height);
-                    }
-                    add_plane_estimate(&mut raw_bytes, &mut rows, fill_width, fill_height, layer_channels, bytes_per_sample)?;
-                    None
-                }
-                _ => layer.surface(),
-            };
-            if let Some(surface) = surface {
-                let (surface_width, surface_height) = surface_dimensions(surface)?;
-                add_plane_estimate(&mut raw_bytes, &mut rows, surface_width, surface_height, layer_channels, bytes_per_sample)?;
-            }
-            if let Some(mask) = &layer.mask {
-                let (mask_width, mask_height) = surface_dimensions(&mask.surface)?;
-                add_plane_estimate(&mut raw_bytes, &mut rows, mask_width, mask_height, 1, bytes_per_sample)?;
-            }
-            if let LayerContent::Smart(smart) = &layer.content
-                && let photocraft_doc::SmartSource::Embedded { bytes, .. } = &smart.source
-            {
-                structural_bytes = structural_bytes.checked_add(u64::try_from(bytes.len()).ok()?)?;
-            }
-        }
-
-        let max_extra_channels = 56usize.saturating_sub(format.mode.color_channels() + 1);
-        let mut extra_channels = doc.channels.len().min(max_extra_channels);
-        if doc.quick_mask.is_some() && extra_channels < max_extra_channels {
-            extra_channels += 1;
-        }
-        let merged_channels = color_channels.checked_add(1)?.checked_add(u64::try_from(extra_channels).ok()?)?;
-        add_plane_estimate(&mut raw_bytes, &mut rows, width, height, merged_channels, bytes_per_sample)?;
-        for channel in doc.channels.iter().take(extra_channels) {
-            structural_bytes = structural_bytes.checked_add(u64::try_from(channel.name.len()).ok()?)?;
-        }
-    }
-
-    structural_bytes = structural_bytes
-        .checked_add(u64::try_from(doc.icc_profile.as_ref().map_or(0, |profile| profile.len())).ok()?)?
-        .checked_add(u64::try_from(doc.metadata.xmp.as_ref().map_or(0, String::len)).ok()?)?
-        .checked_add(u64::try_from(doc.metadata.exif.as_ref().map_or(0, |data| data.len())).ok()?)?;
-    for (_, name, data) in &doc.metadata.psd_resources {
-        structural_bytes = structural_bytes.checked_add(u64::try_from(name.len()).ok()?)?.checked_add(u64::try_from(data.len()).ok()?)?;
-    }
-    for (_, _, data) in &doc.metadata.psd_global_blocks {
-        structural_bytes = structural_bytes.checked_add(u64::try_from(data.len()).ok()?)?;
-    }
-
-    estimate_encoded_size(raw_bytes, rows, structural_bytes)
-}
-
 /// The signature a kept tagged block is written with. `8B64` exists only in PSB files: a PSD
 /// with an `8B64` block (kept from a PSB source, e.g. its global `FMsk` or `cinf`) is refused by
 /// Photoshop as "not compatible with this version" (measured upstream in Photoshop 27.11).
@@ -1180,17 +1080,63 @@ fn block_signature(sig: [u8; 4], version: Version) -> [u8; 4] {
     if version == Version::Psd && sig == *b"8B64" { *b"8BIM" } else { sig }
 }
 
-pub(crate) fn psd_version(doc: &Document, force_psb: bool, size_exceeds_limit: bool) -> Version {
+/// The version a document is encoded as: PSB when asked for or past PSD's 30000 px; otherwise
+/// PSD, which [`fit_psd_size`] turns into PSB once the encoded file proves too large.
+pub(crate) fn psd_version(doc: &Document, force_psb: bool) -> Version {
     let exceeds_dimensions = doc.size.width > 30_000 || doc.size.height > 30_000;
-    if force_psb || exceeds_dimensions || size_exceeds_limit { Version::Psb } else { Version::Psd }
+    if force_psb || exceeds_dimensions { Version::Psb } else { Version::Psd }
 }
 
-pub(crate) fn psd_size_exceeds_limit(doc: &Document) -> bool {
-    exceeds_psd_size_limit(estimate_psd_size(doc))
+/// Keeps an encoded PSD whose file fits `limit` (less [`PSD_SAVE_HEADROOM`]) and turns a larger
+/// one into PSB. The decision is made on the exact length of the file as it will be written, not
+/// on the raw pixel size: RLE usually packs the channels far below it. Promoting re-encodes
+/// nothing (only the RLE row-count tables widen, see [`PsdFile::promote_to_psb`]).
+/// Returns a warning when the version changed or could not be changed.
+pub(crate) fn fit_psd_size(file: &mut PsdFile, limit: u64) -> Option<String> {
+    if file.header.version.is_psb() {
+        return None;
+    }
+    // A length that cannot be computed (it overflows) cannot fit either.
+    if file.encoded_len().is_ok_and(|len| len.saturating_add(PSD_SAVE_HEADROOM) <= limit) {
+        return None;
+    }
+    match file.promote_to_psb() {
+        Ok(()) => {
+            // The layer info padding depends on the version.
+            if let Some(info) = &mut file.layer_info {
+                pad_layer_info(&mut file.layer_info_placement, info, Version::Psb);
+            }
+            Some("encoded size exceeds 2 GB; written as PSB".into())
+        }
+        Err(e) => Some(format!("encoded size exceeds 2 GB, but the file could not be written as PSB: {e}")),
+    }
+}
+
+/// Photoshop pads the layer info to 4 bytes (an even pad misaligns readers after a global
+/// `Lr16`/`Lr32` block, #200). In a global block the length is the exact data length and the
+/// padding follows the block: readers that check that length exactly (Unity's PSD Importer)
+/// reject it otherwise. A length that cannot be computed keeps the even default.
+fn pad_layer_info(placement: &mut LayerInfoPlacement, info: &mut LayerInfo, version: Version) {
+    match (placement, info.unpadded_len(version)) {
+        (LayerInfoPlacement::GlobalBlock { padding, .. }, Ok(len)) => {
+            info.padding = Some(Vec::new());
+            *padding = Some(vec![0; ((4 - len % 4) % 4) as usize]);
+        }
+        _ => {
+            if info.pad_to(version, 4).is_err() {
+                info.padding = None;
+            }
+        }
+    }
 }
 
 /// [`document_to_psd_with`] for a document embedded `depth` smart objects deep.
 fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, memory_budget: u64) -> (PsdFile, Vec<String>) {
+    document_to_psd_sized(doc, opts, depth, memory_budget, PSD_MAX_FILE_SIZE)
+}
+
+/// [`document_to_psd_nested`] with the largest file kept as PSD (lowered by tests).
+fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, memory_budget: u64, size_limit: u64) -> (PsdFile, Vec<String>) {
     let mut compatible = doc.clone();
     compatible.normalize_legacy_groups();
     let doc = &compatible;
@@ -1204,19 +1150,18 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, m
         flat.layer_comps.clear();
         flat.last_document_state = None;
         flat.last_applied_comp = None;
-        let (file, mut warnings) = document_to_psd_nested(&flat, opts, depth, memory_budget);
+        let (file, mut warnings) = document_to_psd_sized(&flat, opts, depth, memory_budget, size_limit);
         warnings.push("Independent PDF group isolation cannot be represented as PSD layers; the complete document was flattened with its backdrop. The native document is unchanged.".into());
         return (file, warnings);
     }
     if doc.mode == ColorMode::Multichannel {
-        return crate::multichannel_map::document_to_psd(doc, opts.force_psb);
+        return crate::multichannel_map::document_to_psd(doc, opts.force_psb, size_limit);
     }
     let fmt = doc.pixel_format();
     let sample = fmt.sample;
     let cc = fmt.mode.color_channels();
     let big = doc.size.width > 30_000 || doc.size.height > 30_000;
-    let size_exceeds_limit = !opts.force_psb && !big && psd_size_exceeds_limit(doc);
-    let version = psd_version(doc, opts.force_psb, size_exceeds_limit);
+    let version = psd_version(doc, opts.force_psb);
     let mut ex = Ex {
         fmt,
         dpi: doc.resolution_dpi,
@@ -1242,8 +1187,6 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, m
     };
     if big && !opts.force_psb {
         ex.warnings.push("document exceeds 30000 px; written as PSB".into());
-    } else if size_exceeds_limit && !opts.force_psb {
-        ex.warnings.push("estimated encoded size exceeds 2 GB; written as PSB".into());
     }
     if fmt.mode != doc.mode {
         ex.warnings.push(format!("{:?} document written as {:?}", doc.mode, fmt.mode));
@@ -1364,7 +1307,8 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, m
         if !ex.records.is_empty() && matches!(key, b"Layr" | b"Lr16" | b"Lr32") {
             continue;
         }
-        let block = global_block(block_signature(*sig, version), *key, data);
+        // The signature follows the final version (see `block_signature` below).
+        let block = global_block(*sig, *key, data);
         // A kept marker describes the opened composite and would reinterpret the first alpha channel.
         if !has_alpha && matches!(&block.key, b"MTrn" | b"Mtrn" | b"Mt16" | b"Mt32") {
             continue;
@@ -1416,26 +1360,12 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, m
     let records = std::mem::take(&mut ex.records);
     let mut layer_info = has_layers.then_some(LayerInfo { merged_alpha: has_alpha, layers: records, padding: None });
     if let Some(info) = &mut layer_info {
-        // Photoshop pads the layer info to 4 bytes (an even pad misaligns readers after a global
-        // `Lr16`/`Lr32` block, #200). In a global block the length is the exact data length and
-        // the padding follows the block: readers that check that length exactly (Unity's PSD
-        // Importer) reject it otherwise. A length that cannot be computed keeps the even default.
-        match (&mut placement, info.unpadded_len(version)) {
-            (LayerInfoPlacement::GlobalBlock { padding, .. }, Ok(len)) => {
-                info.padding = Some(Vec::new());
-                *padding = Some(vec![0; ((4 - len % 4) % 4) as usize]);
-            }
-            _ => {
-                if info.pad_to(version, 4).is_err() {
-                    info.padding = None;
-                }
-            }
-        }
+        pad_layer_info(&mut placement, info, version);
     }
     // 32-bit files carry Photoshop's HDR toning records as Color Mode Data; Photoshop will not
     // open a 32-bit file without them (#291).
     let color_mode_data = photocraft_psd::hdr::color_mode_data_for_depth(header.depth);
-    let file = PsdFile {
+    let mut file = PsdFile {
         header,
         color_mode_data,
         resources,
@@ -1446,6 +1376,11 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, m
         layer_mask_trailing: Vec::new(),
         image_data,
     };
+    ex.warnings.extend(fit_psd_size(&mut file, size_limit));
+    let version = file.header.version;
+    for block in &mut file.global_blocks {
+        block.signature = block_signature(block.signature, version);
+    }
     (file, ex.warnings)
 }
 

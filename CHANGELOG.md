@@ -47,8 +47,33 @@ All notable changes to Local Image are recorded here. The format follows
   header scans, HEIC parameter sets and decode peak memory, oversized Sony lossless tiles, and
   XML references, IPTC keywords and Luminar look settings read in linear time.
 
+### Added
+
+- Develop: holding Alt (Option on macOS) while dragging an Edit slider shows Lightroom's
+  temporary previews: highlight clipping for Exposure, Highlights and Whites, shadow clipping for
+  Shadows and Blacks, greyscale for Sharpening Amount and the detail band for Radius and Detail,
+  as Masking already showed its mask. Settings and the histogram are unchanged.
+- Develop: with Crop, Masking, Remove, Red Eye or a picker on the photo, holding Space lends the
+  pointer to the view, as Lightroom's temporary Hand: a click zooms to the click-zoom ratio at the
+  point clicked (or back to Fit), a drag pans the zoomed photo, and the tool gets neither. A quick
+  tap still toggles the zoom, on its release.
+- Develop: with Show Pins on, Object and Describe masks show a pin on the photo: an Object at its
+  first click, a Describe mask in the middle of what it selected. Clicking the pin selects the
+  mask; dragging it changes nothing and adds no History step.
+
+### Changed
+
+- Develop: Auto straighten levels a sea or landscape horizon among waves and clouds, and levels
+  a building shot upward by where its verticals converge instead of by their lean. It turns a
+  photo by at most 5° (was 10°).
+- Develop: Auto Settings applies to every selected photo, each measured on its own source, as
+  one undo step. The photos are decoded in the background, with progress and Cancel in the task
+  panel; a photo that can't be read is skipped and counted, and a result that arrives after an
+  edit or undo is not applied.
+
 ### Fixed
 
+- Develop: holding Space no longer toggles the zoom over and over as the key repeats.
 - Image decoding refuses hostile files before they can allocate far past their size: PNG colour
   profiles and dropped text, EXR previews and header sizes, TIFF strip scratch, chunk tables,
   repeated structural tags, predictor rows and JPEG chunks, GIF, BMP, TGA, ICO and QOI header sizes,
@@ -59,6 +84,22 @@ All notable changes to Local Image are recorded here. The format follows
 - A raw's embedded preview is read in Adobe RGB when the raw's EXIF says the camera was set to it.
 - Incomplete ISO and EXIF timestamps no longer become capture times, so the next valid date is used. A JPEG ICC profile whose chunks are missing, repeated or cut off is dropped from metadata.
 - RAW/TIFF imports bound hostile tile, opcode, and maker-note work before it can multiply memory or CPU use. Truncated Deflate tiles are rejected, and non-finite DNG WhiteLevel uses the bit-depth default.
+- Answering OK to the "Rasterize?" prompt that a brush or pencil opens on a type, shape, Smart
+  Object or fill layer only rasterizes the layer, as in Photoshop. The click that opened the prompt
+  no longer paints; the next click does.
+- The Magnetic Lasso snaps to the edges of the visible image in an RGB document, whichever layer is
+  active; hidden layers add none. Other colour modes still follow the active layer's own pixels.
+- Magic Wand and Magic Eraser Anti-alias keep the matched region fully selected and soften only
+  the pixels just outside it, by how close their colour is to the tolerance, as in Photoshop. A
+  shape next to a clearly different colour or transparency gets a hard edge.
+- Select > Subject looks at the selected layer's pixels; it uses the whole image only when no pixel
+  layer is selected or Sample All Layers is asked for.
+- Select and Mask's Shift Edge moves only soft borders, as in Photoshop: a hard selection edge
+  stays where it is, and a feathered edge is pulled in or pushed out along a fixed coverage curve
+  (at -100% a half-selected pixel drops to 2%, at +100% it rises to 98%).
+- Saving a PSD chooses PSB by the size of the file actually written, not by the uncompressed pixels:
+  a document that packs to well under 2 GB stays a PSD. A file over 2 GB is still saved as PSB
+  automatically; if it can't be, the save warns.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - A Develop layer in Compositing renders as the Library does: with the photo's AI Denoise result, and without AI Remove patches made from another photo.
 - Cropping or rotating a photo in Develop no longer leaves its Compositing document at the old canvas size. A document that is still just the photo takes the new size; one with retouching keeps the photo as it was and says so, so its layers stay lined up.
