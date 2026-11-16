@@ -324,6 +324,16 @@ fn background_save_library_source_resets_copies_and_reopens_layered_baseline() {
         host.editor.background_jobs = true;
         host.editor.session.edit_prefs(|p| p.file_handling.ask_before_saving_layered_tiff = false);
         host.editor.save_as(Some(path.clone())).unwrap();
+        if ext == "tif" {
+            // Every TIFF Save As asks TIFF Options; take its defaults.
+            let enter = egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+            let ctx = egui::Context::default();
+            photocraft_ui_egui::PhotocraftApp::setup_context(&ctx, Default::default());
+            let mut out = ctx.run_ui(egui::RawInput { events: vec![enter], ..Default::default() }, |ui| {
+                photocraft_ui_egui::tiff_options_ui::show(&mut host.editor, ui.ctx());
+            });
+            out.textures_delta.clear();
+        }
         settle_background_save(&mut host);
         assert!(host.editor.ui.notices.iter().all(|notice| !notice.error), "{}", host.editor.ui.status);
         assert!(!host.editor.ui.status.contains("Trash"));

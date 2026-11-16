@@ -115,11 +115,40 @@ pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, sou
             finish_open(app, document, name, path.as_deref(), &v, None, None)
         }
         Started::Job(job) => {
-            app.jobs.opens.push(OpenTab { job, name: name.to_string(), path, slot: None });
-            app.jobs.focus = Some(job);
-            app.ui.chrome.home = None;
-            app.ui.status = li_i18n::fmt(tl!("Opening {name}…"), &[("name", name)]);
-            app.ui.status_error = false;
+            track_open(app, OpenTab { job, name: name.to_string(), path, slot: None });
+            Ok(())
+        }
+    }
+}
+
+/// A file opening in the background gets its tab: focused, with the status line naming it.
+fn track_open(app: &mut PhotocraftApp, tab: OpenTab) {
+    app.ui.status = li_i18n::fmt(tl!("Opening {name}…"), &[("name", &tab.name)]);
+    app.jobs.focus = Some(tab.job);
+    app.jobs.opens.push(tab);
+    app.ui.chrome.home = None;
+    app.ui.status_error = false;
+}
+
+/// File › Open as Smart Object… for one file: `file.openAsSmartObject` as a tracked open, so the
+/// result goes through File › Open's completion ([`finish_open`]: the import warnings and the
+/// profile prompt). The document is untitled, so Open Recent is untouched. Inline (background
+/// jobs off, or the web) it finishes at once.
+pub(crate) fn start_open_as_smart_object(app: &mut PhotocraftApp, path: &str) -> Result<(), String> {
+    let name = crate::file_open::display_name(path);
+    let params = json!({"path": path});
+    let started = if app.background_jobs {
+        app.session.start("file.openAsSmartObject", params).map_err(|e| e.to_string())?
+    } else {
+        Started::Done(app.session.execute("file.openAsSmartObject", params).map_err(|e| e.to_string())?)
+    };
+    match started {
+        Started::Done(v) => {
+            let document = opened_document(&v).ok_or("The opened document is no longer available")?;
+            finish_open(app, document, &name, None, &v, None, None)
+        }
+        Started::Job(job) => {
+            track_open(app, OpenTab { job, name, path: None, slot: None });
             Ok(())
         }
     }
@@ -188,6 +217,12 @@ fn dispatch_batch(app: &mut PhotocraftApp) {
     dispatch_events(app, events, previous);
 }
 
+/// Whether `event` ends a file open: File › Open's, a Develop photo's, or a command tracked as an
+/// open tab (File › Open as Smart Object…).
+fn ends_open(app: &PhotocraftApp, event: &JobEvent) -> bool {
+    matches!(event.command.as_str(), OPEN_JOB | photocraft_engine::develop_layer_cmds::OPEN_JOB) || app.jobs.opens.iter().any(|o| o.job == event.id)
+}
+
 fn opened_document(result: &Value) -> Option<photocraft_doc::DocId> {
     // Required admission-time identity; the `document` tab index can be stale.
     result.get("documentId")?.as_u64().map(photocraft_doc::DocId)
@@ -199,7 +234,7 @@ fn dispatch_events(app: &mut PhotocraftApp, events: Vec<JobEvent>, mut previous:
     let events: Vec<_> = events
         .into_iter()
         .map(|event| {
-            let opening = matches!(event.command.as_str(), OPEN_JOB | photocraft_engine::develop_layer_cmds::OPEN_JOB);
+            let opening = ends_open(app, &event);
             let document = match &event.outcome {
                 JobOutcome::Done(value) if opening => opened_document(value),
                 _ => None,
@@ -207,9 +242,7 @@ fn dispatch_events(app: &mut PhotocraftApp, events: Vec<JobEvent>, mut previous:
             (event, document)
         })
         .collect();
-    if events.iter().any(|(event, _)| {
-        matches!(event.command.as_str(), OPEN_JOB | photocraft_engine::develop_layer_cmds::OPEN_JOB) && matches!(event.outcome, JobOutcome::Done(_))
-    }) {
+    if events.iter().any(|(event, _)| ends_open(app, event) && matches!(event.outcome, JobOutcome::Done(_))) {
         // Engine admission activates new documents. Restore first, even if a
         // non-open event precedes the open: its sync_views must see the real owner.
         restore_open_focus(app, previous);
@@ -283,7 +316,7 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraf
     if (e.command == "file.svg.export" && app.ui.svg_export.on_job_event(&e)) || (e.command == "file.pdf.export" && app.ui.pdf_export.on_job_event(&e)) {
         return;
     }
-    if e.command == OPEN_JOB || e.command == photocraft_engine::develop_layer_cmds::OPEN_JOB {
+    if ends_open(app, &e) {
         let Some(i) = app.jobs.opens.iter().position(|o| o.job == e.id) else { return };
         let tab = app.jobs.opens.remove(i);
         match e.outcome {

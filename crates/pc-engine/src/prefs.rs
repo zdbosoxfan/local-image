@@ -443,6 +443,10 @@ pub struct Export {
     pub jpeg_quality: u32,
     pub metadata: ExportMetadata,
     pub convert_to_srgb: bool,
+    /// The folder the last successful export through a save dialog went to (Export As, Quick
+    /// Export, Save for Web). The next export dialog starts there; empty until the first export,
+    /// and ignored while the folder no longer exists.
+    pub last_folder: String,
 }
 
 impl Default for Export {
@@ -453,6 +457,7 @@ impl Default for Export {
             jpeg_quality: 85,
             metadata: ExportMetadata::Copyright,
             convert_to_srgb: true,
+            last_folder: String::new(),
         }
     }
 }

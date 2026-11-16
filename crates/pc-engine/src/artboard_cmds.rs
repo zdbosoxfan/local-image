@@ -431,7 +431,7 @@ fn artboards_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     for ((id, _), name) in boards.into_iter().zip(stems) {
         let Some(one) = artboard_document(&doc, id) else { continue };
         let path = join(&dir, &format!("{name}.{format}"));
-        save_doc(&one, &path, SaveOpts::from_params(p))?;
+        save_doc(&one, &path, SaveOpts::from_params(p, cmd)?)?;
         files.push(path);
     }
     if files.is_empty() {

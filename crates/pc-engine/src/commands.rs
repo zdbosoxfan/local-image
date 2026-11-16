@@ -363,7 +363,7 @@ fn build() -> Vec<CommandSpec> {
             "Fill…",
             ["Edit"],
             Some("Shift+F5"),
-            r##"{"contents":"foreground|background|color|contentAware|pattern|history|black|gray|white"="color","color":"#rrggbb|[r,g,b,a]"=foreground (contents=color),"pattern":id|name (contents=pattern),"scale":%=100,"angle":deg,"state":index? (contents=history; default the oldest state),"colorAdaptation":bool=true (contents=contentAware),"mode":"normal|multiply|…"="normal","opacity":0..100=100,"preserveTransparency":bool=false,"target":"pixels"|{"channel":i}|"quickMask"?}"##,
+            r##"{"contents":"foreground|background|color|contentAware|pattern|history|black|gray|white"="color","color":"#rrggbb|[r,g,b,a]"=foreground (contents=color),"pattern":id|name (contents=pattern),"scale":%=100,"angle":deg,"state":index? (contents=history; default the oldest state),"colorAdaptation":bool=true,"scaleAdaptation":bool=false,"mirror":bool=false,"rotationAdaptation":bool=false (contents=contentAware; rotation adds quarter-turn source copies),"mode":"normal|multiply|…"="normal","opacity":0..100=100,"preserveTransparency":bool=false,"target":"pixels"|{"channel":i}|"quickMask"?}"##,
             has_pixel_or_channel,
             crate::fill_cmds::fill
         ),
@@ -1150,7 +1150,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::redeye_cmds::specs());
     v.extend(crate::symmetry_cmds::specs());
     v.extend(crate::history_cmds::specs());
-    v.extend(crate::freqsep_cmds::specs());
+    v.extend(crate::frequency_separation_cmds::specs());
     v.extend(crate::develop_layer_cmds::specs());
     v.extend(crate::develop_filter_cmds::specs());
     v.extend(crate::perspective_crop_cmds::specs());

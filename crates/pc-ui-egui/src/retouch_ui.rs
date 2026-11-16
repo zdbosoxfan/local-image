@@ -152,6 +152,7 @@ pub fn finish_content_aware_move(app: &mut PhotocraftApp, start: [f64; 2], end: 
 pub fn finish_object_selection(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2], mods: egui::Modifiers) {
     let (x, y) = (start[0].min(end[0]), start[1].min(end[1]));
     let (w, h) = ((end[0] - start[0]).abs(), (end[1] - start[1]).abs());
+    let hard_edge = app.ui.tool_options.object_hard_edge;
     let mode = if mods.alt {
         "subtract"
     } else if mods.shift {
@@ -161,7 +162,7 @@ pub fn finish_object_selection(app: &mut PhotocraftApp, start: [f64; 2], end: [f
     };
     // local-image: a click (no drag) selects the object under the pointer with the learned model.
     if w < 2.0 && h < 2.0 {
-        let p = json!({"point": [end[0], end[1]], "mode": mode, "sampleAllLayers": app.ui.tool_options.sample_all_layers});
+        let p = json!({"point": [end[0], end[1]], "mode": mode, "sampleAllLayers": app.ui.tool_options.sample_all_layers, "hardEdge": hard_edge});
         if let Err(e) = app.run("select.object", p) {
             app.ui.status = e;
             app.ui.status_error = true;
@@ -173,7 +174,12 @@ pub fn finish_object_selection(app: &mut PhotocraftApp, start: [f64; 2], end: [f
     }
     let _ = app.run(
         "select.object",
-        json!({"rect": [x.round(), y.round(), w.round(), h.round()], "mode": mode, "sampleAllLayers": app.ui.tool_options.sample_all_layers}),
+        json!({
+            "rect": [x.round(), y.round(), w.round(), h.round()],
+            "mode": mode,
+            "sampleAllLayers": app.ui.tool_options.sample_all_layers,
+            "hardEdge": hard_edge
+        }),
     );
 }
 
@@ -348,6 +354,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                 crate::widgets::cpu_estimate(ui, model.cpu_estimate());
             }
             crate::widgets::checkbox(ui, &mut o.sample_all_layers, tl!("Sample All Layers"));
+            crate::widgets::checkbox(ui, &mut o.object_hard_edge, tl!("Hard Edge"));
             opt(ui, tl!("Drag a rectangle around the object"));
             crate::widgets::vline(ui, 22.0);
             if crate::widgets::secondary_button(ui, tl!("Select Subject"), 0.0).clicked() {
