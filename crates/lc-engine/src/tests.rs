@@ -441,6 +441,21 @@ fn crop_set_refuses_a_crop_smaller_than_the_tool_allows() {
     assert_eq!(active_dev(&s).crop.geometry.rect, lightcraft_geom::Rect::new(0.45, 0.45, 0.55, 0.55));
 }
 
+/// A rect far wider or taller than the photo passes the minimum as given, then is shrunk to fit
+/// the photo and comes out a sliver: `crop.set` refuses it too and keeps the crop it had (upstream
+/// LightCraft be34283943).
+#[test]
+fn crop_set_refuses_an_oversized_rect_that_fits_to_a_sliver() {
+    let mut s = demo();
+    s.execute("crop.set", &json!({"rect": [0.1, 0.1, 0.9, 0.9]})).unwrap();
+    let before = active_dev(&s).crop.geometry;
+    for rect in [[0.0, 0.0, 1e6, 1.0], [0.0, 0.0, 1.0, 1e6]] {
+        let e = s.execute("crop.set", &json!({"rect": rect})).unwrap_err();
+        assert!(e.to_string().contains("smaller"), "{rect:?}: {e}");
+        assert_eq!(active_dev(&s).crop.geometry, before, "{rect:?}");
+    }
+}
+
 /// `mask.move` with a delta near `i64::MAX` overflowed `index + delta` (a panic wherever overflow
 /// checks are on); extreme deltas and indices now move the mask to the bottom or the top.
 #[test]

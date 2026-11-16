@@ -1015,6 +1015,7 @@ preflight has its own bounded reader) and `830cefca` (we don't read XMP from PDF
 | [`ea826b11cc5b`](https://github.com/storytold/lightcraft/commit/ea826b11cc5bec456c2b71e6bc6ea59a4f91af45) | engine: refuse negative indices instead of targeting element 0 | `crates/lc-engine/src/cmd/color.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/masks.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`de44200a8ddd`](https://github.com/storytold/lightcraft/commit/de44200a8dddfa2677f71a48ef978d1c8a616266) | Issue #2097: reject fractional command indices | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`1162c2a01832`](https://github.com/storytold/lightcraft/commit/1162c2a01832cd424704f17aa9405fd48ffed445) | crop.set refuses a crop smaller than the crop tool allows, instead of exporting 1×1 (part of #1952) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-geom/src/crop.rs`<br>`crates/lc-geom/src/lib.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
+| [`be34283943e0`](https://github.com/storytold/lightcraft/commit/be34283943e0170fdf508b693b09fc5f38e45e6c) | crop.set checks the minimum on the crop it stores, so an oversized rect can't come out a sliver (part of #1952) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`9ef40b98866c`](https://github.com/storytold/lightcraft/commit/9ef40b98866ca7270fa4621c83028357c7ed79b8) | Commands: Refuse malformed photo ids instead of using the selection (#1506) | `crates/lc-engine/src/cmd/browse.rs`<br>`crates/lc-engine/src/cmd/convert.rs`<br>`crates/lc-engine/src/cmd/cull.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/keywords.rs`<br>`crates/lc-engine/src/cmd/library.rs`<br>`crates/lc-engine/src/cmd/manage.rs`<br>`crates/lc-engine/src/cmd/merge.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/cmd/organize.rs`<br>`crates/lc-engine/src/cmd/previews.rs`<br>`crates/lc-engine/src/cmd/xmp.rs`<br>`crates/lc-engine/src/lib.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/lc-ui-egui/src/merge.rs`<br>`crates/lc-ui-egui/src/panels/dialogs.rs`<br>`crates/lc-ui-egui/src/panels/grid.rs`<br>`crates/lc-ui-egui/src/tasks.rs` | MIT OR Apache-2.0 |
 
 Adapted ports: `436ca356` applies the clamp in `li_gpu::device_limits`, where both editors take
@@ -1023,7 +1024,10 @@ its unit test; its GPU sweep test needs the upstream mip readback harness. `502d
 `li_fs::same_file`; its Windows file-identity change does not apply. `8b61a8b1` checks `zoom`,
 `center` and `dockWidth` (our `ui.set` has no `rotation`) before anything changes. `de44200a` also
 moves our `history.restore` onto the checked index. `1162c2a0` adds `MIN_CROP_FRACTION` to
-`lc-geom`, shared by `crop.set` and the crop tool's drag.
+`lc-geom`, shared by `crop.set` and the crop tool's drag. `be342839` follows `1162c2a0`: the second check
+follows our single `constrained` call (no `with_angle` branch here) and keeps our NaN-refusing
+form, so a rect whose fit overflows (`1e308`) is refused rather than stored; its oversized-rect
+cases are a new test, and upstream's `crop_set_huge_rect_stays_finite` edit has no counterpart.
 
 Not applicable or deferred: `e14db894` (our export options fall back to the format's own depth by
 design and have no strict parameter validator), VectorCraft `025ce255` and `32dbc4b6` (our PDF
