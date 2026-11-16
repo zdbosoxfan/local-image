@@ -42,7 +42,7 @@ impl Segment {
     pub fn is_empty(&self) -> bool {
         self.len() == 0.0
     }
-    fn mid(&self) -> Point {
+    pub(crate) fn mid(&self) -> Point {
         self.a.lerp(self.b, 0.5)
     }
     /// Homogeneous line through the endpoints, normalized so (a, b) is a unit normal.
@@ -52,7 +52,7 @@ impl Segment {
         [l[0] / n, l[1] / n, l[2] / n]
     }
     /// Angle from vertical in degrees (0 = vertical), folded to 0..90.
-    fn tilt_from_vertical(&self) -> f64 {
+    pub(crate) fn tilt_from_vertical(&self) -> f64 {
         let (dx, dy) = (self.b.x - self.a.x, self.b.y - self.a.y);
         dx.abs().atan2(dy.abs()).to_degrees()
     }
@@ -202,7 +202,7 @@ pub fn detect_segments(lum: &GrayFrame) -> Vec<Segment> {
 // vanishing points
 
 /// Angular error (radians) between a segment and the direction from its midpoint to the (homogeneous) point `v`.
-fn vp_error(s: &Segment, v: [f64; 3]) -> f64 {
+pub(crate) fn vp_error(s: &Segment, v: [f64; 3]) -> f64 {
     let m = s.mid();
     let (dx, dy) = (v[0] - m.x * v[2], v[1] - m.y * v[2]);
     let (sx, sy) = (s.b.x - s.a.x, s.b.y - s.a.y);
@@ -380,7 +380,7 @@ fn level_angle(vert: &[Segment], horiz: &[Segment]) -> Option<f64> {
     level_angle_within(vert, horiz, 90.0, 1)
 }
 
-fn level_angle_within(vert: &[Segment], horiz: &[Segment], max: f64, min_lines: usize) -> Option<f64> {
+pub(crate) fn level_angle_within(vert: &[Segment], horiz: &[Segment], max: f64, min_lines: usize) -> Option<f64> {
     let lh: f64 = horiz.iter().map(Segment::len).sum();
     let lv: f64 = vert.iter().map(Segment::len).sum();
     // the dominant family first; plumb lines when the horizon's segments disagree, and vice versa
@@ -605,9 +605,6 @@ pub fn analyze_source(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) ->
 /// The lines and vanishing points of [`analyze_source`] (camera-independent, so cached).
 fn analyze_lines(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Analysis {
     static CACHE: Mutex<Vec<(u64, Analysis)>> = Mutex::new(Vec::new());
-    let mut base = s.clone();
-    base.geometry = Geometry::default();
-    base.crop = Crop::default();
     let key = crate::optics::fingerprint(src)
         ^ lightcraft_develop::DevelopSettings { optics: s.optics, orientation: s.orientation, ..Default::default() }.hash64().rotate_left(17);
     if let Ok(c) = CACHE.lock()
@@ -615,21 +612,7 @@ fn analyze_lines(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Anal
     {
         return a.clone();
     }
-    let frame = crate::frame_for(src, info, &base, false);
-    let (w, h) = frame.fit(ANALYSIS_LONG, ANALYSIS_LONG);
-    // A source smaller than the analysis size is measured at its own size and its luminance
-    // interpolated linearly: upsampling adds no lines, and the detector's accuracy must not depend
-    // on the renderer's reconstruction kernel.
-    let (nw, nh) = frame.native_size();
-    let (sw, sh) = ((nw.round() as usize).clamp(1, w), (nh.round() as usize).clamp(1, h));
-    let lum = frame.sample(src, sw, sh).luminance();
-    let lum = if (sw, sh) == (w, h) { lum } else { lum.resize(w, h, li_raster::resample::Filter::Bilinear) };
-    // perceptual lightness, normalized to the image's bright end
-    let mut v: Vec<f32> = lum.data.iter().copied().filter(|x| x.is_finite()).collect();
-    v.sort_by(f32::total_cmp);
-    let white = v.get(v.len() * 99 / 100).copied().unwrap_or(1.0).max(1e-4);
-    let lum = lum.map(|x| (x.max(0.0) / white).min(1.5).powf(1.0 / 2.4));
-    let a = analyze(&detect_segments(&lum));
+    let a = analyze(&detect_segments(&analysis_plane(src, info, s)));
     if let Ok(mut c) = CACHE.lock() {
         c.push((key, a.clone()));
         if c.len() > 8 {
@@ -639,19 +622,31 @@ fn analyze_lines(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Anal
     a
 }
 
-/// Auto straighten rejects steep texture and isolated edges.
-const STRAIGHTEN_MAX_DEGREES: f64 = 10.0;
-const STRAIGHTEN_MIN_LINES: usize = 3;
-
-fn straighten_angle(a: &Analysis) -> Option<f64> {
-    level_angle_within(&a.vertical, &a.horizontal, STRAIGHTEN_MAX_DEGREES, STRAIGHTEN_MIN_LINES)
+/// The image an analysis reads: the lens-corrected source (optics applied, no perspective or crop)
+/// at [`ANALYSIS_LONG`] px, as perceptual lightness normalized to its bright end.
+pub(crate) fn analysis_plane(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> GrayFrame {
+    let mut base = s.clone();
+    base.geometry = Geometry::default();
+    base.crop = Crop::default();
+    let frame = crate::frame_for(src, info, &base, false);
+    let (w, h) = frame.fit(ANALYSIS_LONG, ANALYSIS_LONG);
+    // A source smaller than the analysis size is measured at its own size and its luminance
+    // interpolated linearly: upsampling adds no lines, and the detector's accuracy must not depend
+    // on the renderer's reconstruction kernel.
+    let (nw, nh) = frame.native_size();
+    let (sw, sh) = ((nw.round() as usize).clamp(1, w), (nh.round() as usize).clamp(1, h));
+    let lum = frame.sample(src, sw, sh).luminance();
+    let lum = if (sw, sh) == (w, h) { lum } else { lum.resize(w, h, li_raster::resample::Filter::Bilinear) };
+    let mut v: Vec<f32> = lum.data.iter().copied().filter(|x| x.is_finite()).collect();
+    v.sort_by(f32::total_cmp);
+    let white = v.get(v.len() * 99 / 100).copied().unwrap_or(1.0).max(1e-4);
+    lum.map(|x| (x.max(0.0) / white).min(1.5).powf(1.0 / 2.4))
 }
 
-/// The rotation (degrees, clockwise +) that levels `src`'s dominant horizon/plumb lines, if they agree
-/// within ten degrees and backed by at least three agreeing lines. Used by Auto straighten.
+/// The crop angle (degrees, clockwise +) Auto straighten levels `src` by, if it finds a horizon or
+/// plumb lines it can trust ([`crate::straighten`]). Used by Auto straighten.
 pub fn level_degrees(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Option<f64> {
-    let a = analyze_source(src, info, s);
-    straighten_angle(&a)
+    crate::straighten::decide(&analysis_plane(src, info, s), &analyze_source(src, info, s))
 }
 
 /// The automatic Upright correction for `mode` on `src` (identity for Off and Guided).
