@@ -14033,6 +14033,174 @@
           "url": "https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "Expose Content-Aware Fill scale and mirror options",
+          "commit": "4875f94ebbd13b3f9f3c244ba28a13c8785008c9",
+          "ours": "crates/pc-engine/src/fill_cmds.rs, crates/pc-engine/src/commands.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/4875f94ebbd13b3f9f3c244ba28a13c8785008c9"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Honor fill rotation and style paste group eligibility",
+          "commit": "d3392e6124780864a4a28cfd9505327c9141103b",
+          "ours": "crates/pc-engine/src/fill_cmds.rs, crates/pc-engine/src/commands.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/d3392e6124780864a4a28cfd9505327c9141103b"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(engine): a free Perspective Crop takes the quad's perspective size (#11798)",
+          "commit": "3e81a3bcc4060ff60fe385210f10127215c76995",
+          "ours": "crates/pc-algo/src/transform.rs, crates/pc-engine/src/perspective_crop_cmds.rs, crates/pc-ui-egui/src/perspective_crop_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/3e81a3bcc4060ff60fe385210f10127215c76995"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "fix(algo): keep the edges when a pixel of click error swings a free Perspective Crop (#11798)",
+          "commit": "0a8eb9d6c82685418c1b02abca8a1c37e658d790",
+          "ours": "crates/pc-algo/src/transform.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/0a8eb9d6c82685418c1b02abca8a1c37e658d790"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Wire profile action options and dither 8-bit conversions",
+          "commit": "ab0b26a9c6938fe338bb6829711f65444895dae6",
+          "ours": "crates/pc-engine/src/color_cmds.rs, crates/pc-engine/src/color_cmds/profile_dither.rs, crates/pc-engine/tests/it/convert_profile_dither.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/ab0b26a9c6938fe338bb6829711f65444895dae6"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "feat(engine): reset a smart object's transform",
+          "commit": "e24efcf762f75d20e3adbd80b60f7123067e4da3",
+          "ours": "crates/pc-engine/src/smart_cmds.rs, crates/pc-engine/src/smart_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/e24efcf762f75d20e3adbd80b60f7123067e4da3"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Filter > Other > Frequency Separation (#1714)",
+          "commit": "4083eee2c5740eaf9905738c9dd94dbd017c937e",
+          "ours": "crates/pc-engine/src/frequency_separation_cmds.rs, crates/pc-engine/src/commands.rs, crates/pc-engine/src/lib.rs, crates/pc-ui-egui/src/filter_dialog.rs, crates/pc-ui-egui/src/menu_catalog.rs, crates/pc-ui-egui/src/menus.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/4083eee2c5740eaf9905738c9dd94dbd017c937e"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Match Color: expose source-layer selection",
+          "commit": "26d790212ea96c435ce9e90e58448f8a02b60067",
+          "ours": "crates/pc-ui-egui/src/filter_dialog.rs, crates/li-i18n/catalogs/editor/.tsv",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/26d790212ea96c435ce9e90e58448f8a02b60067"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Levels: Alt-drag clipping display on the Input sliders (#3328)",
+          "commit": "69147701adb485e0aa3654fa7dc56e38421aa13d",
+          "ours": "crates/pc-ui-egui/src/levels_clipping.rs, crates/pc-ui-egui/src/levels_clipping_tests.rs, crates/pc-ui-egui/src/adjust_dialog.rs, crates/pc-ui-egui/src/adjust_editors.rs, crates/pc-ui-egui/src/adjust_preview.rs, crates/pc-ui-egui/src/canvas.rs, crates/pc-ui-egui/src/canvas/display.rs, crates/pc-ui-egui/src/lib.rs, docs/control-protocol.md",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/69147701adb485e0aa3654fa7dc56e38421aa13d"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Levels clipping: no display for Smart Filter dialogs (#3328)",
+          "commit": "0a209116e6576b3ec831d37b8725e4216b6f29e8",
+          "ours": "crates/pc-ui-egui/src/levels_clipping.rs, crates/pc-ui-egui/src/levels_clipping_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/0a209116e6576b3ec831d37b8725e4216b6f29e8"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "feat(ui): drag the zones of a Hue/Saturation colour range (#9252)",
+          "commit": "aec8579000247716d4600804525f9b9a295288f8",
+          "ours": "crates/pc-ui-egui/src/adjust_editors.rs, crates/pc-ui-egui/src/adjust_editors_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/aec8579000247716d4600804525f9b9a295288f8"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "feat: Black & White Auto (#9269)",
+          "commit": "7e15585d92b04d57164b78e452052a8b9c292497",
+          "ours": "crates/pc-engine/src/adjust_cmds.rs, crates/pc-engine/src/adjust_cmds/tests.rs, crates/pc-ui-egui/src/adjust_editors.rs, crates/pc-ui-egui/src/adjust_editors_tests.rs, crates/pc-ui-egui/src/adjust_dialog.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/7e15585d92b04d57164b78e452052a8b9c292497"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
