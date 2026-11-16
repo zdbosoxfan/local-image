@@ -940,8 +940,14 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
         ),
         "file.scripts.imageProcessor" => dialog(
             app,
-            json!({"input": dir, "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
-            json!({"format": ["jpg", "png", "psd", "tiff"]}),
+            // The File Type section (image_processor_ui) draws the per-format settings.
+            json!({
+                "input": dir, "output": format!("{dir}/processed"),
+                "jpeg": {"enabled": true, "quality": 5, "convertToSrgb": false, "resize": false, "width": 1, "height": 1},
+                "psd": {"enabled": false, "resize": false, "width": 1, "height": 1},
+                "tiff": {"enabled": false, "lzw": false, "resize": false, "width": 1, "height": 1},
+            }),
+            json!({}),
         ),
         "file.automate.batch" => {
             let Some(action) = crate::actions::selected_action(app) else {

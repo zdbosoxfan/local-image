@@ -3933,3 +3933,16 @@ ai	New	Nuovi
 	GPU Memory (MB, 0 = Automatic)	Memoria GPU (MB, 0 = Automatico)
 	{path} was saved over	{path} è stato sovrascritto
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	«{doc}» non è più associato a un file ed è contrassegnato come non salvato: salvalo con un nuovo nome per conservarlo.
+	File Type	Tipo di file
+	Save as JPEG	Salva come JPEG
+	Save as PSD	Salva come PSD
+	Save as TIFF	Salva come TIFF
+	Convert Profile to sRGB	Converti profilo in sRGB
+	LZW Compression	Compressione LZW
+	Resize to Fit	Ridimensiona per adattare
+	Run	Esegui
+	You must save to at least one file type.	Devi salvare in almeno un tipo di file.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Valore numerico non valido. È richiesto un valore compreso tra 1 e 12. È stato reinserito il valore precedente.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Valore numerico non valido. È richiesto un valore compreso tra 1 e 30000. È stato reinserito il valore precedente.
+	A value between 1 and 12 is required. Closest value inserted.	È richiesto un valore compreso tra 1 e 12. È stato inserito il valore più vicino.
+	A value between 1 and 30000 is required. Closest value inserted.	È richiesto un valore compreso tra 1 e 30000. È stato inserito il valore più vicino.

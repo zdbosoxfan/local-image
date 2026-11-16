@@ -163,6 +163,7 @@ mod i18n_live_tests;
 #[cfg(test)]
 mod i18n_tests;
 pub mod icons;
+mod image_processor_ui;
 pub mod jobs_ui;
 pub mod lasso_ui;
 pub mod layer_menu_ui;

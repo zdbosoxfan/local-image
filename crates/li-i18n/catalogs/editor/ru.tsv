@@ -4020,3 +4020,16 @@ ai	New	Новые
 	GPU Memory (MB, 0 = Automatic)	Память GPU (МБ, 0 = автоматически)
 	{path} was saved over	Файл {path} перезаписан
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	Документ «{doc}» больше не связан с файлом и помечен как несохранённый: сохраните его под новым именем, чтобы не потерять содержимое.
+	File Type	Тип файла
+	Save as JPEG	Сохранить как JPEG
+	Save as PSD	Сохранить как PSD
+	Save as TIFF	Сохранить как TIFF
+	Convert Profile to sRGB	Преобразовать профиль в sRGB
+	LZW Compression	Сжатие LZW
+	Resize to Fit	Вписать в размер
+	Run	Выполнить
+	You must save to at least one file type.	Выберите хотя бы один тип файла для сохранения.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Недопустимое числовое значение. Требуется значение от 1 до 12. Восстановлено предыдущее значение.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Недопустимое числовое значение. Требуется значение от 1 до 30000. Восстановлено предыдущее значение.
+	A value between 1 and 12 is required. Closest value inserted.	Требуется значение от 1 до 12. Подставлено ближайшее значение.
+	A value between 1 and 30000 is required. Closest value inserted.	Требуется значение от 1 до 30000. Подставлено ближайшее значение.

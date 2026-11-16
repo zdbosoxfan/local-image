@@ -3897,3 +3897,16 @@ ai	New	Neu
 	GPU Memory (MB, 0 = Automatic)	GPU-Speicher (MB, 0 = Automatisch)
 	{path} was saved over	{path} wurde überschrieben
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	„{doc}“ ist keiner Datei mehr zugeordnet und als ungespeichert markiert. Speichern Sie es unter einem neuen Namen, um es zu behalten.
+	File Type	Dateityp
+	Save as JPEG	Als JPEG speichern
+	Save as PSD	Als PSD speichern
+	Save as TIFF	Als TIFF speichern
+	Convert Profile to sRGB	Profil in sRGB konvertieren
+	LZW Compression	LZW-Komprimierung
+	Resize to Fit	In Größe einpassen
+	Run	Ausführen
+	You must save to at least one file type.	Speichern Sie in mindestens einem Dateityp.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Ungültige Zahleneingabe. Ein Wert zwischen 1 und 12 ist erforderlich. Der vorherige Wert wurde eingesetzt.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Ungültige Zahleneingabe. Ein Wert zwischen 1 und 30000 ist erforderlich. Der vorherige Wert wurde eingesetzt.
+	A value between 1 and 12 is required. Closest value inserted.	Ein Wert zwischen 1 und 12 ist erforderlich. Der nächstliegende Wert wurde eingesetzt.
+	A value between 1 and 30000 is required. Closest value inserted.	Ein Wert zwischen 1 und 30000 ist erforderlich. Der nächstliegende Wert wurde eingesetzt.

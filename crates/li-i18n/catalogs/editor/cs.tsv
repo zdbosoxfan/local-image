@@ -3937,3 +3937,16 @@ ai	New	Nové
 	GPU Memory (MB, 0 = Automatic)	Paměť GPU (MB, 0 = Automaticky)
 	{path} was saved over	Soubor {path} byl přepsán
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	„{doc}“ už není spojen se souborem a je označen jako neuložený. Chcete-li jej zachovat, uložte jej pod novým názvem.
+	File Type	Typ souboru
+	Save as JPEG	Uložit jako JPEG
+	Save as PSD	Uložit jako PSD
+	Save as TIFF	Uložit jako TIFF
+	Convert Profile to sRGB	Převést profil na sRGB
+	LZW Compression	Komprese LZW
+	Resize to Fit	Přizpůsobit velikost
+	Run	Spustit
+	You must save to at least one file type.	Musíte uložit alespoň do jednoho typu souboru.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Neplatná číselná hodnota. Je vyžadována hodnota od 1 do 12. Byla vrácena předchozí hodnota.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Neplatná číselná hodnota. Je vyžadována hodnota od 1 do 30000. Byla vrácena předchozí hodnota.
+	A value between 1 and 12 is required. Closest value inserted.	Je vyžadována hodnota od 1 do 12. Byla vložena nejbližší hodnota.
+	A value between 1 and 30000 is required. Closest value inserted.	Je vyžadována hodnota od 1 do 30000. Byla vložena nejbližší hodnota.

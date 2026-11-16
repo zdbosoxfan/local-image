@@ -3908,3 +3908,16 @@ ai	New	새 항목
 	GPU Memory (MB, 0 = Automatic)	GPU 메모리(MB, 0 = 자동)
 	{path} was saved over	{path} 파일이 덮어써졌습니다
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	"{doc}" 문서는 더 이상 파일에 연결되어 있지 않으며 저장되지 않은 상태로 표시됩니다. 내용을 유지하려면 새 이름으로 저장하세요.
+	File Type	파일 형식
+	Save as JPEG	JPEG로 저장
+	Save as PSD	PSD로 저장
+	Save as TIFF	TIFF로 저장
+	Convert Profile to sRGB	프로파일을 sRGB로 변환
+	LZW Compression	LZW 압축
+	Resize to Fit	크기에 맞게 조정
+	Run	실행
+	You must save to at least one file type.	하나 이상의 파일 형식으로 저장해야 합니다.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	잘못된 숫자 입력입니다. 1에서 12 사이의 값이 필요합니다. 이전 값으로 되돌렸습니다.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	잘못된 숫자 입력입니다. 1에서 30000 사이의 값이 필요합니다. 이전 값으로 되돌렸습니다.
+	A value between 1 and 12 is required. Closest value inserted.	1에서 12 사이의 값이 필요합니다. 가장 가까운 값을 입력했습니다.
+	A value between 1 and 30000 is required. Closest value inserted.	1에서 30000 사이의 값이 필요합니다. 가장 가까운 값을 입력했습니다.

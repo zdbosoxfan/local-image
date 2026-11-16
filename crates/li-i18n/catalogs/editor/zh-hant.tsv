@@ -3915,3 +3915,16 @@ ai	New	最新
 	GPU Memory (MB, 0 = Automatic)	GPU 記憶體（MB，0 = 自動）
 	{path} was saved over	{path} 已被覆寫儲存
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	「{doc}」已不再關聯檔案，並標記為未儲存：請使用新名稱儲存以保留內容。
+	File Type	檔案類型
+	Save as JPEG	儲存為 JPEG
+	Save as PSD	儲存為 PSD
+	Save as TIFF	儲存為 TIFF
+	Convert Profile to sRGB	將描述檔轉換為 sRGB
+	LZW Compression	LZW 壓縮
+	Resize to Fit	調整尺寸以符合
+	Run	執行
+	You must save to at least one file type.	必須至少儲存為一種檔案類型。
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	數值輸入無效。需要介於 1 到 12 之間的值。已恢復先前的值。
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	數值輸入無效。需要介於 1 到 30000 之間的值。已恢復先前的值。
+	A value between 1 and 12 is required. Closest value inserted.	需要介於 1 到 12 之間的值。已插入最接近的值。
+	A value between 1 and 30000 is required. Closest value inserted.	需要介於 1 到 30000 之間的值。已插入最接近的值。

@@ -906,3 +906,54 @@ fn image_processor_writes_each_format_with_its_own_settings() {
     assert!(s.execute(cmd, json!({"input": [a], "output": none, "jpeg": {}, "tiff": {"lzw": "true"}})).is_err());
     assert!(!std::path::Path::new(&none).exists());
 }
+
+/// Upstream 11c77d26: every non-empty choice of formats writes each input once per format.
+#[test]
+fn image_processor_writes_every_nonempty_format_combination() {
+    let cmd = "file.scripts.imageProcessor";
+    let dir = tmp("processor-combinations");
+    let input = join(&dir, "in");
+    let inputs = [png(&input, "first.png", 40, 20, "#b05980"), png(&input, "second.png", 40, 20, "#b05980")];
+    let formats = [("jpeg", "jpg"), ("psd", "psd"), ("tiff", "tif")];
+    let mut s = Session::new();
+    for mask in 1..8 {
+        let out = join(&dir, &format!("out-{mask}"));
+        let mut params = json!({"input": inputs, "output": out});
+        let mut expected = Vec::new();
+        for (bit, (key, ext)) in formats.iter().enumerate() {
+            let enabled = (mask & (1 << bit)) != 0;
+            params[*key] = json!({"enabled": enabled});
+            if enabled {
+                expected.extend(["first", "second"].map(|name| join(&out, &format!("{name}.{ext}"))));
+            }
+        }
+        let r = s.execute(cmd, params).unwrap();
+        assert_eq!(r["errors"], json!([]), "{r}");
+        assert_eq!(r["files"], json!(expected), "mask {mask}");
+    }
+}
+
+/// Upstream 11c77d26: a bad or missing section fails the run before any format writes.
+#[test]
+fn image_processor_invalid_settings_fail_before_any_format_writes() {
+    let cmd = "file.scripts.imageProcessor";
+    let dir = tmp("processor-invalid");
+    let a = png(&join(&dir, "in"), "a.png", 40, 20, "#b05980");
+    let out = join(&dir, "out");
+    let mut s = Session::new();
+    for settings in [
+        json!({"jpeg": false, "psd": {"enabled": false}, "tiff": null}),
+        json!({"jpeg": {}, "psd": 7}),
+        json!({"jpeg": {}, "tiff": {"lzw": "true"}}),
+        json!({"jpeg": {"quality": 0}}),
+        json!({"jpeg": {"quality": "5"}}),
+        json!({"jpeg": {}, "psd": {"resize": true, "width": 30001}}),
+        json!({"jpeg": {}, "tiff": {"resize": true, "height": 0}}),
+    ] {
+        let mut params = settings;
+        params["input"] = json!([a]);
+        params["output"] = json!(out);
+        assert!(s.execute(cmd, params.clone()).is_err(), "{params}");
+        assert!(!std::path::Path::new(&out).exists());
+    }
+}
