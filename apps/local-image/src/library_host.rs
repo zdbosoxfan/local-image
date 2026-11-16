@@ -1435,8 +1435,9 @@ impl eframe::App for Host {
                 // The Library's own navigation (D, G, Esc, the Edit button) moves between Library
                 // and Develop; the title bar follows.
                 if let Some(lib) = self.library.as_ref() {
-                    let auxiliary = lib.ui.view == lightcraft_ui_egui::state::ViewMode::Detail
-                        && matches!(lib.ui.right, lightcraft_ui_egui::state::RightPanel::Versions | lightcraft_ui_egui::state::RightPanel::Activity);
+                    use lightcraft_ui_egui::state::{RightPanel, ViewMode};
+                    let auxiliary = lib.ui.view == ViewMode::Detail
+                        && matches!(lib.ui.right, RightPanel::Versions | RightPanel::Activity | RightPanel::Keywords | RightPanel::Info);
                     let now = if auxiliary { self.mode } else { library_module(lib) };
                     if now != self.mode {
                         self.mode = now;

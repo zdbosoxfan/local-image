@@ -2882,6 +2882,28 @@ fn library_navigation_history_versions_keep_module_and_footer_bounds() {
     previews.retire();
     std::fs::remove_dir_all(dir).unwrap();
 }
+/// Info and Keywords from Develop's tool strip keep the title bar on Develop.
+#[test]
+fn develop_info_and_keywords_keep_the_develop_module() {
+    let (dir, host) = workflow_host("develop-info");
+    let mut h = RoundTripUi::new(host);
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Develop);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    for command in ["panel.info", "panel.keywords"] {
+        h.host.library.as_mut().unwrap().run(command, json!({})).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        assert_eq!(h.host.mode, Module::Develop, "{command}");
+    }
+    let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+    drop(h);
+    previews.retire();
+    std::fs::remove_dir_all(dir).unwrap();
+}
 #[test]
 fn library_navigation_toast_overlay_contrast_light_and_classic() {
     use photocraft_ui_egui::theme::ThemeKind;
