@@ -1149,9 +1149,9 @@ mod shifted_symbol_conflict_tests {
         ];
         h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("host-shortcut-catalog"), items));
         h.run_steps(4);
-        h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Editor")).click();
+        h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Compositing")).click();
         h.run();
-        h.get_by_label("Library + Develop").click();
+        h.get_by_label("Library & Develop").click();
         h.run();
         let pos = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("shortcut-capture", "library::view.maskOverlay")))).unwrap().center();
         h.event(egui::Event::PointerMoved(pos));

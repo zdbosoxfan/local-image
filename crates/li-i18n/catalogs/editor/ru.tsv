@@ -4005,7 +4005,7 @@ ai	New	Новые
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	Все сочетания клавиш этого профиля сброшены к значениям по умолчанию.
 	Editor	Редактор
-	Library + Develop	Библиотека + Проявка
+	Library & Develop	Библиотека & Проявка
 	Scope	Область
 	Colour	Цветные
 	Monochrome (default)	Монохром (по умолчанию)
