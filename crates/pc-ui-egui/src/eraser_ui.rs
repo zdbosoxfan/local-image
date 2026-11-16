@@ -36,18 +36,19 @@ pub fn click(app: &mut PhotocraftApp, tool: Tool, x: f64, y: f64) -> bool {
 }
 
 /// Finishes a Background Eraser stroke. Returns false for other tools.
-pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]]) -> bool {
+pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], line: bool) -> bool {
     if tool != Tool::BackgroundEraser {
         return false;
     }
     let o = &app.ui.tool_options;
-    let p = json!({
+    let mut p = json!({
         "points": points,
         "sampling": o.bg_sampling,
         "limits": o.bg_limits,
         "tolerance": o.bg_tolerance,
         "protectForegroundColor": o.bg_protect_fg,
     });
+    crate::canvas::unsmoothed_line(&mut p, line);
     let r = app.run("paint.backgroundEraser", p);
     report(app, r);
     true
