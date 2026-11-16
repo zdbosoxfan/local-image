@@ -17,6 +17,8 @@ corpus = []
 li-commands.workspace = true
 # The shared crash-safe file writer (atomic replace, staged writes).
 li-fs.workspace = true
+# Calendar arithmetic for the batch naming template's date tokens.
+li-i18n.workspace = true
 li-keys = { workspace = true }
 lightcraft-meta.workspace = true
 li-color.workspace = true

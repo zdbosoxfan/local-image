@@ -746,3 +746,51 @@ fn os_open_restores_a_minimized_window_before_focusing_it() {
         assert_eq!(commands, expected);
     }
 }
+
+/// File › Open as Smart Object… (#11678) asks with File › Open's dialog and opens each chosen
+/// file as its own untitled document holding one embedded smart object.
+#[test]
+fn open_as_smart_object_dialog_opens_one_document_per_selected_file() {
+    let (dir, paths) = files("open-as-so", &["one.png", "two.png", "bad.png"], &png_bytes(8, 6));
+    std::fs::write(&paths[2], b"not an image").unwrap();
+    let (mut app, _) = app_with(None, None);
+    let selected = paths.clone();
+    app.services.file_dialog = Some(file_dialog::answering(move |_| Some(FileDialogAnswer::Paths(selected.clone()))));
+
+    menus::invoke(&mut app, &egui::Context::default(), "file.openAsSmartObject", json!({})).unwrap();
+
+    assert_eq!(app.session.documents().iter().map(|d| d.doc.name.as_str()).collect::<Vec<_>>(), ["one-1", "two-1"]);
+    assert!(app.session.documents().iter().all(|d| d.path.is_none() && d.doc.layers.len() == 1));
+    assert!(app.ui.notices.iter().any(|n| n.error && n.title.starts_with("Couldn't open bad.png")), "the unreadable file is reported");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// File › Open as Smart Object… runs each file as a tracked background open like File › Open
+/// does: a tab per file while it opens, then untitled documents, failures reported.
+#[test]
+fn open_as_smart_object_opens_in_the_background() {
+    let ctx = egui::Context::default();
+    let (dir, paths) = files("open-as-so-bg", &["two.png", "one.png", "bad.png"], &png_bytes(8, 6));
+    std::fs::write(&paths[2], b"not an image").unwrap();
+    let (mut app, _) = app_with(None, None);
+    let selected = paths.clone();
+    app.services.file_dialog = Some(file_dialog::answering(move |_| Some(FileDialogAnswer::Paths(selected.clone()))));
+    app.background_jobs = true;
+
+    menus::invoke(&mut app, &ctx, "file.openAsSmartObject", json!({})).unwrap();
+    assert_eq!(app.jobs.opens.len(), 3, "a tab for each file while it opens");
+    assert!(app.session.documents().is_empty(), "nothing is decoded on the UI thread");
+
+    let start = std::time::Instant::now();
+    while !app.jobs.opens.is_empty() && start.elapsed() < std::time::Duration::from_secs(30) {
+        crate::jobs_ui::tick(&mut app, &ctx);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert!(app.jobs.opens.is_empty(), "every open finished");
+    let mut names = doc_names(&app);
+    names.sort();
+    assert_eq!(names, ["one-1", "two-1"]);
+    assert!(app.session.documents().iter().all(|d| d.path.is_none() && d.doc.layers.len() == 1));
+    assert!(app.ui.notices.iter().any(|n| n.error && n.title.starts_with("Couldn't open bad.png")), "the unreadable file is reported");
+    let _ = std::fs::remove_dir_all(&dir);
+}

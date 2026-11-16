@@ -217,11 +217,15 @@ pub(crate) fn export_layered(
     }
     let mut warnings = Vec::new();
     let big = doc.size.width > 30_000 || doc.size.height > 30_000;
-    // The PSD exporter renders the composite we need for the TIFF itself: unmatted (the TIFF
-    // keeps straight alpha) and uncompressed (its planes are interleaved below).
+    // Save Transparency (see `ExportOptions::tiff_transparency`): off, the composite is matted
+    // over white and the IFD keeps no transparency; the layers keep theirs either way.
+    let save_transparency = opts.tiff_transparency != Some(false);
+    // The PSD exporter renders the composite we need for the TIFF itself: unmatted unless Save
+    // Transparency is off (the TIFF keeps straight alpha) and uncompressed (its planes are
+    // interleaved below).
     let psd_opts = PsdExportOptions {
         force_psb: opts.force_psb || big,
-        merged_matte: false,
+        merged_matte: !save_transparency,
         merged_compression: Compression::Raw,
         read_linked_files: opts.read_linked_files,
     };
@@ -232,7 +236,16 @@ pub(crate) fn export_layered(
         warnings.push(notice);
     }
     let order = if codecs::tiff_writes_little_endian() { ByteOrder::Little } else { ByteOrder::Big };
-    let (layers, w) = ImageSourceData::from_psd(&file).to_bytes(order)?;
+    let mut isd = ImageSourceData::from_psd(&file);
+    if !save_transparency {
+        // A positive layer count and no merged-transparency marker: the IFD image has no
+        // transparency sample.
+        if let Some(info) = &mut isd.layer_info {
+            info.merged_alpha = false;
+        }
+        isd.global_blocks.retain(|b| !matches!(&b.key, b"MTrn" | b"Mtrn" | b"Mt16" | b"Mt32"));
+    }
+    let (layers, w) = isd.to_bytes(order)?;
     warnings.extend(w.into_iter().map(|w| format!("layer data: {w}")));
     // The profile and XMP are written as TIFF tags, not as resources. EXIF stays a resource
     // (1058): the TIFF codec has no EXIF directory, and the PSD importer reads it back from there.
@@ -241,9 +254,11 @@ pub(crate) fn export_layered(
 
     let fmt = doc.pixel_format();
     let cc = fmt.mode.color_channels();
-    let has_alpha = file.layer_info.as_ref().is_some_and(|l| l.merged_alpha);
+    let merged_alpha = file.layer_info.as_ref().is_some_and(|l| l.merged_alpha);
+    let extra = usize::from(file.header.channels).saturating_sub(cc + usize::from(merged_alpha));
+    // The planes are colour, then transparency: without Save Transparency only the colour is read.
+    let has_alpha = merged_alpha && save_transparency;
     let channels = cc + usize::from(has_alpha);
-    let extra = usize::from(file.header.channels).saturating_sub(channels);
     if extra > 0 {
         warnings.push(format!("{extra} alpha channel(s) are not written to TIFF (one transparency channel only)"));
     }

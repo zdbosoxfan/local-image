@@ -399,6 +399,7 @@ fn wraps(id: &str) -> bool {
     matches!(
         id,
         "file.openAs"
+            | "file.openAsSmartObject"
             | "file.saveACopy"
             | "file.placeEmbedded"
             | "file.placeLinked"
@@ -731,10 +732,21 @@ mod label_tests {
     }
 }
 
+/// The fields a `__form` dialog shows, in order: as `__order` lists them (a dialog's grouping,
+/// such as Batch's Play / Source / Destination / Errors), the rest alphabetically after them.
+fn form_keys(f: &Map<String, Value>) -> Vec<String> {
+    let mut keys: Vec<String> = f.keys().filter(|k| !k.starts_with("__")).cloned().collect();
+    if let Some(order) = f.get("__order").and_then(Value::as_array) {
+        let order: Vec<&str> = order.iter().filter_map(Value::as_str).collect();
+        keys.sort_by_key(|k| order.iter().position(|o| o == k).unwrap_or(usize::MAX));
+    }
+    keys
+}
+
 /// Body of a `__form` dialog: text fields, number fields, checkboxes and `__choices` dropdowns.
 pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let choices = f.get("__choices").cloned().unwrap_or(Value::Null);
-    let keys: Vec<String> = f.keys().filter(|k| !k.starts_with("__")).cloned().collect();
+    let keys = form_keys(f);
     egui::Grid::new("form-dialog").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for k in keys {
             let v = f.get(&k).cloned().unwrap_or(Value::Null);
@@ -819,6 +831,7 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
     let dialog = |app: &mut PhotocraftApp, fields: Value, choices: Value| Some(Ok(json!({"dialog": form(app, id, label, fields, choices)})));
     match id {
         "file.openAs" => Some(app.open_dialog_file()),
+        "file.openAsSmartObject" => Some(app.open_dialog_as_smart_object()),
         "file.saveACopy" => Some(save_a_copy(app)),
         "file.placeEmbedded" | "file.placeLinked" => {
             let doc = match app.active_doc_id() {
@@ -929,8 +942,14 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
         ),
         "file.scripts.imageProcessor" => dialog(
             app,
-            json!({"input": dir, "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
-            json!({"format": ["jpg", "png", "psd", "tiff"]}),
+            // The File Type section (image_processor_ui) draws the per-format settings.
+            json!({
+                "input": dir, "output": format!("{dir}/processed"),
+                "jpeg": {"enabled": true, "quality": 5, "convertToSrgb": false, "resize": false, "width": 1, "height": 1},
+                "psd": {"enabled": false, "resize": false, "width": 1, "height": 1},
+                "tiff": {"enabled": false, "lzw": false, "resize": false, "width": 1, "height": 1},
+            }),
+            json!({}),
         ),
         "file.automate.batch" => {
             let Some(action) = crate::actions::selected_action(app) else {
@@ -938,10 +957,17 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
             };
             let steps = crate::actions::action_steps(action);
             let name = action.name.clone();
+            // Photoshop's Batch dialog: Source (folder with Include All Subfolders, or the open
+            // documents), Destination, File Naming, Errors (stop, or log to a file).
             dialog(
                 app,
-                json!({"action": name, "steps": steps, "input": dir, "output": format!("{dir}/batch"), "format": "same"}),
-                json!({"format": ["same", "png", "jpg", "psd", "tiff"]}),
+                json!({
+                    "action": name, "steps": steps, "source": "folder", "input": dir, "includeSubfolders": false,
+                    "output": format!("{dir}/batch"), "format": "same", "naming": photocraft_engine::batch::Naming::DEFAULT, "startSerial": 1,
+                    "stopOnError": false, "errorLog": "",
+                    "__order": ["action", "source", "input", "includeSubfolders", "output", "format", "naming", "startSerial", "stopOnError", "errorLog"],
+                }),
+                json!({"format": ["same", "png", "jpg", "psd", "tiff"], "source": ["folder", "open"]}),
             )
         }
         // Channel workflow dialogs (see channels_panel.rs for the channel references).
@@ -1017,16 +1043,27 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
     let suggested = format!("{stem} copy.psd");
     // The copy is of the document as it was when asked.
     app.pick_save(&suggested, move |app, path| {
-        let export = app.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&doc, &path, &crate::ExportSettings::default())?;
-        let write = app.services.write.as_mut().ok_or("no writer configured")?;
-        write(&path, &bytes)?;
-        app.detach_others_from_file(&path, doc.id);
-        app.ui.status = format!("Saved a copy as {path}");
-        app.ui.status_error = false;
-        crate::notices::io_warnings(app, &format!("Saved a copy as {}", crate::file_open::display_name(&path)), &warnings);
-        Ok(json!({"path": path, "warnings": warnings}))
+        // A TIFF asks for its TIFF Options first; the copy is written from the prompt.
+        if crate::tiff_options_ui::wants_prompt(app, &path) {
+            crate::tiff_options_ui::park(app, path.clone(), Some(doc));
+            return Ok(json!({"path": path, "warnings": []}));
+        }
+        write_copy(app, &doc, path, &crate::ExportSettings::default())
     })
+}
+
+/// Encodes `doc` with `settings` and writes it to `path` as a copy: the document keeps its path
+/// and saved state.
+pub(crate) fn write_copy(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, path: String, settings: &crate::ExportSettings) -> Result<Value, String> {
+    let export = app.services.export.as_ref().ok_or("no exporter configured")?;
+    let (bytes, warnings) = export(doc, &path, settings)?;
+    let write = app.services.write.as_mut().ok_or("no writer configured")?;
+    write(&path, &bytes)?;
+    app.detach_others_from_file(&path, doc.id);
+    app.ui.status = format!("Saved a copy as {path}");
+    app.ui.status_error = false;
+    crate::notices::io_warnings(app, &format!("Saved a copy as {}", crate::file_open::display_name(&path)), &warnings);
+    Ok(json!({"path": path, "warnings": warnings}))
 }
 
 #[cfg(test)]

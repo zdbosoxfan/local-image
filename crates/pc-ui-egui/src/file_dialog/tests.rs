@@ -227,3 +227,82 @@ fn background_saves_detach_overwritten_tabs_only_after_commit() {
         assert_eq!(app.session.documents()[0].is_dirty(), !fail);
     }
 }
+
+/// The folder an export dialog starts in, as a pure decision.
+#[test]
+fn export_start_dir_prefers_an_existing_remembered_folder() {
+    use std::path::PathBuf;
+    let all_exist = |_: &std::path::Path| true;
+    let none_exist = |_: &std::path::Path| false;
+    // Remembered and present: used.
+    assert_eq!(export_start_dir("/renders", all_exist), Some(PathBuf::from("/renders")));
+    // Remembered but gone, or nothing remembered: the system dialog chooses.
+    assert_eq!(export_start_dir("/renders", none_exist), None);
+    assert_eq!(export_start_dir("", all_exist), None);
+}
+
+/// Exports start in the last successfully exported folder, across documents; a failed or
+/// cancelled export, a folder that is gone and other save dialogs change nothing.
+#[test]
+fn exports_start_in_the_last_exported_folder() {
+    let (mut app, open, _) = app();
+    let ctx = egui::Context::default();
+    let renders = std::env::temp_dir().join(format!("li-export-folder-{}", std::process::id()));
+    std::fs::create_dir_all(&renders).unwrap();
+    let renders_text = renders.to_string_lossy().into_owned();
+    let in_renders = |name: &str| renders.join(name).to_string_lossy().into_owned();
+    let suggested = |open: &Open| match &open.borrow()[0].0 {
+        FileDialogRequest::Save { suggested } => suggested.clone(),
+        other => panic!("save dialog expected, got {other:?}"),
+    };
+    let remembered = |app: &PhotocraftApp| app.session.prefs().export.last_folder.clone();
+    // No export yet: the bare name. Cancelled, nothing is remembered.
+    app.pick_export("a.png", |_, _| Ok(Value::Null)).unwrap();
+    assert_eq!(suggested(&open), "a.png");
+    answer(&open, None);
+    app.poll_file_dialog(&ctx);
+    assert_eq!(remembered(&app), "");
+    // The user picks another folder, but the export fails: nothing is remembered.
+    app.pick_export("a.png", |_, _| Err("disk full".into())).unwrap();
+    answer(&open, Some(FileDialogAnswer::SaveTo(in_renders("a.png"))));
+    app.poll_file_dialog(&ctx);
+    assert_eq!(remembered(&app), "");
+    // A successful export is remembered...
+    app.pick_export("a.png", |_, _| Ok(Value::Null)).unwrap();
+    answer(&open, Some(FileDialogAnswer::SaveTo(in_renders("a.png"))));
+    app.poll_file_dialog(&ctx);
+    assert_eq!(remembered(&app), renders_text);
+    // ...and starts the next export, of any document.
+    app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+    app.pick_export("b.png", |_, _| Ok(Value::Null)).unwrap();
+    assert_eq!(suggested(&open), in_renders("b.png"));
+    // A cancelled dialog changes nothing.
+    answer(&open, None);
+    app.poll_file_dialog(&ctx);
+    assert_eq!(remembered(&app), renders_text);
+    // Other save dialogs keep their own start.
+    app.pick_save("c.psd", |_, _| Ok(Value::Null)).unwrap();
+    assert_eq!(suggested(&open), "c.psd");
+    answer(&open, None);
+    app.poll_file_dialog(&ctx);
+    // The folder disappears: back to the bare name.
+    std::fs::remove_dir(&renders).unwrap();
+    app.pick_export("d.png", |_, _| Ok(Value::Null)).unwrap();
+    assert_eq!(suggested(&open), "d.png");
+    answer(&open, None);
+    app.poll_file_dialog(&ctx);
+}
+
+#[test]
+fn the_last_export_folder_is_a_preference_that_old_files_lack() {
+    let prefs = photocraft_engine::prefs::Preferences::default();
+    assert_eq!(prefs.export.last_folder, "");
+    let mut json = serde_json::to_value(&prefs).unwrap();
+    json["export"]["lastFolder"] = "/renders".into();
+    let loaded: photocraft_engine::prefs::Preferences = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(loaded.export.last_folder, "/renders");
+    // Settings saved before the field existed still load.
+    json["export"].as_object_mut().unwrap().remove("lastFolder");
+    let old: photocraft_engine::prefs::Preferences = serde_json::from_value(json).unwrap();
+    assert_eq!(old.export.last_folder, "");
+}

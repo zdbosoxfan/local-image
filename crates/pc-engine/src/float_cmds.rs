@@ -34,6 +34,11 @@ pub struct CutParts {
 }
 
 impl CutParts {
+    /// Selected pixels in source-document coordinates, including soft coverage.
+    pub(crate) fn selected_pixels(&self) -> &Surface {
+        &self.piece
+    }
+
     /// Split `layer` of `doc` by its selection. Errors without a selection or pixels.
     pub fn new(doc: &Document, layer: LayerId) -> Result<Self> {
         Self::with_copy(doc, layer, false)

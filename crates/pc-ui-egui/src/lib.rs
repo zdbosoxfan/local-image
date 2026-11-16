@@ -163,6 +163,7 @@ mod i18n_live_tests;
 #[cfg(test)]
 mod i18n_tests;
 pub mod icons;
+mod image_processor_ui;
 pub mod jobs_ui;
 pub mod lasso_ui;
 pub mod layer_menu_ui;
@@ -173,6 +174,7 @@ pub mod layer_row_ui;
 pub mod layer_style;
 mod layer_transfer;
 pub mod layer_tree_ui;
+pub mod levels_clipping;
 pub mod links;
 pub mod liquify_ui;
 pub mod magnetic_lasso_ui;
@@ -278,6 +280,13 @@ pub struct ExportSettings {
     pub webp_quality: Option<u8>,
     /// TIFF: keep the layers (Photoshop layer data); `false` is "Discard Layers and Save a Copy".
     pub tiff_layers: bool,
+    /// TIFF Options › Image Compression.
+    pub tiff_compression: photocraft_codecs::TiffCompression,
+    /// TIFF Options › Save Transparency (`None`: kept; see
+    /// [`photocraft_io::ExportOptions::tiff_transparency`]).
+    pub tiff_transparency: Option<bool>,
+    /// TIFF Options › Save Image Pyramid.
+    pub tiff_pyramid: bool,
     /// Whether PSD, PSB and layered TIFF saves may embed linked sources.
     pub read_linked_files: bool,
     /// Embed the document's whole XMP packet. `true` by default (Save As keeps the metadata);
@@ -294,6 +303,9 @@ impl Default for ExportSettings {
             webp_lossless: true,
             webp_quality: None,
             tiff_layers: true,
+            tiff_compression: photocraft_codecs::TiffCompression::Deflate,
+            tiff_transparency: None,
+            tiff_pyramid: false,
             read_linked_files: true,
             xmp_all: true,
         }
@@ -649,6 +661,8 @@ pub struct PhotocraftApp {
     pub(crate) color_range: Option<color_range_ui::Preview>,
     /// Image › Adjustments dialog preview through a temporary clipped adjustment layer.
     pub(crate) adjust_preview: Option<adjust_preview::AdjustPreview>,
+    /// The Levels dialog's Alt-drag clipping display over the canvas.
+    pub(crate) levels_clipping: Option<levels_clipping::Cache>,
     /// Synthetic input events queued by automation (`ui.click`, `ui.key`, …), injected next frame.
     pub(crate) synthetic: Vec<egui::Event>,
     /// True only while a frame is processing synthetic automation input. It
@@ -718,8 +732,10 @@ pub struct PhotocraftApp {
     pub(crate) discard: Option<discard_ui::Prompt>,
     /// The Open or Save dialog in progress, and the action waiting on it (see `file_dialog`).
     pub(crate) file_dialog: Option<file_dialog::Pending>,
-    /// A Save As to a layered TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
+    /// A Save As or Save a Copy to a TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
     pub(crate) tiff_options: Option<tiff_options_ui::Prompt>,
+    /// The last TIFF Options compression and pyramid answer, where the next prompt starts. Session-only.
+    pub(crate) tiff_remembered: tiff_options_ui::Remembered,
     pub(crate) pending_save: Option<save_worker::Pending>,
     /// Each document's own file as it was when the document was opened from it or saved to it
     /// (see [`FileStamp`]).
@@ -823,6 +839,7 @@ impl PhotocraftApp {
             filter_preview: None,
             color_range: None,
             adjust_preview: None,
+            levels_clipping: None,
             synthetic: Vec::new(),
             automation_input: false,
             channel_thumbs: None,
@@ -854,6 +871,7 @@ impl PhotocraftApp {
             updates: Default::default(),
             discard: None,
             tiff_options: None,
+            tiff_remembered: Default::default(),
             pending_save: None,
             file_dialog: None,
             disk_stamps: HashMap::new(),
@@ -1288,10 +1306,10 @@ impl PhotocraftApp {
 
     /// [`Self::save_as`] once the path is known.
     fn save_to(&mut self, path: String) -> Result<Value, String> {
-        // A layered TIFF asks about its layers first (Preferences › File Handling); the save
+        // A TIFF asks for TIFF Options (compression, pyramid, transparency, layers); the save
         // continues from the prompt.
         if tiff_options_ui::wants_prompt(self, &path) {
-            tiff_options_ui::park(self, path.clone());
+            tiff_options_ui::park(self, path.clone(), None);
             return Ok(serde_json::json!({"path": path, "warnings": []}));
         }
         let (path, warnings) = self.write_document(path, &ExportSettings::default())?;

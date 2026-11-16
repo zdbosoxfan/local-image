@@ -844,3 +844,58 @@ async fn command_batch_rejects_too_many_steps() {
     assert!(text(&r).contains("maximum is 256"), "{}", text(&r));
     client.cancel().await.unwrap();
 }
+
+/// Upstream e3a84b62: headless `doc_save`/`doc_export` write the TIFF Options asked for
+/// (compression, Save Transparency and Save Image Pyramid); a bad value is refused and writes
+/// nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn headless_doc_save_writes_tiff_options() {
+    let dir = tmp("tiff-options");
+    let client = connect(headless_in(&dir)).await;
+    call(&client, "doc_new", json!({"width": 200, "height": 100, "background": "transparent"})).await;
+    // (params, compression tag, alpha, directories); unset compression is the encoder's ZIP.
+    for (tool, params, compression, alpha, dirs) in [
+        ("doc_export", json!({"path": "plain.tif"}), 8, true, 1),
+        ("doc_export", json!({"path": "lzw.tif", "tiffCompression": "lzw"}), 5, true, 1),
+        ("doc_save", json!({"path": "none.tif", "tiffCompression": "none", "tiffTransparency": false}), 1, false, 1),
+        ("doc_save", json!({"path": "pyr.tif", "tiffPyramid": true, "tiffTransparency": true}), 8, true, 3),
+    ] {
+        let r = call(&client, tool, params.clone()).await;
+        assert_ne!(r.is_error, Some(true), "{params}: {}", text(&r));
+        let bytes = std::fs::read(dir.join(params["path"].as_str().unwrap())).unwrap();
+        let info = photocraft_codecs::tiff_info(&bytes).unwrap();
+        assert!(info.pages.iter().all(|p| p.compression == compression), "{params}: {:?}", info.pages);
+        assert_eq!(info.pages.len(), dirs, "{params}");
+        assert_eq!(photocraft_codecs::decode(&bytes).unwrap().layout().has_alpha(), alpha, "{params}");
+    }
+    for bad in [json!({"path": "bad.tif", "tiffCompression": "jpeg"}), json!({"path": "bad.tif", "tiffTransparency": "off"})] {
+        let r = call(&client, "doc_export", bad.clone()).await;
+        assert_eq!(r.is_error, Some(true), "{bad}: {}", text(&r));
+    }
+    assert!(!dir.join("bad.tif").exists());
+    client.cancel().await.unwrap();
+    cleanup(&dir);
+}
+
+/// Upstream e3a84b62: the JSON-lines server's `doc.save` takes the same TIFF Options; a bad
+/// value is an error and writes nothing.
+#[test]
+fn rpc_doc_save_takes_tiff_options() {
+    let dir = tmp("rpc-tiff-options");
+    let mut headless = photocraft_automation::Headless::trusted_local();
+    headless.handle("doc.new", json!({"width": 200, "height": 100, "background": "transparent"})).unwrap();
+    let path = dir.join("o.tif");
+    headless.handle("doc.save", json!({"path": path.to_str().unwrap(), "tiffCompression": "lzw", "tiffTransparency": false, "tiffPyramid": true})).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let info = photocraft_codecs::tiff_info(&bytes).unwrap();
+    assert_eq!(info.pages.len(), 3);
+    assert!(info.pages.iter().all(|pg| pg.compression == 5));
+    assert!(!photocraft_codecs::decode(&bytes).unwrap().layout().has_alpha());
+    let bad = dir.join("bad.tif");
+    for mut params in [json!({"tiffCompression": "jpeg"}), json!({"tiffPyramid": 1}), json!({"tiffTransparency": "no"})] {
+        params["path"] = json!(bad.to_str().unwrap());
+        assert!(headless.handle("doc.save", params.clone()).is_err(), "{params}");
+    }
+    assert!(!bad.exists());
+    cleanup(&dir);
+}

@@ -727,7 +727,7 @@ pub(super) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Opti
 }
 
 /// Conservative four-corner document coverage, with a margin for filtering.
-pub(super) fn visible_doc_rect(xf: &ViewXform) -> DRect {
+pub(crate) fn visible_doc_rect(xf: &ViewXform) -> DRect {
     let visible = xf.camera().document_bounds(xf.rect);
     let c = |v: f32| v.clamp(-1e9, 1e9) as i32;
     DRect::new(c(visible.left().floor()) - 2, c(visible.top().floor()) - 2, c(visible.right().ceil()) + 2, c(visible.bottom().ceil()) + 2)
