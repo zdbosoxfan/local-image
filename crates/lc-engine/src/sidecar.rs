@@ -1533,7 +1533,10 @@ mod tests {
             std::fs::write(dir.join(name), "<x/>").unwrap();
         }
         let (raw, jpg, bare) = (at("IMG_1.cr3"), at("IMG_1.jpg"), at("IMG_1"));
-        let stems = ImportStems::for_import(&[], [(raw.as_str(), MediaKind::Raw), (jpg.as_str(), MediaKind::Image), (bare.as_str(), MediaKind::Image)].into_iter());
+        let stems = ImportStems::for_import(
+            &[],
+            [(raw.as_str(), MediaKind::Raw), (jpg.as_str(), MediaKind::Image), (bare.as_str(), MediaKind::Image)].into_iter(),
+        );
         assert_eq!(find_sidecar_for_import(&stems, SidecarNaming::Stem, &raw), Some(dir.join("IMG_1.xmp")));
         assert_eq!(find_sidecar_for_import(&stems, SidecarNaming::Stem, &jpg), Some(dir.join("IMG_1.jpg.xmp")));
         assert_eq!(find_sidecar_for_import(&stems, SidecarNaming::Stem, &bare), None);
