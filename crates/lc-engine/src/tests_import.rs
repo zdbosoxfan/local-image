@@ -1389,3 +1389,26 @@ fn a_file_arriving_beside_its_raws_stem_reads_its_own_sidecar() {
     assert_eq!(read(&s, "IMG_3.png"), 0, "the catalogued raw owns IMG_3.xmp");
     let _ = std::fs::remove_dir_all(&src);
 }
+
+/// The app prepares an import a few files at a time: a file in a later batch than its raw is
+/// ranked against the raw too, so it never reads the raw's stem sidecar.
+#[test]
+fn a_file_in_a_later_batch_than_its_raw_reads_no_stem_sidecar() {
+    let src = temp_dir("stem-batches");
+    std::fs::write(src.join("IMG_1.dng"), crate::tests_xmp::synthetic_dng_with(None, Default::default())).unwrap();
+    write_png(&src.join("IMG_1.png"), 7);
+    let packet = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="5"/></rdf:RDF></x:xmpmeta>"#;
+    std::fs::write(src.join("IMG_1.xmp"), packet).unwrap();
+    let mut s = Session::new().with_fs();
+    let mut job = crate::import::ImportJob::new(&mut s, Default::default()).unwrap();
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    for (name, sidecars) in [("IMG_1.dng", 1), ("IMG_1.png", 0)] {
+        let prepared = job.prepare_files(vec![src.join(name).to_string_lossy().into_owned()], &cancel);
+        let report = crate::import::commit_prepared(&mut s, &job.opts, job.now(), prepared).unwrap();
+        assert_eq!((report.imported.len(), report.sidecars), (1, sidecars), "{name}");
+    }
+    let rating = |name: &str| s.catalog.photos().find(|p| p.file_name == name).map(|p| p.rating);
+    assert_eq!((rating("IMG_1.dng"), rating("IMG_1.png")), (Some(5), Some(0)), "the raw's packet is not the PNG's");
+    let _ = std::fs::remove_dir_all(&src);
+}

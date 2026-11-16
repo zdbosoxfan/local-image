@@ -666,8 +666,9 @@ pub struct ImportJob {
     /// Probes from a preceding scan (not read again).
     cache: HashMap<String, ProbeInfo>,
     naming: crate::sidecar::SidecarNaming,
-    /// The library's files the first batch's arrivals are ranked against for the ownership of the
-    /// shared stem sidecars they read ([`crate::sidecar::ImportStems`]); taken by that batch.
+    /// The library's files each batch's arrivals are ranked against for the ownership of the
+    /// shared stem sidecars they read ([`crate::sidecar::ImportStems`]); each batch adds its own
+    /// arrivals, so a file in a later batch than its raw still yields the stem sidecar to it.
     stem_library: Vec<(String, MediaKind, u64)>,
     now: String,
     seq: usize,
@@ -913,10 +914,11 @@ impl ImportJob {
         // Who owns the shared stem sidecar (`IMG_0001.xmp`) among the library's files and the ones
         // arriving with this import: a JPEG or a TIFF arriving beside its raw reads its own sidecar
         // and never the raw's packet.
-        let stems = crate::sidecar::ImportStems::for_import(
-            &std::mem::take(&mut self.stem_library),
-            todo.iter().zip(&probed).filter_map(|(path, info)| info.as_ref().ok().map(|i| (path.as_str(), i.kind))),
-        );
+        let arrivals: Vec<(&str, MediaKind)> =
+            todo.iter().zip(&probed).filter_map(|(path, info)| info.as_ref().ok().map(|i| (path.as_str(), i.kind))).collect();
+        let stems = crate::sidecar::ImportStems::for_import(&self.stem_library, arrivals.iter().copied());
+        // the ids they draw when the import commits are above every catalogued one
+        self.stem_library.extend(arrivals.into_iter().map(|(path, kind)| (path.to_string(), kind, u64::MAX)));
         // Copies (copy, sync, verify; optional DNG conversion) run on a bounded group of threads
         // while this loop goes on in file order; everything that decides names, folders, sequence
         // numbers and duplicates stays here, in order.

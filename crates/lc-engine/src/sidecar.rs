@@ -880,9 +880,8 @@ impl ImportStems {
     }
 
     /// Work out [`ImportStems`] for the files `incoming`, in the order they arrive, against the
-    /// `library` ([`ImportStems::library_files`]; empty for a job already prepared once, which
-    /// ranks its arrivals among themselves). Only the stems the arriving files map to are looked
-    /// at in the library.
+    /// `library` ([`ImportStems::library_files`], with the files earlier batches of the import
+    /// added). Only the stems the arriving files map to are looked at in the library.
     pub(crate) fn for_import<'a>(library: &[(String, MediaKind, u64)], incoming: impl Iterator<Item = (&'a str, MediaKind)>) -> ImportStems {
         // per stem: the best of the library's files, and the best arriving file with its path
         let mut best: HashMap<String, (Option<Rank>, Option<(Rank, &'a str)>)> = HashMap::new();
@@ -1511,8 +1510,8 @@ mod tests {
                 }
             }
         }
-        // a job prepared once already has no library to rank against: its arrivals are ranked
-        // among themselves, as they would be in a library of just them
+        // with an empty library the arrivals are ranked among themselves, as they would be in a
+        // library of just them
         let all: Vec<usize> = (0..incoming.len()).collect();
         let alone = ImportStems::for_import(&[], as_arriving(&all).into_iter());
         let only_arrivals = arriving_in(&Catalog::new(), &all);
