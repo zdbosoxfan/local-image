@@ -662,6 +662,7 @@ pub fn commit_crop(app: &mut PhotocraftApp) {
     {
         app.ui.views[i].fit_pending = true;
         app.ui.tool_options.crop_angle = 0.0;
+        crate::crop_ui::hide_frame(app);
     }
 }
 

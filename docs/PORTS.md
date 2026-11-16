@@ -1219,6 +1219,15 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
+| [`be7d68167357`](https://github.com/storytold/photocraft/commit/be7d68167357624421baf3add3153914ba23510d) | Free Transform: lift a pixel's coverage up to all of it, as Move does | `crates/pc-engine/src/transform_cmds.rs` | MIT OR Apache-2.0 |
+| [`dce32b66d87a`](https://github.com/storytold/photocraft/commit/dce32b66d87a7bda667c502e55802bd9877eb710) | engine: Free Transform takes soft edges whole after a move (#10461) | `crates/pc-engine/src/transform_cmds.rs` | MIT OR Apache-2.0 |
+| [`baf8e654e886`](https://github.com/storytold/photocraft/commit/baf8e654e8860862d44c8471a52077d0f84317aa) | Keep a layer's place on its board when dragged to another artboard (#10489) | `crates/pc-engine/src/commands.rs`<br>`crates/pc-engine/src/artboard_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`b800c40cfdf1`](https://github.com/storytold/photocraft/commit/b800c40cfdf115ac831f2f4db5c291fa12e2e4e2) | Don't auto-select off-canvas layers from the pasteboard (#10665) | `crates/pc-engine/src/pick_cmds.rs` | MIT OR Apache-2.0 |
+| [`c2acddae8c7b`](https://github.com/storytold/photocraft/commit/c2acddae8c7b72c4fa8eef5bd37d665521eee948) | Transform: Distort side handles move their edge, Perspective's skew (#10085) | `crates/pc-ui-egui/src/transform_tool.rs` | MIT OR Apache-2.0 |
+| [`0125925ee397`](https://github.com/storytold/photocraft/commit/0125925ee39723c6d61a54e67db961161982623e) | Crop: no frame around the cropped image until the next press | `crates/pc-ui-egui/src/crop_ui.rs`<br>`crates/pc-ui-egui/src/canvas/tools.rs` | MIT OR Apache-2.0 |
+| [`bed677b3aa9a`](https://github.com/storytold/photocraft/commit/bed677b3aa9a81c3608c0b16a5ce1422e0bd0ead) | fix(ui): make the Histogram panel follow the selection | `crates/pc-ui-egui/src/tone.rs`<br>`crates/pc-ui-egui/src/lib.rs` | MIT OR Apache-2.0 |
+| [`abb855881523`](https://github.com/storytold/photocraft/commit/abb8558815232b0acdee419809d3695e13904869) | Transform: Perspective side-handle slides stop before the box folds | `crates/pc-ui-egui/src/transform_tool.rs` | MIT OR Apache-2.0 |
+| [`9891eaeb2efc`](https://github.com/storytold/photocraft/commit/9891eaeb2efcae43002d7829438ba092c0c15711) | Crop: History jumps wait for a pending crop (#9285) | `crates/pc-ui-egui/src/crop_ui.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-ui-egui/src/panels/docks.rs` | MIT OR Apache-2.0 |
 | [`f373ec181c48`](https://github.com/storytold/photocraft/commit/f373ec181c482b2a88b2f375fd4b20bda8194f3c) | fix(format,engine): limit zstd windows, set bundle modes via the handle, refuse symlinked presets (#11145) | `crates/pc-format/src/store.rs`<br>`crates/li-fs/src/lib.rs`<br>`crates/li-fs/src/tests.rs`<br>`crates/pc-engine/src/preset_store.rs`<br>`crates/pc-engine/src/preset_store/tests.rs` | MIT OR Apache-2.0 |
 | [`87da091f220e`](https://github.com/storytold/photocraft/commit/87da091f220e089fe096f67c6cb69e9d9878e637) | fix(format): reject duplicate native layer identities | `crates/pc-format/src/convert.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
 | [`6e2e02fa2663`](https://github.com/storytold/photocraft/commit/6e2e02fa2663ebd062ad1409f39e04d60655d1d7) | Read layer-record blend keys in PSD layer effects | `crates/pc-io/src/effects_map.rs` | MIT OR Apache-2.0 |
@@ -1324,6 +1333,16 @@ print-layout and script-check hunks are not ported.
 Local deviation: `e9510956` and `0a2935cf` refuse a sweep whose tolerance passes one unit; here
 only the coordinate rounding term is capped, so a drawing more than about 1e8 units across still
 sweeps with a tolerance wider than one unit.
+
+Transform and Crop partial ports: `be7d6816`/`dce32b66` change Free Transform's split only; upstream's
+matching Move change (`cut_piece`, #7655) is not ported, so Move still lifts `a * k` where Free
+Transform now lifts `min(a, k)`. `c2acddae` brings the Perspective side-handle slide; its Distort
+side-handle half (it would change `distort_mode_moves_one_corner_and_ignores_rotate_and_edges`) and
+its handle-cursor hunk are not ported. `b800c40c`'s layer-marquee half has no counterpart here.
+`bed677b3` counts the Pixels statistic on the UI thread, not on a histogram worker. `abb85588` does
+not carry the pivot. `9891eaeb` holds History restore and delete only; its selectState, Step
+Forward/Backward and menu greying have no counterpart. `ea8ba0b3` (re-showing the frame) was
+reviewed and nothing from it applies: its press change, `show_frame`, is not here.
 
 ## RAW, HEIF and metadata hardening (2026-11-15)
 

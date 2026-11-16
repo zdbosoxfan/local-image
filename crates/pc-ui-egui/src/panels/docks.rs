@@ -405,8 +405,9 @@ pub(super) fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.ui.status_error = true;
     }
     // An open Free Transform owns Undo (transform_tool::intercept): stepping the document's history under
-    // its box would leave it transforming pixels that changed.
-    if let Some(delta) = target.filter(|_| app.ui.transform.is_none()) {
+    // its box would leave it transforming pixels that changed. A drawn crop frame holds the jumps
+    // back for the same reason (crop_ui::holds_history).
+    if let Some(delta) = target.filter(|_| app.ui.transform.is_none() && !crate::crop_ui::pending(app)) {
         let (cmd, n) = if delta < 0 { ("edit.undo", -delta) } else { ("edit.redo", delta) };
         for _ in 0..n {
             if app.run(cmd, json!({})).is_err() {
