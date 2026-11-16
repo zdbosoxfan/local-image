@@ -982,6 +982,18 @@ fn recovered_documents_adopt_their_entries_until_saved_or_closed() {
 }
 
 #[test]
+fn recovered_documents_are_announced_as_a_notice() {
+    use photocraft_doc::{Color, ColorMode, Document, SampleType, Size};
+    let doc = || Document::with_background("R", Size::new(4, 4), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+    let services = crate::Services {
+        recover: Some(Box::new(move || ["a", "b"].map(|key| crate::Recovered { key: key.into(), path: None, doc: doc() }).into())),
+        ..Default::default()
+    };
+    let app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+    assert!(app.ui.notices.iter().any(|n| n.title == "Recovered 2 documents"), "{:?}", app.ui.notices);
+}
+
+#[test]
 fn edit_dialogs_open() {
     let (mut app, _) = app_with_store();
     let ctx = egui::Context::default();

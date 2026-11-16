@@ -84,6 +84,8 @@ pub fn load(app: &mut PhotocraftApp) {
         if n > 0 {
             app.sync_views();
             app.ui.status = format!("Recovered {n} document{}", if n == 1 { "" } else { "s" });
+            // The combined app starts in Library, where only notices are drawn.
+            crate::notices::post(app, app.ui.status.clone(), vec![], false, None);
         }
     }
 }

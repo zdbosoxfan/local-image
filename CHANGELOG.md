@@ -39,6 +39,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Crash recovery keeps autosaving Compositing documents while Library or Develop is shown, instead of pausing until Compositing is back.
 - Export's After Export "Open in Other Application" with no application given opens the exported files in the system's default application, as its hint says, instead of opening every file in Compositing.
 - A raw the Library has, opened in Compositing with File › Open, Open Recent, a drop, the filmstrip or the command line, opens as a Develop layer with its Develop edits instead of at camera defaults, and its saves join the Library.
+- Documents recovered after a crash are announced as a notice, so the count shows in the Library and Develop as well as in the Compositing status bar.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.
