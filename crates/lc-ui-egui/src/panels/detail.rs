@@ -899,7 +899,7 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
     }
     let edit = app.ui.right == RightPanel::Edit;
     if edit
-        && app.ui.sharpen_mask_preview
+        && app.ui.alt_preview
         && app.ui.dragging_control.as_deref() == Some("detail.sharpenMasking")
         && d.section_enabled("detail")
         && d.detail.sharpen_amount > 0.0

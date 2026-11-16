@@ -827,7 +827,7 @@ impl LightcraftApp {
             // Selection, Undo or Cancel may finish the interaction through a command while
             // the pointer is still held. Do not carry that gesture into another photo.
             self.ui.dragging_control = None;
-            self.ui.sharpen_mask_preview = false;
+            self.ui.alt_preview = false;
             ctx.stop_dragging();
         }
         self.apply_settings(ctx);
@@ -989,7 +989,7 @@ impl LightcraftApp {
         if self.ui.dragging_control.is_some() && ctx.input(|i| !i.pointer.primary_down() || !i.focused) {
             let _ = self.run("develop.endInteraction", serde_json::json!({}));
             self.ui.dragging_control = None;
-            self.ui.sharpen_mask_preview = false;
+            self.ui.alt_preview = false;
             ctx.request_repaint();
         }
     }

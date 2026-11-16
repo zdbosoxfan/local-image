@@ -104,8 +104,8 @@ pub(crate) fn control_t(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
     });
     if id == "detail.sharpenMasking" && matches!(target, Target::Global) {
         let preview = app.ui.dragging_control.as_deref() == Some(id) && ui.input(|i| i.modifiers.alt);
-        if app.ui.sharpen_mask_preview != preview {
-            app.ui.sharpen_mask_preview = preview;
+        if app.ui.alt_preview != preview {
+            app.ui.alt_preview = preview;
             ui.ctx().request_repaint();
         }
     }

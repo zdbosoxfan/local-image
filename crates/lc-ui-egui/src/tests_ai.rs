@@ -264,7 +264,7 @@ fn masking_alt_preview_ends_with_the_drag() {
     d.detail.sharpen_amount = 80.0;
     app.ui.right = crate::state::RightPanel::Edit;
     app.ui.dragging_control = Some("detail.sharpenMasking".into());
-    app.ui.sharpen_mask_preview = true;
+    app.ui.alt_preview = true;
     assert_eq!(crate::panels::detail::view_overlay(&app, &d), Overlay::SharpenMask);
     app.ui.dragging_control = None;
     assert_eq!(crate::panels::detail::view_overlay(&app, &d), Overlay::None);
