@@ -3933,3 +3933,5 @@ ai	New	Nuovi
 	GPU Memory (MB, 0 = Automatic)	Memoria GPU (MB, 0 = Automatico)
 	{path} was saved over	{path} è stato sovrascritto
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	«{doc}» non è più associato a un file ed è contrassegnato come non salvato: salvalo con un nuovo nome per conservarlo.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Unito

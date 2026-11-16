@@ -14,6 +14,9 @@ All notable changes to Local Image are recorded here. The format follows
 - Layer > Smart Objects > Reset Transform puts a smart object back at 100 % of its contents' own
   size with rotation, skew, Distort and Perspective cleared, centred where it sits, in one undo
   step. Its Warp and smart filters stay, and it re-renders from its contents without losing detail.
+- The Match Color dialog has a Source Layer menu: match to one layer of the Source document instead
+  of its merged image. Layers with the same name stay separate choices, and choosing another
+  Source document goes back to Merged.
 
 ### Changed
 

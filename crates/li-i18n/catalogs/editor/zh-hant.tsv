@@ -3915,3 +3915,5 @@ ai	New	最新
 	GPU Memory (MB, 0 = Automatic)	GPU 記憶體（MB，0 = 自動）
 	{path} was saved over	{path} 已被覆寫儲存
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	「{doc}」已不再關聯檔案，並標記為未儲存：請使用新名稱儲存以保留內容。
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	合併

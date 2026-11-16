@@ -4020,3 +4020,5 @@ ai	New	Новые
 	GPU Memory (MB, 0 = Automatic)	Память GPU (МБ, 0 = автоматически)
 	{path} was saved over	Файл {path} перезаписан
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	Документ «{doc}» больше не связан с файлом и помечен как несохранённый: сохраните его под новым именем, чтобы не потерять содержимое.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Сведённое

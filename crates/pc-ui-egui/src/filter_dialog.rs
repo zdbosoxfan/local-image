@@ -331,6 +331,16 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
         let names: Vec<String> = app.session.documents().iter().map(|d| d.doc.name.clone()).collect();
         fields.insert("__docs".into(), json!(names));
     }
+    if command == "image.adjustments.matchColor" {
+        // Layer IDs belong to the selected source document; names need not be unique.
+        let layers: Vec<Vec<_>> = app
+            .session
+            .documents()
+            .iter()
+            .map(|d| d.doc.walk().into_iter().rev().map(|(_, _, layer)| json!({"id": layer.id, "name": layer.name})).collect())
+            .collect();
+        fields.insert("__sourceLayers".into(), json!(layers));
+    }
     let id = if command == "edit.colorSettings" {
         app.ui.open_dialog(crate::state::DialogKind::Command, fields)
     } else {
@@ -419,6 +429,29 @@ fn choice_label(v: &str) -> String {
 
 fn uses_logarithmic_slider(min: f32, max: f32) -> bool {
     min > 0.0 && max / min > 500.0
+}
+
+/// Match Color samples a layer from its Source document, or the merged image by default.
+fn match_color_layer(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
+    let source = f.get("source").and_then(Value::as_u64).and_then(|i| usize::try_from(i).ok());
+    let layers = source.and_then(|i| f.get("__sourceLayers")?.as_array()?.get(i)?.as_array());
+    let enabled = layers.is_some();
+    let layers: Vec<(u64, String)> =
+        layers.into_iter().flatten().filter_map(|layer| Some((layer.get("id")?.as_u64()?, layer.get("name")?.as_str()?.to_owned()))).collect();
+    let mut selected = f.get("sourceLayer").and_then(Value::as_u64).filter(|id| layers.iter().any(|(layer, _)| layer == id));
+    let mut choices = vec![(None, tl!("Merged"))];
+    choices.extend(layers.iter().map(|(id, name)| (Some(*id), name.as_str())));
+    ui.add_enabled_ui(enabled, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(tl!("Source Layer")).color(Tokens::get(ui.ctx()).text_dim));
+            crate::widgets::dropdown(ui, "match-color-source-layer", &mut selected, &choices, 170.0);
+        });
+    });
+    if let Some(id) = selected {
+        f.insert("sourceLayer".into(), json!(id));
+    } else {
+        f.remove("sourceLayer");
+    }
 }
 
 /// Dialog body for filter commands.
@@ -510,10 +543,11 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
                     crate::widgets::dropdown(ui, &format!("flt-{cmd}-{}", p.key), &mut sel, &opts, 170.0);
                 });
-                match sel.parse::<i64>() {
-                    Ok(i) if i >= 0 => f.insert(p.key, json!(i)),
-                    _ => f.insert(p.key, json!(-1)),
-                };
+                let selected = sel.parse::<i64>().ok().filter(|i| *i >= 0).unwrap_or(-1);
+                if cmd == "image.adjustments.matchColor" && p.key == "source" && selected != cur {
+                    f.remove("sourceLayer");
+                }
+                f.insert(p.key, json!(selected));
             }
             Kind::Grid(n) => {
                 let side = (n as f32).sqrt().round().max(1.0) as usize;
@@ -531,6 +565,7 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 });
                 f.insert(p.key, json!(vals.iter().map(|v| v.round() as i64).collect::<Vec<_>>()));
             }
+            Kind::Json if cmd == "image.adjustments.matchColor" && p.key == "sourceLayer" => match_color_layer(ui, f),
             Kind::Json => {}
             Kind::Int { default } => {
                 let mut v = f.get(&p.key).and_then(Value::as_f64).unwrap_or(default as f64) as f32;
@@ -662,6 +697,147 @@ mod tests {
         let preview = preview_document_with_sources(&doc, Some(layer), "image.adjustments.matchColor", &json!({"source": 0}), 2, &documents).unwrap();
         let pixel = preview.layers[0].surface().unwrap().pixel(12, 8);
         assert!(pixel[2] > pixel[0], "proxy should take the reference's blue: {pixel:?}");
+    }
+
+    /// Layer is a visible choice tied to Source, never a remembered or name-based reference.
+    #[test]
+    fn match_color_source_layer_picker_keeps_references_with_the_source() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::{By, Queryable};
+        use photocraft_doc::{Color, ColorMode, Layer, SampleType, Size};
+        // Our dropdowns carry no label of their own: each is found by the choice it shows.
+        fn combo(shown: &str) -> By<'_> {
+            By::new().role(egui::accesskit::Role::ComboBox).value(shown)
+        }
+
+        let mut source = Document::with_background("reference", Size::new(16, 16), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+        source.layers[0].name = "Sample".into();
+        let bottom = source.layers[0].id;
+        source.layers.push(Layer::raster("Sample", source.pixel_format()));
+        let top = source.layers[1].id;
+        // A different document can contain copied layer IDs. Changing Source must still reset Layer.
+        let mut other = Document::with_background("other reference", source.size, source.mode, source.depth, Color::WHITE);
+        other.layers = source.layers.clone();
+        let mut session = photocraft_engine::Session::new();
+        session.add_document(source, None);
+        session.add_document(other, None);
+        session.execute("file.new", json!({"width": 16, "height": 16})).unwrap();
+        let mut app = PhotocraftApp::new(session, Default::default());
+        let id = open(&mut app, "image.adjustments.matchColor").unwrap();
+        let fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+        let mut h = Harness::builder().with_size(egui::vec2(700.0, 700.0)).build_ui_state(body, fields);
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(2);
+        h.get(combo("Merged"));
+        assert!(!h.state().contains_key("sourceLayer"), "None starts with no layer reference");
+        h.get(combo("None")).click();
+        h.run_steps(2);
+        h.get_by_label("reference").click();
+        h.run_steps(2);
+        h.get(combo("Merged")).click();
+        h.run_steps(2);
+        assert_eq!(h.get_all_by_label("Sample").count(), 2, "duplicate names remain distinct choices");
+        h.get_all_by_label("Sample").nth(1).unwrap().click();
+        h.run_steps(2);
+        assert_eq!(h.state()["sourceLayer"], json!(bottom), "the bottom layer is identified by ID");
+        h.get(combo("reference")).click();
+        h.run_steps(2);
+        h.get_by_label("other reference").click();
+        h.run_steps(2);
+        assert!(!h.state().contains_key("sourceLayer"), "new source returns to Merged even with copied IDs");
+        h.get(combo("Merged")).click();
+        h.run_steps(2);
+        h.get_all_by_label("Sample").next().unwrap().click();
+        h.run_steps(2);
+        assert_eq!(h.state()["sourceLayer"], json!(top));
+        // Merged explicitly removes the layer parameter rather than serializing a layer name.
+        h.get(combo("Sample")).click();
+        h.run_steps(2);
+        h.get_by_label("Merged").click();
+        h.run_steps(2);
+        assert!(!h.state().contains_key("sourceLayer"));
+        h.state_mut().insert("sourceLayer".into(), json!(u64::MAX));
+        h.run_steps(2);
+        assert!(!h.state().contains_key("sourceLayer"), "stale IDs fall back to Merged");
+        h.get(combo("other reference")).click();
+        h.run_steps(2);
+        h.get_by_label("None").click();
+        h.run_steps(2);
+        assert_eq!(h.state()["source"], json!(-1));
+        assert!(!h.state().contains_key("sourceLayer"));
+        let mut fields = h.state().clone();
+        fields.insert("sourceLayer".into(), json!(bottom));
+        if let Some(remembered) = snapshot(&fields) {
+            remembered.publish(&mut app);
+        }
+        let reopened = open(&mut app, "image.adjustments.matchColor").unwrap();
+        let fields = &app.ui.dialog_mut(reopened).unwrap().fields;
+        assert_eq!(fields["source"], json!(-1));
+        assert!(!fields.contains_key("sourceLayer"), "source references are never remembered");
+    }
+
+    /// Selected-layer and merged sources must agree between proxy preview and OK at every depth,
+    /// without editing the reference document; Cancel, Undo and invalid IDs preserve the target.
+    #[test]
+    fn match_color_source_layer_preview_and_ok_edit_only_the_target() {
+        use photocraft_doc::{Color, ColorMode, Layer, SampleType, Size};
+        use photocraft_geom::Rect;
+        let command = "image.adjustments.matchColor";
+        for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let area = Rect::new(0, 0, 32, 32);
+            let mut source = Document::with_background("reference", Size::new(32, 32), ColorMode::Rgb, depth, Color::WHITE);
+            source.layers[0].surface_mut().unwrap().fill_rect(area, &[0.1, 0.3, 0.9, 1.0]);
+            let source_layer = source.layers[0].id;
+            let mut cover = Layer::raster("cover", source.pixel_format());
+            cover.surface_mut().unwrap().fill_rect(area, &[0.9, 0.2, 0.1, 1.0]);
+            source.layers.push(cover);
+            let mut target = Document::with_background("texture", source.size, source.mode, depth, Color::WHITE);
+            target.layers[0].surface_mut().unwrap().fill_rect(area, &[0.8, 0.6, 0.3, 1.0]);
+            target.layers[0].surface_mut().unwrap().fill_rect(Rect::new(0, 0, 16, 32), &[0.4, 0.3, 0.15, 1.0]);
+            let mut session = photocraft_engine::Session::new();
+            session.add_document(source, None);
+            session.add_document(target.clone(), None);
+            let mut app = PhotocraftApp::new(session, Default::default());
+            let documents: Vec<_> = app.session.documents().iter().map(|d| d.doc.clone()).collect();
+            let reference = documents[0].clone();
+            let target_id = app.session.active().unwrap().doc.id;
+            let original = target.layers[0].surface().unwrap().read_region(area);
+            for (layer, blue) in [(Some(source_layer), true), (None, false)] {
+                let id = open(&mut app, command).unwrap();
+                let fields = &mut app.ui.dialog_mut(id).unwrap().fields;
+                fields.insert("source".into(), json!(0));
+                if let Some(layer) = layer {
+                    fields.insert("sourceLayer".into(), json!(layer));
+                }
+                let params = params_of(fields);
+                let preview = preview_document_with_sources(&target, Some(target.layers[0].id), command, &params, 2, &documents).unwrap();
+                let shown = preview.layers[0].surface().unwrap().pixel(12, 8);
+                assert_eq!(shown[2] > shown[0], blue, "{depth:?}: selected layer and merged have different colours: {shown:?}");
+                assert_eq!(app.session.active().unwrap().history.past_len(), 0, "preview is non-destructive");
+                crate::dialogs::cancel(&mut app, id).unwrap();
+                assert_eq!(app.session.active().unwrap().doc.layers[0].surface().unwrap().read_region(area), original);
+                let id = open(&mut app, command).unwrap();
+                app.ui.dialog_mut(id).unwrap().fields.extend(params.as_object().unwrap().clone());
+                crate::dialogs::confirm(&mut app, id).unwrap();
+                let st = app.session.active().unwrap();
+                let got = st.doc.layers[0].surface().unwrap().pixel(24, 16);
+                assert!((0..4).all(|c| (shown[c] - got[c]).abs() < 1.0 / 255.0 + 1e-4), "{depth:?}: preview {shown:?}, OK {got:?}");
+                assert_eq!(st.doc.id, target_id, "source selection must not switch the active target");
+                assert_eq!(st.history.past_len(), 1);
+                assert_eq!(app.session.documents()[0].doc.layers[0].surface().unwrap().read_region(area), reference.layers[0].surface().unwrap().read_region(area));
+                app.run("edit.undo", json!({})).unwrap();
+                assert_eq!(app.session.active().unwrap().doc.layers[0].surface().unwrap().read_region(area), original);
+            }
+            assert!(app.run(command, json!({"source": 0, "sourceLayer": u64::MAX})).is_err());
+            assert_eq!(app.session.active().unwrap().doc.layers[0].surface().unwrap().read_region(area), original);
+            assert_eq!(app.session.active().unwrap().history.past_len(), 0, "invalid layer does not add history");
+            assert_eq!(app.session.documents()[0].doc, reference, "neither source layer was edited");
+            // None with unchanged controls remains a no-op, and does not need a source layer.
+            let id = open(&mut app, command).unwrap();
+            crate::dialogs::confirm(&mut app, id).unwrap();
+            let got = app.session.active().unwrap().doc.layers[0].surface().unwrap().read_region(area);
+            assert!(got.iter().zip(&original).all(|(a, b)| (a - b).abs() < 2e-6), "None preserves colour within floating-point conversion precision");
+        }
     }
 
     #[test]
