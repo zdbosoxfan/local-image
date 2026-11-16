@@ -76,6 +76,9 @@ pub struct Host {
     /// The Library's active photo when Compositing was last left: coming back with the same photo
     /// returns to what was open there instead of bringing the photo forward again.
     left_compositing_with: Option<u64>,
+    /// Library develop settings last taken into, or turned down for, each photo's open documents:
+    /// an undone update is not put back, and a turned-down one is not offered again.
+    develop_sent: std::collections::HashMap<u64, DevelopSent>,
     library_seen: Option<(String, u64)>,
     save_sources_seen: Option<SaveSourcesKey>,
     /// The Camera Raw Filter session open in Develop.
@@ -87,6 +90,12 @@ pub struct Host {
     filmstrip_previews: FilmstripPreviews,
     /// One non-blocking round-trip notice, also visible while its preview is rendering.
     round_trip_notice: Option<RoundTripNotice>,
+}
+
+enum DevelopSent {
+    Applied(serde_json::Value),
+    /// Documents with retouching keep their Develop layer until Develop is entered from them.
+    Declined(serde_json::Value),
 }
 
 #[derive(Clone)]
@@ -196,6 +205,7 @@ impl Host {
             preserve_library_vectorize_return: false,
             frames: 0,
             left_compositing_with: None,
+            develop_sent: Default::default(),
             library_seen: None,
             save_sources_seen: None,
             camera_raw: None,
@@ -521,6 +531,7 @@ impl Host {
         }
         if self.library_seen.is_some() {
             self.left_compositing_with = None;
+            self.develop_sent.clear();
             self.round_trip_notice = None;
             self.composites.pending.clear();
             self.composites.failed.clear();
@@ -879,9 +890,12 @@ impl Host {
         true
     }
 
-    /// Re-renders Develop layers whose photo's develop settings changed in Develop.
-    fn sync_develop_layers(&mut self) {
+    /// Re-renders Develop layers whose photo's develop settings changed in the Library. Documents
+    /// with retouching take them only from a Develop session entered from them; otherwise they
+    /// keep their layer and a notice says so.
+    fn sync_develop_layers(&mut self, from: Module) {
         let ids = photocraft_ui_egui::develop_layer::linked_photos(&self.editor);
+        self.develop_sent.retain(|id, _| ids.contains(id));
         if ids.is_empty() {
             return;
         }
@@ -891,9 +905,33 @@ impl Host {
             .filter_map(|id| lib.session.develop_of(lightcraft_catalog::PhotoId(id)).and_then(|d| serde_json::to_value(&*d).ok()).map(|v| (id, v)))
             .collect();
         for (id, settings) in updates {
-            if let Some((identity, path)) = self.library.as_ref().and_then(|lib| source_binding(&lib.session, id)) {
-                photocraft_ui_egui::develop_layer::sync_in(&mut self.editor, &identity, id, &path, &settings);
+            let Some((identity, path)) = self.library.as_ref().and_then(|lib| source_binding(&lib.session, id)) else { continue };
+            let follows = from == Module::Develop && self.left_compositing_with == Some(id);
+            match self.develop_sent.get(&id) {
+                Some(DevelopSent::Applied(sent)) if *sent == settings => continue,
+                Some(DevelopSent::Declined(sent)) if *sent == settings && !follows => continue,
+                _ => {}
             }
+            let retouched: Vec<String> = documents_behind(&self.editor, &identity, id, &settings)
+                .into_iter()
+                .filter(|doc| !photocraft_engine::develop_layer_cmds::is_untouched(doc))
+                .map(|doc| doc.name.clone())
+                .collect();
+            if follows || retouched.is_empty() {
+                photocraft_ui_egui::develop_layer::sync_in(&mut self.editor, &identity, id, &path, &settings);
+                self.develop_sent.insert(id, DevelopSent::Applied(settings));
+                continue;
+            }
+            for name in retouched {
+                photocraft_ui_egui::notices::post(
+                    &mut self.editor,
+                    li_i18n::fmt(li_i18n::t("The Library's edit of {name} is newer"), &[("name", name.as_str())]),
+                    vec![li_i18n::t("Its layers are unchanged. To use the newer edit, open Develop from this document (double-click its Develop layer), then come back.").into()],
+                    false,
+                    None,
+                );
+            }
+            self.develop_sent.insert(id, DevelopSent::Declined(settings));
         }
     }
 
@@ -1070,7 +1108,7 @@ impl Host {
                 }
             }
             Module::Compositing => {
-                self.sync_develop_layers();
+                self.sync_develop_layers(from);
                 let photo = self.active_photo();
                 let changed = photo.as_ref().map(|p| p.0) != self.left_compositing_with || self.editor.session.documents().is_empty();
                 if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop) {

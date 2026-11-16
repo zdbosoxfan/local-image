@@ -993,6 +993,50 @@ fn new_develop_edits_come_back_as_a_new_layer() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Undoing the new Develop layer lasts: the next trip to the Library and back does not add it again.
+#[test]
+fn undone_develop_edits_stay_undone_after_a_module_switch() {
+    let (dir, path, lib, orig) = library_with_photo("develop-undo");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    host.switch(&ctx, Module::Library);
+    host.switch(&ctx, Module::Develop);
+    host.library().run("develop.set", json!({ "control": "light.exposure", "value": 1.0 })).unwrap();
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 3);
+    assert!(host.editor.session.undo());
+    assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 2);
+    host.switch(&ctx, Module::Library);
+    host.switch(&ctx, Module::Compositing);
+    let layers = &host.editor.session.active().unwrap().doc.layers;
+    assert_eq!(layers.len(), 2, "{:?}", layers.iter().map(|l| &l.name).collect::<Vec<_>>());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A Library edit (Sync, Paste, a preset) made outside a Develop session entered from a retouched
+/// document leaves that document as it is and says so once; Develop entered from it brings the edit in.
+#[test]
+fn library_edits_wait_for_develop_from_a_retouched_document() {
+    let (dir, path, lib, orig) = library_with_photo("develop-library-edit");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    host.switch(&ctx, Module::Library);
+    host.library().run("develop.set", json!({ "control": "light.exposure", "value": 1.0, "ids": [orig.0] })).unwrap();
+    let notices = host.editor.ui.notices.len();
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.session.active().unwrap().doc.layers.len(), 2, "retouched document keeps its layers");
+    assert_eq!(host.editor.ui.notices.len(), notices + 1, "one notice about the newer Library edit");
+    host.switch(&ctx, Module::Library);
+    host.switch(&ctx, Module::Compositing);
+    assert_eq!(host.editor.ui.notices.len(), notices + 1, "the same edit is not announced again");
+    host.switch(&ctx, Module::Develop);
+    host.switch(&ctx, Module::Compositing);
+    let layers = &host.editor.session.active().unwrap().doc.layers;
+    assert_eq!(layers.len(), 3, "{:?}", layers.iter().map(|l| &l.name).collect::<Vec<_>>());
+    assert_eq!(layers[2].name, "Develop 2");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Drive the real host logic and UI without a window, mirroring Library's headless harness.
 struct RoundTripUi {
     host: Host,
