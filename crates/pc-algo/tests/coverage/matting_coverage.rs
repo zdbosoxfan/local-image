@@ -9,8 +9,8 @@ use photocraft_raster::Surface;
 #[test]
 fn refine_params_halo_and_spread_reflect_parameters() {
     let p = RefineParams { radius: 10.0, smart_radius: true, smooth: 50.0, feather: 6.0, contrast: 10.0, shift_edge: 20.0 };
-    assert_eq!(p.halo(), 50);
-    assert_eq!(p.spread(), 28);
+    assert_eq!(p.halo(), 48);
+    assert_eq!(p.spread(), 26);
 }
 
 #[test]

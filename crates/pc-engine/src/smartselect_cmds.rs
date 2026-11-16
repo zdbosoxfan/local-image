@@ -659,8 +659,15 @@ mod tests {
     #[test]
     fn refine_edge_shift_and_contrast() {
         let mut s = blurred_edge_selected();
-        s.execute("select.refineEdge", json!({"shiftEdge": 100})).unwrap();
-        assert!(cov(&s, 42, 20) > 0.99);
+        // Shift Edge leaves a hard selection where it is (selected x < 40), at either end.
+        for shift in [100, -100] {
+            s.execute("select.refineEdge", json!({"shiftEdge": shift})).unwrap();
+            assert!(cov(&s, 39, 20) > 0.99 && cov(&s, 40, 20) < 0.01, "Shift Edge {shift}% moved a hard edge");
+            s.execute("edit.undo", json!({})).unwrap();
+        }
+        // A feathered one moves: -100% pulls its half-covered point inside the old edge.
+        s.execute("select.refineEdge", json!({"feather": 4, "shiftEdge": -100})).unwrap();
+        assert!(cov(&s, 37, 20) < 0.5 && cov(&s, 30, 20) > 0.99);
         s.execute("edit.undo", json!({})).unwrap();
         s.execute("select.refineEdge", json!({"feather": 8, "contrast": 100})).unwrap();
         assert!(cov(&s, 38, 20) == 1.0 && cov(&s, 42, 20) == 0.0);

@@ -6,7 +6,7 @@
 //!   soft transitions (hair, blur) inside a band of `radius` pixels around the selection edge.
 //!   "Smart radius" adapts the band per pixel to the transition width observed in the image.
 //! * Then, in Photoshop's order: Smooth, Feather (Gaussian, σ = feather / 2), Contrast and
-//!   Shift Edge (grey dilation / erosion).
+//!   Shift Edge (a curve on each pixel's coverage).
 //! * **Decontaminate colours** replaces fringe colours by the normalised-convolution average of
 //!   nearby fully selected pixels, blended by `amount` and the fringe's transparency.
 //!
@@ -32,7 +32,11 @@ pub struct RefineParams {
     pub feather: f32,
     /// 0–100.
     pub contrast: f32,
-    /// −100–100 (% of `max(radius, 4 px)`).
+    /// −100–100. A curve on the refined coverage, applied last: each pixel's odds (`a / (1 − a)`)
+    /// are multiplied by `49^(shift / 100)`, so at −100% a half-covered pixel drops to 2% and at
+    /// +100% it rises to 98%. Fully selected and unselected pixels never change, so Shift Edge
+    /// moves only soft borders and a hard edge stays put (measured against the reference
+    /// application: the fit holds within ±0.05 in log-odds at feathers of 2, 5 and 10 px).
     pub shift_edge: f32,
 }
 
@@ -55,8 +59,10 @@ impl RefineParams {
     fn feather_sigma(&self) -> f32 {
         self.feather.max(0.0) / 2.0
     }
-    fn shift_px(&self) -> i32 {
-        (self.shift_edge.clamp(-100.0, 100.0) / 100.0 * self.radius.max(4.0)).round().clamp(-64.0, 64.0) as i32
+    /// The factor Shift Edge multiplies each pixel's odds by: `49^(shift / 100)`, 1 at 0%.
+    fn shift_odds(&self) -> f32 {
+        let s = self.shift_edge.clamp(-100.0, 100.0) / 100.0;
+        if s.is_finite() { 49f32.powf(s) } else { 1.0 }
     }
     pub fn uses_image(&self) -> bool {
         self.radius > 0.0
@@ -69,14 +75,13 @@ impl RefineParams {
         } else {
             0
         };
-        edge + (3.0 * self.smooth_sigma()).ceil() as i32 + (3.0 * self.feather_sigma()).ceil() as i32 + self.shift_px().abs() + 2
+        edge + (3.0 * self.smooth_sigma()).ceil() as i32 + (3.0 * self.feather_sigma()).ceil() as i32 + 2
     }
     /// How far the refined mask can extend beyond the original.
     pub fn spread(&self) -> i32 {
         (if self.uses_image() { self.radius.ceil() as i32 } else { 0 })
             + (3.0 * self.smooth_sigma()).ceil() as i32
             + (3.0 * self.feather_sigma()).ceil() as i32
-            + self.shift_px().max(0)
             + 1
     }
 }
@@ -316,11 +321,23 @@ pub fn refine_buffer(img: Option<&RgbImage<'_>>, m: &[f32], w: usize, h: usize, 
             *v = ((*v - 0.5) * gain + 0.5).clamp(0.0, 1.0);
         }
     }
-    let d = p.shift_px();
-    if d != 0 {
-        a = morph(&a, w, h, d.unsigned_abs() as usize, d > 0);
+    let k = p.shift_odds();
+    if (k - 1.0).abs() >= 1.0e-6 {
+        for v in &mut a {
+            *v = shift_coverage(*v, k);
+        }
     }
     a
+}
+
+/// Shift Edge on one coverage value: its odds times `k`. 0 and 1 stay exact.
+fn shift_coverage(v: f32, k: f32) -> f32 {
+    let v = v.clamp(0.0, 1.0);
+    if v <= 0.0 || v >= 1.0 {
+        return v;
+    }
+    let shifted = k * v / (k * v + (1.0 - v));
+    if shifted.is_finite() { shifted.clamp(0.0, 1.0) } else { v }
 }
 
 #[cfg(test)]

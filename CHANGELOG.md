@@ -36,6 +36,9 @@ All notable changes to Local Image are recorded here. The format follows
   shape next to a clearly different colour or transparency gets a hard edge.
 - Select > Subject looks at the selected layer's pixels; it uses the whole image only when no pixel
   layer is selected or Sample All Layers is asked for.
+- Select and Mask's Shift Edge moves only soft borders, as in Photoshop: a hard selection edge
+  stays where it is, and a feathered edge is pulled in or pushed out along a fixed coverage curve
+  (at -100% a half-selected pixel drops to 2%, at +100% it rises to 98%).
 - Panorama merges refuse more than 256 frames before decoding them at full size.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
