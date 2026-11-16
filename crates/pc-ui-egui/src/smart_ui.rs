@@ -156,10 +156,11 @@ fn edit_filter(app: &mut PhotocraftApp, id: u64, layer: u64, index: usize, param
 pub fn confirm_command(fields: &serde_json::Map<String, Value>, command: String, params: Value) -> (String, Value) {
     match fields.get("__smartFilter") {
         Some(sf) => {
-            // An adjustment's dialog opens on all the recorded settings and may remove keys, so OK
-            // replaces them: merged, a removed one stays stored and can override the edit (a stale
-            // Channel Mixer `gray` is read over `red`).
-            let replace = command.starts_with("image.adjustments.");
+            // An adjustment editor (`__adjust`) opens on all the recorded settings and may remove
+            // keys, so OK replaces them: merged, a removed one stays stored and can override the
+            // edit (a stale Channel Mixer `gray` is read over `red`). The schema dialog shows only
+            // some keys (no `json` ones, such as a Color Lookup's `data`), so it keeps merging.
+            let replace = fields.contains_key("__adjust");
             ("layer.smartFilter.setParams".into(), json!({"layer": sf["layer"], "index": sf["index"], "params": params, "replace": replace}))
         }
         None => (command, params),
@@ -236,6 +237,20 @@ mod tests {
         let photocraft_doc::Adjustment::ChannelMixer { matrix, monochrome } = adjustment else { panic!("Channel Mixer params") };
         assert!(!monochrome);
         assert!(matrix[0].iter().zip([0.7, 0.3, 0.0, 0.0]).all(|(a, b)| (a - b).abs() < 1e-5), "the edited Red row renders: {:?}", matrix[0]);
+    }
+
+    /// A Color Lookup opens in the schema dialog, which holds no field for the loaded table
+    /// (`data`), so pressing OK without an edit must not replace the params and erase it.
+    #[test]
+    fn confirming_an_unedited_color_lookup_smart_filter_keeps_its_table() {
+        let cube = "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n";
+        let (mut app, id) = recorded_filter("image.adjustments.colorLookup", json!({"data": cube, "fileName": "x.cube"}));
+        let sm = smart_object(&app, id);
+        open_editor(&mut app, &egui::Context::default(), id, &sm, 0);
+        let dialog = app.ui.dialogs.last().expect("the Color Lookup dialog opened").id;
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        let params = smart_object(&app, id).smart_filters[0].params.clone();
+        assert_eq!(params.get("data").and_then(Value::as_str), Some(cube), "the loaded table is still stored: {params}");
     }
 
     /// An Image › Adjustments recorded on a smart object (Brightness/Contrast…) opens its own
