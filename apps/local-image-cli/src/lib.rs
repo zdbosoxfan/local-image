@@ -409,8 +409,8 @@ fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
     match (a.positional.as_slice(), a.get("--new")) {
         ([file], None) => {
             // Refused before the file is read or any command runs.
-            if let Some(out) = a.get("--out") {
-                refuse_overwriting_input(a, file, out)?;
+            if let Some(dest) = a.get("--out") {
+                refuse_overwriting_input(a, file, dest)?;
             }
             let o = h.open(Path::new(file)).map_err(|e| e.to_string())?;
             let ws: Vec<String> = serde_json::from_value(o["warnings"].clone()).unwrap_or_default();
