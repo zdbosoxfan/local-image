@@ -130,8 +130,8 @@ fn corners(r: [f64; 4]) -> [[f64; 2]; 4] {
     [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]
 }
 
-/// Start Free Transform on the active layer (or its selected pixels), or on the targeted unlinked
-/// layer mask, alpha channel or Quick Mask.
+/// Start Free Transform on the selected layers (or their selected pixels), or on the targeted
+/// unlinked layer mask, alpha channel or Quick Mask.
 pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String> {
     let target = crate::canvas::paint_target(app);
     let st = app.session.active().ok_or("no document")?;
@@ -140,12 +140,19 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     if let Some(surf) = lone {
         return begin_lone(app, ctx, doc, surf, target);
     }
-    let id = st.active_layer.ok_or("no active layer")?;
+    let active = st.active_layer.ok_or("no active layer")?;
+    // Several layers selected: one box moves them all, the Background left out (upstream #6501).
+    let targets = photocraft_engine::transform_cmds::selection_targets(st);
+    let ids = if targets.len() > 1 || doc.selection.is_some() { targets } else { photocraft_engine::layer_multi_cmds::move_targets(&doc, &targets) };
+    // One layer moving (the Background selected beside it stays put): the box is that layer's.
+    let id = match ids.as_slice() {
+        [only] => *only,
+        _ => active,
+    };
     let layer = doc.layer(id).ok_or("no layer")?;
     if matches!(layer.content, LayerContent::Adjustment(_)) && layer.mask.is_none() {
         return Err("Adjustment layers have nothing to transform".into());
     }
-    let ids = if doc.selection.is_none() { photocraft_engine::layer_multi_cmds::move_targets(&doc, &st.selected_layers()) } else { vec![id] };
     let b = ids
         .iter()
         .filter_map(|id| doc.layer(*id))
@@ -157,19 +164,39 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     crate::type_tool::commit(app);
     let rect = [b.x0 as f64, b.y0 as f64, b.x1 as f64, b.y1 as f64];
     let session = app.ui.alloc_id();
-    // Preview document: the moving pixels removed (layer hidden, or the selection lifted out).
+    // Preview document: the moving pixels removed (layers hidden, or the selection lifted out).
     let mut pd = (*doc).clone();
     let mut lifted = None;
-    if let Some(sel) = doc.selection.clone().filter(|_| !layer.is_group() && layer.surface().is_some()) {
-        if let Some(surf) = pd.layer_mut(id).and_then(|l| l.surface_mut()) {
-            let (l, rest) = photocraft_engine::transform_cmds::split_selected(surf, &sel);
-            *surf = rest;
-            lifted = Some(l);
+    // Several layers under a selection: each pixel layer's selected pixels; the rest move whole.
+    let mut parts = Vec::new();
+    match doc.selection.clone() {
+        Some(sel) if ids.len() > 1 => {
+            for &moving in &ids {
+                match pd.layer_mut(moving) {
+                    Some(l) if !photocraft_engine::transform_cmds::moves_whole(l) && l.surface().is_some() => {
+                        if let Some(surf) = l.surface_mut() {
+                            let (part, rest) = photocraft_engine::transform_cmds::split_selected(surf, &sel);
+                            *surf = rest;
+                            parts.push((moving, part));
+                        }
+                    }
+                    Some(l) => l.visible = false,
+                    None => {}
+                }
+            }
         }
-    } else {
-        for id in &ids {
-            if let Some(l) = pd.layer_mut(*id) {
-                l.visible = false;
+        Some(sel) if !layer.is_group() && layer.surface().is_some() => {
+            if let Some(surf) = pd.layer_mut(id).and_then(|l| l.surface_mut()) {
+                let (l, rest) = photocraft_engine::transform_cmds::split_selected(surf, &sel);
+                *surf = rest;
+                lifted = Some(l);
+            }
+        }
+        _ => {
+            for id in &ids {
+                if let Some(l) = pd.layer_mut(*id) {
+                    l.visible = false;
+                }
             }
         }
     }
@@ -177,7 +204,14 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     let max_side = ctx.input(|i| i.max_texture_side).max(app.gpu.as_ref().map_or(1, |g| g.max_texture_side()));
     let (image, uv) = if ids.len() > 1 {
         let mut solo = (*doc).clone();
-        let group = photocraft_doc::Layer::group("Transform selection", ids.iter().filter_map(|id| doc.layer(*id)).map(moving_preview_layer).collect());
+        let moving = ids.iter().filter_map(|id| doc.layer(*id)).map(|l| {
+            let mut shown = moving_preview_layer(l);
+            if let (Some((_, part)), Some(surf)) = (parts.iter().find(|(lifted_id, _)| *lifted_id == l.id), shown.surface_mut()) {
+                *surf = part.clone();
+            }
+            shown
+        });
+        let group = photocraft_doc::Layer::group("Transform selection", moving.collect());
         let group_id = group.id;
         solo.layers = vec![group];
         preview_image(&solo, group_id, None, b, max_side)
@@ -2421,6 +2455,30 @@ mod tests {
             assert_eq!(texel_alpha(&image, 2, 4), if linked { 0 } else { 255 });
             assert_eq!(texel_alpha(&image, 12, 4), 255);
         }
+    }
+
+    /// Upstream #6501: with a selection, the box over several layers lifts the selected pixels of
+    /// each pixel layer, not only the active one's.
+    #[test]
+    fn a_selection_lifts_pixels_from_every_selected_layer() {
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        let b = app.session.active().unwrap().active_layer.unwrap();
+        app.session
+            .edit("paint second", |doc, _| {
+                doc.layer_mut(b).unwrap().surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(32, 8, 40, 16), &[0., 1., 0., 1.]);
+                Ok(())
+            })
+            .unwrap();
+        app.run("layer.select", json!({"layer":a.0,"mode":"add"})).unwrap();
+        app.run("select.rect", json!({"x": 0, "y": 0, "width": 36, "height": 64})).unwrap();
+        begin(&mut app, &egui::Context::default()).unwrap();
+        let pv = app.transform_preview.as_ref().unwrap();
+        assert_eq!(pv.layers, vec![a.0, b.0]);
+        let under = |id: LayerId, x: i32| pv.doc.layer(id).unwrap().surface().unwrap().pixel(x, 10)[3];
+        assert_eq!((under(a, 10), under(b, 33)), (0.0, 0.0), "the selected pixels of both layers are lifted");
+        assert_eq!(under(b, 38), 1.0, "the unselected part stays");
     }
 
     /// A smart object clipped to the layer under it previewed as nothing while the box was open
