@@ -11,6 +11,9 @@ All notable changes to Local Image are recorded here. The format follows
 - Edit > Convert to Profile can dither 8-bit documents, so a change of profile that lands between
   whole 8-bit steps no longer bands smooth gradients. It is off by default and the same image
   always dithers the same way.
+- Layer > Smart Objects > Reset Transform puts a smart object back at 100 % of its contents' own
+  size with rotation, skew, Distort and Perspective cleared, centred where it sits, in one undo
+  step. Its Warp and smart filters stay, and it re-renders from its contents without losing detail.
 
 ### Security
 
