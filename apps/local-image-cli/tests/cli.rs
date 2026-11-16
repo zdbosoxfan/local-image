@@ -422,10 +422,11 @@ fn run_refuses_to_write_over_its_input() {
         bin().current_dir(&d).args(["run", "in.png", "--cmd", "image.adjustments.invert", "--out"]).arg(out).args(extra).output().unwrap()
     };
     let mut outs = vec![PathBuf::from("in.png"), PathBuf::from("./in.png"), d.join("in.png"), d.join(".").join("in.png")];
-    std::fs::hard_link(d.join("in.png"), d.join("hard.png")).unwrap();
-    outs.push(PathBuf::from("hard.png"));
+    // li_fs::same_file sees hard links only on unix.
     #[cfg(unix)]
     {
+        std::fs::hard_link(d.join("in.png"), d.join("hard.png")).unwrap();
+        outs.push(PathBuf::from("hard.png"));
         std::os::unix::fs::symlink(d.join("in.png"), d.join("soft.png")).unwrap();
         outs.push(PathBuf::from("soft.png"));
     }
@@ -506,10 +507,11 @@ fn convert_refuses_to_write_over_its_input() {
     let before = std::fs::read(d.join("in.png")).unwrap();
     let convert = |out: &Path, extra: &[&str]| bin().current_dir(&d).args(["convert", "in.png"]).arg(out).args(extra).output().unwrap();
     let mut outs = vec![PathBuf::from("in.png"), PathBuf::from("./in.png"), d.join("in.png"), d.join(".").join("in.png")];
-    std::fs::hard_link(d.join("in.png"), d.join("hard.png")).unwrap();
-    outs.push(PathBuf::from("hard.png"));
+    // li_fs::same_file sees hard links only on unix.
     #[cfg(unix)]
     {
+        std::fs::hard_link(d.join("in.png"), d.join("hard.png")).unwrap();
+        outs.push(PathBuf::from("hard.png"));
         std::os::unix::fs::symlink(d.join("in.png"), d.join("soft.png")).unwrap();
         outs.push(PathBuf::from("soft.png"));
     }
