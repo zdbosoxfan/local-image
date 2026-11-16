@@ -3912,3 +3912,22 @@ ai	New	最新
 	Merged	合并
 # Black & White Auto tooltip (PhotoCraft 7e15585d)
 	A grey mix that spreads the image's tones	拉开图像色调的灰度混合
+	File Type	文件类型
+	Save as JPEG	保存为 JPEG
+	Save as PSD	保存为 PSD
+	Save as TIFF	保存为 TIFF
+	Convert Profile to sRGB	将配置文件转换为 sRGB
+	LZW Compression	LZW 压缩
+	Resize to Fit	调整大小以适合
+	Run	运行
+	You must save to at least one file type.	必须至少保存为一种文件类型。
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	数值输入无效。需要 1 到 12 之间的值。已恢复之前的值。
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	数值输入无效。需要 1 到 30000 之间的值。已恢复之前的值。
+	A value between 1 and 12 is required. Closest value inserted.	需要 1 到 12 之间的值。已插入最接近的值。
+	A value between 1 and 30000 is required. Closest value inserted.	需要 1 到 30000 之间的值。已插入最接近的值。
+	Image Compression	图像压缩
+	Save Image Pyramid	保存图像金字塔
+	Save Transparency	保存透明度
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	打开为智能对象…

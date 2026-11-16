@@ -954,3 +954,141 @@ fn batch_does_not_inherit_caller_actions_or_write_their_recorded_save_paths() {
     assert!(r["errors"][0]["error"].as_str().unwrap().contains("no action named"), "{r}");
     assert!(!std::path::Path::new(&elsewhere).exists());
 }
+
+/// Upstream 7b7dde38: without `format`, each jpeg/psd/tiff section writes its own copy.
+#[test]
+fn image_processor_writes_each_format_with_its_own_settings() {
+    let cmd = "file.scripts.imageProcessor";
+    let dir = tmp("processor-formats");
+    let a = png(&join(&dir, "in"), "a.png", 40, 20, "#b05980");
+    let out = join(&dir, "out");
+    let mut s = Session::new();
+    let sections = json!({
+        "input": [a], "output": out,
+        "jpeg": {"quality": 7, "resize": true, "width": 20, "height": 18},
+        "psd": {"resize": true, "width": 10, "height": 10},
+        "tiff": {"lzw": true}
+    });
+    let r = s.execute(cmd, sections).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    assert_eq!(r["files"], json!([join(&out, "a.jpg"), join(&out, "a.psd"), join(&out, "a.tif")]));
+    let size = |name: &str| {
+        let d = photocraft_io::import(name, &std::fs::read(join(&out, name)).unwrap()).unwrap().document;
+        (d.size.width, d.size.height)
+    };
+    assert_eq!((size("a.jpg"), size("a.psd"), size("a.tif")), ((20, 10), (10, 5), (40, 20)));
+    let tiff = photocraft_codecs::tiff_info(&std::fs::read(join(&out, "a.tif")).unwrap()).unwrap();
+    assert_eq!(tiff.pages[0].compression, 5, "the TIFF is LZW compressed");
+
+    // An input in the output folder is reported under its format, not replaced by its own copy.
+    let psd = join(&out, "a.psd");
+    let before = std::fs::read(&psd).unwrap();
+    let r = s.execute(cmd, json!({"input": [psd], "output": out, "jpeg": {}, "psd": {}})).unwrap();
+    assert_eq!(r["files"], json!([join(&out, "a.jpg")]), "{r}");
+    assert_eq!(r["errors"][0]["format"], "psd", "{r}");
+    assert_eq!(std::fs::read(&psd).unwrap(), before);
+
+    // No enabled section, or a bad one, fails before any file is written.
+    let none = join(&dir, "none");
+    assert!(s.execute(cmd, json!({"input": [a], "output": none, "jpeg": false, "psd": {"enabled": false}})).is_err());
+    assert!(s.execute(cmd, json!({"input": [a], "output": none, "jpeg": {}, "tiff": {"lzw": "true"}})).is_err());
+    assert!(!std::path::Path::new(&none).exists());
+}
+
+/// Upstream 11c77d26: every non-empty choice of formats writes each input once per format.
+#[test]
+fn image_processor_writes_every_nonempty_format_combination() {
+    let cmd = "file.scripts.imageProcessor";
+    let dir = tmp("processor-combinations");
+    let input = join(&dir, "in");
+    let inputs = [png(&input, "first.png", 40, 20, "#b05980"), png(&input, "second.png", 40, 20, "#b05980")];
+    let formats = [("jpeg", "jpg"), ("psd", "psd"), ("tiff", "tif")];
+    let mut s = Session::new();
+    for mask in 1..8 {
+        let out = join(&dir, &format!("out-{mask}"));
+        let mut params = json!({"input": inputs, "output": out});
+        let mut expected = Vec::new();
+        for (bit, (key, ext)) in formats.iter().enumerate() {
+            let enabled = (mask & (1 << bit)) != 0;
+            params[*key] = json!({"enabled": enabled});
+            if enabled {
+                expected.extend(["first", "second"].map(|name| join(&out, &format!("{name}.{ext}"))));
+            }
+        }
+        let r = s.execute(cmd, params).unwrap();
+        assert_eq!(r["errors"], json!([]), "{r}");
+        assert_eq!(r["files"], json!(expected), "mask {mask}");
+    }
+}
+
+/// Upstream 11c77d26: a bad or missing section fails the run before any format writes.
+#[test]
+fn image_processor_invalid_settings_fail_before_any_format_writes() {
+    let cmd = "file.scripts.imageProcessor";
+    let dir = tmp("processor-invalid");
+    let a = png(&join(&dir, "in"), "a.png", 40, 20, "#b05980");
+    let out = join(&dir, "out");
+    let mut s = Session::new();
+    for settings in [
+        json!({"jpeg": false, "psd": {"enabled": false}, "tiff": null}),
+        json!({"jpeg": {}, "psd": 7}),
+        json!({"jpeg": {}, "tiff": {"lzw": "true"}}),
+        json!({"jpeg": {"quality": 0}}),
+        json!({"jpeg": {"quality": "5"}}),
+        json!({"jpeg": {}, "psd": {"resize": true, "width": 30001}}),
+        json!({"jpeg": {}, "tiff": {"resize": true, "height": 0}}),
+    ] {
+        let mut params = settings;
+        params["input"] = json!([a]);
+        params["output"] = json!(out);
+        assert!(s.execute(cmd, params.clone()).is_err(), "{params}");
+        assert!(!std::path::Path::new(&out).exists());
+    }
+}
+
+/// Upstream e3a84b62: `tiffPyramid` writes reduced-resolution levels after the image,
+/// `tiffTransparency` false composites a transparent document over white and `tiffCompression`
+/// picks the compression. Bad values are refused before anything is written.
+#[test]
+fn save_a_copy_writes_the_tiff_options_asked_for() {
+    let dir = tmp("tiff-options");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 200, "height": 100, "background": "transparent"})).unwrap();
+    let out = join(&dir, "p.tif");
+    s.execute("file.saveACopy", json!({"path": out, "tiffPyramid": true})).unwrap();
+    let bytes = std::fs::read(&out).unwrap();
+    let sizes: Vec<(u32, u32)> = photocraft_codecs::tiff_info(&bytes).unwrap().pages.iter().map(|p| (p.width, p.height)).collect();
+    assert_eq!(sizes, [(200, 100), (100, 50), (50, 25)]);
+    for (t, alpha) in [(None, true), (Some(true), true), (Some(false), false)] {
+        let mut p = json!({"path": out});
+        if let Some(t) = t {
+            p["tiffTransparency"] = json!(t);
+        }
+        s.execute("file.saveACopy", p).unwrap();
+        let img = photocraft_codecs::decode(&std::fs::read(&out).unwrap()).unwrap();
+        assert_eq!(img.layout().has_alpha(), alpha, "{t:?}");
+    }
+    // Unset keeps the encoder's ZIP.
+    for (c, tag) in [(None, 8), (Some("none"), 1), (Some("lzw"), 5), (Some("zip"), 8)] {
+        let mut p = json!({"path": out});
+        if let Some(c) = c {
+            p["tiffCompression"] = json!(c);
+        }
+        s.execute("file.saveACopy", p).unwrap();
+        let info = photocraft_codecs::tiff_info(&std::fs::read(&out).unwrap()).unwrap();
+        assert_eq!(info.pages[0].compression, tag, "{c:?}");
+    }
+    for (key, bad) in [
+        ("tiffPyramid", json!("yes")),
+        ("tiffPyramid", json!(1)),
+        ("tiffTransparency", json!("off")),
+        ("tiffTransparency", json!([])),
+        ("tiffCompression", json!("jpeg")),
+        ("tiffCompression", json!(5)),
+    ] {
+        let out = join(&dir, "bad.tif");
+        let r = s.execute("file.saveACopy", json!({"path": out, key: bad}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{key} {bad}: {r:?}");
+        assert!(!std::path::Path::new(&out).exists(), "{key} {bad}: nothing written");
+    }
+}

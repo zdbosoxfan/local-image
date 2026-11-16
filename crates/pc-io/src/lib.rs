@@ -128,6 +128,11 @@ pub struct ExportOptions {
     /// Save As sets it from its Layers option, which keeps them as Photoshop does. `false` is
     /// Photoshop's "Discard Layers and Save a Copy".
     pub tiff_layers: bool,
+    /// TIFF: Photoshop's "Save Transparency" for the composite (the merged image other readers
+    /// see; each layer of a layered TIFF keeps its own transparency either way). `Some(false)`
+    /// composites the image over white and stores no transparency. `Some(true)` and `None`, the
+    /// default, keep it: our TIFF writes no alpha or spot channels for it to make way for.
+    pub tiff_transparency: Option<bool>,
     /// Which part of the document's XMP packet a flat export embeds (PSD/PSB/`.pcraft`
     /// always keep everything). Everything by default, as Save As does; Export As offers None.
     pub xmp: XmpEmbed,
@@ -138,7 +143,14 @@ pub struct ExportOptions {
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All, read_linked_files: true }
+        ExportOptions {
+            encode: EncodeOptions::default(),
+            force_psb: false,
+            tiff_layers: false,
+            tiff_transparency: None,
+            xmp: XmpEmbed::All,
+            read_linked_files: true,
+        }
     }
 }
 

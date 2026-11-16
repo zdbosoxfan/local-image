@@ -50,6 +50,7 @@ mod text_styles;
 mod tiff_corpus;
 mod tiff_layers;
 mod tiff_pages;
+mod tiff_save_options;
 mod vector;
 mod xmp_export;
 

@@ -5583,6 +5583,7 @@ dependencies = [
  "li-color",
  "li-commands",
  "li-fs",
+ "li-i18n",
  "li-keys",
  "li-matte",
  "li-raster",

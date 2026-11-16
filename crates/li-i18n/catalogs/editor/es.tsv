@@ -3932,3 +3932,22 @@ ai	New	Nuevos
 	Merged	Combinado
 # Black & White Auto tooltip (PhotoCraft 7e15585d)
 	A grey mix that spreads the image's tones	Una mezcla de grises que reparte los tonos de la imagen
+	File Type	Tipo de archivo
+	Save as JPEG	Guardar como JPEG
+	Save as PSD	Guardar como PSD
+	Save as TIFF	Guardar como TIFF
+	Convert Profile to sRGB	Convertir perfil a sRGB
+	LZW Compression	Compresión LZW
+	Resize to Fit	Redimensionar para ajustar
+	Run	Ejecutar
+	You must save to at least one file type.	Debe guardar en al menos un tipo de archivo.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Entrada numérica no válida. Se requiere un valor entre 1 y 12. Se ha restablecido el valor anterior.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Entrada numérica no válida. Se requiere un valor entre 1 y 30000. Se ha restablecido el valor anterior.
+	A value between 1 and 12 is required. Closest value inserted.	Se requiere un valor entre 1 y 12. Se ha insertado el valor más próximo.
+	A value between 1 and 30000 is required. Closest value inserted.	Se requiere un valor entre 1 y 30000. Se ha insertado el valor más próximo.
+	Image Compression	Compresión de imagen
+	Save Image Pyramid	Guardar pirámide de imagen
+	Save Transparency	Guardar transparencia
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Abrir como objeto inteligente…

@@ -3901,3 +3901,22 @@ ai	New	Neu
 	Merged	Zusammengefügt
 # Black & White Auto tooltip (PhotoCraft 7e15585d)
 	A grey mix that spreads the image's tones	Eine Graumischung, die die Tonwerte des Bildes spreizt
+	File Type	Dateityp
+	Save as JPEG	Als JPEG speichern
+	Save as PSD	Als PSD speichern
+	Save as TIFF	Als TIFF speichern
+	Convert Profile to sRGB	Profil in sRGB konvertieren
+	LZW Compression	LZW-Komprimierung
+	Resize to Fit	In Größe einpassen
+	Run	Ausführen
+	You must save to at least one file type.	Speichern Sie in mindestens einem Dateityp.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Ungültige Zahleneingabe. Ein Wert zwischen 1 und 12 ist erforderlich. Der vorherige Wert wurde eingesetzt.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Ungültige Zahleneingabe. Ein Wert zwischen 1 und 30000 ist erforderlich. Der vorherige Wert wurde eingesetzt.
+	A value between 1 and 12 is required. Closest value inserted.	Ein Wert zwischen 1 und 12 ist erforderlich. Der nächstliegende Wert wurde eingesetzt.
+	A value between 1 and 30000 is required. Closest value inserted.	Ein Wert zwischen 1 und 30000 ist erforderlich. Der nächstliegende Wert wurde eingesetzt.
+	Image Compression	Bildkomprimierung
+	Save Image Pyramid	Bildpyramide speichern
+	Save Transparency	Transparenz speichern
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Als Smart-Objekt öffnen…
