@@ -1329,3 +1329,63 @@ fn the_library_folder_is_protected_from_folder_move_however_its_path_is_spelled(
     drop(s);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The import side of a stem sidecar's ownership: `IMG_1.xmp` belongs to the raw first, so a file
+/// arriving beside a raw of the same name reads its own `IMG_1.png.xmp`, never the raw's packet,
+/// whether the raw arrives with it or is catalogued already. Before, the arriving file took the
+/// raw's rating, label, metadata and develop settings (upstream LightCraft 5bf0d45ba8).
+#[test]
+fn a_file_arriving_beside_its_raws_stem_reads_its_own_sidecar() {
+    use lightcraft_catalog::{MediaKind, Op, Photo, Source};
+    let sidecar = |rating: u8| {
+        format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="{rating}"/></rdf:RDF></x:xmpmeta>"#
+        )
+    };
+    let raw = || crate::tests_xmp::synthetic_dng_with(None, Default::default());
+    let read = |s: &Session, name: &str| -> u8 { s.catalog.photos().find(|p| p.file_name == name).map(|p| p.rating).unwrap_or_default() };
+
+    // the raw and an edited copy of it with the same stem, in one import
+    let src = temp_dir("stem-pair");
+    std::fs::write(src.join("IMG_1.dng"), raw()).unwrap();
+    write_png(&src.join("IMG_1.png"), 7);
+    std::fs::write(src.join("IMG_1.xmp"), sidecar(5)).unwrap();
+    std::fs::write(src.join("IMG_1.png.xmp"), sidecar(2)).unwrap();
+    let mut s = Session::new().with_fs();
+    let r = s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    assert_eq!((ids(&r, "imported"), ids(&r, "failed")), (2, 0), "{r}");
+    assert_eq!(r["sidecars"], 2, "{r}");
+    assert_eq!(read(&s, "IMG_1.dng"), 5, "the raw reads the stem sidecar, which is its own");
+    assert_eq!(read(&s, "IMG_1.png"), 2, "the PNG reads its own sidecar, never the raw's");
+    let _ = std::fs::remove_dir_all(&src);
+
+    // the PNG with no sidecar of its own: nothing of the raw's packet comes across
+    let src = temp_dir("stem-none");
+    std::fs::write(src.join("IMG_2.dng"), raw()).unwrap();
+    write_png(&src.join("IMG_2.png"), 8);
+    std::fs::write(src.join("IMG_2.xmp"), sidecar(4)).unwrap();
+    let mut s = Session::new().with_fs();
+    let r = s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    assert_eq!((ids(&r, "imported"), ids(&r, "failed")), (2, 0), "{r}");
+    assert_eq!(r["sidecars"], 1, "{r}");
+    assert_eq!(read(&s, "IMG_2.dng"), 4);
+    assert_eq!(read(&s, "IMG_2.png"), 0, "the raw's packet is not the PNG's");
+    let _ = std::fs::remove_dir_all(&src);
+
+    // the raw already in the library, the PNG arriving later
+    let src = temp_dir("stem-after");
+    write_png(&src.join("IMG_3.png"), 9);
+    std::fs::write(src.join("IMG_3.xmp"), sidecar(3)).unwrap();
+    let mut s = Session::new().with_fs();
+    let id = s.catalog.alloc_photo_id();
+    let path = src.join("IMG_3.dng").to_string_lossy().into_owned();
+    let mut p = Photo::new(id, Source::File { path }, "IMG_3.dng", "DNG", 32, 24, "2026-01-14T05:58:48");
+    p.kind = MediaKind::Raw;
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    let r = s.execute("library.import", &json!({"paths": [src.join("IMG_3.png").to_string_lossy()]})).unwrap();
+    assert_eq!((ids(&r, "imported"), ids(&r, "failed")), (1, 0), "{r}");
+    assert_eq!(r["sidecars"], 0, "{r}");
+    assert_eq!(read(&s, "IMG_3.png"), 0, "the catalogued raw owns IMG_3.xmp");
+    let _ = std::fs::remove_dir_all(&src);
+}
