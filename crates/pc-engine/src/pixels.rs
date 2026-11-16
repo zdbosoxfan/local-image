@@ -259,18 +259,18 @@ mod tests {
     use super::*;
 
     /// Remapping walks the stored tiles, not the dense rectangle around them: two pixels a million
-    /// pixels apart (a 4 TB rectangle) flip to their mirrored places.
+    /// pixels apart on both axes (a rectangle of 10^12 px) flip to their mirrored places.
     #[test]
     fn remap_surface_of_distant_tiles_does_not_densify_the_gap() {
         use photocraft_color::{ColorMode, PixelFormat, SampleType};
         let fmt = PixelFormat::new(ColorMode::Rgb, SampleType::U8, true);
         let mut s = Surface::new(fmt);
         let (a, b) = ([1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]);
-        s.write_pixel(-500_000, 3, &photocraft_raster::from_rgba(&fmt, a));
-        s.write_pixel(500_000, 9, &photocraft_raster::from_rgba(&fmt, b));
+        s.write_pixel(-500_000, -500_000, &photocraft_raster::from_rgba(&fmt, a));
+        s.write_pixel(500_000, 500_000, &photocraft_raster::from_rgba(&fmt, b));
         let out = remap_surface(&s, |x, y| (-x - 1, y));
-        assert_eq!(out.pixel(499_999, 3), photocraft_raster::from_rgba(&fmt, a));
-        assert_eq!(out.pixel(-500_001, 9), photocraft_raster::from_rgba(&fmt, b));
+        assert_eq!(out.pixel(499_999, -500_000), photocraft_raster::from_rgba(&fmt, a));
+        assert_eq!(out.pixel(-500_001, 500_000), photocraft_raster::from_rgba(&fmt, b));
     }
 
     #[test]
