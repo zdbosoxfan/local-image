@@ -1234,6 +1234,8 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [`f14d166fdfb0`](https://github.com/storytold/lightcraft/commit/f14d166fdfb09ce810c590ed1f7c294de4e35412) | Issue #3272: AI masks are enlarged along the photo's edges, no outline under a raised Exposure | `crates/lc-pipeline/src/masks.rs` | MIT OR Apache-2.0 |
 | [`84a6f5674c9b`](https://github.com/storytold/lightcraft/commit/84a6f5674c9ba937fdc89b891e34b45ee652d726) | Give the pipeline one exact output size instead of re-fitting (#3749) | `crates/lc-engine/src/export/prepared.rs`<br>`crates/lc-pipeline/src/lib.rs` | MIT OR Apache-2.0 |
 
+Local divergence from `cc59c765ee0d` and `c9e459d670a4`: with Constrain Crop off, lens corrections crop inside the corrected photo only when the photo is uncropped; a drawn crop stays where it was drawn (`Frame::constrain_to_image`, `crates/lc-pipeline/src/geometry.rs`). Region segmentation (`crates/lc-engine/src/segment/mod.rs`) renders its region as such a crop with Constrain Crop off and places the model's output on that region, so upstream's shrink would shift the mask near the photo's edge. Upstream still has the same caller unguarded (`crates/engine/src/segment/mod.rs`, as of 2026-11-15). Test: `geometry::tests::region_crop_without_constrain_stays_put_under_distortion`.
+
 ## PhotoCraft document files, text and importer budgets (2026-11-15)
 
 | Upstream commit | Subject | Our files | Licence |

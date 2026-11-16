@@ -131,12 +131,17 @@ impl Frame {
 
     /// The largest crop of the same aspect inside the user's crop that contains no area outside the
     /// warped source, in any colour plane. Lens corrections (profile, embedded camera warp, manual
-    /// distortion, lateral CA) always do this, as a corrected lens never shows the blank past the
-    /// photo's edge; perspective only with "Constrain Crop" (`with_persp`), so a keystone fix can keep
-    /// its corners. Shrinking about the crop's centre alone loses area on the lopsided trapezoids
-    /// Upright leaves (a vertical fix with a horizontal one or a roll), so the shrunk crop also moves,
-    /// within the room the shrink frees.
+    /// distortion, lateral CA) do this on an uncropped photo, as a corrected lens never shows the
+    /// blank past the photo's edge; perspective, and a crop someone drew, only with "Constrain Crop"
+    /// (`with_persp`), so a keystone fix can keep its corners and a drawn crop stays where it was
+    /// drawn (region segmentation renders its region as such a crop and places the result there).
+    /// Shrinking about the crop's centre alone loses area on the lopsided trapezoids Upright leaves
+    /// (a vertical fix with a horizontal one or a roll), so the shrunk crop also moves, within the
+    /// room the shrink frees.
     pub(crate) fn constrain_to_image(&mut self, with_persp: bool) {
+        if !with_persp && !self.crop.is_identity() {
+            return;
+        }
         let Some(full) = self.warp.as_ref().filter(|w| w.moves_pixels()) else { return };
         let optics;
         let wp = if with_persp || full.persp == Homography::IDENTITY {
@@ -962,6 +967,21 @@ mod tests {
         f.warp.as_mut().expect("a perspective warp").k1 = f64::NAN;
         f.constrain_to_image(true);
         assert!(f.crop.rect.width() <= 0.05 && f.crop.rect.height() <= 0.05, "{:?}", f.crop.rect);
+    }
+
+    /// A region segmentation pass renders `region` as a crop without Constrain Crop and stores the
+    /// model's output against `region`, so the frame must keep that crop under lens corrections.
+    #[test]
+    fn region_crop_without_constrain_stays_put_under_distortion() {
+        let region = lightcraft_geom::Rect::new(0.0, 0.0, 0.3, 0.3);
+        for distortion in [-60.0, 60.0] {
+            let mut s = DevelopSettings::default();
+            s.optics.distortion = distortion;
+            s.crop.geometry = lightcraft_geom::CropGeometry { rect: region, angle: 0.0 };
+            s.geometry.constrain_crop = false;
+            let got = Frame::new(600, 400, &s, true).crop.rect;
+            assert_eq!(got, region, "distortion {distortion}");
+        }
     }
 
     #[test]
