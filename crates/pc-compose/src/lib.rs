@@ -1325,9 +1325,17 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
 /// Mixing premultiplied colour by `k` equals compositing the layer at `k` × its alpha, since
 /// every blend mode's source-over result is linear in the source alpha.
 fn apply_blend_if(layer: &Layer, before: &Buffer, out: &mut Buffer, cx: &Ctx, mut coverage: Option<&mut [f32]>, own_override: Option<&Buffer>) {
-    // "This Layer" is the layer's own colour; adjustment layers (no content of their own) are
-    // judged by their result.
-    let isolated = if own_override.is_none() && !matches!(layer.content, LayerContent::Adjustment(_)) { render_content(layer, out.rect, cx) } else { None };
+    // "This Layer" is the layer's own colour. An adjustment layer (no content of its own) is
+    // judged by its result at full strength, before Opacity and its mask mix it in.
+    let isolated = match &layer.content {
+        _ if own_override.is_some() => None,
+        LayerContent::Adjustment(adj) => {
+            let mut result = before.clone();
+            adjust::apply_depth_mode(adj, &mut result, cx.transfer, Some(cx.depth), cx.mode);
+            Some(result)
+        }
+        _ => render_content(layer, out.rect, cx),
+    };
     let own = own_override.or(isolated.as_ref());
     for (i, (p, b)) in out.px.iter_mut().zip(&before.px).enumerate() {
         let this = match own {
@@ -1471,6 +1479,8 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
     // is the base of a clipping group and holds an adjustment layer (psd-tools
     // passthrough_clipping_mask_adjustment: an Exposure inside leaves the layers beneath alone),
     // while such a group's blend modes still reach the backdrop (passthrough_clipping_mask_blendmode).
+    // A group with Blend If renders isolated too: an adjustment inside it no longer changes the
+    // layers beneath.
     let clip_base_adjusts = clipped.iter().any(|c| c.visible)
         && matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|c| c.visible && matches!(c.content, LayerContent::Adjustment(_))));
     if let LayerContent::Group(g) = &layer.content
@@ -1479,6 +1489,7 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
         && layer.fill_opacity >= 1.0
         && !effects::has_effects(layer)
         && !clip_base_adjusts
+        && !blend_if_active(layer, cx.mode)
     {
         let needs_mix = opacity < 1.0 || layer.mask.is_some() || layer.vector_mask.is_some();
         let has_clipped = clipped.iter().any(|c| c.visible);
@@ -1556,8 +1567,18 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
                 // Only `adjusted` has changed; this pixel's original backdrop is still in place.
                 let b = backdrop.px[i];
                 let a = adjusted.px[i];
+                // Dissolve is a per-pixel choice, not a partial mix.
+                if layer.blend == BlendMode::Dissolve {
+                    if dissolve_noise(x, y) < k {
+                        backdrop.px[i] = [a[0], a[1], a[2], b[3]];
+                    }
+                    continue;
+                }
                 let blended = blend::blend_rgb(layer.blend, [b[0], b[1], b[2]], [a[0], a[1], a[2]]);
-                backdrop.px[i] = [b[0] + (blended[0] - b[0]) * k, b[1] + (blended[1] - b[1]) * k, b[2] + (blended[2] - b[2]) * k, b[3]];
+                // `b·(1−k) + s·k`, not `b + (s − b)·k`: with a huge 32-bit backdrop the difference
+                // would lose a small result to f32 rounding; full coverage keeps the blend exactly.
+                let j = 1.0 - k;
+                backdrop.px[i] = [b[0] * j + blended[0] * k, b[1] * j + blended[1] * k, b[2] * j + blended[2] * k, b[3]];
             }
         }
         return;
@@ -1861,7 +1882,7 @@ fn cached_effect_maps(layer: &Layer, region: Rect, key: u64, cx: &Ctx) -> std::s
             slot.get().map_or(maps, |e| e.maps.clone())
         }
     };
-    // Evict the oldest entries over budget (never the one just used).
+    // Evict the oldest other entries over budget, then the current one if it alone exceeds it.
     let mut c = fx_cache().lock().unwrap_or_else(|e| e.into_inner());
     let budget = effect_cache_budget();
     while c.bytes > budget && c.order.len() > 1 {
@@ -1873,6 +1894,13 @@ fn cached_effect_maps(layer: &Layer, region: Rect, key: u64, cx: &Ctx) -> std::s
         if let Some(s) = c.map.remove(&old) {
             c.bytes = c.bytes.saturating_sub(s.get().map_or(0, |e| e.bytes));
         }
+    }
+    // The current entry alone over the budget: its callers hold the maps, the cache must not.
+    if c.bytes > budget
+        && let Some(s) = c.map.remove(&key)
+    {
+        c.order.retain(|k| *k != key);
+        c.bytes = c.bytes.saturating_sub(s.get().map_or(0, |e| e.bytes));
     }
     maps
 }
@@ -1924,9 +1952,17 @@ fn composite_atop_any(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
         for (i, p) in base.px.iter_mut().enumerate() {
             let k = layer.opacity * layer.fill_opacity * mask_k(&mv, i);
             let a = adjusted.px[i];
+            if layer.blend == BlendMode::Dissolve {
+                let x = rect.x0 + (i % rect.width() as usize) as i32;
+                let y = rect.y0 + (i / rect.width() as usize) as i32;
+                if dissolve_noise(x, y) < k {
+                    *p = [a[0], a[1], a[2], p[3]];
+                }
+                continue;
+            }
             let bl = blend::blend_rgb(layer.blend, [p[0], p[1], p[2]], [a[0], a[1], a[2]]);
             for c in 0..3 {
-                p[c] += (bl[c] - p[c]) * k;
+                p[c] = p[c] * (1.0 - k) + bl[c] * k;
             }
         }
         return;
@@ -1970,6 +2006,16 @@ fn composite_atop_any(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
             continue;
         }
         let s = content.px[i];
+        // Dissolve picks the source or the base by its coverage; a partial mix would turn a
+        // clipped fill gray.
+        if layer.blend == BlendMode::Dissolve {
+            let x = rect.x0 + (i % rect.width() as usize) as i32;
+            let y = rect.y0 + (i / rect.width() as usize) as i32;
+            if dissolve_noise(x, y) < s[3] * opacity {
+                *p = [s[0], s[1], s[2], alpha];
+            }
+            continue;
+        }
         // Blend as if the base were opaque, then keep the base's alpha.
         let r = blend::composite_gamma(layer.blend, [p[0], p[1], p[2], 1.0], s, opacity, gamma);
         *p = [r[0], r[1], r[2], alpha];

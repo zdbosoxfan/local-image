@@ -249,7 +249,7 @@ fn coverage(m: &Mask, p: lightcraft_geom::Point, aspect: f64) -> Option<f64> {
         if c.invert {
             a = 1.0 - a;
         }
-        alpha = if first && c.op != MaskOp::Intersect {
+        alpha = if first {
             a
         } else {
             match c.op {

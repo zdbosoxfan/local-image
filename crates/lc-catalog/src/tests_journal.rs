@@ -257,6 +257,43 @@ fn push_history_is_bounded_and_invertible() {
     assert_eq!(c.to_snapshot(), before);
 }
 
+/// A photo added with, given, or loaded with a whole History (op log replay, undo of a removal, a
+/// snapshot) kept every step: only `PushHistory` applied the limit.
+#[test]
+fn add_photo_set_history_and_load_are_bounded_and_invertible() {
+    let mut c = Catalog::new();
+    let id = c.alloc_photo_id();
+    let step = |i: usize| HistoryStep { label: format!("s{i}"), settings: Arc::new(DevelopSettings::default()) };
+    let mut p = Photo::new(id, Source::Demo { scene: 1 }, "a", "JPEG", 1, 1, "t");
+    p.history = (0..HISTORY_LIMIT + 5).map(step).collect();
+    c.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    let p = c.photo(id).unwrap();
+    assert_eq!((p.history.len(), p.history[0].label.as_str()), (HISTORY_LIMIT, "s5"));
+
+    let before = c.to_snapshot();
+    let inv = c.apply(Op::SetHistory { id, history: (0..HISTORY_LIMIT * 2).map(step).collect() }).unwrap();
+    let p = c.photo(id).unwrap();
+    assert_eq!(p.history.len(), HISTORY_LIMIT);
+    assert_eq!(p.history[0].label, format!("s{HISTORY_LIMIT}"));
+    c.apply(inv).unwrap();
+    assert_eq!(c.to_snapshot(), before);
+
+    let mut v: serde_json::Value = serde_json::from_str(&before).unwrap();
+    let history = &mut v["photos"][id.0.to_string()]["history"];
+    let one = history[0].clone();
+    *history = (0..HISTORY_LIMIT * 3)
+        .map(|i| {
+            let mut s = one.clone();
+            s["label"] = format!("s{i}").into();
+            s
+        })
+        .collect();
+    let loaded = Catalog::from_snapshot(&v.to_string()).unwrap();
+    let p = loaded.photo(id).unwrap();
+    assert_eq!(p.history.len(), HISTORY_LIMIT);
+    assert_eq!(p.history[0].label, format!("s{}", HISTORY_LIMIT * 2));
+}
+
 #[test]
 fn fs_store_roundtrip() {
     let dir = std::env::temp_dir().join(format!("lc-journal-{}", std::process::id()));
