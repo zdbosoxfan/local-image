@@ -1177,6 +1177,26 @@ fn module_shortcuts_cannot_hide_custom_filter_modals() {
 }
 
 #[test]
+fn module_shortcuts_wait_for_an_open_library_dialog() {
+    let (dir, host) = workflow_host("module-keys-under-library-dialog");
+    let mut h = RoundTripUi::new(host);
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Library);
+    for _ in 0..4 {
+        h.step(vec![]);
+    }
+    h.host.library.as_mut().unwrap().run("dialog.export", json!({})).unwrap();
+    h.step(vec![]);
+    h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+    assert_eq!(h.host.mode, Module::Library);
+    assert!(h.host.library.as_ref().unwrap().ui.dialog.is_some(), "the half-filled dialog stays open");
+    let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+    drop(h);
+    previews.retire();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn native_library_startup_waits_for_the_first_named_font_pass() {
     use eframe::App;
     use li_commands::menu::{Backend, Event, MenuBar};

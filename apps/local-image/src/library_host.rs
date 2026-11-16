@@ -1228,6 +1228,12 @@ impl Host {
         if !self.editor.host_modes {
             return;
         }
+        // A modal job's progress window and an open modal own the keyboard: switching away would
+        // hide their only Cancel.
+        let modal_job = self.editor.session.active_job().is_some_and(|job| photocraft_ui_egui::jobs_ui::non_modal_text(&job.command).is_none());
+        if modal_job || ctx.memory(|m| m.top_modal_layer().is_some()) {
+            return;
+        }
         let picked = Module::ALL.into_iter().find(|m| consume_host_chord(ctx, egui::Modifiers::COMMAND | egui::Modifiers::ALT, m.key()));
         if let Some(m) = picked {
             self.switch(ctx, m);
@@ -1318,7 +1324,9 @@ impl eframe::App for Host {
             {
                 photocraft_ui_egui::prefs_ui::open_preferences(&mut self.editor, "general");
             }
-            self.module_keys(ctx);
+            if self.mode == Module::Compositing || library_keys_available {
+                self.module_keys(ctx);
+            }
             self.preview_save_key(ctx);
         }
         // The editor installs the fonts (a superset of the Library's) on its first frame.
