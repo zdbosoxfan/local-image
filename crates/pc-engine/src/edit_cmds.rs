@@ -480,11 +480,8 @@ fn transform_again_params(s: &Session, ids: &[LayerId]) -> Result<Value> {
             .ok_or(EngineError::Other("the last transform can't be repeated".into()))?;
             let d = s.active().ok_or(EngineError::NoDocument)?;
             d.doc.layer(active_id(s)?).ok_or(EngineError::Other("no active layer".into()))?;
-            let b = ids
-                .iter()
-                .filter_map(|id| d.doc.layer(*id))
-                .map(|l| crate::transform_cmds::transform_bounds(&d.doc, l))
-                .fold(Rect::EMPTY, |a, b| a.union(&b));
+            let b =
+                ids.iter().filter_map(|id| d.doc.layer(*id)).map(|l| crate::transform_cmds::transform_bounds(&d.doc, l)).fold(Rect::EMPTY, |a, b| a.union(&b));
             if b.is_empty() {
                 return Err(EngineError::Other("nothing to transform".into()));
             }
