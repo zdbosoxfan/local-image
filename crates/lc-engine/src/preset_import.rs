@@ -42,7 +42,7 @@ pub fn read_zip(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
     read_zip_limited(bytes, MAX_ZIP_ENTRY, MAX_ZIP_TOTAL)
 }
 
-pub(crate) fn read_zip_limited(bytes: &[u8], max_entry: usize, max_total: usize) -> Result<Vec<(String, Vec<u8>)>, String> {
+fn read_zip_limited(bytes: &[u8], max_entry: usize, max_total: usize) -> Result<Vec<(String, Vec<u8>)>, String> {
     read_zip_spending(bytes, max_entry, max_total, &mut 0)
 }
 
