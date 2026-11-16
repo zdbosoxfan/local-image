@@ -1908,6 +1908,17 @@ Partial port, the `psd_import.rs` hunk only (owner-delegated decision 2026-11-16
 
 Adapted port (owner-delegated decision 2026-11-16). Upstream's walk changes are taken whole: a file under the first MiB is read as the import reads it, a WebP's chunks are always walked and its last EXIF and last XMP chunk count, the EXIF chunk's first IFD is read whatever the chunk's size (`tiff_orientation` takes the stream's start and end), and a JPEG takes its first Exif segment, else its first XMP segment. Upstream's change to `read_jpeg_app1`'s pick lands in our `jpeg_orientation` on `jpeg_app1`, and the XMP packets are read with `parse_whole_xmp`, as in `4e350dc756`. In `the_file_orientation_is_found_after_the_image_data` the `huge.webp` expectation changes from Rotate270 to Rotate90, as upstream changed it, and upstream's new cases are added (`late-ifd.webp`, `outside.webp`, `last-exif.webp`, `span-xmp.webp`, `two-exif.jpg`, and the over-span `over-xmp.webp` check). Not ported: upstream's extra check of every existing case against `lightcraft_meta::extract`, which would change what the existing cases check.
 
+## PhotoCraft follow-up ports (2026-11-16)
+
+Upstream commits that came after a port already on this branch and that the port needs to work as intended.
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`3a23cf3e6b10283637e927e4c6923eb3804d3a56`](https://github.com/storytold/photocraft/commit/3a23cf3e6b10283637e927e4c6923eb3804d3a56) | fix(paint): raise only the ring next to a transparent flood, at coverage 1 - alpha (#11354) | `crates/pc-algo/src/paint.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`bf550d8fcb0f33a57d800974f7a37cd3eb5a2c84`](https://github.com/storytold/photocraft/commit/bf550d8fcb0f33a57d800974f7a37cd3eb5a2c84) | perf(paint): only build the rim ring when an unlocked Blend fill can read it (#11354) | `crates/pc-algo/src/paint.rs` | MIT OR Apache-2.0 |
+
+`3a23cf3e` and `bf550d8f` follow the `b4487ee5` port, which the `e25be5e7` wand fringe had left without effect. Adapted port: our bucket has no Fill Mode, CMYK inks or locked-transparency path and no `fill_region`, so the ring is built in `bucket_fill_src` and `bf550d8f`'s guard reduces to "the region leaves a pixel uncovered" (our bucket always fills unlocked, in Normal). Not ported: the CMYK inks hunk and upstream's edit of `bucket_after_clearing_an_antialiased_selection_fills_the_hole_and_raises_the_rim_partly` (neither exists here), and the removed `opacity * 0.97` assertion (no counterpart). Tests: `paint::tests::bucket_on_transparency_blends_into_the_edge_at_its_transparency`, `paint::tests::bucket_on_transparency_raises_only_the_ring_next_to_the_flood`.
+
 ## Upstream rows reviewed and not ported (2026-11-16)
 
 Upstream commits triaged as fixes (MUST or SHOULD) or offered as features in the 2026-11 pass and left out, with the reason. Apart from the two marked "Ported" below, which have their own sections, none of them is ported, so none has a row in a commit table. A row marked "owner decision" waits for the owner; the others wait for the base named.
