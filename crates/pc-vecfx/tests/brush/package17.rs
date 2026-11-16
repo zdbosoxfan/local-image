@@ -88,6 +88,18 @@ fn brush17_art_stretch_proportions_guides_and_corner_mapping() {
     assert!(!photocraft_pathops::contains(&p[0], Point::new(20., 20.)).unwrap());
 }
 #[test]
+fn art_proportional_grows_with_the_stroke_weight() {
+    // 4 pt art 10 pt long on a 200 pt path: 80 pt across at 1 pt, three times that at 3 pt, and the
+    // Width applies on top.
+    for (weight, width, height) in [(1., 1., 80.), (3., 1., 240.), (3., 0.5, 120.)] {
+        let a = ArtBrush { art: rect(10., 4.), scale: ArtScale::Proportional, width, ..Default::default() };
+        let p = project(&line(&[(20., 50.), (220., 50.)]), &stroke(Brush::Art(a), 0, weight)).unwrap();
+        let b = bounds(&p[0]);
+        assert!((b.0 - 20.).abs() < 1e-6 && (b.2 - 220.).abs() < 1e-6, "{b:?}");
+        assert!((b.3 - b.1 - height).abs() < 1e-6, "weight {weight}, width {width}: {b:?}");
+    }
+}
+#[test]
 fn brush17_art_tight_folds_are_finite_bounded_and_normalized() {
     let a = ArtBrush { art: rect(10., 4.), ..Default::default() };
     for pts in [&[(0., 0.), (20., 0.), (0.1, 0.01)][..], &[(0., 0.), (0., 0.), (10., 0.), (10., 1.), (0., 1.)][..]] {

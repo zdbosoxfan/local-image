@@ -230,3 +230,52 @@ fn apply_liquify_empty_bounds_returns_clone() {
     let out = apply_liquify(&src, &f);
     assert_eq!(out, src);
 }
+
+const BRUSH_TOOLS: [LiquifyTool; 10] = [
+    LiquifyTool::ForwardWarp,
+    LiquifyTool::Reconstruct,
+    LiquifyTool::Smooth,
+    LiquifyTool::TwirlCw,
+    LiquifyTool::TwirlCcw,
+    LiquifyTool::Pucker,
+    LiquifyTool::Bloat,
+    LiquifyTool::PushLeft,
+    LiquifyTool::Freeze,
+    LiquifyTool::Thaw,
+];
+
+/// A project file stores Liquify strokes as plain numbers: a dab with any `f64` brush size or
+/// position must replay without overflowing. Each segment is short so the walk stays a few dabs.
+#[test]
+fn a_brush_with_an_absurd_size_or_position_replays_without_overflow() {
+    let extreme = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::MAX, f64::MIN, 1e300, 3.0e9, -1.0, 0.0];
+    for tool in BRUSH_TOOLS {
+        for size in extreme {
+            for p in [0.0, 1e300, f64::NAN, 3.0e9, -3.0e9] {
+                let points = vec![vec![p, 10.0], vec![p, 11.0], vec![p, 11.0, f64::MAX]];
+                let _ = LiquifyField::from_strokes(bounds(64, 64), 8.0, &[stroke(tool, size, points)]);
+            }
+        }
+    }
+}
+
+/// A dab whose centre and size are both huge gives infinity over infinity for its distance; it
+/// must not write NaN displacements.
+#[test]
+fn a_huge_far_off_dab_leaves_the_field_finite() {
+    for tool in BRUSH_TOOLS {
+        let f = LiquifyField::from_strokes(bounds(64, 64), 8.0, &[stroke(tool, 4e200, vec![vec![1e200, 10.0]])]);
+        assert!(f.max_displacement().is_finite(), "{tool:?}");
+        assert!(f.sample(10.0, 10.0).iter().all(|v| v.is_finite()), "{tool:?}");
+    }
+}
+
+/// A Freeze dab centred far to the left with a radius reaching the image changes nodes inside
+/// it, so the area it reports must not be empty.
+#[test]
+fn a_far_off_dab_that_reaches_the_image_reports_what_it_changed() {
+    let mut f = LiquifyField::new(bounds(64, 64), 8.0);
+    let changed = f.stroke_begin(&stroke(LiquifyTool::Freeze, 1.2e10, vec![]), [-3e9, 10.0, 1.0]);
+    assert!(f.freeze_at(10.0, 10.0) > 0.0, "the dab reaches the image");
+    assert!(!changed.is_empty(), "the freeze changed nodes but reported {changed:?}");
+}

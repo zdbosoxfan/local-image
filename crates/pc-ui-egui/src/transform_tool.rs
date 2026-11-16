@@ -743,7 +743,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
             }
             let legacy = app.session.prefs().general.use_legacy_free_transform;
             if let (Some(g), Some(s)) = (g, app.ui.transform.as_mut()) {
-                apply_drag(s, g, [x, y], mode_mods(t.mode, g.hit, corner_mods(legacy, g.hit, mods)));
+                apply_mode_drag(s, g, [x, y], t.mode, corner_mods(legacy, g.hit, mods));
             }
         }
     }
@@ -760,10 +760,15 @@ fn corner_mods(legacy: bool, hit: Hit, mut mods: egui::Modifiers) -> egui::Modif
 }
 
 /// Skew / Distort / Perspective modes: a handle drag acts as if that gesture's keys were held
-/// (⌘-drag an edge skews, ⌘-drag a corner distorts, ⌘⌥⇧-drag a corner adds perspective).
+/// (⌘-drag an edge skews, ⌘-drag a corner distorts, ⌘⌥⇧-drag a corner adds perspective, and a
+/// Perspective side handle slides its edge along itself, ⌘⇧).
 fn mode_mods(mode: TransformMode, hit: Hit, mut mods: egui::Modifiers) -> egui::Modifiers {
     match (mode, hit) {
         (TransformMode::Skew, Hit::Edge(_)) | (TransformMode::Distort, Hit::Corner(_)) => mods.command = true,
+        (TransformMode::Perspective, Hit::Edge(_)) => {
+            mods.command = true;
+            mods.shift = true;
+        }
         (TransformMode::Perspective, Hit::Corner(_)) => {
             mods.command = true;
             mods.alt = true;
@@ -772,6 +777,48 @@ fn mode_mods(mode: TransformMode, hit: Hit, mut mods: egui::Modifiers) -> egui::
         _ => {}
     }
     mods
+}
+
+/// A handle drag in `mode`. A Perspective side handle slides its edge along itself and stops
+/// before the box folds over, which happens once the opposite edge isn't parallel.
+fn apply_mode_drag(s: &mut TransformSession, g: Gesture, p: [f64; 2], mode: TransformMode, mods: egui::Modifiers) {
+    apply_drag(s, g, p, mode_mods(mode, g.hit, mods));
+    if mode == TransformMode::Perspective && matches!(g.hit, Hit::Edge(_)) {
+        s.quad = keep_convex(g.quad0, s.quad);
+    }
+}
+
+/// The turn at each corner of a quad (cross products of consecutive edges): all the same sign
+/// for a convex quad, mixed for a concave or self-intersecting one.
+fn turns(q: &[[f64; 2]; 4]) -> [f64; 4] {
+    std::array::from_fn(|k| {
+        let (a, b, c) = (q[k], q[(k + 1) % 4], q[(k + 2) % 4]);
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+    })
+}
+
+/// Is `q` convex with the orientation `sign`, every corner turning by more than `min_turn`?
+fn convex(q: &[[f64; 2]; 4], sign: f64, min_turn: f64) -> bool {
+    turns(q).iter().all(|t| t * sign > min_turn)
+}
+
+/// Moves from `from` towards `to` as far as the quad stays convex. A box that is not convex to
+/// begin with is left free.
+fn keep_convex(from: [[f64; 2]; 4], to: [[f64; 2]; 4]) -> [[f64; 2]; 4] {
+    let t0 = turns(&from);
+    let sign = t0[0].signum();
+    // A thousandth of the starting box's smallest turn, so the stop is short of flat.
+    let min_turn = t0.iter().map(|t| t.abs()).fold(f64::INFINITY, f64::min) * 1e-3;
+    if !(min_turn.is_finite() && min_turn > 0.0 && convex(&from, sign, 0.0)) || convex(&to, sign, min_turn) {
+        return to;
+    }
+    let lerp = |t: f64| -> [[f64; 2]; 4] { std::array::from_fn(|k| [from[k][0] + (to[k][0] - from[k][0]) * t, from[k][1] + (to[k][1] - from[k][1]) * t]) };
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    for _ in 0..40 {
+        let mid = (lo + hi) / 2.0;
+        if convex(&lerp(mid), sign, min_turn) { lo = mid } else { hi = mid }
+    }
+    lerp(lo)
 }
 
 /// In Distort mode only corner drags (and moving the box from inside) do anything.
@@ -1976,6 +2023,41 @@ mod tests {
         // Free Transform from the menu switches the live box back.
         crate::menus::invoke(&mut app, &ctx, "edit.freeTransform", json!({})).unwrap();
         assert_eq!(app.ui.transform.as_ref().unwrap().mode, TransformMode::Free);
+    }
+
+    /// Perspective mode's side handles skew: the edge slides along itself and the opposite edge
+    /// stays, as in Photoshop, instead of scaling the box.
+    #[test]
+    fn perspective_mode_side_handles_slide_their_edge() {
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        app.ui.extras.snap = false;
+        let ctx = egui::Context::default();
+        crate::menus::invoke(&mut app, &ctx, "edit.transform.perspective", json!({})).unwrap();
+        let q0 = app.ui.transform.as_ref().unwrap().quad;
+        let top = [(q0[0][0] + q0[1][0]) / 2.0, q0[0][1]];
+        press_drag(&mut app, top, [top[0] + 6.0, top[1] + 9.0], egui::Modifiers::NONE);
+        let q = app.ui.transform.as_ref().unwrap().quad;
+        assert_eq!([q[0], q[1]], [[q0[0][0] + 6.0, q0[0][1]], [q0[1][0] + 6.0, q0[1][1]]], "the top edge slides along itself");
+        assert_eq!([q[2], q[3]], [q0[2], q0[3]], "the bottom edge stays");
+    }
+
+    /// A Perspective side handle on a box whose opposite edge isn't parallel stops before the
+    /// box folds over: a long slide along the top edge used to turn it concave.
+    #[test]
+    fn perspective_mode_edge_slide_stops_before_the_box_folds() {
+        let mut s = session();
+        s.quad = [[0.0, 0.0], [100.0, -20.0], [100.0, 70.0], [0.0, 50.0]];
+        let start = turns(&s.quad);
+        // Along the top edge, (5, -1), 100 steps the other way.
+        let g = Gesture { hit: Hit::Edge(0), start: [50.0, -10.0], quad0: s.quad, pivot0: s.pivot };
+        apply_mode_drag(&mut s, g, [-450.0, 90.0], TransformMode::Perspective, egui::Modifiers::NONE);
+        let q = s.quad;
+        assert!(turns(&q).iter().zip(start).all(|(t, t0)| t * t0.signum() > 0.0), "still convex: {q:?}");
+        assert!(q.iter().flatten().all(|v| v.is_finite()), "{q:?}");
+        assert_eq!((q[2], q[3]), (g.quad0[2], g.quad0[3]), "the other corners stay");
+        assert!(((q[0][0] - g.quad0[0][0]) + (q[0][1] - g.quad0[0][1]) * 5.0).abs() < 1e-9, "slid along the edge: {q:?}");
+        assert!([q[1][0] - q[0][0] - 100.0, q[1][1] - q[0][1] + 20.0].iter().all(|v| v.abs() < 1e-9), "{q:?}");
+        assert!(q[0][0] < -1.0, "it still slid: {q:?}");
     }
 
     #[test]

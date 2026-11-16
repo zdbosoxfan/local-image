@@ -8,6 +8,7 @@
 //! work in the layer's own colour model and depth, and are one undo step per click / stroke.
 
 use photocraft_algo::selection as sel;
+use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId};
 use photocraft_geom::Rect;
 use photocraft_paint::Stroke;
@@ -60,7 +61,7 @@ fn is_background(l: &Layer) -> bool {
 }
 
 /// Photoshop converts the Background to a normal layer before erasing to transparency.
-fn unlock_background(l: &mut Layer) {
+pub(crate) fn unlock_background(l: &mut Layer) {
     if is_background(l) {
         l.name = "Layer 0".into();
         l.locks.transparency = false;
@@ -104,7 +105,11 @@ fn magic_eraser(s: &mut Session, p: &Value) -> Result<Value> {
         }
     }
     let (area, img) = crate::selection_cmds::sample_rgba8(s, sample_all)?;
-    let region = sel::wand_region(&img, area, (x, y), tolerance, contiguous, anti_alias);
+    // On 8-bit RGB, Tolerance is the spread of {0, dR, dG, dB}, as measured in Photoshop; other
+    // modes and depths keep the per-channel limit.
+    let rgb8 = s.active().is_some_and(|d| d.doc.mode == ColorMode::Rgb && d.doc.depth == SampleType::U8);
+    let distance = if rgb8 { sel::ColorDistance::Spread } else { sel::ColorDistance::LargestChannel };
+    let region = sel::wand_region_within(&img, area, (x, y), 1, tolerance, contiguous, anti_alias, None, distance);
     drop(img);
     let Some(region) = region else { return Ok(damage(s, Rect::EMPTY, false)) };
     let bg = s.tools.background;
@@ -155,7 +160,7 @@ fn background_eraser(s: &mut Session, p: &Value) -> Result<Value> {
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         unlock_background(l);
         let surf = l.surface_mut().ok_or_else(|| bad(CMD, "not a pixel layer"))?;
-        Ok(apply_background_eraser(surf, &stroke, &bs, selection.as_ref()))
+        apply_background_eraser(surf, &stroke, &bs, selection.as_ref()).map_err(|e| bad(CMD, e.to_string()))
     })?;
     Ok(damage(s, dmg, true))
 }

@@ -121,7 +121,10 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
     if !b.starts_with(&[0xff, 0xd8]) {
         return out;
     }
-    let mut icc_parts: Vec<(u8, Vec<u8>)> = Vec::new();
+    // ICC chunks by sequence number, their stated count, and whether the sequence is broken
+    let mut icc_parts: [Option<&[u8]>; 255] = [None; 255];
+    let mut icc_total = None;
+    let mut icc_invalid = false;
     let mut ext: Vec<(u32, Vec<u8>)> = Vec::new();
     let mut i = 2usize;
     while i + 4 <= b.len() {
@@ -144,6 +147,7 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
         if len < 2 {
             break;
         }
+        let complete = i + 2 + len <= b.len();
         let end = (i + 2 + len).min(b.len());
         let payload = &b[i + 4..end];
         match marker {
@@ -171,15 +175,30 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
                     out.unread.get_or_insert(CUT_OFF);
                 }
             }
-            0xe2 if payload.starts_with(b"ICC_PROFILE\0") && payload.len() >= 14 => icc_parts.push((payload[12], payload[14..].to_vec())),
+            0xe2 if payload.starts_with(b"ICC_PROFILE\0") => match (payload.get(12), payload.get(13)) {
+                (Some(&sequence), Some(&total))
+                    if complete
+                        && (1..=total).contains(&sequence)
+                        && icc_total.is_none_or(|t| t == total)
+                        && icc_parts[usize::from(sequence - 1)].is_none() =>
+                {
+                    icc_total = Some(total);
+                    icc_parts[usize::from(sequence - 1)] = Some(&payload[14..]);
+                }
+                _ => icc_invalid = true,
+            },
             0xed if payload.starts_with(b"Photoshop 3.0\0") && out.iptc.is_none() => out.iptc = photoshop_iptc(&payload[14..]),
             _ => {}
         }
         i = end;
     }
-    if !icc_parts.is_empty() {
-        icc_parts.sort_by_key(|p| p.0);
-        out.icc = Some(icc_parts.into_iter().flat_map(|p| p.1).collect());
+    if let Some(total) = icc_total
+        && !icc_invalid
+    {
+        let parts = &icc_parts[..usize::from(total)];
+        if parts.iter().all(Option::is_some) {
+            out.icc = Some(parts.iter().flatten().flat_map(|p| p.iter().copied()).collect());
+        }
     }
     if !ext.is_empty() {
         ext.sort_by_key(|p| p.0);
@@ -351,6 +370,38 @@ mod tests {
         assert_eq!(m.rating, Some(4)); // XMP overrides EXIF rating 3
         assert_eq!(m.keywords, vec!["alpha".to_string(), "beta".to_string()]); // from IPTC
         assert_eq!(m.caption.as_deref(), Some("A caption"));
+    }
+
+    /// An ICC profile split over APP2 segments is used only when its sequence is whole and coherent: a missing,
+    /// repeated, out-of-range or cut-off chunk would assemble a different profile and apply wrong colours. The other
+    /// metadata stays readable.
+    #[test]
+    fn jpeg_icc_rejects_incomplete_or_incoherent_chunks() {
+        let icc = |sequence: u8, total: u8, data: &[u8]| seg(0xe2, &[&b"ICC_PROFILE\0"[..], &[sequence, total], data].concat());
+        let mut truncated = icc(1, 1, b"helloworld");
+        truncated[3] += 1;
+        let cases = [
+            ("missing", vec![icc(1, 2, b"helloworld")]),
+            ("duplicate", vec![icc(1, 2, b"hello"), icc(1, 2, b"world")]),
+            ("zero sequence", vec![icc(0, 1, b"helloworld")]),
+            ("zero total", vec![icc(1, 0, b"helloworld")]),
+            ("out of range", vec![icc(2, 1, b"helloworld")]),
+            ("gap", vec![icc(1, 3, b"hello"), icc(3, 3, b"world")]),
+            ("inconsistent totals", vec![icc(1, 2, b"hello"), icc(2, 3, b"world")]),
+            ("short header", vec![seg(0xe2, b"ICC_PROFILE\0\x01")]),
+            ("cut off by the file end", vec![truncated]),
+        ];
+        let mut xmp = XMP_SIG.to_vec();
+        xmp.extend_from_slice(crate::write_xmp(&crate::Metadata { title: Some("kept".into()), ..Default::default() }, None).as_bytes());
+        for (name, parts) in cases {
+            let mut jpeg = vec![0xff, 0xd8];
+            jpeg.extend(seg(0xe1, &xmp));
+            jpeg.extend(parts.concat());
+            let e = jpeg_segments(&jpeg);
+            assert!(e.icc.is_none(), "{name}");
+            assert!(e.xmp.as_deref().is_some_and(|x| x.contains("kept")), "{name}");
+            assert_eq!(e.unread, None, "{name}");
+        }
     }
 
     #[test]

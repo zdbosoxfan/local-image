@@ -11,7 +11,7 @@ use crate::state::Tool;
 use crate::theme::Tokens;
 
 /// Finish a stroke with a retouching tool. Returns false if `tool` isn't one.
-pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], mods: egui::Modifiers) -> bool {
+pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], mods: egui::Modifiers, line: bool) -> bool {
     // local-image: the AI tools.
     if crate::ai_ui::finish_stroke(app, tool, points, mods) {
         return true;
@@ -69,6 +69,7 @@ pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], m
     p["points"] = pts;
     // The layer mask, an alpha channel or the Quick Mask when targeted, as the Brush paints.
     p["target"] = crate::canvas::paint_target(app);
+    crate::canvas::unsmoothed_line(&mut p, line);
     match app.run(cmd, p) {
         Ok(r) if matches!(tool, Tool::Healing | Tool::CloneStamp) => {
             // Aligned: keep the offset for later strokes; non-aligned: every stroke restarts at the source.
@@ -189,6 +190,10 @@ pub fn set_source(app: &mut PhotocraftApp, x: f64, y: f64) {
 /// is painted, as in Photoshop: setting the source (⌥-click) leaves nothing on the canvas (#668).
 pub fn source_marker_point(app: &PhotocraftApp) -> Option<[f64; 2]> {
     if !matches!(app.ui.tool, Tool::CloneStamp | Tool::Healing) {
+        return None;
+    }
+    // A source picked in another document has no place on this canvas.
+    if app.session.presets.clone.active().document.is_some_and(|id| app.session.active().is_none_or(|st| st.doc.id != id)) {
         return None;
     }
     let at = app.drag.as_ref().filter(|d| matches!(d.tool, Tool::CloneStamp | Tool::Healing)).and_then(|d| d.points.last().map(|p| [p[0], p[1]]))?;
@@ -392,7 +397,7 @@ mod tests {
         for tool in [Tool::CloneStamp, Tool::Healing] {
             let mut app = app();
             app.ui.tool = tool;
-            assert!(finish_stroke(&mut app, tool, &[[10.0, 30.0, 1.0], [50.0, 30.0, 1.0]], egui::Modifiers::NONE));
+            assert!(finish_stroke(&mut app, tool, &[[10.0, 30.0, 1.0], [50.0, 30.0, 1.0]], egui::Modifiers::NONE, false));
             assert!(app.ui.status_error, "{tool:?}");
             let want = if cfg!(target_os = "macos") { "Option-click" } else { "Alt-click" };
             assert!(app.ui.status.starts_with(want), "{tool:?}: {}", app.ui.status);

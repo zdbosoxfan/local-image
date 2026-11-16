@@ -29,6 +29,27 @@ fn new_blank_insert_duplicate_delete_frames() {
     assert!(s.active().unwrap().doc.timeline.as_ref().unwrap().duration >= frames(&s, id));
 }
 
+/// Insert Blank Frame and Duplicate Frame refuse a frame past the timeline's limit and leave the
+/// layer as it was.
+#[test]
+fn frame_growth_stops_at_the_frame_limit() {
+    let mut s = session();
+    let r = s.execute("layer.videoLayers.newBlankVideoLayer", json!({})).unwrap();
+    let id = LayerId(r["layer"].as_u64().unwrap());
+    let limit = crate::timeline_cmds::MAX_DURATION;
+    s.edit("setup", |doc, _| {
+        // Empty sparse frames keep a full stack small.
+        let fmt = doc.pixel_format();
+        doc.layer_mut(id).unwrap().video.as_mut().unwrap().frames = vec![blank_of(fmt); limit];
+        Ok(())
+    })
+    .unwrap();
+    for cmd in ["layer.videoLayers.insertBlankFrame", "layer.videoLayers.duplicateFrame"] {
+        assert!(s.execute(cmd, json!({})).is_err(), "{cmd}");
+        assert_eq!(frames(&s, id), limit, "{cmd}");
+    }
+}
+
 #[test]
 fn rasterize_drops_the_stack() {
     let mut s = session();
@@ -220,4 +241,14 @@ fn restricted_video_psds_embed_no_linked_image() {
     assert!(contains(&save(&mut s)));
     s.authorize = Some(|_, _| Ok(()));
     assert!(!contains(&save(&mut s)));
+}
+
+#[test]
+fn render_video_rejects_a_gif_whose_frames_together_are_too_large() {
+    // Each 4000 x 4000 frame is under the per-frame cap, but 100,000 of them would stage ~1.6 TB.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 4000, "height": 4000})).unwrap();
+    s.execute("timeline.create", json!({"duration": 100_000, "fps": 30})).unwrap();
+    let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("many-gif"), "format": "gif"})).unwrap_err();
+    assert!(err.to_string().contains("staged in total"), "{err}");
 }

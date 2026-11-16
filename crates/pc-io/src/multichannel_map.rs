@@ -24,32 +24,46 @@ const ALPHA_IDENTIFIERS: u16 = 1053;
 /// selection ids (1069) and layer groups enabled (1072). A Multichannel document has no layers.
 const LAYER_ONLY_RESOURCES: [u16; 4] = [ids::LAYER_STATE, ids::LAYER_GROUP_INFO, 1069, 1072];
 
-/// Value of sample `i` of a big-endian plane.
-fn decode(plane: &[u8], i: usize, s: SampleType) -> f32 {
-    match s {
-        SampleType::U8 => f32::from(plane[i]) / 255.0,
-        SampleType::U16 => f32::from(u16::from_be_bytes([plane[2 * i], plane[2 * i + 1]])) / 65535.0,
-        SampleType::F32 => f32::from_be_bytes([plane[4 * i], plane[4 * i + 1], plane[4 * i + 2], plane[4 * i + 3]]),
-    }
+/// Value of sample `i` of a big-endian plane, or `None` past its end.
+fn decode(plane: &[u8], i: usize, s: SampleType) -> Option<f32> {
+    let start = i.checked_mul(s.bytes())?;
+    let bytes = plane.get(start..start.checked_add(s.bytes())?)?;
+    Some(match s {
+        SampleType::U8 => f32::from(bytes[0]) / 255.0,
+        SampleType::U16 => f32::from(u16::from_be_bytes(bytes.try_into().ok()?)) / 65535.0,
+        SampleType::F32 => f32::from_be_bytes(bytes.try_into().ok()?),
+    })
 }
 
 /// Fills `doc` (already in Multichannel mode at the file depth) from the merged planes `all`.
-pub(crate) fn import(file: &PsdFile, all: &[u8], doc: &mut Document, names: &[String], warnings: &mut Vec<String>) {
+/// Each plane is converted one tile row at a time, so no full-plane float buffer is held. A
+/// plane layout that doesn't match the document depth, or a failed allocation, is an error.
+pub(crate) fn import(file: &PsdFile, all: &[u8], doc: &mut Document, names: &[String], warnings: &mut Vec<String>) -> Result<(), String> {
     let h = &file.header;
     let depth = doc.depth;
     let (w, hh) = (h.width as usize, h.height as usize);
-    let n = w * hh;
-    let plane = h.row_bytes() * hh;
-    let canvas = Rect::new(0, 0, h.width as i32, h.height as i32);
+    let overflow = || "multichannel pixel size overflow".to_string();
+    let plane = h.row_bytes().checked_mul(hh).ok_or_else(overflow)?;
+    if w.checked_mul(hh).and_then(|n| n.checked_mul(depth.bytes())).ok_or_else(overflow)? != plane {
+        return Err("multichannel channel depth does not match its pixel layout".into());
+    }
     let fmt = PixelFormat::new(ColorMode::Grayscale, depth, false);
+    let band = photocraft_geom::TILE_SIZE as usize;
     for k in 0..usize::from(h.channels) {
-        let Some(p) = all.get(k * plane..(k + 1) * plane) else {
+        let Some(p) = k.checked_mul(plane).and_then(|start| all.get(start..start.checked_add(plane)?)) else {
             warnings.push(format!("multichannel: channel {} is missing", k + 1));
             break;
         };
-        let vals: Vec<f32> = (0..n).map(|i| 1.0 - decode(p, i, depth)).collect();
         let mut s = Surface::new(fmt);
-        s.write_region(canvas, &vals);
+        for y in (0..hh).step_by(band) {
+            let bottom = (y + band).min(hh);
+            let mut vals = Vec::new();
+            vals.try_reserve_exact(w * (bottom - y)).map_err(|e| format!("not enough memory for multichannel pixels ({e})"))?;
+            for i in y * w..bottom * w {
+                vals.push(1.0 - decode(p, i, depth).ok_or_else(overflow)?);
+            }
+            s.try_write_region(Rect::new(0, y as i32, h.width as i32, bottom as i32), &vals).map_err(|e| format!("multichannel pixel allocation: {e}"))?;
+        }
         s.prune();
         let name = names.get(k).cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| format!("Channel {}", k + 1));
         // Without DisplayInfo the channels print in black, as Photoshop shows them.
@@ -60,6 +74,7 @@ pub(crate) fn import(file: &PsdFile, all: &[u8], doc: &mut Document, names: &[St
     } else if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO_OLD) {
         crate::channel_map::apply_display_info(&r.data, false, 0, &mut doc.channels);
     }
+    Ok(())
 }
 
 /// Writes a Multichannel document as a mode-7 PSD (no layer section; every channel a plane).
@@ -166,4 +181,33 @@ pub(crate) fn document_to_psd(doc: &Document, force_psb: bool) -> (PsdFile, Vec<
         image_data,
     };
     (file, warnings)
+}
+
+#[cfg(test)]
+mod import_allocation_tests {
+    use super::*;
+
+    #[test]
+    fn missing_planes_remain_recoverable_without_reading_past_input() {
+        let file = photocraft_psd::testgen::merged_only(photocraft_psd::Version::Psd, PsdMode::Multichannel, 8, Compression::Raw, 3, 2);
+        let mut doc = Document::new("Partial", photocraft_geom::Size::new(3, 2), ColorMode::Multichannel, SampleType::U8);
+        let mut warnings = Vec::new();
+        import(&file, &[0; 6], &mut doc, &[], &mut warnings).unwrap();
+        assert_eq!(doc.channels.len(), 1);
+        assert_eq!(doc.channels[0].surface.read_region(doc.bounds()), vec![1.0; 6]);
+        assert_eq!(warnings.len(), 1);
+        assert!(decode(&[], usize::MAX, SampleType::F32).is_none());
+    }
+
+    /// A plane narrower than the document depth (here a 1-bit header in an 8-bit document) used
+    /// to index past the plane and panic.
+    #[test]
+    fn a_plane_that_does_not_match_the_depth_is_refused() {
+        let mut file = photocraft_psd::testgen::merged_only(photocraft_psd::Version::Psd, PsdMode::Multichannel, 8, Compression::Raw, 16, 2);
+        file.header.depth = 1;
+        let mut doc = Document::new("Narrow", photocraft_geom::Size::new(16, 2), ColorMode::Multichannel, SampleType::U8);
+        let mut warnings = Vec::new();
+        assert!(import(&file, &[0; 64], &mut doc, &[], &mut warnings).is_err());
+        assert!(doc.channels.is_empty());
+    }
 }

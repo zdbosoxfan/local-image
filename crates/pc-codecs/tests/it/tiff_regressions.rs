@@ -1,5 +1,6 @@
+use crate::common::tiffgen::*;
 use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
-use photocraft_codecs::{Image, decode};
+use photocraft_codecs::{CodecError, DecodeOptions, Image, Limits, decode, decode_with};
 
 fn classic_white_is_zero() -> Vec<u8> {
     let width = 4u16;
@@ -108,4 +109,47 @@ fn jpeg_dimensions_must_fit_the_declared_tiff_strip_before_decode() {
     let bytes = tiffgen::build(true, false, &[dir], &[0]).bytes;
     let error = decode(&bytes).unwrap_err().to_string();
     assert!(error.contains("JPEG chunk header") || error.contains("JPEG dimensions"), "{error}");
+}
+
+fn refusal(bytes: &[u8]) -> String {
+    match decode(bytes) {
+        Err(e) => e.to_string(),
+        Ok(i) => panic!("decoded a {}x{} image", i.width(), i.height()),
+    }
+}
+
+fn with_compression(mut dir: Dir, compression: u64) -> Dir {
+    dir.entries.retain(|e| e.0 != 259);
+    dir.tag(259, SHORT, &[compression])
+}
+
+#[test]
+fn a_repeated_structural_tag_is_refused() {
+    // SamplesPerPixel 1 first (what the directory checks read), 64 last (what the backend reads).
+    let dir = strips(4, 1, 8, 1, 1, 1, &[1, 2, 3, 4]).tag(277, SHORT, &[64]);
+    let e = refusal(&build(true, false, &[dir], &[0]).bytes);
+    assert!(e.contains("277 appears more than once"), "{e}");
+}
+
+#[test]
+fn a_float_predicted_tile_row_wider_than_the_scratch_cap_is_refused() {
+    // A 16x16 32-bit float image in one tile 2^25 samples wide: the floating-point predictor
+    // would make the backend allocate a 128 MiB row for it.
+    let mut dir = Dir { entries: base(16, 16, 32, 1, 1), chunks: vec![vec![0; 64]], tiled: true };
+    dir = with_compression(dir, 8).tag(317, SHORT, &[3]).tag(322, LONG, &[1 << 25]).tag(323, LONG, &[16]).tag(339, SHORT, &[3]);
+    let e = refusal(&build(true, false, &[dir], &[0]).bytes);
+    assert!(e.contains("predicted tile row"), "{e}");
+}
+
+#[test]
+fn a_jpeg_tile_decoding_past_the_scratch_cap_is_refused() {
+    // A 16x16 page in one 2048x2048 tile whose JPEG frame fills the tile: 4 MiB decoded under
+    // a 1 MiB budget.
+    let mut jpeg = Vec::new();
+    jpeg_encoder::Encoder::new(&mut jpeg, 50).encode(&vec![100u8; 2048 * 2048], 2048, 2048, jpeg_encoder::ColorType::Luma).unwrap();
+    let mut dir = Dir { entries: base(16, 16, 8, 1, 1), chunks: vec![jpeg], tiled: true };
+    dir = with_compression(dir, 7).tag(322, LONG, &[2048]).tag(323, LONG, &[2048]);
+    let options = DecodeOptions { limits: Limits { max_alloc: 1 << 20, ..Limits::default() }, ..Default::default() };
+    let r = decode_with(&build(true, false, &[dir], &[0]).bytes, &options);
+    assert!(matches!(&r, Err(CodecError::LimitExceeded(m)) if m.contains("JPEG")), "{:?}", r.map(|i| i.dimensions()));
 }
