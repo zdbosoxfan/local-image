@@ -105,14 +105,7 @@ fn finish_reader(mut reader: png::Reader<&mut Cursor<&[u8]>>) -> Result<PngExtra
     {
         meta.dpi = Some((dpi_of_ppm(d.xppu), dpi_of_ppm(d.yppu)));
     }
-    Ok(PngExtras {
-        icc: None,
-        meta,
-        color_hint: container_hint(info),
-        warnings: Vec::new(),
-        orientation: 1,
-        source_bit_depth: info.bit_depth as u8,
-    })
+    Ok(PngExtras { icc: None, meta, color_hint: container_hint(info), warnings: Vec::new(), orientation: 1, source_bit_depth: info.bit_depth as u8 })
 }
 
 /// `x` with the ICC profile, the text chunks (read from `input`, the file up to where the reader
