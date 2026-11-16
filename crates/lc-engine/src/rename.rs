@@ -1156,4 +1156,15 @@ mod tests {
         // a bare {seq} is padded to the caller's width
         assert_eq!(expand_tokens("{seq}|{seq:2}", &p, 7, 3), "007|07");
     }
+
+    /// A long value repeated many times stops at the output cap, cut at a character boundary
+    /// (a three-byte character does not divide the cap).
+    #[test]
+    fn token_expansion_stops_at_the_output_cap() {
+        let mut p = file_photo(1, "shoots/IMG_1.jpg");
+        p.meta.creator = "€".repeat(5000);
+        let out = expand_tokens(&"{creator}".repeat(300), &p, 1, 1);
+        assert!(out.len() <= MAX_EXPANDED_BYTES && out.len() > MAX_EXPANDED_BYTES - 3, "{}", out.len());
+        assert!(out.chars().all(|c| c == '€'));
+    }
 }
