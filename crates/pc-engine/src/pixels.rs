@@ -294,7 +294,7 @@ mod tests {
             let mut reference = Vec::new();
             for (i, (a, o)) in buf.px.iter().zip(&original).enumerate() {
                 let k = selection.sample_channel(r.x0 + (i % 73) as i32, r.y0 + (i / 73) as i32, 0);
-                reference.extend(photocraft_raster::from_rgba(&fmt, std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k)));
+                reference.extend(photocraft_raster::from_rgba(&fmt, std::array::from_fn(|c| o[c] * (1.0 - k) + a[c] * k)));
             }
             for threads in [1, 4] {
                 let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
