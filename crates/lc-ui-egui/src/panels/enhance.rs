@@ -67,7 +67,9 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
             dim(ui, "Paint more to add to it (⌥ takes away), then remove it all at once.");
             ui.horizontal(|ui| {
                 let apply = ui.add_enabled_ui(ready, |ui| {
-                    text_button(ui, "removePanelApply", "Remove", true).on_hover_text(li_i18n::library::t("Remove what you painted (Enter)")).clicked()
+                    text_button(ui, "removePanelApply", "Remove", true)
+                        .on_hover_text(li_i18n::library::t("Remove what you painted (Enter)"))
+                        .clicked()
                 });
                 if apply.inner {
                     super::detail::apply_remove_draft(app, ui.ctx());
