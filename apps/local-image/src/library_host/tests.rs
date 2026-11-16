@@ -3279,6 +3279,40 @@ fn lrc_one_preferences_shell_drafts_apply_cancel_and_one_store_in_every_module()
     drop(h);
     std::fs::remove_dir_all(dir).unwrap();
 }
+/// Preferences opened in Compositing leaves the Library's catalog closed until one of the
+/// Library's own pages is shown.
+#[test]
+fn compositing_preferences_open_the_library_only_for_its_pages() {
+    let (dir, _, library, _) = library_with_photo("lazy-preferences");
+    let location = library.ui.settings.library_path.clone();
+    drop(library);
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    editor.session.edit_prefs(|prefs| {
+        prefs.library.insert("settings".into(), json!({ "libraryPath": location }));
+    });
+    let mut host = Host::new(editor);
+    host.editor.host_modes = true;
+    host.mode = Module::Compositing;
+    let mut h = RoundTripUi::new(host);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert!(h.host.library.is_none());
+    photocraft_ui_egui::prefs_ui::open_preferences(&mut h.host.editor, "general");
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert!(h.host.library.is_none(), "Compositing's pages do not open the catalog");
+    photocraft_ui_egui::prefs_ui::open_preferences(&mut h.host.editor, "library.general");
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert_eq!(h.host.library.as_ref().map(|lib| lib.ui.settings.library_path.clone()), Some(location));
+    assert!(!h.host.editor.ui.dialogs[0].fields["hostValues"].is_null(), "the Library page drafts from the opened Library");
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn lrc_module_picker_right_edge_matches_library_develop_pixel_and_vector_personas() {
     let (dir, host) = workflow_host("lrc-picker");

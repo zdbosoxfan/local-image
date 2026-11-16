@@ -32,7 +32,8 @@
 //! to Library shows a non-blocking notice with Save and Keep Editing actions; saves report their
 //! destination and Library stack in both modules.
 //!
-//! The library opens lazily, the first time Library or Develop is shown.
+//! The library opens lazily, the first time Library or Develop, or one of its Preferences pages, is
+//! shown.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -483,6 +484,19 @@ impl Host {
 
     fn with_preferences_ui(&mut self, ctx: &egui::Context, draw: impl FnOnce(&mut PhotocraftApp)) {
         if !self.editor.host_modes || !self.editor.ui.dialogs.iter().any(|d| photocraft_ui_egui::prefs_ui::is_preferences(&d.fields)) {
+            draw(&mut self.editor);
+            return;
+        }
+        // The Library opens for its own pages only: Compositing's pages never wait on its catalog.
+        let library_page = self
+            .editor
+            .ui
+            .dialogs
+            .iter()
+            .filter(|d| photocraft_ui_egui::prefs_ui::is_preferences(&d.fields))
+            .filter_map(|d| d.fields.get("section")?.as_str())
+            .any(|section| LIBRARY_PREFS_PAGES.iter().any(|(id, _)| *id == section));
+        if self.library.is_none() && !library_page {
             draw(&mut self.editor);
             return;
         }
