@@ -3910,3 +3910,5 @@ ai	New	새 항목
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	"{doc}" 문서는 더 이상 파일에 연결되어 있지 않으며 저장되지 않은 상태로 표시됩니다. 내용을 유지하려면 새 이름으로 저장하세요.
 # Match Color source layer (PhotoCraft 26d79021)
 	Merged	병합
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	이미지의 톤을 넓게 펼치는 회색 혼합

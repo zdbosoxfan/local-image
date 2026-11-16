@@ -3929,3 +3929,5 @@ ai	New	Novos
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	“{doc}” não está mais associado a um arquivo e foi marcado como não salvo: salve-o com um novo nome para mantê-lo.
 # Match Color source layer (PhotoCraft 26d79021)
 	Merged	Mesclado
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Uma mistura de cinzas que espalha os tons da imagem
