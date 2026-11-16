@@ -2,7 +2,8 @@
 //! size, resolution, colour mode, bit depth and profile, holding one embedded smart object layer.
 //!
 //! The layer is an embedded smart object as File › Place Embedded makes one, at the file's own
-//! size and position `0, 0`.
+//! size and position `0, 0`, put into the document before it is admitted, so opening is one
+//! history state.
 
 use super::{
     Affine, Arc, Document, EngineError, Layer, LayerContent, Result, Session, SmartObject, SmartSource, Value, file_name, flattened_checked, import, json,
@@ -63,18 +64,19 @@ fn open_one(s: &mut Session, path: &str) -> Result<Value> {
     // Embedded (not linked): the original file name keeps its extension, so Edit Contents opens it.
     let source = SmartSource::Embedded { file_name: file_name(path), bytes: Arc::new(bytes) };
     let so = SmartObject::new(source, Affine { m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] }, Some(pixels));
+    let layer = doc.insert_above(None, Layer::new(layer_name, LayerContent::Smart(so)));
+    let index = admit_as_smart_object(s, doc);
+    Ok(json!({"document": index, "name": name, "layer": layer.0}))
+}
+
+/// Admits a document built by Open as Smart Object (one smart object layer, which becomes the
+/// active layer) as an untitled document whose history is the single state "Open As Smart
+/// Object", as File › Open's is one state.
+fn admit_as_smart_object(s: &mut Session, doc: Document) -> usize {
     // Untitled: no path, so Save asks where to save.
     let index = s.add_document(doc, None);
-    let placed = s.edit(LABEL, |doc, active| {
-        let id = doc.insert_above(None, Layer::new(layer_name, LayerContent::Smart(so)));
-        *active = Some(id);
-        Ok(id)
-    });
-    match placed {
-        Ok(layer) => Ok(json!({"document": index, "name": name, "layer": layer.0})),
-        Err(e) => {
-            s.close(index);
-            Err(e)
-        }
+    if let Some(st) = s.active_mut() {
+        st.history.set_current_label(LABEL);
     }
+    index
 }

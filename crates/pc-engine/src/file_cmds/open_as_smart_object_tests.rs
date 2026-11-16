@@ -117,14 +117,27 @@ fn a_16_bit_psd_keeps_size_resolution_mode_depth_and_profile() {
 }
 
 #[test]
-fn history_is_the_opening_state_then_open_as_smart_object() {
+fn history_is_the_single_state_open_as_smart_object() {
     let dir = tmp("history");
     let path = write_png(&dir, "a_test.png", 16, 16);
     let mut s = Session::new();
     s.execute("file.openAsSmartObject", json!({"path": path})).unwrap();
     let st = s.active().unwrap();
-    assert_eq!(st.history.entries().last().map(String::as_str), Some("Open As Smart Object"));
-    assert_eq!(st.history.entries().len(), 2, "the opening state, then one step");
+    assert_eq!(st.history.entries(), ["Open As Smart Object"], "one state, as File > Open has");
+}
+
+#[test]
+fn the_opening_state_holds_the_placed_smart_object() {
+    let dir = tmp("opening");
+    let path = write_png(&dir, "a_test.png", 16, 16);
+    let mut s = Session::new();
+    s.execute("file.openAsSmartObject", json!({"path": path})).unwrap();
+    let st = s.active().unwrap();
+    assert!(!st.history.can_undo(), "the smart object is part of the opening state, not a step after it");
+    assert_eq!(st.doc.layers.len(), 1);
+    assert!(matches!(st.doc.layers[0].content, LayerContent::Smart(_)));
+    assert_eq!(st.active_layer, Some(st.doc.layers[0].id));
+    assert_eq!(st.selected_layers, [st.doc.layers[0].id]);
 }
 
 #[test]
