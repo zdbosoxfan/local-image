@@ -121,7 +121,15 @@ fn render_source(
     settings: &lightcraft_develop::DevelopSettings,
 ) -> Result<ImportResult, IoError> {
     use lightcraft_pipeline::{OutputDepth, OutputSpace, RenderRequest};
-    let req = RenderRequest { space: OutputSpace::ProPhoto, depth: OutputDepth::U16, ..RenderRequest::fit(src.width, src.height) };
+    // The developed geometry's full size (orientation and crop applied), asked for as the
+    // Library's full-size export asks: the source's own box would shrink a photo turned 90 degrees.
+    let (w, h) = lightcraft_pipeline::native_output_size(src.width, src.height, settings);
+    let req = RenderRequest {
+        space: OutputSpace::ProPhoto,
+        depth: OutputDepth::U16,
+        exact_size: true,
+        ..RenderRequest::fit(w.round().max(1.0) as usize, h.round().max(1.0) as usize)
+    };
     // The Library's content key of an imported file is its BLAKE3 identity; a Duplicate's own
     // `:dupN` key is not known from the bytes, so its own AI results are left out here.
     let content_key = blake3::hash(bytes).to_hex();
@@ -209,6 +217,16 @@ mod tests {
         });
         let foreign = develop_with_settings("a.dng", &bytes, &settings.to_json()).unwrap();
         assert_eq!(pixels(&foreign), pixels(&plain));
+    }
+
+    /// A photo turned 90 degrees in Develop arrives at its full size, upright: not fitted into the
+    /// unturned box.
+    #[test]
+    fn develop_turned_a_quarter_keeps_the_full_size() {
+        let _test = CACHE_TEST.lock().unwrap();
+        let bytes = dng(64, 40, [0.6, 1.0, 0.8]);
+        let turned = develop_with_settings("a.dng", &bytes, &serde_json::json!({ "orientation": "Rotate90" })).unwrap();
+        assert_eq!(turned.document.size, photocraft_geom::Size::new(40, 64));
     }
 
     #[test]
