@@ -1143,7 +1143,9 @@ impl Host {
                 })
             {
                 let lib = self.library();
-                let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
+                // A photo already in the selection becomes active without collapsing the selection.
+                let mode = if lib.session.selection.contains(lightcraft_catalog::PhotoId(id)) { "add" } else { "replace" };
+                let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id, "mode": mode }));
                 self.left_compositing_with = Some(id);
             }
             if to == Module::Library

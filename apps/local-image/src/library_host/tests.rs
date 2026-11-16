@@ -1069,6 +1069,24 @@ fn a_plain_switch_to_compositing_keeps_the_open_document() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Back from Compositing, a Library selection that holds the edited photo stays selected; the
+/// photo becomes the active one.
+#[test]
+fn return_from_compositing_keeps_the_library_selection() {
+    let (dir, path, lib, orig) = library_with_photo("return-keeps-selection");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    let lib = host.library();
+    lib.run("photo.virtualCopy", json!({"ids": [orig.0]})).unwrap();
+    let copy = lib.session.catalog.photos().map(|p| p.id).find(|id| *id != orig).unwrap();
+    lib.run("library.select", json!({"ids": [copy.0, orig.0], "active": copy.0})).unwrap();
+    host.switch(&ctx, Module::Library);
+    let selection = &catalog(&host).selection;
+    assert_eq!(selection.ids, [copy, orig]);
+    assert_eq!(selection.active, Some(orig));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Undoing the new Develop layer lasts: the next trip to the Library and back does not add it again.
 #[test]
 fn undone_develop_edits_stay_undone_after_a_module_switch() {
