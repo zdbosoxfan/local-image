@@ -1,5 +1,5 @@
 #![no_main]
-//! Whole-file metadata extraction: container walking (JPEG, PNG, WebP, TIFF-based, CR3) feeding the
+//! Whole-file metadata extraction: container walking (JPEG, PNG, WebP, TIFF-based, CR3, HEIF) feeding the
 //! EXIF, IPTC and XMP readers together.
 
 use libfuzzer_sys::fuzz_target;

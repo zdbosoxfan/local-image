@@ -474,29 +474,7 @@ impl Image {
         if layout == self.layout && sample == self.sample {
             return self.clone();
         }
-        let data = if sample == self.sample && !self.layout.has_alpha() && layout == self.layout.with_alpha() {
-            // Fast path (opening any opaque file): copy the samples, append an opaque alpha.
-            let bps = sample.bytes();
-            let src = self.layout.channels() * bps;
-            let one: Vec<u8> = match sample {
-                SampleType::U8 => vec![u8::MAX],
-                SampleType::U16 => u16::MAX.to_ne_bytes().to_vec(),
-                SampleType::F16 => f16::ONE.to_bits().to_ne_bytes().to_vec(),
-                SampleType::F32 => 1.0f32.to_ne_bytes().to_vec(),
-            };
-            let mut out = Vec::with_capacity(self.data.len() / src * (src + bps));
-            for px in self.data.chunks_exact(src) {
-                out.extend_from_slice(px);
-                out.extend_from_slice(&one);
-            }
-            out
-        } else if layout == self.layout {
-            quantize(&self.to_normalized(), sample)
-        } else {
-            let src = self.to_normalized();
-            let values = convert_layout(&src, self.layout, layout);
-            quantize(&values, sample)
-        };
+        let data = convert_data(&self.data, self.layout, self.sample, layout, sample);
         Image {
             width: self.width,
             height: self.height,
@@ -534,6 +512,47 @@ impl Image {
     pub fn to_rgba_f32(&self) -> Vec<f32> {
         convert_layout(&self.to_normalized(), self.layout, ChannelLayout::Rgba)
     }
+}
+
+/// The samples of `data` (`from` layout and sample type) in the `layout` and `sample` type: the
+/// arithmetic of [`Image::convert`], on borrowed bytes.
+fn convert_data(data: &[u8], from: ChannelLayout, from_sample: SampleType, layout: ChannelLayout, sample: SampleType) -> Vec<u8> {
+    if layout == from && sample == from_sample {
+        data.to_vec()
+    } else if sample == from_sample && !from.has_alpha() && layout == from.with_alpha() {
+        // Fast path (opening any opaque file): copy the samples, append an opaque alpha.
+        let bps = sample.bytes();
+        let src = from.channels() * bps;
+        let one: Vec<u8> = match sample {
+            SampleType::U8 => vec![u8::MAX],
+            SampleType::U16 => u16::MAX.to_ne_bytes().to_vec(),
+            SampleType::F16 => f16::ONE.to_bits().to_ne_bytes().to_vec(),
+            SampleType::F32 => 1.0f32.to_ne_bytes().to_vec(),
+        };
+        let mut out = Vec::with_capacity(data.len() / src * (src + bps));
+        for px in data.chunks_exact(src) {
+            out.extend_from_slice(px);
+            out.extend_from_slice(&one);
+        }
+        out
+    } else if layout == from {
+        quantize(&to_normalized(data, from_sample), sample)
+    } else {
+        let src = to_normalized(data, from_sample);
+        let values = convert_layout(&src, from, layout);
+        quantize(&values, sample)
+    }
+}
+
+/// [`Image::convert`] on borrowed pixels: `rows` rows of `width` pixels in `from` (layout, sample
+/// type) become the same pixels in `to`, bit for bit what the image conversion gives. Lets a
+/// caller convert part of a decoded image without copying it into an [`Image`] first.
+pub fn convert_samples(src: &[u8], width: u32, rows: u32, from: (ChannelLayout, SampleType), to: (ChannelLayout, SampleType)) -> Result<Vec<u8>, CodecError> {
+    let expected = byte_len(width, rows, from.0, from.1).ok_or_else(|| CodecError::InvalidImage("image size overflows usize".into()))?;
+    if src.len() != expected {
+        return Err(CodecError::InvalidImage(format!("buffer has {} bytes, expected {expected} for {width}x{rows} {:?} {:?}", src.len(), from.0, from.1)));
+    }
+    Ok(convert_data(src, from.0, from.1, to.0, to.1))
 }
 
 // Sample conversion helpers
@@ -638,6 +657,20 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn convert_samples_matches_image_convert_and_rejects_a_wrong_length() {
+        for sample in SampleType::ALL {
+            let vals: Vec<f32> = (0..5 * 2 * 3).map(|i| (i as f32 * 0.31) % 1.0).collect();
+            let img = Image::from_normalized(5, 2, ChannelLayout::Rgb, sample, &vals).unwrap();
+            for (layout, to) in [(ChannelLayout::Rgba, sample), (ChannelLayout::Gray, SampleType::F32), (ChannelLayout::Rgb, SampleType::U8)] {
+                let want = img.convert(layout, to);
+                let got = convert_samples(img.data(), 5, 2, (ChannelLayout::Rgb, sample), (layout, to)).unwrap();
+                assert_eq!(got, want.data(), "{sample:?} to {layout:?} {to:?}");
+            }
+            assert!(convert_samples(img.data().get(1..).unwrap_or_default(), 5, 2, (ChannelLayout::Rgb, sample), (ChannelLayout::Rgba, sample)).is_err());
+        }
+    }
 
     #[test]
     fn u8_u16_roundtrip_exact() {

@@ -138,6 +138,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let pinned: Option<egui::Vec2> = ctx.data(|m| m.get_temp(id));
         let mut drag = egui::Vec2::ZERO;
         let mut sizing = false;
+        let mut processor_alert = None;
         let area = match pinned {
             Some(offset) => egui::Modal::default_area(id).anchor(egui::Align2::LEFT_TOP, offset),
             None => egui::Modal::default_area(id),
@@ -252,6 +253,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         }
                         crate::filter_dialog::body(ui, &mut fields)
                     }
+                    DialogKind::Command if crate::image_processor_ui::owns(&fields) => processor_alert = crate::image_processor_ui::body(ui, &mut fields),
                     DialogKind::Command if fields.contains_key("__form") => crate::view_cmds::form_body(ui, &mut fields),
                     DialogKind::Command => {}
                     DialogKind::LayerStyle => crate::layer_style::body(app, ui, &mut fields),
@@ -270,7 +272,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         outcome = Some(false);
                     }
                 } else {
-                    let ok_label = if d.kind == DialogKind::NewDocument {
+                    let ok_label = if crate::image_processor_ui::owns(&d.fields) {
+                        tl!("Run")
+                    } else if d.kind == DialogKind::NewDocument {
                         tl!("Create")
                     } else if d.fields.contains_key("__export") {
                         tl!("Export")
@@ -325,6 +329,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         {
             outcome = Some(false);
         }
+        outcome = crate::image_processor_ui::finish(&mut app.ui, modal.is_top_modal, processor_alert, outcome);
         if let Some(dm) = app.ui.dialog_mut(d.id) {
             dm.fields = fields;
         }
@@ -488,6 +493,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
             Ok(result)
         });
     }
+    crate::image_processor_ui::preflight(&mut app.ui, id)?;
     let d = app.ui.close_dialog(id).ok_or_else(|| format!("no dialog {id}"))?;
     match d.kind {
         DialogKind::NewDocument => crate::new_doc_ui::confirm(app, &d.fields),

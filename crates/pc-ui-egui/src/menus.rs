@@ -1633,6 +1633,23 @@ mod tests {
         assert!(after < before - 1.0, "mouse wheel should move tall menu content: {before} -> {after}");
     }
 
+    /// Frequency Separation is no Photoshop menu item (it is a recorded action there): it sits
+    /// in Filter › Other after High Pass and asks for its radius.
+    #[test]
+    fn frequency_separation_sits_in_filter_other_after_high_pass() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        let items = menu_items(&app);
+        let at = |id: &str| items.iter().position(|i| i.id == id).unwrap_or_else(|| panic!("{id} missing"));
+        let (high_pass, fs) = (at("filter.other.highPass"), at("layer.frequencySeparation"));
+        assert_eq!(fs, high_pass + 1);
+        assert_eq!(items[fs].path, items[high_pass].path);
+        assert_eq!(items[fs].label, "Frequency Separation…");
+        assert_eq!(items.iter().filter(|i| i.label == "Frequency Separation…").count(), 1, "one entry");
+        assert!(items[fs].enabled, "the Background is a pixel layer with pixels");
+        assert!(crate::filter_dialog::has_dialog("layer.frequencySeparation"));
+    }
+
     #[test]
     fn window_panel_and_workspace_ids_drive_the_shell() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
