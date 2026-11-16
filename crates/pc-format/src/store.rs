@@ -30,11 +30,25 @@ fn compress(data: &[u8]) -> Vec<u8> {
     ruzstd::encoding::compress_to_vec(data, ruzstd::encoding::CompressionLevel::Fastest)
 }
 
+/// Smallest zstd window [`decompress_bounded`] accepts, whatever the object's size.
+const MAX_ZSTD_WINDOW_FLOOR: u64 = 8 << 20;
+
 /// Decodes a zstd frame of at most `max` bytes (`LimitExceeded` beyond). With `exact`, the
 /// decoded length must be exactly that (`Corrupt` otherwise).
 fn decompress_bounded(data: &[u8], max: usize, exact: Option<usize>, what: &str) -> Result<Vec<u8>> {
     let zstd = |e: &dyn std::fmt::Display| FormatError::corrupt(format!("{what}: zstd: {e}"));
-    let mut dec = ruzstd::decoding::StreamingDecoder::new(data).map_err(|e| zstd(&e))?;
+    // The decoder allocates its window before any output reaches the length check: hold it to
+    // what this object may decode to (libzstd's default windows stay under 8 MiB), not ruzstd's
+    // 128 MiB default.
+    let window = u64::try_from(exact.unwrap_or(max)).unwrap_or(u64::MAX).max(MAX_ZSTD_WINDOW_FLOOR);
+    let mut dec = match ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, window) {
+        Ok(dec) => dec,
+        // A well-formed frame asking for more window than the object may decode to is over its limit.
+        Err(ruzstd::decoding::errors::FrameDecoderError::WindowSizeTooBig { requested, .. }) => {
+            return Err(FormatError::LimitExceeded(format!("{what}: zstd window of {requested} bytes exceeds {window}")));
+        }
+        Err(e) => return Err(zstd(&e)),
+    };
     let mut out = Vec::with_capacity(exact.unwrap_or(0).min(max).min(64 << 20));
     // `max` may be `usize::MAX`: one byte past it must not overflow.
     let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
@@ -264,11 +278,15 @@ impl Fetch for LoadFetch<'_> {
             return Err(FormatError::corrupt(format!("invalid blob hash `{hash}`")));
         }
         let path = blob_path(hash);
-        let compressed_max = self.opts.max_blob_bytes.saturating_add(self.opts.max_blob_bytes / 8).saturating_add(4096);
+        // A new blob is kept beside every earlier one, so it may inflate to no more than what the
+        // load's total budget has left; checking the total only afterwards let each of several
+        // blobs allocate a full `max_blob_bytes` first.
+        let left = usize::try_from(self.opts.max_total_bytes.saturating_sub(self.total)).unwrap_or(usize::MAX);
+        let limit = self.opts.max_blob_bytes.min(left);
+        let compressed_max = limit.saturating_add(limit / 8).saturating_add(4096);
         let z = self.src.get(&path, compressed_max)?;
-        // Blob length is not in the manifest; the frame header bounds it and
-        // we cap at max_blob_bytes.
-        let data = decompress_bounded(&z, self.opts.max_blob_bytes, None, &path)?;
+        // Blob length is not in the manifest; the frame header bounds it and we cap at `limit`.
+        let data = decompress_bounded(&z, limit, None, &path)?;
         self.account(data.len())?;
         if hash_bytes(&data) != hash {
             return Err(FormatError::corrupt(format!("{path}: content does not match its hash")));
@@ -373,6 +391,12 @@ impl Sink for Collect<'_> {
         self.blobs.entry(h.clone()).or_insert_with(|| data.clone());
         h
     }
+}
+
+/// Limits a save is checked against: the format's own total, not this machine's load budget, so
+/// a document already in memory is never refused for the RAM it occupies.
+fn save_limits() -> LoadOptions {
+    LoadOptions { max_total_bytes: crate::MAX_TOTAL_BYTES, ..LoadOptions::default() }
 }
 
 fn tile_le(t: &Tile, sample: SampleType) -> std::borrow::Cow<'_, [u8]> {
@@ -612,7 +636,7 @@ impl PcraftWriter {
 
     /// Save as a ZIP bundle in memory.
     pub fn save_zip(&mut self, doc: &Document, opts: &SaveOptions) -> Result<(Vec<u8>, SaveStats)> {
-        self.save_zip_with_limits(doc, opts, &LoadOptions::default(), crate::read::MAX_FILE_BYTES as usize)
+        self.save_zip_with_limits(doc, opts, &save_limits(), crate::read::MAX_FILE_BYTES as usize)
     }
 
     fn save_zip_with_limits(&mut self, doc: &Document, opts: &SaveOptions, limits: &LoadOptions, max_archive_bytes: usize) -> Result<(Vec<u8>, SaveStats)> {
@@ -655,7 +679,7 @@ impl PcraftWriter {
     /// rewrites missing or damaged objects, then writes the manifest
     /// atomically and removes unreferenced objects.
     pub fn save_dir(&mut self, doc: &Document, dir: &Path, opts: &SaveOptions) -> Result<SaveStats> {
-        self.save_dir_with_limits(doc, dir, opts, &LoadOptions::default())
+        self.save_dir_with_limits(doc, dir, opts, &save_limits())
     }
 
     fn save_dir_with_limits(&mut self, doc: &Document, dir: &Path, opts: &SaveOptions, limits: &LoadOptions) -> Result<SaveStats> {
@@ -775,7 +799,7 @@ impl PcraftWriter {
     /// Save to `path`: a directory bundle if `path` is an existing directory
     /// or ends with a path separator, otherwise a ZIP file (written atomically).
     pub fn save_path(&mut self, doc: &Document, path: &Path, opts: &SaveOptions) -> Result<SaveStats> {
-        self.save_path_with_limits(doc, path, opts, &LoadOptions::default(), crate::read::MAX_FILE_BYTES as usize)
+        self.save_path_with_limits(doc, path, opts, &save_limits(), crate::read::MAX_FILE_BYTES as usize)
     }
 
     fn save_path_with_limits(&mut self, doc: &Document, path: &Path, opts: &SaveOptions, limits: &LoadOptions, max_archive_bytes: usize) -> Result<SaveStats> {
@@ -897,6 +921,19 @@ fn gc_target(relative: &str) -> Result<GcDir<'_>> {
 pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     li_fs::atomic_write(path, data)?;
     Ok(())
+}
+
+/// A well-formed zstd frame that asks for a larger window than the object may decode to is over
+/// its limit, not damaged; one within the window decodes.
+#[cfg(test)]
+#[test]
+fn a_zstd_window_past_the_limit_is_a_limit_not_corruption() {
+    // Magic, a header with a window descriptor only, then one empty last raw block.
+    let frame = |window_descriptor: u8| [0x28, 0xB5, 0x2F, 0xFD, 0x00, window_descriptor, 0x01, 0x00, 0x00];
+    // Exponent 15 is a 32 MiB window.
+    let e = decompress_bounded(&frame(15 << 3), 100, None, "tile").unwrap_err();
+    assert!(matches!(e, FormatError::LimitExceeded(_)), "{e}");
+    assert_eq!(decompress_bounded(&frame(0), 100, None, "tile").unwrap(), Vec::<u8>::new());
 }
 
 /// Upstream 2d5a7497: once cleanup has pinned the bundle's directories, swapping `tiles` for a
@@ -1095,5 +1132,33 @@ mod save_admission_tests {
             PcraftWriter::new().save_path(&loaded, &dir, &SaveOptions::default()).unwrap();
             assert_eq!(crate::load_path(&dir).unwrap(), replacement);
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod blob_budget_tests {
+    use super::*;
+
+    struct MemSource(HashMap<String, Vec<u8>>);
+
+    impl Source for MemSource {
+        fn get(&self, path: &str, _max: usize) -> Result<Vec<u8>> {
+            self.0.get(path).cloned().ok_or_else(|| FormatError::corrupt(format!("{path}: missing")))
+        }
+    }
+
+    /// What the load's total budget has left bounds a blob's decompression.
+    #[test]
+    fn a_blob_inflates_only_to_the_remaining_total_budget() {
+        let data = vec![0u8; 4096];
+        let hash = hash_bytes(&data);
+        let src = MemSource(HashMap::from([(blob_path(&hash), compress(&data))]));
+        let opts = LoadOptions { max_total_bytes: 10 * data.len() as u64, ..Default::default() };
+        let spent = |total: u64| LoadFetch { src: &src, opts, total, blobs: HashMap::new() };
+        assert_eq!(spent(9 * data.len() as u64).blob(&hash).unwrap().as_slice(), data.as_slice());
+        let e = spent(9 * data.len() as u64 + 1).blob(&hash).unwrap_err();
+        let want = format!("exceeds {} bytes", data.len() - 1);
+        assert!(matches!(e, FormatError::LimitExceeded(ref m) if m.contains(&want)), "{e}");
     }
 }

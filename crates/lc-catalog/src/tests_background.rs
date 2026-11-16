@@ -282,7 +282,7 @@ fn fs_store_background_snapshot() {
     // Atomic writes now own unique staging names; an unrelated legacy crash
     // artifact is ignored on load and must not be claimed/deleted by this writer.
     assert_eq!(std::fs::read(dir.join(format!("{SNAPSHOT}.tmp"))).unwrap(), b"{\"format\":\"lightcraft-catal");
-    assert!(!std::fs::read_dir(&dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().starts_with(".lightcraft-")));
+    assert!(!std::fs::read_dir(&dir).unwrap().any(|entry| li_fs::temp_owner(&entry.unwrap().file_name().to_string_lossy()).is_some()));
     edit(&mut j2, &mut live, 999);
     drop(j2);
     let (_, c3, r) = Journal::open(Box::new(FsStore::open(&dir).unwrap())).unwrap();

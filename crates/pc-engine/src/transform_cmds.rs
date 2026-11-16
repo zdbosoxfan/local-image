@@ -346,11 +346,15 @@ pub fn split_selected(surf: &Surface, sel: &Surface) -> (Surface, Surface) {
     for (i, (l, r)) in lp.chunks_exact_mut(n).zip(rp.chunks_exact_mut(n)).enumerate() {
         let (x, y) = (src.x0 + (i % w) as i32, src.y0 + (i / w) as i32);
         let k = sel.sample_channel(x, y, 0);
-        l[n - 1] *= k;
+        // The selection lifts its share of a pixel's coverage, up to all of it: a selection made
+        // from the layer's own alpha takes soft edges whole instead of leaving a × (1 − a) of them
+        // behind. An opaque pixel splits as k and 1 − k.
+        let a = l[n - 1];
+        l[n - 1] = a.min(k.max(0.0));
+        r[n - 1] = (a - l[n - 1]).max(0.0);
         if l[n - 1] <= 0.0 {
             l.fill(0.0);
         }
-        r[n - 1] *= 1.0 - k;
     }
     lifted.write_region(src, &lp);
     lifted.prune();
@@ -957,6 +961,35 @@ mod tests {
         assert_eq!(surf.pixel(15, 65)[3], 1.0, "moved pixels land");
         let sel = st.doc.selection.as_ref().unwrap().content_bounds();
         assert_eq!((sel.y0, sel.y1), (60, 70), "selection moves too");
+    }
+
+    /// A selection made from the layer's own soft edge (its transparency, or the moved pixels after
+    /// a move) lifts each edge pixel whole and leaves no ghost; an opaque pixel half selected still
+    /// splits half and half.
+    #[test]
+    fn soft_edges_selected_by_their_alpha_move_whole() {
+        let mut s = session();
+        s.edit("soft edge", |doc, active| {
+            let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+            for (x, a) in [(30, 0.75), (31, 0.5), (32, 0.25)] {
+                surf.fill_rect(Rect::new(x, 10, x + 1, 20), &[1.0, 0.0, 0.0, a]);
+            }
+            let mut sel = Surface::new(PixelFormat::GRAY8);
+            for (x, a) in [(30, 0.75), (31, 0.5), (32, 0.25)] {
+                sel.fill_rect(Rect::new(x, 10, x + 1, 20), &[a]);
+            }
+            sel.fill_rect(Rect::new(10, 10, 20, 20), &[0.5]);
+            doc.selection = Some(sel);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 0, 50], "interpolation": "nearest"})).unwrap();
+        for (x, a) in [(30, 0.75), (31, 0.5), (32, 0.25)] {
+            assert_eq!(alpha_at(&s, x, 15), 0.0, "x {x}: nothing left where it was");
+            assert!((alpha_at(&s, x, 65) - a).abs() < 0.01, "x {x}: alpha {} where {a} moved", alpha_at(&s, x, 65));
+        }
+        assert!((alpha_at(&s, 15, 15) - 0.5).abs() < 0.01, "half the opaque pixel stays");
+        assert!((alpha_at(&s, 15, 65) - 0.5).abs() < 0.01, "half the opaque pixel moves");
     }
 
     #[test]

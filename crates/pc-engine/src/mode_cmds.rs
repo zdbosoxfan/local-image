@@ -69,7 +69,12 @@ fn rotate_arbitrary(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let bg = s.tools.background;
     let interp = Interp::parse(str_or(p, "interpolation", "bicubic"));
-    let size = s.edit("Rotate Canvas", |doc, _| rotate_doc(doc, deg, interp, bg).map(|(size, _)| size))?;
+    let size = s.edit("Rotate Canvas", |doc, _| {
+        let (size, _) = rotate_doc(doc, deg, interp, bg)?;
+        // As in Photoshop, Image Rotation drops the selection; the step's one undo brings it back.
+        doc.selection = None;
+        Ok(size)
+    })?;
     Ok(json!({"width": size.width, "height": size.height}))
 }
 
@@ -89,6 +94,8 @@ pub(crate) fn rotate_doc(doc: &mut Document, deg: f64, interp: Interp, bg: [f32;
     let canvas = doc.bounds();
     let fmt = doc.pixel_format();
     let dpi = doc.resolution_dpi;
+    // Type in a font that isn't installed turns its own pixels, as it can't re-render.
+    crate::canvas_geom::map_missing_font_type(&mut doc.layers, &mut |c| photocraft_algo::transform::warp_surface(c, c.content_bounds(), &h, interp));
     for l in doc.layers.iter_mut() {
         let background = l.name == "Background" && l.locks.position && matches!(l.content, LayerContent::Raster(_));
         if background && let Some(surf) = l.surface_mut() {
@@ -122,7 +129,8 @@ pub(crate) fn rotate_doc(doc: &mut Document, deg: f64, interp: Interp, bg: [f32;
     if let Some(sel) = &doc.selection {
         doc.selection = Some(crate::transform_cmds::warp_gray(sel, &h, Interp::Bilinear)).filter(|s| !s.content_bounds().is_empty());
     }
-    // Type, shapes and smart objects re-render from their new geometry.
+    // Type, shapes and smart objects re-render from their new geometry; type in a missing font
+    // keeps its turned pixels.
     crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All)?;
     doc.guides = Default::default();
     Ok((new, a))

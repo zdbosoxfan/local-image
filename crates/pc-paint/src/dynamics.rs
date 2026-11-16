@@ -21,6 +21,12 @@ pub const SPEED_SPACING_MS: f64 = 8.0;
 const MIN_SPEED_STEP: f64 = 0.5;
 /// Maximum airbrush catch-up dabs for one input segment.
 const MAX_AIRBRUSH_DABS_PER_SEGMENT: usize = 512;
+/// Most steps one distance-spaced segment emits: two far-apart points at a quarter-pixel spacing
+/// would otherwise be billions of steps.
+const MAX_DISTANCE_STEPS_PER_SEGMENT: usize = 1 << 20;
+/// Most steps one stroke emits in total, over all its segments and spacing modes; later ones are
+/// dropped (a real stroke is orders of magnitude shorter).
+const MAX_STEPS_PER_STROKE: u64 = 1 << 21;
 
 #[inline]
 fn lerp_pt(a: &StrokePoint, b: &StrokePoint, f: f64) -> StrokePoint {
@@ -60,6 +66,10 @@ impl Smoother {
 
     /// Feed one input point; returns the brush positions to paint through.
     pub fn push(&mut self, p: StrokePoint, out: &mut Vec<StrokePoint>) {
+        // A point without a position is dropped: kept, it would make every later smoothed position NaN.
+        if !(p.x.is_finite() && p.y.is_finite()) {
+            return;
+        }
         let prev_input = self.last_input.replace(p);
         if !self.active() {
             out.push(p);
@@ -277,6 +287,9 @@ impl PathWalker {
     }
 
     fn emit(&mut self, point: StrokePoint, out: &mut impl FnMut(StepInput)) {
+        if self.step >= MAX_STEPS_PER_STROKE {
+            return;
+        }
         let s = StepInput { point, direction: self.dir, initial_direction: self.initial_dir.unwrap_or(self.dir), step: self.step };
         self.step += 1;
         out(s);
@@ -303,12 +316,17 @@ impl PathWalker {
         if len > 1e-9 {
             match self.speed {
                 None => {
-                    while self.next_at <= len + 1e-9 {
+                    let mut emitted = 0usize;
+                    while self.next_at <= len + 1e-9 && emitted < MAX_DISTANCE_STEPS_PER_SEGMENT && self.step < MAX_STEPS_PER_STROKE {
                         let q = lerp_pt(&a, &p, (self.next_at / len).min(1.0));
                         self.emit(q, out);
                         self.next_at += step_len(&q).max(0.25);
+                        emitted += 1;
                     }
-                    self.next_at -= len;
+                    // Cut short by the cap while a step was still due: the rest of the segment is
+                    // skipped and spacing restarts at its end. Otherwise the carry-over is kept.
+                    let cut_short = emitted == MAX_DISTANCE_STEPS_PER_SEGMENT && self.next_at <= len + 1e-9;
+                    self.next_at = if cut_short { step_len(&p).max(0.25) } else { self.next_at - len };
                 }
                 Some(iv) => {
                     let dt = p.time - a.time;
@@ -316,7 +334,7 @@ impl PathWalker {
                         self.speed_acc += dt;
                         let max_n = (len / MIN_SPEED_STEP).ceil().max(1.0) as usize;
                         let mut n = 0;
-                        while self.speed_acc >= iv && n < max_n {
+                        while self.speed_acc >= iv && n < max_n && self.step < MAX_STEPS_PER_STROKE {
                             self.speed_acc -= iv;
                             let f = ((dt - self.speed_acc) / dt).clamp(0.0, 1.0);
                             self.emit(lerp_pt(&a, &p, f), out);
@@ -450,6 +468,13 @@ pub fn base_diameter(b: &BrushSettings, s: &StepInput) -> f32 {
     b.size * f
 }
 
+/// Distance to the next step at `p`: the diameter there times the spacing.
+fn step_len_for(brush: &BrushSettings, p: &StrokePoint) -> f64 {
+    let s = StepInput { point: *p, direction: 0.0, initial_direction: 0.0, step: 0 };
+    let d = base_diameter(brush, &s).max(1.0);
+    f64::from(d * brush.spacing.max(0.01)).max(0.5)
+}
+
 /// Builds the primary dabs of a step (Shape Dynamics, Scattering, Transfer, Color, Texture depth).
 #[derive(Clone, Debug)]
 pub struct DabBuilder {
@@ -466,9 +491,7 @@ impl DabBuilder {
     }
 
     pub fn step_len(&self, p: &StrokePoint) -> f64 {
-        let s = StepInput { point: *p, direction: 0.0, initial_direction: 0.0, step: 0 };
-        let d = base_diameter(&self.brush, &s).max(1.0);
-        f64::from(d * self.brush.spacing.max(0.01)).max(0.5)
+        step_len_for(&self.brush, p)
     }
 
     pub fn build(&mut self, s: &StepInput, out: &mut Vec<Dab>) {
@@ -669,6 +692,9 @@ pub struct DabGenerator {
     spliner: Spliner,
     curved: Vec<StrokePoint>,
     splined: bool,
+    /// The brush the step length is read from, apart from the builder so the walker can read it
+    /// while its callback has the builder.
+    step_brush: std::sync::Arc<BrushSettings>,
 }
 
 impl DabGenerator {
@@ -687,26 +713,21 @@ impl DabGenerator {
             curved: Vec::new(),
             // Speed spacing places one dab per input sample: keep the samples as they are.
             splined: brush.spacing_enabled && brush.freehand,
+            step_brush: std::sync::Arc::new(brush),
         }
     }
 
     fn walk(&mut self, pts: &[StrokePoint], dabs: &mut Vec<Dab>, dual: &mut Vec<Dab>) {
         for p in pts {
             let p = apply_pose(&self.builder.brush, *p);
-            let b = &self.builder;
-            let len = |q: &StrokePoint| b.step_len(q);
-            let mut steps = Vec::new();
-            self.walker.push(p, &len, &mut |s| steps.push(s));
-            for s in &steps {
-                self.builder.build(s, dabs);
-            }
+            // Each step becomes its dabs as the walker emits it: a long segment never holds its
+            // step list.
+            let brush = &*self.step_brush;
+            let builder = &mut self.builder;
+            self.walker.push(p, &|q| step_len_for(brush, q), &mut |s| builder.build(&s, dabs));
             if let (Some(w), Some(db)) = (self.dual_walker.as_mut(), self.dual.as_mut()) {
-                let mut steps = Vec::new();
-                let len = |q: &StrokePoint| db.step_len(q);
-                w.push(p, &len, &mut |s| steps.push(s));
-                for s in &steps {
-                    db.build(s, dual);
-                }
+                let step = db.step_len(&p);
+                w.push(p, &|_| step, &mut |s| db.build(&s, dual));
             }
         }
     }
@@ -747,17 +768,9 @@ impl DabGenerator {
             curved = sm;
         }
         self.walk(&curved, dabs, dual);
-        let mut steps = Vec::new();
-        self.walker.finish(&mut |s| steps.push(s));
-        for s in &steps {
-            self.builder.build(s, dabs);
-        }
+        self.walker.finish(&mut |s| self.builder.build(&s, dabs));
         if let (Some(w), Some(db)) = (self.dual_walker.as_mut(), self.dual.as_mut()) {
-            let mut steps = Vec::new();
-            w.finish(&mut |s| steps.push(s));
-            for s in &steps {
-                db.build(s, dual);
-            }
+            w.finish(&mut |s| db.build(&s, dual));
         }
     }
 }
@@ -800,5 +813,210 @@ mod spline_tests {
         });
         let worst = interior.map(|p| (p.x.hypot(p.y) - 100.0).abs()).fold(0.0f64, f64::max);
         assert!(worst < 2.0, "worst radial error {worst}");
+    }
+}
+
+#[cfg(test)]
+mod walker_budget_tests {
+    use super::*;
+
+    #[test]
+    fn one_far_segment_emits_a_bounded_number_of_steps() {
+        let steps = std::cell::Cell::new(0usize);
+        let mut count = |_: StepInput| steps.set(steps.get() + 1);
+        let mut walker = PathWalker::new(None);
+        walker.push(StrokePoint::new(0.0, 0.0, 1.0), &|_: &StrokePoint| 1.0, &mut count);
+        // At a quarter pixel, a billion-pixel segment is four billion steps.
+        walker.push(StrokePoint::new(1.0e9, 0.0, 1.0), &|_: &StrokePoint| 0.25, &mut count);
+        assert!(steps.get() <= MAX_DISTANCE_STEPS_PER_SEGMENT + 1, "{}", steps.get());
+        // Spacing carries on from the end of the cut segment.
+        let before = steps.get();
+        walker.push(StrokePoint::new(1.0e9 + 10.0, 0.0, 1.0), &|_: &StrokePoint| 1.0, &mut count);
+        assert!(steps.get() > before && steps.get() - before <= 11, "{} more steps", steps.get() - before);
+    }
+
+    #[test]
+    fn a_stroke_of_many_far_segments_stops_at_the_total_cap() {
+        let steps = std::cell::Cell::new(0u64);
+        let mut count = |_: StepInput| steps.set(steps.get() + 1);
+        let mut walker = PathWalker::new(None);
+        let quarter = |_: &StrokePoint| 0.25;
+        walker.push(StrokePoint::new(0.0, 0.0, 1.0), &quarter, &mut count);
+        for i in 1..=8 {
+            walker.push(StrokePoint::new(1.0e9 * f64::from(i), 0.0, 1.0), &quarter, &mut count);
+        }
+        assert!(steps.get() <= MAX_STEPS_PER_STROKE, "{}", steps.get());
+        // Speed spacing over absurd timestamps stops too, without iterating billions of times.
+        let mut speed = PathWalker::new(None).speed_spacing(1.0);
+        speed.push(StrokePoint::new(0.0, 0.0, 1.0), &quarter, &mut count);
+        let mut far = StrokePoint::new(1.0e9, 0.0, 1.0);
+        far.time = 1.0e12;
+        let before = steps.get();
+        speed.push(far, &quarter, &mut count);
+        assert!(steps.get() - before <= MAX_STEPS_PER_STROKE, "{}", steps.get() - before);
+    }
+
+    #[test]
+    fn a_segment_ending_at_the_cap_keeps_its_carry_over() {
+        let steps = std::cell::Cell::new(0usize);
+        let mut count = |_: StepInput| steps.set(steps.get() + 1);
+        let mut walker = PathWalker::new(None);
+        let one = |_: &StrokePoint| 1.0;
+        walker.push(StrokePoint::new(0.0, 0.0, 1.0), &one, &mut count);
+        // Exactly the cap in steps, then 0.75 left before the next is due.
+        let end = MAX_DISTANCE_STEPS_PER_SEGMENT as f64 + 0.25;
+        walker.push(StrokePoint::new(end, 0.0, 1.0), &one, &mut count);
+        let before = steps.get();
+        walker.push(StrokePoint::new(end + 0.8, 0.0, 1.0), &one, &mut count);
+        assert_eq!(steps.get(), before + 1);
+    }
+}
+
+#[cfg(test)]
+mod finite_input_tests {
+    use super::*;
+
+    fn streamed(brush: &BrushSettings, pts: &[StrokePoint]) -> Vec<Dab> {
+        let mut g = DabGenerator::new(brush, 1.0);
+        let (mut dabs, mut dual) = (Vec::new(), Vec::new());
+        g.push(pts, &mut dabs, &mut dual);
+        g.finish(&mut dabs, &mut dual);
+        dabs
+    }
+
+    fn path() -> Vec<StrokePoint> {
+        (0..40)
+            .map(|i| {
+                let t = f64::from(i);
+                let mut p = StrokePoint::new(10.0 + t * 9.3, 50.0 + (t * 0.7).sin() * 30.0, 0.3 + 0.7 * ((t * 0.31).sin().abs() as f32));
+                p.time = t * 7.0;
+                p
+            })
+            .collect()
+    }
+
+    /// The walk before the steps were streamed: every step of a point is collected first, then
+    /// built. The streamed walk must produce the same dabs.
+    fn buffered(brush: &BrushSettings, pts: &[StrokePoint]) -> (Vec<Dab>, Vec<Dab>) {
+        let g = DabGenerator::new(brush, 1.0);
+        let (mut smoother, mut spliner, mut walker, mut dual_walker) = (g.smoother, g.spliner, g.walker, g.dual_walker);
+        let (mut builder, mut dual_builder) = (g.builder, g.dual);
+        let mut sm = Vec::new();
+        for p in pts {
+            smoother.push(*p, &mut sm);
+        }
+        smoother.finish(&mut sm);
+        if g.splined {
+            let mut curved = Vec::new();
+            for p in &sm {
+                spliner.push(*p, &mut curved);
+            }
+            spliner.finish(&mut curved);
+            sm = curved;
+        }
+        let (mut dabs, mut dual) = (Vec::new(), Vec::new());
+        for p in sm {
+            let p = apply_pose(&builder.brush, p);
+            let mut steps = Vec::new();
+            walker.push(p, &|q| builder.step_len(q), &mut |s| steps.push(s));
+            for s in &steps {
+                builder.build(s, &mut dabs);
+            }
+            if let (Some(w), Some(db)) = (dual_walker.as_mut(), dual_builder.as_mut()) {
+                let mut steps = Vec::new();
+                w.push(p, &|q| db.step_len(q), &mut |s| steps.push(s));
+                for s in &steps {
+                    db.build(s, &mut dual);
+                }
+            }
+        }
+        let mut steps = Vec::new();
+        walker.finish(&mut |s| steps.push(s));
+        for s in &steps {
+            builder.build(s, &mut dabs);
+        }
+        if let (Some(w), Some(db)) = (dual_walker.as_mut(), dual_builder.as_mut()) {
+            let mut steps = Vec::new();
+            w.finish(&mut |s| steps.push(s));
+            for s in &steps {
+                db.build(s, &mut dual);
+            }
+        }
+        (dabs, dual)
+    }
+
+    fn streamed_in_chunks(brush: &BrushSettings, pts: &[StrokePoint], chunk: usize) -> (Vec<Dab>, Vec<Dab>) {
+        let mut g = DabGenerator::new(brush, 1.0);
+        let (mut dabs, mut dual) = (Vec::new(), Vec::new());
+        for c in pts.chunks(chunk) {
+            g.push(c, &mut dabs, &mut dual);
+        }
+        g.finish(&mut dabs, &mut dual);
+        (dabs, dual)
+    }
+
+    #[test]
+    fn streamed_dabs_equal_the_buffered_walk() {
+        let mut variants: Vec<BrushSettings> = vec![BrushSettings::default()];
+        variants.push(BrushSettings { size: 14.0, spacing: 0.05, ..BrushSettings::default() });
+        variants.push(BrushSettings { size: 1.0, aliased: true, ..BrushSettings::default() });
+        variants.push(BrushSettings { size: 9.0, spacing_enabled: false, ..BrushSettings::default() });
+        variants.push(BrushSettings { size: 12.0, build_up: true, build_up_rate: 40.0, ..BrushSettings::default() });
+        variants.push(BrushSettings { size: 10.0, freehand: true, ..BrushSettings::default() });
+        let mut rich = BrushSettings { size: 18.0, spacing: 0.2, ..BrushSettings::default() };
+        rich.scattering.enabled = true;
+        rich.scattering.scatter.jitter = 0.5;
+        rich.scattering.count = 3;
+        rich.dual_brush.enabled = true;
+        rich.dual_brush.size = 8.0;
+        rich.dual_brush.count = 2;
+        rich.shape_dynamics.enabled = true;
+        rich.shape_dynamics.size.jitter = 0.6;
+        rich.smoothing.amount = 0.5;
+        variants.push(rich);
+        for (n, b) in variants.iter().enumerate() {
+            let (want, want_dual) = buffered(b, &path());
+            assert!(want.len() > 10, "variant {n}: {} dabs", want.len());
+            for chunk in [1, 7, 1000] {
+                let (got, got_dual) = streamed_in_chunks(b, &path(), chunk);
+                assert_eq!(got, want, "variant {n}, chunk {chunk}");
+                assert_eq!(got_dual, want_dual, "variant {n}, chunk {chunk} (dual)");
+            }
+        }
+    }
+
+    #[test]
+    fn a_nan_opacity_flow_hardness_or_spacing_paints_as_the_default() {
+        let pts = path();
+        let base = BrushSettings { size: 10.0, ..BrushSettings::default() };
+        let want = streamed(&base, &pts);
+        for broken in [
+            BrushSettings { opacity: f32::NAN, ..base.clone() },
+            BrushSettings { flow: f32::NAN, ..base.clone() },
+            BrushSettings { hardness: f32::NAN, ..base.clone() },
+            BrushSettings { spacing: f32::NAN, ..base.clone() },
+        ] {
+            // The default brush has opacity, flow and hardness 1 and spacing 0.1, as `base` does.
+            assert_eq!(streamed(&broken, &pts), want);
+            let b = broken.bounded_for_render();
+            assert!(b.opacity.is_finite() && b.flow.is_finite() && b.hardness.is_finite() && b.spacing.is_finite());
+        }
+        // Every other value, infinities included, is left to the clamps downstream.
+        let odd = BrushSettings { opacity: 3.0, flow: f32::NEG_INFINITY, spacing: f32::INFINITY, ..base };
+        let b = odd.bounded_for_render();
+        assert_eq!((b.opacity, b.flow, b.spacing), (3.0, f32::NEG_INFINITY, f32::INFINITY));
+    }
+
+    #[test]
+    fn a_point_without_a_position_does_not_poison_a_smoothed_stroke() {
+        let mut brush = BrushSettings { size: 8.0, ..BrushSettings::default() };
+        brush.smoothing.amount = 0.6;
+        let clean = path();
+        let mut dirty = clean.clone();
+        dirty.insert(10, StrokePoint::new(f64::NAN, 40.0, 1.0));
+        dirty.insert(20, StrokePoint::new(30.0, f64::INFINITY, 1.0));
+        assert_eq!(streamed(&brush, &dirty), streamed(&brush, &clean));
+        brush.smoothing.amount = 0.0;
+        assert_eq!(streamed(&brush, &dirty), streamed(&brush, &clean));
     }
 }
