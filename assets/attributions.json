@@ -14216,20 +14216,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Export As: Scale All rows write one file per size with its suffix (#13734)",
-          "commit": "d8891fe31c0bc23dc97fd7d1390d15dd9ed28e12",
-          "ours": "crates/pc-ui-egui/src/export_dialog.rs, crates/pc-ui-egui/src/export_dialog/scale_all_tests.rs",
-          "licence": "MIT OR Apache-2.0",
-          "licence_files": [
-            "licenses/photocraft-ATTRIBUTION.md",
-            "licenses/photocraft-LICENSE-APACHE",
-            "licenses/photocraft-LICENSE-MIT",
-            "licenses/photocraft-NOTICE"
-          ],
-          "url": "https://github.com/storytold/photocraft/commit/d8891fe31c0bc23dc97fd7d1390d15dd9ed28e12"
-        },
-        {
-          "name": "PhotoCraft",
           "used_for": "Transfer selected pixels between tabs and tiled documents",
           "commit": "386a6804220ddb971867467eca2c00b9cdec7a06",
           "ours": "crates/pc-engine/src/float_cmds.rs, crates/pc-engine/src/layer_copy_cmds.rs, crates/pc-engine/src/layer_copy_cmds/tests.rs, crates/pc-ui-egui/src/canvas.rs, crates/pc-ui-egui/src/layer_transfer.rs, crates/pc-ui-egui/src/layer_transfer/tests.rs",
