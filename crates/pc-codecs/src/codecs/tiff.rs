@@ -234,11 +234,6 @@ impl<'a> TiffBands<'a> {
         self
     }
 
-    /// The page's Orientation tag (1-8; 1 when absent or invalid).
-    pub fn orientation(&self) -> u16 {
-        self.stored
-    }
-
     /// The size of the image the bands make up (upright when [`TiffBands::upright`] was applied).
     pub fn dimensions(&self) -> (u32, u32) {
         if self.turn >= 5 { (self.p.h, self.p.w) } else { (self.p.w, self.p.h) }
