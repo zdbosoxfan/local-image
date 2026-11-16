@@ -14926,73 +14926,6 @@
           "url": "https://github.com/storytold/photocraft/commit/667a14d9452786c566125060a32546c348ac5570"
         },
         {
-          "name": "vkdt",
-          "author": "Johannes Hanika",
-          "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
-          "commit": "afc34256fb22bcaf6dcf6503d19d5f9a6f477af5",
-          "ours": "crates/lc-pipeline/src/primary.rs, crates/lc-gpu/src/wgsl/primary.wgsl",
-          "licence": "BSD-2-Clause",
-          "licence_files": [
-            "licenses/vkdt-NOTICE.md"
-          ],
-          "url": "https://github.com/hanatos/vkdt"
-        },
-        {
-          "name": "Hugging Face Transformers (SAM 3)",
-          "author": "The HuggingFace Team and Meta Platforms, Inc.",
-          "used_for": "The SAM 3 model code behind Develop's object masks, ported from Python/PyTorch to Rust on candle (crates/lc-segment).",
-          "upstream": "src/transformers/models/sam3, sam3_tracker",
-          "ours": "crates/lc-segment",
-          "licence": "Apache-2.0",
-          "licence_files": [
-            "licenses/lightcraft-NOTICE"
-          ],
-          "url": "https://github.com/huggingface/transformers"
-        },
-        {
-          "name": "Krita AI Diffusion",
-          "author": "Acly and the Krita AI Diffusion contributors",
-          "used_for": "Per-architecture ComfyUI workflow construction, inpaint geometry, prompt conventions and style presets of the AI tools.",
-          "ours": "crates/li-ai/src/{builders,inpaint,custom,presets}.rs, crates/li-ai/families/*.json",
-          "licence": "GPL-3.0",
-          "licence_files": [
-            "licenses/model-system-NOTICE.md"
-          ],
-          "url": "https://github.com/Acly/krita-ai-diffusion"
-        },
-        {
-          "name": "ComfyUI",
-          "author": "comfyanonymous and contributors",
-          "used_for": "The image-generation server the AI tools talk to over its HTTP API (installed separately; no ComfyUI code is included).",
-          "licence": "GPL-3.0",
-          "licence_files": [
-            "licenses/model-system-NOTICE.md"
-          ],
-          "url": "https://github.com/comfyanonymous/ComfyUI"
-        },
-        {
-          "name": "SwarmUI and InvokeAI",
-          "author": "mcmonkeyprojects; Invoke",
-          "used_for": "Ideas only (no code): the Model Browser's layout and describing model architectures as data.",
-          "licence": "MIT; Apache-2.0",
-          "licence_files": [
-            "licenses/model-system-NOTICE.md"
-          ],
-          "url": "https://github.com/mcmonkeyprojects/SwarmUI"
-        },
-        {
-          "name": "hayro-ccitt bounded decoder adaptation",
-          "version": "0.3.0",
-          "author": "The Hayro Authors",
-          "used_for": "Bounded, cancellable Group 3/4 fax admission before PDF rendering; adapted code is detailed in docs/PORTS.md.",
-          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
-          "licence": "MIT",
-          "licence_files": [
-            "licenses/hayro-ccitt-MIT.txt"
-          ],
-          "url": "https://github.com/LaurenzV/hayro/tree/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt"
-        },
-        {
           "name": "PhotoCraft",
           "used_for": "Levels clipping: snapped area stays within the texture limit (#3328)",
           "commit": "216a4260b04a998fae79a6a5c38f9889943053bd",
@@ -15061,6 +14994,73 @@
             "licenses/photocraft-NOTICE"
           ],
           "url": "https://github.com/storytold/photocraft/commit/cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c"
+        },
+        {
+          "name": "vkdt",
+          "author": "Johannes Hanika",
+          "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
+          "commit": "afc34256fb22bcaf6dcf6503d19d5f9a6f477af5",
+          "ours": "crates/lc-pipeline/src/primary.rs, crates/lc-gpu/src/wgsl/primary.wgsl",
+          "licence": "BSD-2-Clause",
+          "licence_files": [
+            "licenses/vkdt-NOTICE.md"
+          ],
+          "url": "https://github.com/hanatos/vkdt"
+        },
+        {
+          "name": "Hugging Face Transformers (SAM 3)",
+          "author": "The HuggingFace Team and Meta Platforms, Inc.",
+          "used_for": "The SAM 3 model code behind Develop's object masks, ported from Python/PyTorch to Rust on candle (crates/lc-segment).",
+          "upstream": "src/transformers/models/sam3, sam3_tracker",
+          "ours": "crates/lc-segment",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/huggingface/transformers"
+        },
+        {
+          "name": "Krita AI Diffusion",
+          "author": "Acly and the Krita AI Diffusion contributors",
+          "used_for": "Per-architecture ComfyUI workflow construction, inpaint geometry, prompt conventions and style presets of the AI tools.",
+          "ours": "crates/li-ai/src/{builders,inpaint,custom,presets}.rs, crates/li-ai/families/*.json",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
+          "url": "https://github.com/Acly/krita-ai-diffusion"
+        },
+        {
+          "name": "ComfyUI",
+          "author": "comfyanonymous and contributors",
+          "used_for": "The image-generation server the AI tools talk to over its HTTP API (installed separately; no ComfyUI code is included).",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
+          "url": "https://github.com/comfyanonymous/ComfyUI"
+        },
+        {
+          "name": "SwarmUI and InvokeAI",
+          "author": "mcmonkeyprojects; Invoke",
+          "used_for": "Ideas only (no code): the Model Browser's layout and describing model architectures as data.",
+          "licence": "MIT; Apache-2.0",
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
+          "url": "https://github.com/mcmonkeyprojects/SwarmUI"
+        },
+        {
+          "name": "hayro-ccitt bounded decoder adaptation",
+          "version": "0.3.0",
+          "author": "The Hayro Authors",
+          "used_for": "Bounded, cancellable Group 3/4 fax admission before PDF rendering; adapted code is detailed in docs/PORTS.md.",
+          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/hayro-ccitt-MIT.txt"
+          ],
+          "url": "https://github.com/LaurenzV/hayro/tree/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt"
         }
       ]
     },
