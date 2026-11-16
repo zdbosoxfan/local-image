@@ -1193,6 +1193,28 @@ fn return_from_compositing_keeps_the_library_selection() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A loupe left for Compositing is the loupe on the way straight back; a return through Develop
+/// still lands in the grid.
+#[test]
+fn return_from_compositing_keeps_the_library_loupe() {
+    use lightcraft_ui_egui::state::{RightPanel, ViewMode};
+    let (dir, path, lib, orig) = library_with_photo("return-keeps-loupe");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    host.switch(&ctx, Module::Library);
+    host.library().run("view.detail", json!({})).unwrap();
+    host.library().ui.right = RightPanel::Info;
+    host.switch(&ctx, Module::Compositing);
+    host.switch(&ctx, Module::Library);
+    let ui = &host.library.as_ref().unwrap().ui;
+    assert_eq!((ui.view, ui.right), (ViewMode::Detail, RightPanel::Info));
+    host.switch(&ctx, Module::Compositing);
+    host.switch(&ctx, Module::Develop);
+    host.switch(&ctx, Module::Library);
+    assert_eq!(host.library.as_ref().unwrap().ui.view, ViewMode::PhotoGrid);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Undoing the new Develop layer lasts: the next trip to the Library and back does not add it again.
 #[test]
 fn undone_develop_edits_stay_undone_after_a_module_switch() {

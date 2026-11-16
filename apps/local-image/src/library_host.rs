@@ -82,6 +82,9 @@ pub struct Host {
     /// The Library's active photo when Compositing was last left: coming back with the same photo
     /// returns to what was open there instead of bringing the photo forward again.
     left_compositing_with: Option<u64>,
+    /// The Library's view and right panel when it was left for Compositing: the way straight
+    /// back restores them (a loupe stays a loupe).
+    library_view_left: Option<(lightcraft_ui_egui::state::ViewMode, lightcraft_ui_egui::state::RightPanel)>,
     /// Library develop settings last taken into, or turned down for, each photo's open documents:
     /// an undone update is not put back, and a turned-down one is not offered again.
     develop_sent: std::collections::HashMap<u64, DevelopSent>,
@@ -209,6 +212,7 @@ impl Host {
             preserve_library_vectorize_return: false,
             frames: 0,
             left_compositing_with: None,
+            library_view_left: None,
             develop_sent: Default::default(),
             library_seen: None,
             save_sources_seen: None,
@@ -1219,6 +1223,8 @@ impl Host {
                 self.round_trip_notice = Some(RoundTripNotice::Unsaved { doc: active.doc.id, photo, destination });
             }
         }
+        let leaving = (from == Module::Library && to == Module::Compositing).then(|| self.library.as_ref().map(|lib| (lib.ui.view, lib.ui.right))).flatten();
+        let library_view = std::mem::replace(&mut self.library_view_left, leaving);
         self.mode = to;
         self.remember_module(to);
         match to {
@@ -1234,7 +1240,13 @@ impl Host {
                     lib.toast(ctx, "Updated the edits saved in Compositing");
                 }
                 if !preserve_library {
-                    set_library_view(lib, develop);
+                    match library_view.filter(|_| !develop) {
+                        Some((view, right)) => {
+                            lib.ui.view = view;
+                            lib.ui.right = if right.is_edit_tool() { lightcraft_ui_egui::state::RightPanel::None } else { right };
+                        }
+                        None => set_library_view(lib, develop),
+                    }
                 }
             }
             Module::Compositing => {
