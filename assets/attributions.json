@@ -14033,6 +14033,62 @@
           "url": "https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303"
         },
         {
+          "name": "PhotoCraft",
+          "used_for": "Ruler: a drag on the line or a protractor's vertex moves the whole ruler; ±8 px end zones (#11981)",
+          "commit": "498c310ec13ac0b936ab3804fae7d07dac4d77f6",
+          "ours": "crates/pc-ui-egui/src/analysis_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/498c310ec13ac0b936ab3804fae7d07dac4d77f6"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Info panel: the Ruler's A and L (A, L1, L2 for a protractor), its point and size (#11991)",
+          "commit": "bcb886f473f89e0309202828b7d40e4cd92981ed",
+          "ours": "crates/pc-ui-egui/src/panels/docks.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/bcb886f473f89e0309202828b7d40e4cd92981ed"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Object Selection: the Hard Edge option; off, a 1-2-1 tent gives a softer rim one pixel wider on each side (#12855)",
+          "commit": "b8b7129ca7512d19910ca54f9aa6de35e43b7cab",
+          "ours": "crates/pc-engine/src/smartselect_cmds.rs, crates/pc-ui-egui/src/state.rs, crates/pc-ui-egui/src/retouch_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/b8b7129ca7512d19910ca54f9aa6de35e43b7cab"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Image Size: Alt+1 to Alt+8 pick the Resample method (#14789)",
+          "commit": "4c5f49d9ff100880b8981c140949671f55552602",
+          "ours": "crates/pc-ui-egui/src/sizing.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/commit/4c5f49d9ff100880b8981c140949671f55552602"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
