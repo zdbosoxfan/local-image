@@ -641,8 +641,24 @@ impl Host {
 
     fn open_editor_photo(&mut self, photo: u64, path: &str, settings: &serde_json::Value, name: &str) -> Result<(), String> {
         self.observe_library();
-        let identity = self.library().session.library_identity().to_string();
-        let result = photocraft_ui_egui::develop_layer::open_photo_in(&mut self.editor, &identity, photo, path, settings, name);
+        let session = &self.library().session;
+        let identity = session.library_identity().to_string();
+        // The camera's own fields are already in the file. Compositing's Export As has no Remove
+        // Location, so the Library's GPS position stays out; the place names come along.
+        let options = lightcraft_engine::export::ExportOptions {
+            metadata: lightcraft_engine::export::MetadataPolicy::AllExceptCamera,
+            ..Default::default()
+        };
+        let metadata = session
+            .catalog
+            .photo(lightcraft_catalog::PhotoId(photo))
+            .and_then(|p| lightcraft_engine::export::export_metadata(p, &options))
+            .and_then(|mut m| {
+                m.gps = None;
+                serde_json::to_value(m).ok()
+            })
+            .unwrap_or_default();
+        let result = photocraft_ui_egui::develop_layer::open_library_photo(&mut self.editor, &identity, photo, path, settings, name, &metadata);
         self.refresh_save_sources();
         result
     }

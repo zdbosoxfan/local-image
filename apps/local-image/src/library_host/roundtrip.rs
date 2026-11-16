@@ -188,6 +188,14 @@ pub(super) fn add_saved_file(
             flag: source.flag,
             label: source.label,
             keywords: source.meta.keywords.clone(),
+            title: source.meta.title.clone(),
+            caption: source.meta.caption.clone(),
+            copyright: source.meta.copyright.clone(),
+            creator: source.meta.creator.clone(),
+            location: source.meta.location.clone(),
+            city: source.meta.city.clone(),
+            state: source.meta.state.clone(),
+            country: source.meta.country.clone(),
         }),
         ..Default::default()
     };

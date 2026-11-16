@@ -52,6 +52,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Cmd+Alt+Shift+K opens Keyboard Shortcuts in Library and Develop as well, the same chord as in Compositing.
 - Edit › Preferences › Raw Defaults… opens Library & Develop › Import, where the raw defaults Local Image uses are set, instead of an empty page. The empty Camera Raw Defaults row is gone from the Compositing list.
 - Edit › Search in Compositing also finds Library and Develop, and running one switches to that module.
+- A Library photo opened in Compositing carries its Library title, caption, copyright, creator, keywords and location in the document's metadata, the saved `-Edit` file's Library entry gets the same title, caption, copyright, creator and location, and Export As starts with Metadata: All for it, so a first export no longer leaves them out.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.

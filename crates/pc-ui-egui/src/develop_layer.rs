@@ -219,7 +219,24 @@ pub fn sync_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, s
 }
 
 pub fn open_photo_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, settings: &Value, name: &str) -> Result<(), String> {
-    let result = app.run("develop.openPhoto", json!({"library": library, "photo": photo, "path": path, "settings": settings, "name": name}))?;
+    open_library_photo(app, library, photo, path, settings, name, &Value::Null)
+}
+
+/// [`open_photo_in`] with the Library's `metadata` for the photo (`lightcraft_meta::Metadata`
+/// JSON, or null), which the new document carries in its XMP.
+pub fn open_library_photo(
+    app: &mut PhotocraftApp,
+    library: &str,
+    photo: u64,
+    path: &str,
+    settings: &Value,
+    name: &str,
+    metadata: &Value,
+) -> Result<(), String> {
+    let result = app.run(
+        "develop.openPhoto",
+        json!({"library": library, "photo": photo, "path": path, "settings": settings, "name": name, "metadata": metadata}),
+    )?;
     admit_photo_result(app, &result);
     app.sync_views();
     Ok(())
@@ -375,6 +392,14 @@ mod tests {
         assert!(develop(&mut app).is_ok());
         assert_eq!(app.develop_request, active_origin(&app));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn export_as_keeps_the_metadata_of_a_develop_layer_document() {
+        let (dir, _, mut app) = photo_app("export-metadata");
+        let id = crate::export_dialog::open(&mut app).unwrap();
+        assert_eq!(app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["metadata"], "all");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn photo_app(tag: &str) -> (std::path::PathBuf, String, PhotocraftApp) {

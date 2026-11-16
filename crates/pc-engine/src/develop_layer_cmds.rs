@@ -6,8 +6,9 @@
 //! Retouching and compositing happen in layers above; the Develop layer itself is never
 //! rasterised by them.
 //!
-//! * `develop.openPhoto {path, settings, photo?, name?}` — a new document whose Background is a
-//!   Develop layer of the file (or the open document that already shows that photo).
+//! * `develop.openPhoto {path, settings, photo?, name?, metadata?}` — a new document whose
+//!   Background is a Develop layer of the file (or the open document that already shows that
+//!   photo); `metadata`, the Library's for the photo, goes into the document's XMP.
 //! * `layer.develop.set {settings, layer?}` — re-develops a Develop layer (or turns a smart object
 //!   into one).
 //! * `develop.syncPhoto {photo, settings}` — the new settings of that Library photo reach every
@@ -109,6 +110,10 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
     if library.is_some() && photo.is_none() {
         return Err(bad(C, "a qualified Library open needs a photo identity"));
     }
+    let catalog_metadata = match p.get("metadata") {
+        None | Some(Value::Null) => None,
+        Some(m) => Some(serde_json::from_value::<lightcraft_meta::Metadata>(m.clone()).map_err(|e| bad(C, format!("metadata: {e}")))?),
+    };
     let keys = vec![
         photo.map(|photo| format!("develop/open/{}", photo_key(library.as_deref(), photo))).unwrap_or_else(|| format!("develop/open/{path}")),
         format!("develop/open/source/{}", json!([library, photo, path, ask_color_profile])),
@@ -138,7 +143,10 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let file_name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
             ctx.report(0.05, "Developing");
             work_probe(ctx)?;
-            let r = photocraft_io::raw::develop_with_settings(&file_name, &bytes, &settings).map_err(|e| bad(C, e.to_string()))?;
+            let mut r = photocraft_io::raw::develop_with_settings(&file_name, &bytes, &settings).map_err(|e| bad(C, e.to_string()))?;
+            if let Some(metadata) = &catalog_metadata {
+                add_catalog_xmp(&mut r, metadata);
+            }
             ctx.check()?;
             ctx.report(1.0, "Opening");
             Ok((r, path, settings, photo, library, name, ask_color_profile))
@@ -171,6 +179,18 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             )
         },
     )
+}
+
+/// The Library's metadata for the photo, written over the same properties in the file's own
+/// packet; the file's other properties stay. A file packet that can't be merged is kept as it is.
+fn add_catalog_xmp(r: &mut photocraft_io::ImportResult, metadata: &lightcraft_meta::Metadata) {
+    let fresh = lightcraft_meta::write_xmp(metadata, None);
+    let rules = lightcraft_meta::MergeRules { owned: &[], owned_if_present: &["*"] };
+    match r.document.metadata.xmp.as_deref().map(|own| lightcraft_meta::merge_xmp(own, &fresh, rules)) {
+        None => r.document.metadata.xmp = Some(fresh),
+        Some(Ok(merged)) => r.document.metadata.xmp = Some(merged),
+        Some(Err(e)) => r.warnings.push(format!("The Library's title, caption and copyright were not added to the file's metadata: {e}")),
+    }
 }
 
 fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
@@ -432,7 +452,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Open Photo as Develop Layer",
             menu: &[],
             shortcut: None,
-            params: r##"{"path":str,"settings":DevelopSettings JSON,"photo":id?,"name":str?,"askColorProfile":bool=false} → {document, existing, layer?}"##,
+            params: r##"{"path":str,"settings":DevelopSettings JSON,"photo":id?,"name":str?,"askColorProfile":bool=false,"metadata":Metadata JSON?} → {document, existing, layer?}"##,
             enabled: always,
             run: open_photo,
             journal: true,

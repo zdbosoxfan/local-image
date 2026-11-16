@@ -2384,6 +2384,35 @@ fn derived_edit_inherits_organization_without_reusing_source_develop_or_dimensio
     assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
     std::fs::remove_dir_all(dir).unwrap();
 }
+#[test]
+fn derived_edit_inherits_iptc_text_from_its_source() {
+    let (dir, _path, mut lib, original) = library_with_photo("derived-iptc");
+    let fields = json!({"ids":[original.0],"title":"Hero","caption":"Kitchen at dusk","copyright":"(c) Studio","creator":"Photographer",
+        "location":"Lake house","city":"Town","state":"NH","country":"USA"});
+    lib.session.execute("photo.setMeta", &fields).unwrap();
+    let saved = dir.join("derivative-iptc.png");
+    image::RgbaImage::from_pixel(7, 5, image::Rgba([100u8, 60, 30, 255])).save(&saved).unwrap();
+    let Some(LibraryUpdate::Added { id, .. }) = add_saved_file(&mut lib.session, &saved.to_string_lossy(), Some(original.0), false).unwrap() else {
+        panic!("new derivative")
+    };
+    let m = &lib.session.catalog.photo(id).unwrap().meta;
+    assert_eq!(
+        [&m.title, &m.caption, &m.copyright, &m.creator, &m.location, &m.city, &m.state, &m.country],
+        ["Hero", "Kitchen at dusk", "(c) Studio", "Photographer", "Lake house", "Town", "NH", "USA"]
+    );
+    drop(lib);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn compositing_document_carries_the_library_title_and_copyright() {
+    let (dir, path, mut lib, photo) = library_with_photo("document-iptc");
+    lib.session.execute("photo.setMeta", &json!({"ids":[photo.0],"title":"Hero","copyright":"(c) Studio"})).unwrap();
+    let host = host_with_round_trip(lib, photo, &path);
+    let xmp = host.editor.session.documents()[0].doc.metadata.xmp.clone().unwrap_or_default();
+    assert!(xmp.contains("Hero") && xmp.contains("(c) Studio"), "{xmp}");
+    drop(host);
+    std::fs::remove_dir_all(dir).unwrap();
+}
 fn workflow_theme(host: &mut Host, kind: photocraft_ui_egui::theme::ThemeKind) {
     host.editor.ui.theme = kind;
     host.editor.run("prefs.set", json!({"values":{"interface.theme":kind.id()}})).unwrap();

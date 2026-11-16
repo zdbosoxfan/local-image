@@ -55,6 +55,15 @@ pub struct InheritedOrganization {
     pub flag: lightcraft_catalog::Flag,
     pub label: Option<lightcraft_catalog::ColorLabel>,
     pub keywords: Vec<String>,
+    /// IPTC text: a non-empty value replaces the one read from the new file.
+    pub title: String,
+    pub caption: String,
+    pub copyright: String,
+    pub creator: String,
+    pub location: String,
+    pub city: String,
+    pub state: String,
+    pub country: String,
 }
 
 /// What an import does with a file the library already has in Recently Deleted (ported from
@@ -1571,6 +1580,24 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                     for keyword in &inherited.keywords {
                         if !p.meta.keywords.iter().any(|existing| existing.eq_ignore_ascii_case(keyword)) {
                             p.meta.keywords.push(keyword.clone());
+                        }
+                    }
+                    let m = &mut p.meta;
+                    if !inherited.creator.is_empty() {
+                        m.creators.clear();
+                    }
+                    for (field, value) in [
+                        (&mut m.title, &inherited.title),
+                        (&mut m.caption, &inherited.caption),
+                        (&mut m.copyright, &inherited.copyright),
+                        (&mut m.creator, &inherited.creator),
+                        (&mut m.location, &inherited.location),
+                        (&mut m.city, &inherited.city),
+                        (&mut m.state, &inherited.state),
+                        (&mut m.country, &inherited.country),
+                    ] {
+                        if !value.is_empty() {
+                            field.clone_from(value);
                         }
                     }
                 }

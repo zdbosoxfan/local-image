@@ -111,6 +111,18 @@ fn develop_open_job_matches_the_synchronous_document_and_link() {
 }
 
 #[test]
+fn develop_open_carries_the_library_metadata_into_the_document() {
+    let photo = Photo::new("library-metadata");
+    let mut s = Session::new();
+    let metadata = lightcraft_meta::Metadata { title: Some("Hero".into()), copyright: Some("(c) Studio".into()), ..Default::default() };
+    let mut params = photo.params();
+    params["metadata"] = serde_json::to_value(metadata).unwrap();
+    s.execute(OPEN_JOB, params).unwrap();
+    let info = lightcraft_meta::read_file_info(s.active().unwrap().doc.metadata.xmp.as_deref());
+    assert_eq!((info["title"].as_str(), info["copyright"].as_str()), (Some("Hero"), Some("(c) Studio")));
+}
+
+#[test]
 fn develop_superseded_render_never_replaces_newer_settings() {
     let photo = Photo::new("latest");
     let mut s = photo.session();

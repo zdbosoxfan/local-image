@@ -43,7 +43,9 @@ fn open_with_format(app: &mut PhotocraftApp, format: Option<&str>) -> Result<u64
     f.insert("lossless".into(), json!(false));
     f.insert("transparency".into(), json!(true));
     f.insert("scale".into(), json!(100));
-    f.insert("metadata".into(), json!("none"));
+    // A photo from the Library carries its title, caption and copyright; a first export keeps them.
+    let from_library = !photocraft_engine::develop_layer_cmds::develop_layers(&st.doc).is_empty();
+    f.insert("metadata".into(), json!(if from_library { "all" } else { "none" }));
     f.insert("resample".into(), json!(DEFAULT_RESAMPLE.key()));
     if let Some(saved) = app.session.prefs().dialogs.get(PREFS).and_then(Value::as_object) {
         for key in KEYS {
