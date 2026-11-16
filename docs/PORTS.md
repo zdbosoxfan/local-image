@@ -2046,3 +2046,69 @@ Not ported: storytold/lightcraft@`749a63ba58` (mask geometry review fixes 2). Sa
 Not ported: storytold/lightcraft@`d729c80a5a` (Detail: Remove Hot Pixels, on for newly imported raws, #1345). Owner decision: we already remove hot and dead photosites on every raw (`crates/lc-raw/src/hotpixels.rs`); ported as written it would switch that off for existing edits and add a saved field that needs a catalog version bump.
 
 Not ported: storytold/vectorcraft@`63dab14ee7` (Image Trace seam fills for Abutting traces). It conflicts with our design: Abutting traces are drawn as a seamless mosaic, which a seam-fill group would break or hide; seams at export would be a new design for the owner to approve.
+
+## Upstream follow-ups left for the next round (2026-11-16)
+
+These upstream commits follow commits we already ported and were judged improvements, not defects, so they wait for the next round; none is ported, so none has a row in a commit table.
+
+Not ported: storytold/photocraft@`cc51a09f81` (Image Size: a key that does nothing keeps an earlier pick). Several Alt-digit events in one frame can drop typing (`sizing.rs:285-308`); rare. Port it without `resample_offered`.
+
+Not ported: storytold/photocraft@`325229e4e1` (Export As: decide a layer export from the parsed layer id). Consistency cleanup only; all our writers insert an integer id (`export_dialog.rs:500-503`).
+
+Not ported: storytold/photocraft@`46c8e1e9b1` (Object Selection Hard Edge off: add the reference's line of 1s). Our 1-2-1 tent rim (`smartselect_cmds.rs:192-228`) works but is not reference-exact. Port it as the final 4-tap state.
+
+Not ported: storytold/photocraft@`d4b296a8e6` (Object Selection Hard Edge off: fit the re-measured rim). Intermediate step; take it only as part of the `46c8e1e9b1` final state.
+
+Not ported: storytold/photocraft@`bf550d8fc` (Only build the rim ring when an unlocked Blend fill can read it). Performance guard for `rim_ring`; it rides with `3a23cf3e6b` (condition: not `lock_transparency` and the mask has a 0).
+
+Not ported: storytold/photocraft@`901286fef3` (Pen: Enter deselects the Work Path it finished). New parity behaviour; our Delete port is correct without it.
+
+Not ported: storytold/photocraft@`109a5aa405` (A broken iCCP CRC skips that chunk instead of ending the walk). Malformed PNGs open untagged (`png.rs:266`). The fix is one `continue` plus a test.
+
+Not ported: storytold/photocraft@`080d10c500` (Brush: Catch-up on Stroke End starts unchecked). Parity default flip (`brush.rs:355`); it needs the `3a21e14f06` test opt-ins.
+
+Not ported: storytold/photocraft@`f1427bba65` (Save for Web: refuse slice numbers with a whole-image path). API validation; `numbers` is silently ignored with a path or folder (`web_cmds.rs:764-788`).
+
+Not ported: storytold/photocraft@`dfdb3a7827` (Typing in another document is a step of its own). Mostly covered by `d9355e1ec2`; the remaining scripted case that names no layer is rare (`type_cmds.rs:536`).
+
+Not ported: storytold/photocraft@`c0b08120a6` (Reveal All's crop passes the session gate). The gate call is missing (`extra_cmds.rs:686-687`), but no installed gate would refuse numeric parameters.
+
+Not ported: storytold/photocraft@`0b779b4fec` (Report a failed directory flush after a save). Durability improvement in li-fs (`lib.rs:539`, `:671`); a hand port of about 120 lines.
+
+Not ported: storytold/photocraft@`2cd1bd8664` (Cap text fields and oversized text events). A new bound for plain text and paste events (`lib.rs:1604`); the numeric-field port is fine.
+
+Not ported: storytold/photocraft@`abd3755d41` (RecoveryStore::flush keeps each entry's key). After a lost-device flush a stale recovery entry can remain (`autosave.rs:403-418`); a 5-line fix.
+
+Not ported: storytold/photocraft@`01cbd41e2b` (Levels clipping: drop the cache when the last document closes). A small allocation is kept after all documents close (`lib.rs:1147`).
+
+Not ported: storytold/photocraft@`fadef65cc8` (Levels clipping: draw nothing while a background job runs). A possible UI stall during jobs (`levels_clipping.rs:337-345`); no correctness issue.
+
+Not ported: storytold/photocraft@`a78e9f05fc` (Save: ask before replacing a file that an added extension names). Only the rfd fallback lacks the prompt (`services.rs:203`); it needs a dialog plus 20 catalogs.
+
+Not ported: storytold/photocraft@`0ce7e00fee` (Brush: the Dual Brush tip keeps its proportion at tiny main sizes). The 0.5 px floor loses the dual-tip ratio (`brush.rs:500`); precision only.
+
+Not ported: storytold/photocraft@`4e131ecf2d` (Pen: an unclosed path stays with its document). A real bug in the Pen, a sibling of the ported lasso fix; there is no `pen_doc` (`lib.rs:1538`).
+
+Not ported: storytold/photocraft@`a62ef68ca2` (CMYK: Hue/Saturation and Color Balance keep the black ink). It needs the unported CMYK ink stack first.
+
+Not ported: storytold/photocraft@`1e6f565a7b` (CMYK: adjustment layers composite on the document's own inks). A new ink-native compositor; feature work of about 330 lines.
+
+Not ported: storytold/photocraft@`92c7922230` (CMYK: Brightness/Contrast curves each ink). It depends on the unported `cmyk_channel_adjustment`.
+
+Not ported: storytold/photocraft@`4c450b3879` (Lab: adjustment layers composite on the stored L, a and b). A new `native_lab` compositor; a Lab parity feature.
+
+Not ported: storytold/photocraft@`e6238ad399` (PSD save: widen RLE row counts while writing a promoted PSB). Our in-place promotion is correct; this is only a memory and speed gain over 2 GB.
+
+Not ported: storytold/photocraft@`3a307a757e` (TrueGrit .atn mappings and fixes). We have no .atn importer; the side fixes (Crystallize at `pixelate.rs:98`, clipboard resolution, Spatter) can be taken separately.
+
+Not ported: storytold/photocraft@`2006c72e98` (Warp, transform a copy, flip/rotate and live preview for several layers). A multi-layer capability (`extra_cmds.rs:263-282`); the preview needs the unported Follow.
+
+Not ported: storytold/lightcraft@`419373a84a` (Re-read uses a raw's decoder orientation). Not needed now: our decoders use IFD0, so only a raw with no IFD0 orientation plus XMP is left. Do it after `a763c3c180`.
+
+Not ported: storytold/lightcraft@`cb841a3fe1` (A click on the selected mask's own pin adds no Object click). A wasted click on its own pin (`detail.rs:1437-1446`); it depends on `7174891939`.
+
+Not ported: storytold/lightcraft@`b84d9a8cff` (view.maskOverlayColor refuses signed hex digits). `parse_rgb` accepts "#+f+f+f" (`menus.rs:306-313`); one condition, colour only.
+
+Not ported: storytold/lightcraft@`43a47e5a3b` (Clip non-finite float image samples safely). NaN and Inf pass through (`convert.rs:48`, `:183`, `:359`); robustness for float TIFFs only.
+
+Not ported: storytold/lightcraft@`38973dba3a` (Imported LUTs leave no copy in the temp folder). Temp-file clutter only (`lut_profiles.rs:146-150`); the writes are already atomic and symlink-safe.
