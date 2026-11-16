@@ -11,9 +11,9 @@ Move a cutoff with `cargo xtask upstream-reviewed <repo> <sha>`.
 
 | Upstream | Reviewed up to |
 |---|---|
-| PhotoCraft | `2fec95b0d91bcd45a1a17c93196761880af47322` |
-| LightCraft | `6b2b7e6d1117e683a1701568e56f979d061e4699` |
-| VectorCraft | `895e9493d2dada35bca88044e06b6f63883b2405` |
+| PhotoCraft | `eea5859589de077826c7b50f9ad02e4bc47e93fe` |
+| LightCraft | `d7191e78df943a64d1741f09fa5df92cb9f3ffc4` |
+| VectorCraft | `5bd8acfce98e784a37618e8c6c082fc13e2e0165` |
 
 ## Ported files
 
