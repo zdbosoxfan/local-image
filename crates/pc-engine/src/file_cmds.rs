@@ -918,6 +918,8 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let visible_only = p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(true);
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
+    // An explicitly empty prefix stays empty; only the layer name needs sanitize's fallback.
+    let prefix = if prefix.is_empty() { String::new() } else { sanitize(&prefix) };
     let doc = d.doc.clone();
     let mut files = Vec::new();
     // Top-level layers (groups export merged), top to bottom like Photoshop's numbering.
@@ -931,8 +933,6 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
         only.visible = true;
         only.clipped = false;
         one.layers = vec![only];
-        // An explicitly empty prefix stays empty; only the layer name needs sanitize's fallback.
-        let prefix = if prefix.is_empty() { String::new() } else { sanitize(&prefix) };
         let path = join(&dir, &format!("{prefix}_{i:04}_{}.{format}", sanitize(&l.name)));
         save_doc(&one, &path, SaveOpts::from_params(p))?;
         files.push(path);
