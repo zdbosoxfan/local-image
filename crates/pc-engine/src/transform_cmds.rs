@@ -346,9 +346,9 @@ pub fn split_selected(surf: &Surface, sel: &Surface) -> (Surface, Surface) {
     for (i, (l, r)) in lp.chunks_exact_mut(n).zip(rp.chunks_exact_mut(n)).enumerate() {
         let (x, y) = (src.x0 + (i % w) as i32, src.y0 + (i / w) as i32);
         let k = sel.sample_channel(x, y, 0);
-        // The selection lifts its share of a pixel's coverage, up to all of it, as moving selected
-        // pixels does: a selection made from the layer's own alpha takes soft edges whole instead
-        // of leaving a × (1 − a) of them behind. An opaque pixel splits as k and 1 − k.
+        // The selection lifts its share of a pixel's coverage, up to all of it: a selection made
+        // from the layer's own alpha takes soft edges whole instead of leaving a × (1 − a) of them
+        // behind. An opaque pixel splits as k and 1 − k.
         let a = l[n - 1];
         l[n - 1] = a.min(k.max(0.0));
         r[n - 1] = (a - l[n - 1]).max(0.0);
