@@ -575,6 +575,33 @@ fn save_for_web_has_no_default_matte_while_presets_and_quick_export_keep_white()
     s.execute("prefs.reset", json!({"path": "export"})).unwrap();
 }
 
+/// Quick Export as WebP goes through the regular exporter, which embeds a document's XMP and
+/// EXIF whole: the Export Preferences metadata choice still decides what the file carries.
+#[test]
+fn quick_export_webp_keeps_only_the_chosen_metadata() {
+    let dir = tmp("quick_webp_metadata");
+    let mut s = session(8);
+    s.execute("file.fileInfo", json!({"copyright": "© Example", "description": "secret notes"})).unwrap();
+    // A little-endian TIFF with one tag, Orientation = 1.
+    let exif = b"II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x01\0\0\0\0\0\0\0".to_vec();
+    s.edit("exif", |doc, _| {
+        doc.metadata.exif = Some(std::sync::Arc::new(exif));
+        Ok(())
+    })
+    .unwrap();
+    for choice in ["none", "copyright", "all"] {
+        s.execute("file.export.exportPreferences", json!({"quickExportFormat": "png", "metadata": choice})).unwrap();
+        let path = format!("{dir}/{choice}.webp");
+        s.execute("file.export.quickExport", json!({"path": path})).unwrap();
+        let meta = decode(&path).meta;
+        let xmp = meta.xmp.unwrap_or_default();
+        assert_eq!(xmp.contains("secret notes"), choice == "all", "{choice}: description");
+        assert_eq!(xmp.contains("Example"), choice != "none", "{choice}: copyright");
+        assert_eq!(meta.exif.is_some(), choice == "all", "{choice}: EXIF");
+    }
+    s.execute("prefs.reset", json!({"path": "export"})).unwrap();
+}
+
 #[test]
 fn quick_export_writes_the_format_its_path_names() {
     let dir = tmp("quick_ext");
@@ -596,5 +623,75 @@ fn quick_export_writes_the_format_its_path_names() {
     let e = s.execute("file.export.quickExport", json!({"path": tif})).unwrap_err().to_string();
     assert!(e.contains("Export As"), "{e}");
     assert!(!std::path::Path::new(&tif).exists());
+    s.execute("prefs.reset", json!({"path": "export"})).unwrap();
+}
+
+/// #5305: `folder` writes the whole image there under the document's own name, so an action
+/// recorded with the suggested name saves each document it is played on under that name.
+#[test]
+fn folder_saves_under_the_documents_own_name() {
+    let dir = tmp("folder_own_name");
+    let mut s = session(8);
+    let r = s.execute("file.export.saveForWebLegacy", json!({"folder": dir, "format": "png24"})).unwrap();
+    let first = format!("{dir}/web.png");
+    assert_eq!(r["files"], json!([first]));
+    assert_eq!(decode(&first).dimensions(), (64, 48));
+    s.execute("file.new", json!({"width": 8, "height": 4, "name": "second.psd"})).unwrap();
+    let r = s.execute("file.export.saveForWebLegacy", json!({"folder": dir, "format": "jpeg"})).unwrap();
+    assert_eq!(r["files"], json!([format!("{dir}/second.jpg")]));
+    // A `path` wins over `folder`.
+    let r = s.execute("file.export.saveForWebLegacy", json!({"path": format!("{dir}/named.png"), "folder": dir, "format": "png24"})).unwrap();
+    assert_eq!(r["files"], json!([format!("{dir}/named.png")]));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #9325: an untagged document is treated as sRGB, and with Embed Color Profile on the file
+/// says so, as Photoshop's Save for Web does; off, it still carries none.
+#[test]
+fn embed_color_profile_tags_an_untagged_document_srgb() {
+    let mut s = session(8);
+    assert!(s.active().unwrap().doc.icc_profile.is_none(), "a new document is untagged");
+    let dir = tmp("assumed-icc");
+    let profile = |path: &str| decode(path).icc.map(|b| photocraft_cms::Profile::parse(&b).unwrap().description);
+    for (format, ext) in [("jpeg", "jpg"), ("png24", "png")] {
+        let on = format!("{dir}/on.{ext}");
+        s.execute("file.export.saveForWebLegacy", json!({"format": format, "embedIcc": true, "path": on})).unwrap();
+        assert_eq!(profile(&on).as_deref(), Some(photocraft_cms::Builtin::Srgb.description()), "{format}");
+        let off = format!("{dir}/off.{ext}");
+        s.execute("file.export.saveForWebLegacy", json!({"format": format, "embedIcc": false, "path": off})).unwrap();
+        assert_eq!(profile(&off), None, "{format}");
+    }
+}
+
+/// The PNG's chunk types, in order.
+fn png_chunks(bytes: &[u8]) -> Vec<String> {
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "a PNG");
+    let mut out = Vec::new();
+    let mut at = 8;
+    while let Some(head) = bytes.get(at..at + 8) {
+        let len = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as usize;
+        out.push(String::from_utf8_lossy(&head[4..8]).into_owned());
+        at += 12 + len;
+    }
+    out
+}
+
+#[test]
+fn png24_embeds_the_profile_only_with_embed_color_profile_on() {
+    let dir = tmp("png_icc");
+    let mut s = session(8);
+    s.execute("edit.assignProfile", json!({"profile": "display-p3"})).unwrap();
+    let (on, off) = (format!("{dir}/on.png"), format!("{dir}/off.png"));
+    s.execute("file.export.saveForWebLegacy", json!({"format": "png24", "embedIcc": true, "convertToSrgb": false, "path": on})).unwrap();
+    s.execute("file.export.saveForWebLegacy", json!({"format": "png24", "embedIcc": false, "convertToSrgb": false, "path": off})).unwrap();
+    assert!(png_chunks(&std::fs::read(&on).unwrap()).iter().any(|c| c == "iCCP"), "Embed Color Profile on");
+    assert!(!png_chunks(&std::fs::read(&off).unwrap()).iter().any(|c| c == "iCCP"), "Embed Color Profile off");
+    let rgba = |p: &str| decode(p).convert(photocraft_codecs::ChannelLayout::Rgba, photocraft_codecs::SampleType::U8).data().to_vec();
+    assert_eq!(rgba(&on), rgba(&off), "only the profile differs");
+    // Quick Export never asks for the profile.
+    s.execute("file.export.exportPreferences", json!({"quickExportFormat": "png", "metadata": "none"})).unwrap();
+    let quick = format!("{dir}/quick.png");
+    s.execute("file.export.quickExport", json!({"path": quick})).unwrap();
+    assert!(!png_chunks(&std::fs::read(&quick).unwrap()).iter().any(|c| c == "iCCP"));
     s.execute("prefs.reset", json!({"path": "export"})).unwrap();
 }

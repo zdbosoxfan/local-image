@@ -161,7 +161,7 @@ fn save_over_preserves_source_profile_and_camera_metadata() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// The lens maker has no catalog field: only the source read carries it into the new file.
+/// The lens maker is written past the XMP retention budget; saving over the original still carries it into the new file.
 #[test]
 fn save_over_keeps_fields_past_the_xmp_retention_budget() {
     let metadata = lightcraft_meta::Metadata { lens_make: Some("Lens Maker".into()), ..Default::default() };

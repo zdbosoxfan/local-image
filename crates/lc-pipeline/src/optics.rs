@@ -813,30 +813,14 @@ pub fn defringe(img: &mut RgbFrame, s: &DevelopSettings, scale: f64) {
     });
 }
 
-/// Separable square min (or max) filter of radius `r`.
+/// Square min (or max) filter of radius `r`, linear in the pixels whatever `r` is (a crop can
+/// make the radius as wide as the output, and a scan of every neighbourhood was then cubic in the
+/// side).
 fn min_filter(p: &GrayFrame, r: usize, max: bool) -> GrayFrame {
     let (w, h) = (p.width, p.height);
-    let pick = |a: f32, b: f32| if max { a.max(b) } else { a.min(b) };
-    let mut tmp = GrayFrame::new(w, h);
-    for_rows(&mut tmp.data, w, |y, row| {
-        let src = &p.data[y * w..(y + 1) * w];
-        for (x, v) in row.iter_mut().enumerate() {
-            let (a, b) = (x.saturating_sub(r), (x + r).min(w - 1));
-            *v = src[a..=b].iter().copied().fold(src[x], pick);
-        }
-    });
-    let mut out = GrayFrame::new(w, h);
-    for_rows(&mut out.data, w, |y, row| {
-        let (a, b) = (y.saturating_sub(r), (y + r).min(h - 1));
-        for (x, v) in row.iter_mut().enumerate() {
-            let mut m = tmp.data[y * w + x];
-            for yy in a..=b {
-                m = pick(m, tmp.data[yy * w + x]);
-            }
-            *v = m;
-        }
-    });
-    out
+    // past the longer side a wider window takes in nothing more
+    let r = r.min(w.max(h));
+    GrayFrame { width: w, height: h, data: li_matte::matting::max_square(&p.data, w, h, r, max) }
 }
 
 #[cfg(test)]
@@ -1386,6 +1370,34 @@ mod tests {
         };
         assert!(chroma(img.get(20, 10)) < chroma(purple) * 0.3);
         assert!((chroma(flat2.get(20, 10)) - chroma(purple)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_min_max_filter_matches_a_brute_force_scan_and_is_linear_in_its_radius() {
+        let (w, h) = (37, 23);
+        let p = GrayFrame::from_fn(w, h, |x, y| (((y * w + x) * 7919) % 101) as f32 / 101.0);
+        for r in [0, 1, 2, 5, 22, 40] {
+            for max in [false, true] {
+                let got = min_filter(&p, r, max);
+                for y in 0..h {
+                    for x in 0..w {
+                        let mut m = p.data[y * w + x];
+                        for yy in y.saturating_sub(r)..=(y + r).min(h - 1) {
+                            for xx in x.saturating_sub(r)..=(x + r).min(w - 1) {
+                                let v = p.data[yy * w + xx];
+                                m = if max { m.max(v) } else { m.min(v) };
+                            }
+                        }
+                        assert_eq!(got.data[y * w + x], m, "r {r} max {max} at {x},{y}");
+                    }
+                }
+            }
+        }
+        // a radius as wide as a large output: was ~4 L³ comparisons
+        let big = GrayFrame::new(6000, 6000);
+        let t = std::time::Instant::now();
+        let _ = min_filter(&big, 6000, true);
+        assert!(t.elapsed().as_secs() < 20, "took {:?}", t.elapsed());
     }
 
     /// Found by fuzzing catalog snapshots: a defringe amount far past the sliders' 20 (from a

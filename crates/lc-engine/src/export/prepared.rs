@@ -110,13 +110,17 @@ pub(crate) fn prepare_guarded(
         if let Some(why) = too_big_for_memory((w, h), native.0.saturating_mul(native.1), cost, crate::memory::total_ram()) {
             return Err(format!("{}: {why}", p.file_name));
         }
-        let job = if upscale.is_some() {
+        let mut job = if upscale.is_some() {
             session.export_job(id, native.0, native.1, OutputSpace::Srgb, OutputDepth::U8)?
         } else if resample.is_some() {
             session.export_job(id, native.0, native.1, space, render_depth)?
         } else {
             session.export_job(id, w, h, space, depth)?
         };
+        // the box is the final size, fitted against the photo at full resolution: a decode that
+        // rounds its shape differently must not fit it again and lose a pixel
+        job.request.exact_size = true;
+        job.key ^= 0x86e2_fadc_0917_b435;
         Work::Render(Box::new(RenderWork { job, upscale, meta, opts: o.clone(), resample, cost }))
     } else {
         let lightcraft_catalog::Source::File { path } = &p.source else {
