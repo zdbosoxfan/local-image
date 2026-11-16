@@ -93,7 +93,8 @@ pub struct LoadOptions {
     pub max_manifest_bytes: usize,
     /// Maximum size of one decompressed blob.
     pub max_blob_bytes: usize,
-    /// Maximum total decompressed tile + blob bytes.
+    /// Maximum total decompressed tile + blob bytes. The default follows the machine
+    /// ([`total_budget`]).
     pub max_total_bytes: u64,
     /// Keep document and layer ids from the file (the id counter is advanced
     /// past them). When `false`, fresh ids are assigned.
@@ -117,12 +118,27 @@ pub const MAX_CANVAS_SIDE: u32 = 300_000;
 /// canvas with no content allocates nothing for its area.
 pub const MAX_CANVAS_PIXELS: u64 = MAX_CANVAS_SIDE as u64 * MAX_CANVAS_SIDE as u64;
 
+/// The format's own limit on total decompressed tile + blob bytes. A save is checked against it,
+/// so a document saved on any machine stays within what the format admits.
+pub const MAX_TOTAL_BYTES: u64 = 16 << 30;
+
+/// The least [`total_budget`] gives, so a load isn't refused because RAM is briefly short.
+pub const MIN_TOTAL_BUDGET: u64 = 1 << 30;
+
+/// The default [`LoadOptions::max_total_bytes`]: `cap` lowered to the RAM available now, but not
+/// below [`MIN_TOTAL_BUDGET`]. A bundle names each tile's decoded size, so a small file of nearly
+/// empty, highly compressed tiles can ask for far more than the machine has; past this budget the
+/// load stops with an error instead of the process running out of memory.
+pub fn total_budget(cap: u64, available_ram: u64) -> u64 {
+    available_ram.max(MIN_TOTAL_BUDGET).min(cap)
+}
+
 impl Default for LoadOptions {
     fn default() -> Self {
         LoadOptions {
             max_manifest_bytes: 256 << 20,
             max_blob_bytes: 1 << 30,
-            max_total_bytes: 16 << 30,
+            max_total_bytes: total_budget(MAX_TOTAL_BYTES, lightcraft_sysmem::ram_available()),
             preserve_ids: true,
             max_canvas_side: MAX_CANVAS_SIDE,
             max_canvas_pixels: MAX_CANVAS_PIXELS,

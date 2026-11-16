@@ -183,8 +183,31 @@ pub(crate) enum Refresh {
     /// Shapes only (their pixels are clipped to the canvas, which may have grown).
     Shapes,
     /// Type, shapes and smart objects (after a resampling map). Smart objects whose source is
-    /// unavailable keep their (already mapped) cache.
+    /// unavailable keep their (already mapped) cache; so does type set in a font that isn't
+    /// installed ([`keeps_own_pixels`]), which the caller maps with the pixels.
     All,
+}
+
+/// Type whose rendering [`Refresh::All`] keeps: it has pixels (a PSD's, say) and uses a font that
+/// isn't installed, so a re-render would draw a substitute face.
+pub(crate) fn keeps_own_pixels(t: &TextLayer) -> bool {
+    t.cache.is_some() && crate::type_extra_cmds::has_missing_font(t)
+}
+
+/// Applies `map` to the cached pixels of every type layer [`keeps_own_pixels`] (inside groups
+/// too), for whole-image maps that otherwise move type by its transform alone.
+pub(crate) fn map_missing_font_type(layers: &mut [Layer], map: &mut dyn FnMut(&Surface) -> Surface) {
+    for l in layers {
+        match &mut l.content {
+            LayerContent::Group(g) => map_missing_font_type(&mut g.children, map),
+            LayerContent::Text(t) if keeps_own_pixels(t) => {
+                if let Some(c) = &mut t.cache {
+                    *c = map(c);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(crate) fn refresh(doc: &mut Document, what: Refresh) -> crate::Result<()> {
@@ -198,7 +221,7 @@ pub(crate) fn refresh(doc: &mut Document, what: Refresh) -> crate::Result<()> {
                         s.cache = Some(cache);
                     }
                 }
-                LayerContent::Text(t) if what == Refresh::All => crate::vector_integration::refresh_text(snapshot, t, &l.vector)?,
+                LayerContent::Text(t) if what == Refresh::All && !keeps_own_pixels(t) => crate::vector_integration::refresh_text(snapshot, t, &l.vector)?,
                 LayerContent::Smart(_) if what == Refresh::All => {
                     let _ = crate::smart_cmds::refresh_layer(snapshot, l);
                 }

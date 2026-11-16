@@ -24,7 +24,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-pub use disk::{DiskCache, decode_jpeg, encode_jpeg};
+pub use disk::{DiskCache, WriteGate, decode_jpeg, encode_jpeg};
 pub use hash::{ContentHasher, ContentId, Hash128, Hasher128, hash_bytes};
 use li_raster::Rgba8;
 pub use lru::{Lru, next_tick};

@@ -130,10 +130,13 @@ pub struct Stroke {
 /// Gradient stops per gradient.
 const MAX_STOPS: usize = 1024;
 
-fn floats(v: &Value) -> Option<Vec<f64>> {
+/// The first `n` components of a float vector or packed `f32` record. A colour reads a few
+/// leading components; a shared colour with a huge record is decoded for every occurrence, so
+/// the rest is neither converted nor copied.
+fn floats(v: &Value, n: usize) -> Option<Vec<f64>> {
     match v {
-        Value::Floats(f) => Some(f.clone()),
-        Value::Bytes(b) if b.len() % 4 == 0 => Some(b.as_chunks::<4>().0.iter().map(|c| f64::from(f32::from_le_bytes(*c))).collect()),
+        Value::Floats(f) => Some(f.iter().take(n).copied().collect()),
+        Value::Bytes(b) if b.len() % 4 == 0 => Some(b.as_chunks::<4>().0.iter().take(n).map(|c| f64::from(f32::from_le_bytes(*c))).collect()),
         _ => None,
     }
 }
@@ -150,26 +153,27 @@ fn color_at(r: &mut Reader, id: ObjId, depth: usize, remaining: &mut usize) -> O
     *remaining -= 1;
     let s = r.s;
     let class = s.class(id)?;
-    let col = || -> Option<Vec<f64>> {
-        let v = floats(s.field(id, b"_col")?)?;
+    // `n` is how many components the model reads; only those are decoded and checked.
+    let col = |n: usize| -> Option<Vec<f64>> {
+        let v = floats(s.field(id, b"_col")?, n)?;
         v.iter().all(|f| f.is_finite()).then_some(v)
     };
     Some(match &class.0.to_be_bytes() {
         b"RGBA" => {
-            let v = col()?;
+            let v = col(4)?;
             Color::Rgb { r: *v.first()?, g: *v.get(1)?, b: *v.get(2)?, a: v.get(3)?.clamp(0.0, 1.0) }
         }
         b"HSLA" => {
-            let v = col()?;
+            let v = col(4)?;
             let (r2, g, b) = hsl(*v.first()?, *v.get(1)?, *v.get(2)?);
             Color::Rgb { r: r2, g, b, a: v.get(3)?.clamp(0.0, 1.0) }
         }
         b"CMYK" => {
-            let v = col()?;
+            let v = col(5)?;
             Color::Cmyk { c: *v.first()?, m: *v.get(1)?, y: *v.get(2)?, k: *v.get(3)?, a: v.get(4)?.clamp(0.0, 1.0) }
         }
         b"GRAY" => {
-            let v = col()?;
+            let v = col(2)?;
             Color::Gray { v: *v.first()?, a: v.get(1)?.clamp(0.0, 1.0) }
         }
         b"LABA" => {
@@ -347,6 +351,8 @@ pub(crate) fn stroke(r: &mut Reader, pen: ObjId, ldsc: ObjId, local: Affine, beh
             r.warn("dash patterns longer than 64 lengths (imported as solid)");
             None
         }
+        // Each occurrence of a shared style keeps its own scaled copy: charge it like other slots.
+        Some(Value::Array(a)) if !r.charge_slots(a.len()) => None,
         Some(Value::Array(a)) if data.get(10) == Some(&2) || !a.is_empty() => {
             let mut v: Vec<f64> = a.iter().filter_map(|x| if let Value::Float(f) = x { Some(*f) } else { None }).collect();
             while v.len() >= 2 && v.iter().rev().take(2).all(|x| *x == 0.0) {
@@ -361,4 +367,20 @@ pub(crate) fn stroke(r: &mut Reader, pen: ObjId, ldsc: ObjId, local: Affine, beh
         r.warn("brush and pressure strokes (imported as plain strokes)");
     }
     Some(Stroke { paint, width, cap, join, miter_limit, align, dash, behind })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_components_a_colour_reads_are_decoded() {
+        // A 64 KiB record decodes to the four components asked for, not sixteen thousand.
+        let record = Value::Bytes(1.0f32.to_le_bytes().repeat(16_383));
+        assert_eq!(floats(&record, 4), Some(vec![1.0; 4]));
+        assert_eq!(floats(&Value::Floats(vec![0.5; 6]), 2), Some(vec![0.5; 2]));
+        // Fewer components than asked for are returned as they are, for the caller to refuse.
+        assert_eq!(floats(&Value::Floats(vec![0.5; 3]), 5), Some(vec![0.5; 3]));
+        assert_eq!(floats(&Value::Bytes(vec![0; 3]), 4), None);
+    }
 }

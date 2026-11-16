@@ -72,6 +72,21 @@ fn rotate_arbitrary_grows_canvas_and_keeps_background() {
     assert_eq!(s.active().unwrap().history.past_len(), n, "a full turn changes nothing");
 }
 
+/// As in Photoshop, Image Rotation › Arbitrary drops the selection inside its one history step.
+#[test]
+fn rotate_arbitrary_drops_the_selection_and_undo_restores_it() {
+    let mut s = session(40, 20, 8, "rgb");
+    s.execute("select.rect", json!({"x": 5, "y": 5, "width": 10, "height": 10})).unwrap();
+    let before = doc(&s).selection.clone();
+    assert!(before.is_some());
+    let past = s.active().unwrap().history.past_len();
+    s.execute("image.rotation.arbitrary", json!({"angle": 30})).unwrap();
+    assert!(doc(&s).selection.is_none());
+    assert_eq!(s.active().unwrap().history.past_len(), past + 1);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(doc(&s).selection == before, "undo restores the selection");
+}
+
 #[test]
 fn rotate_arbitrary_other_modes() {
     for mode in ["gray", "cmyk", "lab"] {

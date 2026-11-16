@@ -111,6 +111,9 @@ fn taps(dst0: i32, dst1: i32, scale: f64, filter: Resample, edge: Option<(i32, i
     let clamp = |i: i32| edge.map_or(i, |(a, b)| i.clamp(a, b));
     (dst0..dst1)
         .map(|o| {
+            if scale < MIN_KERNEL_SCALE {
+                return box_taps(o, scale, edge, content);
+            }
             let u = (o as f64 + 0.5) / scale - 0.5;
             if filter == Resample::Nearest && scale >= 1.0 {
                 let i = clamp((u + 0.5).floor() as i32);
@@ -147,6 +150,31 @@ fn taps(dst0: i32, dst1: i32, scale: f64, filter: Resample, edge: Option<(i32, i
             Taps { start: a, weights: folded.get(i0..i1).unwrap_or(&[]).to_vec(), outside }
         })
         .collect()
+}
+
+/// Below this scale every kernel would build a weight per covered source sample (millions per
+/// output sample); the box average over the covered span is indistinguishable there.
+const MIN_KERNEL_SCALE: f64 = 1.0 / 4096.0;
+
+/// [`taps`] for output coordinate `o` as the plain average of the source span it covers, built
+/// only over the samples kept: each sample `i` covers `[i - 0.5, i + 0.5)`, and an edge sample
+/// also covers everything beyond it.
+fn box_taps(o: i32, scale: f64, edge: Option<(i32, i32)>, content: (i32, i32)) -> Taps {
+    let (a, b) = (o as f64 / scale - 0.5, (o as f64 + 1.0) / scale - 0.5);
+    let clamp = |i: i32| edge.map_or(i, |(lo, hi)| i.clamp(lo, hi));
+    let (lo, hi) = (clamp((a + 0.5).floor() as i32), clamp((b + 0.5).ceil() as i32 - 1));
+    let (k0, k1) = (lo.max(content.0), hi.min(content.1));
+    if k0 > k1 {
+        return Taps { start: content.0, weights: Vec::new(), outside: 1.0 };
+    }
+    let cover = |i: i32| {
+        let c0 = if edge.is_some_and(|(e, _)| i == e) { f64::NEG_INFINITY } else { i as f64 - 0.5 };
+        let c1 = if edge.is_some_and(|(_, e)| i == e) { f64::INFINITY } else { i as f64 + 0.5 };
+        ((c1.min(b) - c0.max(a)).max(0.0) / (b - a)) as f32
+    };
+    let weights: Vec<f32> = (k0..=k1).map(cover).collect();
+    let outside = (1.0 - weights.iter().sum::<f32>()).max(0.0);
+    Taps { start: k0, weights, outside }
 }
 
 /// Output rectangle for `r` scaled by `(sx, sy)` about the origin.
@@ -844,6 +872,18 @@ mod lanczos_tests {
         let mut s = d[..1].to_lowercase();
         s.push_str(&d[1..]);
         s
+    }
+
+    #[test]
+    fn a_tiny_scale_keeps_its_taps_within_the_content() {
+        for filter in [Resample::Nearest, Resample::Bilinear, Resample::Bicubic, Resample::Lanczos] {
+            for edge in [None, Some((0, 63))] {
+                let t = &taps(0, 1, 1.0e-12, filter, edge, (0, 63))[0];
+                assert!(t.weights.len() <= 64, "{filter:?}: {} taps", t.weights.len());
+                let total = t.weights.iter().sum::<f32>() + t.outside;
+                assert!((total - 1.0).abs() < 1e-5, "{filter:?} {edge:?}: weights sum to {total}");
+            }
+        }
     }
 
     #[test]

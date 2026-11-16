@@ -467,6 +467,22 @@ fn tracklog_auto_tag() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A track log is read through the opened regular file under a byte cap: a file past the cap is
+/// refused before any of it is read.
+#[test]
+fn tracklog_file_past_the_byte_cap_is_refused_unread() {
+    let dir = temp_dir("tracklog-cap");
+    let path = dir.join("huge.gpx");
+    // one byte past the 256 MB cap (sparse: no disk space is used)
+    std::fs::File::create(&path).unwrap().set_len((256 << 20) + 1).unwrap();
+    let mut s = Session::new();
+    s.open_library(dir.join("lib"), true).unwrap();
+    let id = s.visible_cloned()[0].0;
+    let e = s.execute("photo.autoTagTracklog", &json!({"path": path.to_string_lossy(), "ids": [id]})).unwrap_err().to_string();
+    assert!(e.contains("can't read"), "{e}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // random sort: Given the library, When the user picks Random, Then the grid is a stable shuffle
 
 #[test]

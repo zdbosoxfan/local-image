@@ -192,7 +192,7 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
     let (w, h) = (info.width as usize, info.height as usize);
     let n = w.checked_mul(h).filter(|n| *n > 0 && *n <= crate::MAX_SAMPLES).ok_or(RawError::Limit("image too large"))?;
     let chunks = info.chunks(bytes.len() as u64);
-    let total: u64 = chunks.iter().map(|c| c.len).sum();
+    let total = chunks.iter().fold(0u64, |a, c| a.saturating_add(c.len));
     let stated = cfa_from_exif(&tiff);
     let mut two_field = false;
     let (mut data, bits) = if info.compression != 1 {
@@ -216,6 +216,10 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         (RawData::U16(d), 12)
     } else if total * 8 >= (n as u64) * 12 && total * 8 < (n as u64) * 13 && chunks.len() == 1 {
         let src = chunk_bytes(bytes, &chunks[0]).ok_or_else(|| RawError::Corrupt("ORF strip outside file".into()))?;
+        // the strip as the file holds it (clipped at its end), not as its tag states it
+        if (src.len() as u64).saturating_mul(8) < (n as u64).saturating_mul(12) {
+            return Err(RawError::Corrupt("ORF strip shorter than its samples".into()));
+        }
         // the depth is fixed here, so a header-only probe needs the samples only when the file doesn't state its
         // colour-filter layout
         let d = if mode == Mode::Full || stated.is_none() {
@@ -419,6 +423,15 @@ mod tests {
         }
     }
 
+    /// Strip byte counts that add up past `u64::MAX` (LONG8 `[u64::MAX, 1]`) are an error or a picture, not an overflow.
+    #[test]
+    fn strip_byte_counts_past_u64_max_do_not_overflow() {
+        let file = crate::vendor::tests::huge_strip_counts(orf(4, 2, 16, vec![0; 16]));
+        for mode in [Mode::Header, Mode::Full] {
+            let _ = decode(&file, mode);
+        }
+    }
+
     #[test]
     fn packed_12_bit_probe_agrees_with_decode() {
         let (w, h) = (16usize, 4usize);
@@ -430,6 +443,23 @@ mod tests {
             assert_eq!(r.cfa.as_ref().unwrap().name(), if tag.is_some() { "BGGR" } else { "RGGB" });
             assert_eq!(crate::probe_info(&bytes).unwrap(), r.info());
         }
+    }
+
+    /// The strip's byte count states the full 12-bit length but the file ends inside it: a truncated file, refused.
+    #[test]
+    fn packed_12_bit_strip_cut_short_by_the_file_end_is_refused() {
+        let (w, h) = (16usize, 4usize);
+        let strip: Vec<u8> = (0..w * h * 3 / 2).map(|i| (i * 37 % 251) as u8).collect();
+        let mut bytes = orf_with(w as u32, h as u32, 12, strip, None);
+        // point the strip at the file's last 88 bytes, leaving its byte count at 96
+        let ifd = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+        let entries = u16::from_le_bytes([bytes[ifd], bytes[ifd + 1]]) as usize;
+        let entry = (0..entries).map(|i| ifd + 2 + 12 * i).find(|&e| bytes[e..e + 2] == t::STRIP_OFFSETS.to_le_bytes()).unwrap();
+        assert_eq!(u16::from_le_bytes([bytes[entry + 2], bytes[entry + 3]]), 4);
+        let start = (bytes.len() - 88) as u32;
+        bytes[entry + 8..entry + 12].copy_from_slice(&start.to_le_bytes());
+        let err = crate::decode(&bytes).unwrap_err().to_string();
+        assert!(err.contains("shorter than its samples"), "{err}");
     }
 
     #[test]

@@ -302,6 +302,19 @@ mod archive {
     }
 
     #[test]
+    fn directory_records_count_against_the_archive_record_limit() {
+        let d = doc();
+        let mut file = synth::container(&[("doc.dat", &d, Method::Stored)], None);
+        let limits = Limits { max_objects: 1, ..Limits::default() };
+        assert!(Archive::open(&file, limits).is_ok(), "one file record is within a limit of one");
+        // The table's directory count sits after its tag, next, date, 24 reserved bytes, file count and 8 bytes.
+        let fat = u64::from_le_bytes(file[16..24].try_into().unwrap()) as usize;
+        let dirs = fat + 4 + 8 + 8 + 24 + 4 + 8;
+        file[dirs..dirs + 2].copy_from_slice(&1u16.to_le_bytes());
+        assert_eq!(Archive::open(&file, limits).unwrap_err(), Error::Limit("archive record count"));
+    }
+
+    #[test]
     fn hostile_streams_fail_cleanly() {
         let deep = (0..2000).fold(Vec::new(), |inner, _| vec![(tag(b"Chld"), F::Obj(tag(b"Grup"), inner))]);
         assert_eq!(stream::parse(&synth::stream(&deep)).unwrap_err(), Error::Limit("objects nested too deeply"));

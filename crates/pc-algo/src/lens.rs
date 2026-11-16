@@ -234,17 +234,25 @@ pub fn auto_scale(lc: &LensCorrection, frame: Rect) -> f64 {
 
 /// [`auto_scale`] when `post` maps each sample on (a lens profile corrected before these terms).
 pub fn auto_scale_with(lc: &LensCorrection, frame: Rect, post: &dyn Fn(Sample) -> Sample) -> f64 {
+    // Under 2 px a side no pixel centre can sample half a pixel inside, so no scale would do.
+    if frame.width() < 2 || frame.height() < 2 {
+        return lc.scale;
+    }
     let covers = |scale: f64| {
         let m = LensMap::new(&LensCorrection { scale, ..lc.clone() }, frame);
-        // The border pixels' centres must sample at least half a pixel inside the frame, where
-        // `remap`'s soft edge is fully opaque (no half-transparent corner pixels).
+        // Every border pixel's centre must sample at least half a pixel inside the frame, where
+        // `remap`'s soft edge is fully opaque (no half-transparent corner pixels). Each one is
+        // checked: rotation or perspective with distortion can put the extreme between sparse points.
         let (x0, y0, x1, y1) = (frame.x0 as f64 + 0.5, frame.y0 as f64 + 0.5, frame.x1 as f64 - 0.5, frame.y1 as f64 - 0.5);
         const EPS: f64 = 1e-6;
-        (0..=40).all(|i| {
-            let t = i as f64 / 40.0;
-            [(x0 + t * (x1 - x0), y0), (x0 + t * (x1 - x0), y1), (x0, y0 + t * (y1 - y0)), (x1, y0 + t * (y1 - y0))]
-                .iter()
-                .all(|&(x, y)| m.sample(x, y).map(post).is_some_and(|s| s.p[0] >= x0 - EPS && s.p[0] <= x1 + EPS && s.p[1] >= y0 - EPS && s.p[1] <= y1 + EPS))
+        let inside =
+            |x: f64, y: f64| m.sample(x, y).map(post).is_some_and(|s| s.p[0] >= x0 - EPS && s.p[0] <= x1 + EPS && s.p[1] >= y0 - EPS && s.p[1] <= y1 + EPS);
+        (0..frame.width()).all(|i| {
+            let x = x0 + f64::from(i);
+            inside(x, y0) && inside(x, y1)
+        }) && (0..frame.height()).all(|j| {
+            let y = y0 + f64::from(j);
+            inside(x0, y) && inside(x1, y)
         })
     };
     if covers(lc.scale) {
@@ -513,6 +521,24 @@ mod tests {
         assert!(s > 105.0 && s < 130.0, "{s}");
         let rot = LensMap::new(&LensCorrection { scale: s, ..lc }, frame);
         assert!((0.0..=300.0).contains(&rot.sample(0.0, 0.0).unwrap().p[0]));
+    }
+
+    #[test]
+    fn auto_scale_checks_every_border_pixel() {
+        // Under 2 px a side no pixel centre can sample half a pixel inside: the scale is left alone.
+        let lc = LensCorrection { angle: 10.0, ..Default::default() };
+        assert_eq!(auto_scale(&lc, Rect::new(0, 0, 1, 50)), lc.scale);
+        // Rotation with distortion and both perspectives: here 41 points a side miss the worst border
+        // pixel (x 44.5 on the bottom edge) by about 0.01 px. Every border pixel centre samples inside.
+        let frame = Rect::new(0, 0, 500, 120);
+        let lc = LensCorrection { angle: 3.0, distortion: 80.0, vertical: -40.0, horizontal: 45.0, ..Default::default() };
+        let s = auto_scale(&lc, frame);
+        let m = LensMap::new(&LensCorrection { scale: s, ..lc }, frame);
+        let inside =
+            |x: f64, y: f64| m.sample(x, y).is_some_and(|q| (0.5 - 1e-6..=499.5 + 1e-6).contains(&q.p[0]) && (0.5 - 1e-6..=119.5 + 1e-6).contains(&q.p[1]));
+        assert!(s < 400.0, "{s}");
+        assert!((0..500).all(|i| inside(0.5 + f64::from(i), 0.5) && inside(0.5 + f64::from(i), 119.5)), "{s}");
+        assert!((0..120).all(|j| inside(0.5, 0.5 + f64::from(j)) && inside(499.5, 0.5 + f64::from(j))), "{s}");
     }
 
     #[test]

@@ -144,8 +144,19 @@ pub(crate) fn eps_for<'a>(paths: impl IntoIterator<Item = &'a BezPath>) -> Resul
     // Keep the upstream document-scale tolerance; scale its floor for tiny/huge
     // drawings to avoid collapsed tiny contours or excessive root subdivisions.
     let floor = if !(0.01..=1e4).contains(&span) { (span * 1e-8).max(1e-12) } else { 1e-6 };
-    Ok((m * f64::EPSILON * 64.0).max(floor))
+    let rounding = m * f64::EPSILON * 64.0;
+    // Past a document unit, features thinner than the sweep's rounding collapse and the call would
+    // answer `Ok` with part or all of the art gone. Refuse, so callers keep the original. The
+    // floor above scales with the drawing, so it erases nothing a drawing that size keeps.
+    if rounding > MAX_SWEEP_ROUNDING {
+        return Err(PathOpsError::Degenerate);
+    }
+    Ok(rounding.max(floor))
 }
+
+/// The widest rounding tolerance [`eps_for`] accepts: one document unit, reached by coordinates of
+/// about 7e13.
+const MAX_SWEEP_ROUNDING: f64 = 1.0;
 
 fn el_points(el: &kurbo::PathEl) -> impl Iterator<Item = Point> {
     use kurbo::PathEl::*;
@@ -293,7 +304,7 @@ fn flatten_fallback(paths: &[(BezPath, FillRule)], extent: f64) -> Result<Vec<(B
         .iter()
         .map(|(p, r)| {
             let mut flat = BezPath::new();
-            kurbo::flatten(p.iter(), (DEFAULT_PRECISION * 0.1).max(extent * 1e-6), |el| {
+            crate::geom::bez::flatten(p.iter(), (DEFAULT_PRECISION * 0.1).max(extent * 1e-6), |el| {
                 if matches!(el, kurbo::PathEl::LineTo(_)) {
                     segments += 1;
                 }
@@ -330,12 +341,17 @@ fn may_reach_limits(paths: &[(BezPath, FillRule)], eps: f64) -> bool {
 }
 
 impl Arrangement {
-    pub(crate) fn new(mut paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
+    pub(crate) fn new(paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
+        Self::new_budgeted(paths, crate::budget::MAX_SEGMENT_PAIRS)
+    }
+
+    /// An arrangement whose every sweep is refused past `cap` overlapping segment pairs.
+    pub(crate) fn new_budgeted(mut paths: Vec<(BezPath, FillRule)>, cap: usize) -> Result<Self, PathOpsError> {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
         snap_horizontals(&mut paths.iter_mut().map(|p| &mut p.0).collect::<Vec<_>>(), eps);
         let edge_bytes = sweep_edge_bytes(&paths);
         let sweep = |paths: &[(BezPath, FillRule)]| {
-            crate::budget::charge_sweep(paths.iter().map(|(path, _)| path))?;
+            crate::budget::charge_sweep(paths.iter().map(|(path, _)| path), cap)?;
             // Art that cannot reach the limits is not swept twice.
             let may_refuse = may_reach_limits(paths, eps);
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -733,10 +749,92 @@ pub fn try_boolean(a: &PathData, a_rule: FillRule, b: &PathData, b_rule: FillRul
             BoolOp::Union | BoolOp::Intersect => try_normalize(a, a_rule),
         };
     }
-    let arr = Arrangement::new(vec![(abp, a_rule), (bbp, b_rule)])?;
+    let arr = Arrangement::new(vec![(abp.clone(), a_rule), (bbp.clone(), b_rule)])?;
     let c = arr.contours(|m| op.apply(m[0], m[1]))?;
+    // The sweep can give some faces a wrong winding when an operand crosses or touches itself, and
+    // the result then silently gains or loses a region. When the windings don't add up to the
+    // operands' areas, resolve each operand on its own first; when that doesn't add up either,
+    // keep the first result.
+    if !arrangement_adds_up(&arr, [&abp, &bbp])
+        && let Some(r) = resolved_boolean([(&abp, a_rule), (&bbp, b_rule)], op, precision)
+    {
+        return Ok(r);
+    }
     let tidy = Tidy { precision, ..arr.tidy };
     Ok(all_contours_to_path(&c, &tidy))
+}
+
+/// The widest winding (either sign) [`windings_add_up`] checks: one contour pass per level, so a
+/// more tangled input is taken as it is.
+const MAX_CHECKED_WINDING: i32 = 8;
+
+/// Do the windings `arr` gave each input add up to that input's own area? True when it can't tell.
+fn arrangement_adds_up(arr: &Arrangement, inputs: [&BezPath; 2]) -> bool {
+    inputs.iter().enumerate().all(|(tag, p)| windings_add_up(&arr.top, |w: &Multi| w.get(tag), p).unwrap_or(true))
+}
+
+/// Does the winding the sweep `top` gave its faces add up to the signed area of the path `input`
+/// it was made from? The integral of a path's winding number over the plane is its signed area,
+/// and that integral is the sum over k >= 1 of |{w >= k}| - |{w <= -k}|. A face given a wrong
+/// winding puts it off by the face's area. None when it can't tell: windings past
+/// [`MAX_CHECKED_WINDING`], or a contour pass that fails.
+fn windings_add_up(top: &Topology<Multi>, winding: impl Fn(&Multi) -> i32, input: &BezPath) -> Option<bool> {
+    let (mut lo, mut hi) = (0, 0);
+    for s in top.segment_indices() {
+        let h = s.first_half();
+        for w in [top.winding_clockwise(h), top.winding_counter_clockwise(h)] {
+            let k = winding(w);
+            (lo, hi) = (lo.min(k), hi.max(k));
+        }
+    }
+    if hi > MAX_CHECKED_WINDING || lo < -MAX_CHECKED_WINDING {
+        return None;
+    }
+    let region = |pred: &dyn Fn(i32) -> bool| -> Option<f64> {
+        let c = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| top.contours(|w| pred(winding(w))))).ok()?;
+        Some(c.contours().map(|ct| ct.path.area()).sum::<f64>().abs())
+    };
+    let mut integral = 0.0;
+    for k in 1..=hi {
+        integral += region(&|w| w >= k)?;
+    }
+    for k in 1..=-lo {
+        integral -= region(&|w| w <= -k)?;
+    }
+    let want = input.area();
+    // The sweep moves points by up to its tolerance, which moves an area by about that much along
+    // each edge; a misplaced face is far larger.
+    let eps = eps_for([input]).ok()?;
+    let tol = 1e-6 * input.bounding_box().area().abs() + 16.0 * eps * input.perimeter(1e-3) * f64::from(hi - lo).max(1.0);
+    Some((integral - want).abs() <= tol || (integral + want).abs() <= tol)
+}
+
+/// `input` resolved on its own under `rule` into simple contours (outer contours and holes, filled
+/// non-zero), when the windings of that sweep add up.
+fn resolved(input: &BezPath, rule: FillRule) -> Option<BezPath> {
+    let arr = Arrangement::new(vec![(input.clone(), rule)]).ok()?;
+    if !windings_add_up(&arr.top, |w| w.get(0), input)? {
+        return None;
+    }
+    let mut out = BezPath::new();
+    for ct in arr.contours(|m| m[0]).ok()?.contours() {
+        out.extend(ct.path.iter());
+    }
+    Some(out)
+}
+
+/// The boolean of the operands resolved into simple contours first: the result when every
+/// sweep's windings add up, else None.
+fn resolved_boolean(inputs: [(&BezPath, FillRule); 2], op: BoolOp, precision: f64) -> Option<PathData> {
+    let [(pa, a_rule), (pb, b_rule)] = inputs;
+    let (ra, rb) = (resolved(pa, a_rule)?, resolved(pb, b_rule)?);
+    let arr = Arrangement::new(vec![(ra.clone(), FillRule::NonZero), (rb.clone(), FillRule::NonZero)]).ok()?;
+    if !arrangement_adds_up(&arr, [&ra, &rb]) {
+        return None;
+    }
+    let c = arr.contours(|m| op.apply(m[0], m[1])).ok()?;
+    // The refit keeps the operands' own anchors, not only those of their resolved contours.
+    Some(all_contours_to_path(&c, &Tidy::keeping(precision, [pa, pb])))
 }
 
 fn same_boundary(a: &BezPath, b: &BezPath) -> bool {
@@ -812,6 +910,29 @@ pub fn area(path: &PathData, rule: FillRule) -> f64 {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod dsfix_tests {
     use super::*;
+
+    fn square(x: f64, y: f64, size: f64) -> PathData {
+        PathData::from_bezpath(&kurbo::Rect::new(x, y, x + size, y + size).to_path(0.1))
+    }
+
+    #[test]
+    fn coordinates_wider_than_a_unit_of_tolerance_are_refused_not_emptied() {
+        let near = square(0.0, 0.0, 10.0);
+        let far = square(1e15, 1e15, 10.0);
+        for op in [BoolOp::Union, BoolOp::Intersect, BoolOp::Difference, BoolOp::Xor] {
+            assert_eq!(try_boolean(&near, FillRule::NonZero, &far, FillRule::NonZero, op, DEFAULT_PRECISION), Err(PathOpsError::Degenerate), "{op:?}");
+        }
+        assert_eq!(try_normalize(&far, FillRule::NonZero), Err(PathOpsError::Degenerate));
+        // 100 unit squares: tolerance 0.7 at 5e13 (kept), 1.4 at 1e14 (refused).
+        assert!(try_normalize(&square(5e13, 5e13, 100.0), FillRule::NonZero).is_ok());
+        assert_eq!(try_normalize(&square(1e14, 1e14, 100.0), FillRule::NonZero), Err(PathOpsError::Degenerate));
+        for at in [1e5, 1e7] {
+            let united =
+                try_boolean(&square(at, at, 10.0), FillRule::NonZero, &square(at + 5.0, at, 10.0), FillRule::NonZero, BoolOp::Union, DEFAULT_PRECISION)
+                    .unwrap();
+            assert!((area(&united, FillRule::NonZero) - 150.0).abs() < 1.0, "at {at}");
+        }
+    }
     #[test]
     fn dsfix_fallback_accepts_more_than_1024_chords_and_keeps_a_finite_cap() {
         let ring = |n| {

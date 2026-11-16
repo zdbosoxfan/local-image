@@ -285,6 +285,26 @@ fn offset_rect_joins() {
 }
 
 #[test]
+fn offset_of_an_open_path_whose_ends_meet_is_the_closed_shape_offset() {
+    let corners = [Point::new(0.0, 0.0), Point::new(20.0, 0.0), Point::new(20.0, 10.0), Point::new(0.0, 10.0), Point::new(0.0, 0.0)];
+    let r = PathData::single(SubPath::polyline(&corners, false));
+    let grown = offset_path(&r, 2.0, Join::Miter, 4.0);
+    assert!(close(ar(&grown), 24.0 * 14.0, 1e-6), "{}", ar(&grown));
+    assert_eq!(grown.subpaths.len(), 1);
+    assert_eq!(grown.anchor_count(), 4);
+    assert!(close(ar(&offset_path(&r, -2.0, Join::Miter, 4.0)), 16.0 * 6.0, 1e-6));
+    // A curved outline: the last anchor's in-handle shapes the closing curve.
+    let mut sp = circle(0.0, 0.0, 10.0).subpaths.remove(0);
+    let first = sp.anchors[0];
+    sp.anchors.push(photocraft_pathops::geom::Anchor::with_handles(first.p, first.h_in, first.p));
+    sp.anchors[0].h_in = first.p;
+    sp.closed = false;
+    let o = offset_path(&PathData::single(sp), 3.0, Join::Round, 4.0);
+    assert!(close(ar(&o), PI * 169.0, 2e-3), "{}", ar(&o));
+    assert_eq!(o.subpaths.len(), 1);
+}
+
+#[test]
 fn outline_stroke_of_line() {
     let l = PathData::single(SubPath::polyline(&[Point::new(0.0, 0.0), Point::new(30.0, 40.0)], false));
     let o = outline_stroke(&l, 4.0, Cap::Butt, Join::Miter, 4.0);
@@ -350,6 +370,25 @@ fn simplify_keeps_square_corners() {
     let s = simplify(&sq, 0.1);
     assert_eq!(s.anchor_count(), 4);
     assert!(!has_curves(&s));
+}
+
+#[test]
+fn a_path_that_turns_back_past_its_end_converted_to_straight_lines_keeps_its_tip() {
+    // A line to (100, 0), a smooth 0.2 pt U-turn and a line back to (50, 0.2): every point is
+    // within 0.4 pt of the line through the ends, but the tip is 50 pt past the end.
+    use photocraft_pathops::geom::Anchor;
+    let k = 0.2 * 2.0 / 3.0;
+    let (a, b) = (Point::new(100.0, 0.0), Point::new(100.0, 0.2));
+    let anchors = vec![
+        Anchor::corner(Point::new(0.0, 0.0)),
+        Anchor::with_handles(a, a, Point::new(100.0 + k, 0.0)),
+        Anchor::with_handles(b, Point::new(100.0 + k, 0.2), b),
+        Anchor::corner(Point::new(50.0, 0.2)),
+    ];
+    let path = PathData::single(SubPath::new(anchors, false));
+    let out = simplify_with(&path, &SimplifyOptions { tolerance: 1.0, straight_lines: true, ..Default::default() });
+    let reach = out.subpaths.iter().flat_map(|s| &s.anchors).map(|a| a.p.x).fold(f64::MIN, f64::max);
+    assert!(reach > 99.0, "the tip at x = 100 is kept, not cut back to {reach}");
 }
 
 #[test]
@@ -499,4 +538,20 @@ fn remove_anchor_at_an_end_drops_its_segment_and_rejects_bad_input() {
     bad.anchors[0].h_out = Point::new(5.0, f64::NAN);
     assert!(remove_anchor(&mut bad, 1));
     assert_eq!(bad.anchors.len(), 2);
+}
+
+/// #5478: an operand that crosses itself, meeting another along its crossings: union and
+/// intersection must add up to the two operands' areas. The exact areas, under both fill rules.
+#[test]
+fn a_self_crossing_operand_gets_the_exact_areas() {
+    let poly = |pts: &[(f64, f64)]| PathData::single(SubPath::polyline(&pts.iter().map(|&(x, y)| Point::new(x, y)).collect::<Vec<_>>(), true));
+    let a = poly(&[(3.0, 1.0), (3.0, 3.0), (0.0, 1.0)]);
+    let b = poly(&[(3.0, 0.0), (0.0, 2.0), (3.0, 2.0), (0.0, 0.0), (0.0, 1.0)]);
+    for rule in [NZ, FillRule::EvenOdd] {
+        assert!(close(area(&a, rule), 3.0, 1e-9) && close(area(&b, rule), 2.5, 1e-9), "{rule:?}");
+        for (op, want) in [(BoolOp::Union, 4.375), (BoolOp::Intersect, 1.125), (BoolOp::Difference, 1.875), (BoolOp::Xor, 3.25)] {
+            let got = area(&try_boolean(&a, rule, &b, rule, op, DEFAULT_PRECISION).unwrap(), NZ);
+            assert!(close(got, want, 1e-6), "{op:?} {rule:?}: {got}, want {want}");
+        }
+    }
 }

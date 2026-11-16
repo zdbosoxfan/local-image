@@ -131,7 +131,8 @@ fn base_name(path: &str) -> String {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn read_file(path: &str) -> Option<Vec<u8>> {
-    std::fs::read(path).ok()
+    // The bounded reader: a device or an oversized file is refused instead of filling memory.
+    crate::file_cmds::read_file(path).ok()
 }
 #[cfg(target_arch = "wasm32")]
 fn read_file(_: &str) -> Option<Vec<u8>> {
@@ -153,13 +154,16 @@ pub fn update_adjustment(existing: &Adjustment, p: &Value) -> Option<Result<Adju
 
 /// Runs `f` on the target surface's content as straight RGBA (`w × h` = content bounds), blending
 /// the result through the selection.
-fn process_surface(surf: &mut Surface, selection: Option<&Surface>, f: &mut dyn FnMut(&mut Vec<[f32; 4]>, Rect)) {
+fn process_surface(surf: &mut Surface, selection: Option<&Surface>, f: &mut dyn FnMut(&mut Vec<[f32; 4]>, Rect)) -> Result<()> {
     let r = surf.content_bounds();
     if r.is_empty() {
-        return;
+        return Ok(());
     }
     let fmt = surf.format();
     let n = fmt.channels();
+    // The content bounds span the gaps between distant tiles. Held at once: the native read and
+    // the blended output (`n` f32 each), and the edited and original RGBA.
+    crate::allocation::check_dense(r, (n as u64).saturating_mul(8).saturating_add(32), "this adjustment")?;
     let raw = surf.read_region(r);
     let mut px: Vec<[f32; 4]> = raw.chunks_exact(n).map(|q| to_rgba(&fmt, q)).collect();
     let orig = px.clone();
@@ -174,6 +178,7 @@ fn process_surface(surf: &mut Surface, selection: Option<&Surface>, f: &mut dyn 
         out.extend_from_slice(&enc[..m]);
     }
     surf.write_region(r, &out);
+    Ok(())
 }
 
 /// One history step running `f` on the active pixel layer (or targeted channel or layer mask).
@@ -183,7 +188,7 @@ fn rgba_edit(s: &mut Session, label: &str, p: &Value, mut f: impl FnMut(&mut Vec
         return s.edit(label, |doc, _| {
             let sel = doc.selection.clone();
             if let Some(surf) = crate::channel_cmds::channel_surface_for_filter(doc, id, p)? {
-                process_surface(surf, sel.as_ref(), &mut f);
+                process_surface(surf, sel.as_ref(), &mut f)?;
                 surf.prune();
             }
             Ok(Value::Null)
@@ -193,7 +198,7 @@ fn rgba_edit(s: &mut Session, label: &str, p: &Value, mut f: impl FnMut(&mut Vec
     s.edit(label, |doc, _| {
         let sel = doc.selection.clone();
         let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
-        process_surface(surf, sel.as_ref(), &mut f);
+        process_surface(surf, sel.as_ref(), &mut f)?;
         Ok(Value::Null)
     })
 }
@@ -215,18 +220,20 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
 
 /// Image › Adjustments run as a smart filter (`image.adjustments.<kind>` recorded on a smart
 /// object): the adjustment applied to a copy of `surf`. `None` for kinds or params it can't run.
-pub(crate) fn adjust_as_filter(kind: &str, p: &Value, surf: &Surface) -> Option<Surface> {
+pub(crate) fn adjust_as_filter(kind: &str, p: &Value, surf: &Surface) -> Result<Option<Surface>> {
     let mut out = surf.clone();
     if kind == "shadowsHighlights" {
         let sh = shadows_highlights_params(p);
-        process_surface(&mut out, None, &mut |px, r| tone::shadows_highlights(px, r.width() as usize, r.height() as usize, &sh));
+        process_surface(&mut out, None, &mut |px, r| tone::shadows_highlights(px, r.width() as usize, r.height() as usize, &sh))?;
     } else {
         let mode = surf.format().mode;
-        let adj = crate::adjust_params::from_params(kind, p, None, mode).ok()?;
-        crate::pixels::adjust_surface(&mut out, &adj, None, mode).ok()?;
+        let Ok(adj) = crate::adjust_params::from_params(kind, p, None, mode) else { return Ok(None) };
+        if crate::pixels::adjust_surface(&mut out, &adj, None, mode).is_err() {
+            return Ok(None);
+        }
     }
     out.prune();
-    Some(out)
+    Ok(Some(out))
 }
 
 fn shadows_highlights(s: &mut Session, p: &Value) -> Result<Value> {

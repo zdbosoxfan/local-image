@@ -523,6 +523,7 @@ impl Loader<'_> {
 
     pub(crate) fn document(&mut self, m: &DocM) -> Result<Document> {
         validate_symbols_manifest(m)?;
+        check_layer_ids(&m.layers)?;
         let layers = m.layers.iter().map(|l| self.layer(l, 0)).collect::<Result<Vec<_>>>()?;
         let mut channels = Vec::with_capacity(m.channels.len());
         for c in &m.channels {
@@ -653,6 +654,27 @@ pub(crate) fn reserve_ids_through(max: u64) -> bool {
     }
     photocraft_doc::ensure_ids_above(max);
     true
+}
+
+/// Refuses a layer tree that repeats an id, before any payload is decoded. Remapping cannot
+/// repair a duplicate: layer comp and slice targets would still be ambiguous.
+fn check_layer_ids(layers: &[LayerM]) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    let mut pending = vec![(layers, 0usize)];
+    while let Some((layers, depth)) = pending.pop() {
+        if depth > MAX_GROUP_DEPTH && !layers.is_empty() {
+            return Err(too_deep());
+        }
+        for layer in layers {
+            if !seen.insert(layer.id) {
+                return Err(FormatError::corrupt(format!("duplicate layer id {}", layer.id)));
+            }
+            if let ContentM::Group { children, .. } = &layer.content {
+                pending.push((children.as_slice(), depth + 1));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Symbol variant preflight, before allocating caches or remapping any stored layer IDs.

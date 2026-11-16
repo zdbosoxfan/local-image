@@ -217,6 +217,31 @@ fn find_missing_matches_renamed_files_by_content() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A renamed file whose size is unknown (0, as libraries from another system can have) but whose
+/// content hash is known is still found by content: the hash alone confirms it is the same photo.
+#[test]
+fn find_missing_matches_renamed_file_by_content_without_size() {
+    use lightcraft_catalog::{Op, Photo, Source};
+    let dir = temp_dir("missing-no-size");
+    std::fs::create_dir_all(dir.join("found")).unwrap();
+    let content = b"same pixels as the original";
+    let renamed = dir.join("found").join("Trip-001.png");
+    std::fs::write(&renamed, content).unwrap();
+    let mut s = Session::new();
+    let id = s.catalog.alloc_photo_id();
+    let gone = dir.join("gone").join("orig.png").to_string_lossy().into_owned();
+    let mut p = Photo::new(id, Source::File { path: gone }, "orig.png", "PNG", 48, 32, "2026-01-01T10:00:00");
+    p.file_size = 0;
+    p.content_hash = Some(lightcraft_preview::ContentId::of(content).to_string());
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    let r = s.execute("library.findMissing", &json!({"folder": dir.join("found").to_string_lossy()})).unwrap();
+    assert_eq!(r["found"].as_array().map(Vec::len), Some(1), "{r}");
+    assert_eq!(r["found"][0]["to"], json!(renamed.to_string_lossy().to_string()), "{r}");
+    assert_eq!(r["found"][0]["by"], json!("content"), "{r}");
+    assert_eq!(r["missing"], 0, "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Issue #104: the app plans Find Missing on a worker thread (no session) and relinks the plan
 /// afterwards; that gives exactly what the synchronous command gives — renamed files by content,
 /// impostors and look-alikes skipped (`ambiguous`).
@@ -1285,4 +1310,22 @@ fn safety_second_copy_move_add_collision_and_failure_keep_source() {
     assert!(!session.catalog.photos().next().unwrap().local);
     assert_eq!(std::fs::read(second.join("local.png")).unwrap(), std::fs::read(local).unwrap());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The library's own folder can't be moved, also when it is named through a link.
+#[cfg(unix)]
+#[test]
+fn the_library_folder_is_protected_from_folder_move_however_its_path_is_spelled() {
+    let root = temp_dir("library-link");
+    let lib = root.join("library");
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    std::os::unix::fs::symlink(&lib, root.join("alias")).unwrap();
+    std::fs::create_dir_all(root.join("elsewhere")).unwrap();
+    let params = json!({"path": root.join("alias").to_string_lossy(), "into": root.join("elsewhere").to_string_lossy()});
+    let err = s.execute("folder.move", &params).unwrap_err().to_string();
+    assert!(err.contains("library's own folders"), "{err}");
+    assert!(lib.is_dir() && !root.join("elsewhere/alias").exists());
+    drop(s);
+    let _ = std::fs::remove_dir_all(&root);
 }
