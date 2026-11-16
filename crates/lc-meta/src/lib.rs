@@ -425,18 +425,17 @@ fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<XmpData>) -> Meta
 /// `AppliedToDimensions` (`drawn_on`); for a photo whose Exif `orientation` turns it a quarter turn, some apps give the
 /// stored, sideways size there and boxes on the stored pixels to match (Lightroom says so per box with
 /// `mwg-rs:Rotation` instead, which [`parse_xmp`] reads). When `drawn_on` has the shape of the photo as stored
-/// (`stored`, before `orientation`) rather than the upright one, every box is turned with `orientation`. Returns
-/// whether they were. A square photo or `drawn_on` looks the same both ways, and a half turn or a mirror doesn't
-/// change the shape: their boxes are left as they are.
-pub fn upright_regions(regions: &mut [Region], drawn_on: (f64, f64), orientation: Orientation, stored: (u32, u32)) -> bool {
+/// (`stored`, before `orientation`) rather than the upright one, every box is turned with `orientation`. A square
+/// photo or `drawn_on` looks the same both ways, and a half turn or a mirror doesn't change the shape: their boxes are
+/// left as they are.
+pub fn upright_regions(regions: &mut [Region], drawn_on: (f64, f64), orientation: Orientation, stored: (u32, u32)) {
     let ((dw, dh), (sw, sh)) = (drawn_on, stored);
     if regions.is_empty() || !orientation.swaps_axes() || sw == sh || dw == dh || (dw > dh) != (sw > sh) {
-        return false;
+        return;
     }
     for r in regions.iter_mut() {
         r.rect = orientation.map_norm_rect(r.rect);
     }
-    true
 }
 
 /// A container-level error reported by [`try_extract`].
