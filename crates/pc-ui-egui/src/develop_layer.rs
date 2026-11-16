@@ -398,11 +398,12 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// The document carries the Library's place names, so embedding them stays a choice.
     #[test]
-    fn export_as_keeps_the_metadata_of_a_develop_layer_document() {
+    fn export_as_starts_without_metadata_for_a_develop_layer_document() {
         let (dir, _, mut app) = photo_app("export-metadata");
         let id = crate::export_dialog::open(&mut app).unwrap();
-        assert_eq!(app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["metadata"], "all");
+        assert_eq!(app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["metadata"], "none");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
