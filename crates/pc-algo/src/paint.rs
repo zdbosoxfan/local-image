@@ -283,9 +283,9 @@ mod tests {
                     let p = s.rgba(x, 0);
                     assert!(p[..3].iter().all(|c| (c - 1.0).abs() < 1e-3) && (p[3] - opacity).abs() < 3e-3, "{fmt:?} {opacity} at {x}: {p:?}");
                 }
-                // The red pixel on the edge is tinted by the 1/18 anti-aliased coverage only.
-                let edge = s.rgba(4, 0);
-                assert!(edge[3] > 0.999 && (edge[1] - opacity / 18.0).abs() < 0.01, "{fmt:?} {opacity}: {edge:?}");
+                // The wand gives the red edge pixel no fringe (its colour is past the fringe's fade
+                // and the transparent seed has no opacity), so it stays as it was.
+                assert_eq!(s.rgba(4, 0), [1.0, 0.0, 0.0, 1.0], "{fmt:?} {opacity}: the edge");
                 assert_eq!(s.rgba(6, 0), [1.0, 0.0, 0.0, 1.0], "{fmt:?} {opacity}: beyond the edge");
             }
         }
