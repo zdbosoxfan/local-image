@@ -305,6 +305,55 @@ mod desktop_photo_tests {
     }
 }
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tile_write_tests {
+    use super::*;
+
+    fn image(w: u32, h: u32, layout: ChannelLayout, sample: CSample) -> Image {
+        let len = (w * h) as usize * layout.channels() * sample.bytes();
+        Image::from_raw(w, h, layout, sample, (0..len).map(|i| (i * 31 + i / 7) as u8).collect()).unwrap()
+    }
+
+    #[test]
+    fn converted_writes_land_where_the_whole_image_conversion_puts_them() {
+        // Not a multiple of the tile size, placed off the tile grid: rows and tiles split unevenly.
+        let (x, y, w, h) = (37u32, 300u32, 300u32, 270u32);
+        for (layout, sample) in [(ChannelLayout::Rgb, CSample::U8), (ChannelLayout::Gray, CSample::U16)] {
+            let img = image(w, h, layout, sample);
+            let f = document_format(layout, sample);
+            let mut got = Surface::new(PixelFormat::new(f.mode, f.depth, true));
+            write_converted(&mut got, (x, y), img.data(), (w, h), (layout, sample), &f).unwrap();
+            let mut want = Surface::new(PixelFormat::new(f.mode, f.depth, true));
+            let r = Rect::new(x as i32, y as i32, (x + w) as i32, (y + h) as i32);
+            want.write_interleaved(r, img.convert(f.layout, f.sample).data());
+            let around = Rect::new(0, 0, r.x1 + 5, r.y1 + 5);
+            assert!(got.to_interleaved(around) == want.to_interleaved(around), "{layout:?} {sample:?}");
+        }
+    }
+
+    #[test]
+    fn a_streamed_png_opens_as_the_whole_image_path_opens_it() {
+        let mut img = image(300, 530, ChannelLayout::Rgb, CSample::U8);
+        img.icc = Some(photocraft_cms::Builtin::Srgb.profile().to_bytes().to_vec());
+        img.meta.dpi = Some((300.0, 300.0));
+        let bytes = codecs::encode(&img, Format::Png, &codecs::EncodeOptions::default()).unwrap();
+        let got = import_png_streamed("big.png", &bytes, 0).unwrap().expect("streamed");
+        let want = image_to_document("big.png", &codecs::decode(&bytes).unwrap()).unwrap();
+        let (g, w) = (&got.document, &want.document);
+        assert_eq!((g.size, g.mode, g.depth, g.resolution_dpi), (w.size, w.mode, w.depth, w.resolution_dpi));
+        assert_eq!(g.icc_profile, w.icc_profile);
+        assert!(g.icc_profile.is_some());
+        assert_eq!(got.warnings, want.warnings);
+        let (gs, ws) = (g.layers[0].surface().unwrap(), w.layers[0].surface().unwrap());
+        assert!(gs.to_interleaved(g.bounds()) == ws.to_interleaved(w.bounds()));
+        assert_eq!(g.layers[0].locks.transparency, w.layers[0].locks.transparency);
+
+        let interlaced = codecs::encode(&img, Format::Png, &codecs::EncodeOptions { png_interlaced: true, ..Default::default() }).unwrap();
+        assert!(import_png_streamed("big.png", &interlaced, 0).unwrap().is_none());
+    }
+}
+
 /// `Some(surface)` when the document is exactly one visible, unmasked,
 /// normal, fully opaque raster layer: its pixels can be written natively
 /// (keeping CMYK / depth exactly) instead of going through the compositor.
