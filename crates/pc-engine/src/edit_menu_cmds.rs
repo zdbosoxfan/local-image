@@ -271,6 +271,11 @@ fn purge(s: &mut Session, what: &str) -> Result<Value> {
             freed += fx;
             items.push("effect cache");
         }
+        let sources = crate::smart_cmds::purge_source_cache();
+        if sources > 0 {
+            freed += sources;
+            items.push("smart object source cache");
+        }
     }
     s.edit_state.fade = None;
     let msg = if items.is_empty() { "nothing to purge".to_string() } else { format!("purged {}", items.join(", ")) };
@@ -287,9 +292,9 @@ fn can_purge_histories(s: &Session) -> std::result::Result<(), String> {
     if s.documents().iter().any(|d| d.history.can_undo() || d.history.can_redo()) { Ok(()) } else { Err("no history to purge".into()) }
 }
 fn can_purge_all(s: &Session) -> std::result::Result<(), String> {
-    can_purge_histories(s)
-        .or_else(|_| can_purge_clipboard(s))
-        .or_else(|_| if photocraft_compose::effect_cache_bytes() > 0 { Ok(()) } else { Err("nothing to purge".into()) })
+    can_purge_histories(s).or_else(|_| can_purge_clipboard(s)).or_else(|_| {
+        if photocraft_compose::effect_cache_bytes() > 0 || crate::smart_cmds::source_cache_bytes() > 0 { Ok(()) } else { Err("nothing to purge".into()) }
+    })
 }
 
 // Content-Aware Fill
