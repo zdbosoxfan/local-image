@@ -3379,6 +3379,27 @@ fn lrc_shared_interface_language_and_library_language_commands_use_one_preferenc
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Develop and Compositing share one AI Remove engine choice: a pick in either is used by both.
+#[test]
+fn ai_remove_engine_choice_is_shared_by_develop_and_compositing() {
+    let (dir, host) = workflow_host("shared-remove-engine");
+    let mut h = RoundTripUi::new(host);
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Develop);
+    for _ in 0..4 {
+        h.step(vec![]);
+    }
+    h.host.editor.ui.ai.remove_engine = "qwen-int8".into();
+    h.step(vec![]);
+    assert_eq!(h.host.library.as_ref().unwrap().ui.remove_engine, "qwen-int8", "Develop follows Compositing");
+    h.host.library.as_mut().unwrap().ui.remove_engine = "lama".into();
+    h.step(vec![]);
+    assert_eq!(h.host.editor.ui.ai.remove_engine, "lama", "Compositing follows Develop");
+    assert_eq!(h.host.library.as_ref().unwrap().ui.remove_engine, "lama");
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn lrc_library_preferences_are_lenient_preserve_paths_and_unreadable_settings_block() {
     let (dir, mut host) = workflow_host("lrc-library-prefs");

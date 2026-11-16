@@ -99,6 +99,9 @@ pub struct Host {
     round_trip_notice: Option<RoundTripNotice>,
     /// The newest Library message already shown, in the Library or as a Compositing notice.
     library_toasts_seen: u64,
+    /// The AI Remove engine Develop and Compositing last agreed on: the one that differs from it
+    /// was just changed, and the other follows.
+    remove_engine_seen: Option<String>,
 }
 
 enum DevelopSent {
@@ -216,6 +219,7 @@ impl Host {
             filmstrip_previews: FilmstripPreviews::default(),
             round_trip_notice: None,
             library_toasts_seen: 0,
+            remove_engine_seen: None,
         }
     }
 
@@ -302,6 +306,21 @@ impl Host {
             sync_library_model_root(lib, &li_ai::AiSettings::cached_model_dir());
             lib.ui.language = language;
             li_i18n::set_current(language);
+        }
+        if let Some(lib) = self.library.as_mut() {
+            let compositing = &mut self.editor.ui.ai.remove_engine;
+            let develop = &mut lib.ui.remove_engine;
+            let develop_changed = match &self.remove_engine_seen {
+                Some(seen) => *develop != *seen,
+                // A Develop choice saved before the two were joined is kept over Compositing's default.
+                None => !develop.is_empty() && *compositing == "auto",
+            };
+            if develop_changed {
+                compositing.clone_from(develop);
+            } else {
+                develop.clone_from(compositing);
+            }
+            self.remove_engine_seen = Some(compositing.clone());
         }
         if let Some(lib) = &self.library {
             self.editor.host_preferences_values =

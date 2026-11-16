@@ -1115,7 +1115,9 @@ fn opt(ui: &mut egui::Ui, s: &str) {
     ui.label(RichText::new(s).color(t.text_dim));
 }
 
-pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
+/// The AI Remove engines besides Automatic and on-device LaMa: key, label, model and variant.
+/// Develop offers the same list.
+pub const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("klein", "FLUX.2 Klein", ModelId::KleinRemove, "bf16"),
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
