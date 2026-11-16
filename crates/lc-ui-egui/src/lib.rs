@@ -404,6 +404,9 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        panels::enhance::poll(self, ctx);
+        export_task::poll(self, ctx);
+        proof_sheet::poll(self, ctx);
         smart_sort_task::poll(self, ctx);
         people_task::poll(self, ctx);
         self.session.persist_if_dirty();
@@ -843,6 +846,9 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        panels::enhance::poll(self, ctx);
+        export_task::poll(self, ctx);
+        proof_sheet::poll(self, ctx);
         people_task::poll(self, ctx);
         self.preview_build_status(ctx);
         self.save_status(ctx);
@@ -1009,11 +1015,8 @@ impl LightcraftApp {
         if !self.host_modal {
             self.ai_mask_detail(&ctx);
         }
-        panels::enhance::poll(self, &ctx);
         panels::develop_tools::upright_poll(self, &ctx);
-        // Completion/failure collection continues even while interactive windows are suspended.
-        export_task::poll(self, &ctx);
-        proof_sheet::poll(self, &ctx);
+        proof_sheet::progress(self, &ctx);
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| panels::detail::show(self, ui));

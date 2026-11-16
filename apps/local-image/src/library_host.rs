@@ -97,6 +97,8 @@ pub struct Host {
     filmstrip_previews: FilmstripPreviews,
     /// One non-blocking round-trip notice, also visible while its preview is rendering.
     round_trip_notice: Option<RoundTripNotice>,
+    /// The newest Library message already shown, in the Library or as a Compositing notice.
+    library_toasts_seen: u64,
 }
 
 enum DevelopSent {
@@ -213,6 +215,7 @@ impl Host {
             composites: Composites::default(),
             filmstrip_previews: FilmstripPreviews::default(),
             round_trip_notice: None,
+            library_toasts_seen: 0,
         }
     }
 
@@ -809,6 +812,20 @@ impl Host {
         // the photo is the one Compositing shows: switching doesn't open it again
         self.left_compositing_with = Some(id.0);
         self.switch(ctx, Module::Compositing);
+    }
+
+    /// Library results that arrive while Compositing is shown (an export, AI Denoise, a proof
+    /// sheet) become Compositing notices; ones the Library showed itself are only marked seen.
+    fn forward_library_toasts(&mut self) {
+        let Some(lib) = &self.library else { return };
+        let history = &lib.ui.toast_history.history;
+        let fresh: Vec<(String, bool)> = history.iter().filter(|n| n.id > self.library_toasts_seen).map(|n| (n.title.clone(), n.error)).collect();
+        self.library_toasts_seen = history.iter().map(|n| n.id).max().unwrap_or(0).max(self.library_toasts_seen);
+        if self.mode == Module::Compositing {
+            for (title, error) in fresh {
+                photocraft_ui_egui::notices::post(&mut self.editor, title, Vec::new(), error, None);
+            }
+        }
     }
 
     /// Save the document named by the notice, even if another editor tab is active now.
@@ -1461,6 +1478,7 @@ impl eframe::App for Host {
                 }
             }
         }
+        self.forward_library_toasts();
         self.capture_library_preferences(ctx, false);
         photocraft_ui_egui::prefs_ui::sync_shared_interface(&mut self.editor, ctx);
         self.restyle(ctx);

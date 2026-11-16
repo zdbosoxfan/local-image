@@ -3710,6 +3710,32 @@ fn shared_shell_capture_retains_existing_library_dialog_and_field_drafts() {
     previews.retire();
     std::fs::remove_dir_all(dir).unwrap();
 }
+/// A Library export that ends while Compositing is shown completes there and its result shows as
+/// a Compositing notice.
+#[test]
+fn library_export_finishes_and_reports_while_compositing_is_shown() {
+    let (dir, mut host) = workflow_host("export-in-compositing");
+    let output = dir.join("exported");
+    std::fs::create_dir(&output).unwrap();
+    host.library.as_mut().unwrap().services.write_shared = Some(std::sync::Arc::new(lightcraft_engine::export::write_file));
+    let mut h = RoundTripUi::new(host);
+    for _ in 0..3 {
+        h.step(vec![]);
+    }
+    assert_eq!(h.host.mode, Module::Compositing);
+    let photo = catalog(&h.host).catalog.photos().next().unwrap().id;
+    h.host.library.as_mut().unwrap().run("app.export", json!({"ids":[photo.0],"dir":output.to_string_lossy(),"format":"png","background":true})).unwrap();
+    assert!(h.host.library.as_ref().unwrap().export.is_some(), "the export runs in the background");
+    h.wait_for(|host| host.library.as_ref().unwrap().export.is_none());
+    assert_eq!(h.host.mode, Module::Compositing);
+    assert!(h.host.library.as_ref().unwrap().last_export_result.is_some());
+    assert!(h.host.editor.ui.notices.iter().any(|notice| notice.title.starts_with("Exported 1 of 1") && !notice.error), "{:?}", h.host.editor.ui.notices);
+    let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+    drop(h);
+    previews.retire();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn shared_shell_background_export_completes_while_capture_owns_input() {
     use std::sync::{
