@@ -616,7 +616,7 @@ pub static CATALOG: &[(&[&str], &str, Option<&str>, &str)] = &[
     (&["Filter", "Other…"], "HSB/HSL", None, "filter.other.hsbHsl"),
     (&["Filter", "Other…"], "High Pass…", None, "filter.other.highPass"),
     // local-image: GIMP's Wavelet Decompose, the two-layer retouching version.
-    (&["Filter", "Other…"], "Frequency Separation…", None, "filter.frequencySeparation"),
+    (&["Filter", "Other…"], "Frequency Separation…", None, "layer.frequencySeparation"),
     (&["Filter", "Other…"], "Maximum…", None, "filter.other.maximum"),
     (&["Filter", "Other…"], "Minimum…", None, "filter.other.minimum"),
     (&["Filter", "Other…"], "Offset…", None, "filter.other.offset"),

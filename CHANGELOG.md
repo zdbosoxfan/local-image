@@ -15,6 +15,14 @@ All notable changes to Local Image are recorded here. The format follows
   size with rotation, skew, Distort and Perspective cleared, centred where it sits, in one undo
   step. Its Warp and smart filters stay, and it re-renders from its contents without losing detail.
 
+### Changed
+
+- Filter > Other > Frequency Separation now puts its Low and High Frequency layers in a
+  "Frequency Separation" group above the source, in one undo step, and rebuilds the source
+  exactly at 16 and 32 bits (within one level at 8 bits). It asks for a radius of 0.1 to 1000 px
+  (default 4) and is refused on an empty layer, a non-pixel layer, a targeted alpha channel, Quick
+  Mask or shown layer mask, and in CMYK and Lab, where the split does not add back up.
+
 ### Security
 
 - HEIF decoding bounds metadata parsing, extent-record allocations, item reconstruction,

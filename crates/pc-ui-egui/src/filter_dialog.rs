@@ -162,6 +162,7 @@ pub fn has_dialog(command: &str) -> bool {
                 | "view.proofSetup"
                 | "layer.layerStyle.globalLight"
                 | "image.mode.colorTable"
+                | "layer.frequencySeparation"
         ))
         && photocraft_engine::commands::find(command).is_some_and(|c| !parse_spec(c.params).is_empty())
 }
@@ -753,6 +754,14 @@ mod tests {
         for id in ["filter.pixelate.facet", "filter.pixelate.fragment", "filter.video.ntscColors"] {
             assert!(!has_dialog(id), "{id}");
         }
+    }
+
+    /// Frequency Separation is a `layer.*` command with the schema dialog for its one radius.
+    #[test]
+    fn frequency_separation_dialog_asks_for_the_radius() {
+        assert!(has_dialog("layer.frequencySeparation"));
+        let spec = photocraft_engine::commands::find("layer.frequencySeparation").unwrap();
+        assert_eq!(parse_spec(spec.params), [Param { key: "radius".into(), kind: Kind::Range { min: 0.1, max: 1000.0, default: 4.0 } }]);
     }
 
     #[test]

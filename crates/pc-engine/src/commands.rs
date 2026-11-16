@@ -1150,7 +1150,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::redeye_cmds::specs());
     v.extend(crate::symmetry_cmds::specs());
     v.extend(crate::history_cmds::specs());
-    v.extend(crate::freqsep_cmds::specs());
+    v.extend(crate::frequency_separation_cmds::specs());
     v.extend(crate::develop_layer_cmds::specs());
     v.extend(crate::develop_filter_cmds::specs());
     v.extend(crate::perspective_crop_cmds::specs());
