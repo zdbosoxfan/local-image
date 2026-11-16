@@ -131,8 +131,9 @@ fn infer_selected(
         if cache.as_ref().is_none_or(|(p, k, st, d)| p != &path || *k != kind || *st != stamp || !d.is_current()) {
             *cache = None;
             let shape = li_seg::restoration_graph::Shape { c: kind.channels(), h: tile, w: tile };
-            let graph = li_seg::restoration_graph::Graph::load(&path, shape)
-                .map_err(|e| format!("This AI Denoise model can't run: {e:#}. Choose another model, or Use default in Edit › Preferences › Local AI."))?;
+            let graph = li_seg::restoration_graph::Graph::load(&path, shape).map_err(|e| {
+                format!("This AI Denoise model can't run: {e:#}. Choose another model, or Use default in Edit › Preferences › Local AI.")
+            })?;
             match lightcraft_gpu::denoise::Denoiser::from_graph(graph, kind) {
                 Ok(d) => *cache = Some((path.clone(), kind, stamp, d)),
                 Err(e) => return Err(format!("AI Denoise GPU unavailable: {e}")),
