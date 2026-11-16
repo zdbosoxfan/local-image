@@ -52,8 +52,17 @@ fn hotfix_inline_vector_text_owns_tool_and_paint_shortcut_letters() {
             let id = app.run("type.create", json!({"text": "", "x": 20, "y": 40})).unwrap()["layer"].as_u64().unwrap();
             let tool = if persona == Persona::Vector { Tool::ArtText } else { Tool::Type };
             app.ui.tool = tool;
-            app.ui.text_edit =
-                Some(TextEdit { layer: id, caret: 0, anchor: 0, session: "hotfix".into(), created: false, dragging: false, resize: None, preedit: None });
+            app.ui.text_edit = Some(TextEdit {
+                layer: id,
+                document: None,
+                caret: 0,
+                anchor: 0,
+                session: "hotfix".into(),
+                created: false,
+                dragging: false,
+                resize: None,
+                preedit: None,
+            });
             let mut h = Harness::builder().build_ui_state(|ui, app: &mut PhotocraftApp| crate::shortcuts::handle(app, ui.ctx()), app);
             let paint = h.state().session.tools.brush.clone();
             for (key, text, mods) in [
