@@ -27,6 +27,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Incomplete ISO and EXIF timestamps no longer become capture times, so the next valid date is used. A JPEG ICC profile whose chunks are missing, repeated or cut off is dropped from metadata.
 - RAW/TIFF imports bound hostile tile, opcode, and maker-note work before it can multiply memory or CPU use. Truncated Deflate tiles are rejected, and non-finite DNG WhiteLevel uses the bit-depth default.
 - Panorama merges refuse more than 256 frames before decoding them at full size.
+- A Develop layer in Compositing renders as the Library does: with the photo's AI Denoise result, and without AI Remove patches made from another photo.
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
 - Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.

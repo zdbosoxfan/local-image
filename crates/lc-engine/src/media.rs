@@ -788,6 +788,16 @@ pub fn develop(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req:
     })
 }
 
+/// local-image: [`develop`] of a photo's original outside the Library (a Compositing Develop
+/// layer) as a Library render shows it: its AI Denoise result mixed in and AI patches made from
+/// other photos left out ([`crate::enhance::for_render`]). `content_key` is the photo's
+/// [`content_key`].
+pub fn develop_original(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, content_key: &str, req: &RenderRequest) -> Rendered {
+    let source = Hasher128::new().str(content_key).finish();
+    let (src, settings) = crate::enhance::for_render(src, &Arc::new(s.clone()), Some(source));
+    develop(&src, info, &settings, req, None, true)
+}
+
 /// Why [`develop`] renders `s` for `req` on the CPU even with a GPU (`None`: the GPU takes it).
 pub(crate) fn cpu_only(s: &DevelopSettings, req: &RenderRequest) -> Option<&'static str> {
     if lightcraft_pipeline::lut::is_lut_profile(&s.profile.id) {
