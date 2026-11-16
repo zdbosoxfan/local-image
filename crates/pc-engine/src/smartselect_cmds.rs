@@ -993,9 +993,14 @@ mod tests {
 
     /// A red rectangle (60..140 × 50..110) on blue.
     fn red_rect(depth: u32) -> Session {
-        session_with(OBJ_W as u32, OBJ_H as u32, depth, |x, y| {
-            if (60..140).contains(&x) && (50..110).contains(&y) { [0.86, 0.12, 0.12] } else { [0.12, 0.12, 0.86] }
-        })
+        session_with(
+            OBJ_W as u32,
+            OBJ_H as u32,
+            depth,
+            |x, y| {
+                if (60..140).contains(&x) && (50..110).contains(&y) { [0.86, 0.12, 0.12] } else { [0.12, 0.12, 0.86] }
+            },
+        )
     }
 
     /// The selection as 8-bit coverage over the whole canvas, row by row.

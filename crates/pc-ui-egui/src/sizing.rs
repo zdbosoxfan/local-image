@@ -489,9 +489,7 @@ mod tests {
     fn image_size_dialog() -> egui_kittest::Harness<'static, PhotocraftApp> {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.session.execute("file.new", json!({"width": 200, "height": 100})).unwrap();
-        let mut h = egui_kittest::Harness::builder()
-            .with_size(egui::vec2(1400.0, 900.0))
-            .build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
         open(h.state_mut(), "image.imageSize").unwrap();
         h.run_steps(3);
@@ -544,10 +542,7 @@ mod tests {
             assert_eq!(resample(&h), json!(method), "Alt+{digit}");
         }
         // The list shows the picked method.
-        assert!(
-            h.query_all_by_role(egui::accesskit::Role::ComboBox).any(|n| n.value().as_deref() == Some("Bilinear")),
-            "the Resample list shows Bilinear"
-        );
+        assert!(h.query_all_by_role(egui::accesskit::Role::ComboBox).any(|n| n.value().as_deref() == Some("Bilinear")), "the Resample list shows Bilinear");
     }
 
     /// With Width focused and selected, Alt+7 picks Nearest Neighbor and types nothing into it, and
@@ -629,9 +624,7 @@ mod tests {
         app.session.execute("select.rect", json!({"x": 0, "y": 0, "width": 2, "height": 1})).unwrap();
         app.session.execute("edit.fill", json!({"contents": "black"})).unwrap();
         app.session.execute("select.deselect", json!({})).unwrap();
-        let mut h = egui_kittest::Harness::builder()
-            .with_size(egui::vec2(1400.0, 900.0))
-            .build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
         let id = open(h.state_mut(), "image.imageSize").unwrap();
         h.run_steps(3);
