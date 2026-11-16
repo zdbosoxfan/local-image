@@ -15,7 +15,7 @@ use photocraft_algo::retouch::{PROTECT_DETAIL_SIGMA, ToneRange, dodge_burn, loca
 use photocraft_color::{BlendMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, LayerContent, LayerId};
 use photocraft_geom::Rect;
-use photocraft_paint::retouch::{Footprint, Region, Smudge, alpha_index, apply_coverage, apply_dab_stroke, stroke_coverage};
+use photocraft_paint::retouch::{Footprint, Region, Smudge, alpha_index, apply_coverage, apply_dab_stroke};
 use photocraft_paint::{BrushSettings, Stroke, StrokePoint};
 use photocraft_raster::{Surface, from_rgba_into, to_rgba};
 use serde_json::{Value, json};
@@ -73,11 +73,19 @@ fn point(p: &Value, k: &str) -> Option<(f64, f64)> {
 const MAX_STROKE_PIXELS: u64 = 67_108_864;
 
 /// Refuse a stroke whose footprint would not fit the coverage budget, from the points and brush
-/// size alone, before anything is allocated for it. The clone, healing, spot healing and history
+/// settings, before anything is allocated for it. The clone, healing, spot healing and history
 /// brushes render a dense coverage (and read a source region) over the stroke's whole box, so a
 /// thin stroke across a huge canvas would still ask for all of it.
 fn reject_huge_stroke(cmd: &str, stroke: &Stroke) -> Result<()> {
-    let pad = f64::from(stroke.brush.size.max(1.0)).mul_add(0.5, 4.0);
+    // Scattering places dabs beyond the input points: the renderer moves a centre by up to its
+    // amount (at most 10) times the tip's radius, so the pad adds that reach and no more, and a
+    // stroke that renders within the allowance is not refused here. Dual Brush dabs only mask
+    // the main tip, so they add nothing. This is only the cheap early-out; the rendered extent
+    // is admitted for real in `coverage` below.
+    let b = &stroke.brush;
+    let size = f64::from(b.size.max(1.0));
+    let scatter = if b.scattering.enabled { size * 0.5 * f64::from(b.scattering.scatter.jitter.clamp(0.0, 10.0)) } else { 0.0 };
+    let pad = size.mul_add(0.5, 4.0) + scatter;
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
     for q in &stroke.points {
         min_x = min_x.min(q.x);
@@ -98,6 +106,21 @@ fn reject_huge_stroke(cmd: &str, stroke: &Stroke) -> Result<()> {
         return Err(bad(cmd, format!("stroke too large ({w:.0}×{h:.0} px, at most {MAX_STROKE_PIXELS})")));
     }
     Ok(())
+}
+
+/// The stroke's coverage, with the **rendered** extent admitted before the dense buffer exists.
+///
+/// `reject_huge_stroke` estimates from the input points; this is the real bound. Rendering is
+/// tiled, so it holds only the tiles the dabs touch; the extent is read from those tiles once
+/// every dab is placed (tips, dynamics and scattering included) and checked against `max`, and
+/// only a stroke that fits is made dense. `max` is a parameter so tests can inject a small budget.
+fn coverage_within(cmd: &str, stroke: &Stroke, max: u64) -> Result<(Rect, Vec<f32>)> {
+    photocraft_paint::retouch::stroke_coverage_within(stroke, max).ok_or_else(|| bad(cmd, format!("stroke too large (at most {max} px)")))
+}
+
+/// [`coverage_within`] at the shared allowance.
+fn coverage(cmd: &str, stroke: &Stroke) -> Result<(Rect, Vec<f32>)> {
+    coverage_within(cmd, stroke, MAX_STROKE_PIXELS)
 }
 
 fn parse_brush(s: &Session, p: &Value, cmd: &str) -> Result<(Stroke, Option<LayerId>)> {
@@ -320,7 +343,7 @@ fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
     let map = clone_mapping(s, p, &stroke, CMD)?;
     let off = map.offset();
     let dmg = run_stroke(s, "Clone Stamp", id, p, |pre, surf, sel, lock| {
-        let (bounds, cov) = stroke_coverage(&stroke);
+        let (bounds, cov) = coverage(CMD, &stroke)?;
         if seamless {
             // local-image: Seamless: the cloned pixels take the colour around the stroke (mean
             // value coordinates), as GIMP's seamless clone.
@@ -419,7 +442,7 @@ fn healing_brush(s: &mut Session, p: &Value) -> Result<Value> {
     let map = clone_mapping(s, p, &stroke, CMD)?;
     let off = map.offset();
     let dmg = run_stroke(s, "Healing Brush", id, p, |pre, surf, sel, lock| {
-        let (bounds, cov) = stroke_coverage(&stroke);
+        let (bounds, cov) = coverage(CMD, &stroke)?;
         let (g, cov) = pad_coverage(bounds, &cov, 2);
         let (fmt, native) = (source.sample_format(surf), surf.format());
         let src = clone_sample(pre, id, surf, which, &source, g, &map, CMD)?;
@@ -455,7 +478,7 @@ fn history_brush(s: &mut Session, p: &Value) -> Result<Value> {
     let dmg = run_stroke(s, "History Brush", id, p, |_, surf, sel, lock| {
         let fmt = surf.format();
         let src = if src_surface.format() == fmt { src_surface } else { src_surface.convert(fmt) };
-        let (bounds, cov) = stroke_coverage(&stroke);
+        let (bounds, cov) = coverage(CMD, &stroke)?;
         let paint = Region::read(&src, bounds);
         Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
     })?;
@@ -498,15 +521,15 @@ enum SpotType {
 
 /// Fill the stroke area with no source, then gradient-domain blend it into its surroundings. With
 /// `all` (Sample All Layers) it heals what is visible, so it works on an empty layer above the image.
-fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: SpotType, all: bool, sel: Option<&Surface>, lock: bool) -> Rect {
-    let (bounds, cov) = stroke_coverage(stroke);
+fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: SpotType, all: bool, sel: Option<&Surface>, lock: bool) -> Result<Rect> {
+    let (bounds, cov) = coverage("paint.spotHealing", stroke)?;
     let size = stroke.brush.size;
     // local-image: look much further for matching texture (was size + 8 px, which pasted
     // unrelated texture into anything larger than a blemish).
     let margin = ((size.max(8.0) * 3.0).ceil() as i32).clamp(48, 600);
     let region_rect = bounds.inflate(margin).intersect(&pre.bounds());
     if region_rect.is_empty() {
-        return Rect::EMPTY;
+        return Ok(Rect::EMPTY);
     }
     let fmt = surf.format();
     let img = if all { composite_region(pre, None, SampleLayers::All, region_rect, fmt) } else { Region::read(surf, region_rect) };
@@ -521,7 +544,7 @@ fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: 
     }
     let hole: Vec<bool> = stroke_cov.iter().map(|c| *c > 0.0).collect();
     if !hole.iter().any(|h| *h) {
-        return Rect::EMPTY;
+        return Ok(Rect::EMPTY);
     }
     // Synthesise over a slightly larger domain than the Poisson region, so the solve's boundary pixels
     // carry synthesised values that differ from the untouched surroundings: that mismatch is what the
@@ -556,7 +579,7 @@ fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: 
     let healed = heal_region(&fmt, &src, &img, &heal_mask);
     let dmg = bounds.intersect(&region_rect);
     let dmg_cov: Vec<f32> = (dmg.y0..dmg.y1).flat_map(|y| (dmg.x0..dmg.x1).map(move |x| (x, y))).map(|(x, y)| stroke_cov[img.index(x, y)]).collect();
-    apply_coverage(surf, dmg, &dmg_cov, stroke.brush.opacity, sel, lock, &healed, BlendMode::Normal)
+    Ok(apply_coverage(surf, dmg, &dmg_cov, stroke.brush.opacity, sel, lock, &healed, BlendMode::Normal))
 }
 
 fn spot_healing(s: &mut Session, p: &Value) -> Result<Value> {
@@ -570,7 +593,7 @@ fn spot_healing(s: &mut Session, p: &Value) -> Result<Value> {
         o => return Err(bad(CMD, format!("unknown type `{o}` (contentAware|createTexture|proximityMatch)"))),
     };
     let all = sample_all_layers(p);
-    let dmg = run_stroke(s, "Spot Healing Brush", id, p, |pre, surf, sel, lock| Ok(spot_heal_surface(surf, pre, &stroke, kind, all, sel, lock)))?;
+    let dmg = run_stroke(s, "Spot Healing Brush", id, p, |pre, surf, sel, lock| spot_heal_surface(surf, pre, &stroke, kind, all, sel, lock))?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
 

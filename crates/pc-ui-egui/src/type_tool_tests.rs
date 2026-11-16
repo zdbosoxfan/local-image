@@ -35,8 +35,17 @@ fn harness(ppp: f32, app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
 fn focused_font_search_does_not_type_into_the_canvas_layer() {
     let mut app = new_app();
     let id = app.run("type.create", json!({"text": "Sample", "size": 24})).unwrap()["layer"].as_u64().unwrap();
-    app.ui.text_edit =
-        Some(crate::state::TextEdit { layer: id, caret: 6, anchor: 6, session: "s".into(), created: false, dragging: false, resize: None, preedit: None });
+    app.ui.text_edit = Some(crate::state::TextEdit {
+        layer: id,
+        document: None,
+        caret: 6,
+        anchor: 6,
+        session: "s".into(),
+        created: false,
+        dragging: false,
+        resize: None,
+        preedit: None,
+    });
     let mut h = Harness::builder().build_ui_state(
         |ui, app: &mut PhotocraftApp| {
             let search_id = egui::Id::new("font-search-regression");
@@ -274,6 +283,7 @@ fn size_applies_at_layer_and_selection_scope() {
         // Selection scope: "world" only.
         app.ui.text_edit = Some(crate::state::TextEdit {
             layer: id.0,
+            document: None,
             caret: 11,
             anchor: 6,
             session: "s".into(),
@@ -420,6 +430,7 @@ fn foreground_colour_recolours_only_selected_type() {
     assert_eq!(rgb_at(&app, id, 0), [0, 0, 0, 255], "not editing: unchanged");
     let edit = |caret, anchor| crate::state::TextEdit {
         layer: id.0,
+        document: None,
         caret,
         anchor,
         session: "s".into(),

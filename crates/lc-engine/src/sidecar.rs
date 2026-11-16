@@ -16,7 +16,9 @@
 //! **Shared names** (Stem naming): `IMG_0001.CR3` and `IMG_0001.JPG` would share `IMG_0001.xmp`.
 //! When two catalogued files map to one stem sidecar, it belongs to one of them (a raw first, then
 //! the first by file name — [`Session::sidecar_naming`]); the others use `<file>.xmp`
-//! (`IMG_0001.JPG.xmp`) for writing and reading, so neither overwrites the other.
+//! (`IMG_0001.JPG.xmp`) for writing and reading, so neither overwrites the other. An import ranks
+//! the files it is adding against the library the same way ([`ImportStems`]): a JPEG or a TIFF
+//! arriving beside its raw's `IMG_0001.xmp` reads its own `<file>.xmp`, never the raw's packet.
 //!
 //! **Read** (on import, and `photo.readMetadataFromFile`): the sidecar wins for metadata, except
 //! the capture time: a time embedded in the file wins, and the sidecar's (`exif:DateTimeOriginal`,
@@ -24,7 +26,7 @@
 //! settings are restored from `lc:settings` when present, else mapped from interoperable `crs:`
 //! fields ([`crate::crs`]). For raw/DNG files without a sidecar the file's embedded XMP is used.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -91,6 +93,20 @@ pub fn find_sidecar_in(original: &str, lookup: SidecarLookup) -> Option<PathBuf>
             [p, upper]
         })
         .find(|p| p.is_file())
+}
+
+/// [`find_sidecar`] for a file an import is adding, by the ownership [`ImportStems`] worked out:
+/// a file that does not own its stem sidecar reads only its own `<file>.xmp` (the name it
+/// writes), never the packet of the sibling that owns the stem one.
+pub(crate) fn find_sidecar_for_import(stems: &ImportStems, naming: SidecarNaming, original: &str) -> Option<PathBuf> {
+    if stems.owns(original) {
+        return find_sidecar(original, naming);
+    }
+    // a file with no ending has the shared stem name as its own `<file>.xmp` too
+    if sidecar_path(original, SidecarNaming::Full) == sidecar_path(original, SidecarNaming::Stem) {
+        return None;
+    }
+    find_sidecar_in(original, SidecarLookup { naming, stem_ok: false })
 }
 
 /// What a sidecar (or embedded XMP packet) says about a photo. `None` = not stated.
@@ -300,7 +316,8 @@ impl SidecarData {
 /// The orientation the photo file at `path` states, as [`lightcraft_meta::extract`] reads it from the whole file (the
 /// import's): Exif's, else XMP's. A file shorter than [`ORIENTATION_SPAN`] is read whole. Most others state it in the
 /// Exif of their first [`ORIENTATION_SPAN`]; when that part doesn't, the Exif may come later ([`late_orientation`]).
-/// A WebP's chunks are always walked, since its last EXIF chunk is the one that counts ([`webp_orientation`]).
+/// A WebP's or PNG's chunks are always walked, since the last Exif chunk is the one that counts ([`webp_orientation`],
+/// [`png_orientation`]).
 fn file_orientation(path: &str) -> Option<lightcraft_meta::Orientation> {
     let mut file = li_fs::read::open_regular(Path::new(path), li_fs::read::MAX_FILE_BYTES).ok()?;
     let mut head = Vec::new();
@@ -310,6 +327,9 @@ fn file_orientation(path: &str) -> Option<lightcraft_meta::Orientation> {
     }
     if head.get(..4) == Some(&b"RIFF"[..]) && head.get(8..12) == Some(&b"WEBP"[..]) {
         return webp_orientation(&mut file);
+    }
+    if head.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return png_orientation(&mut file);
     }
     if let Some(o) = exif_orientation(&head) {
         return Some(o);
@@ -323,15 +343,16 @@ fn exif_orientation(bytes: &[u8]) -> Option<lightcraft_meta::Orientation> {
     lightcraft_meta::embedded(bytes).exif.as_deref().map(lightcraft_meta::read_exif).and_then(|m| m.orientation)
 }
 
-/// The orientation of a JPEG or TIFF whose `head` has no Exif stating it, found by the file's structure without reading
-/// its image data (a JPEG's Exif can follow other long segments, and many TIFF writers put the first IFD after the
-/// strips).
+/// The orientation of a JPEG, TIFF or PSD whose `head` has no Exif stating it, found by the file's structure without
+/// reading its image data (a JPEG's Exif can follow other long segments, many TIFF writers put the first IFD after the
+/// strips, and a PSD's image resources can outgrow `head`).
 fn late_orientation(file: &mut (impl Read + Seek), head: &[u8]) -> Option<lightcraft_meta::Orientation> {
     let len = file.seek(SeekFrom::End(0)).ok()?;
     file.rewind().ok()?;
     match head.get(..4)? {
         [0xff, 0xd8, ..] => jpeg_orientation(file),
         b"II*\0" | b"MM\0*" => tiff_orientation(file, 0, len),
+        b"8BPS" => psd_orientation(file),
         _ => None,
     }
 }
@@ -434,14 +455,8 @@ fn webp_orientation(file: &mut (impl Read + Seek)) -> Option<lightcraft_meta::Or
         // chunks are padded to an even size
         at = end + (size & 1);
     }
-    if let Some((start, end)) = exif {
-        // the TIFF stream, after an `Exif\0\0` if the chunk starts with one (as `strip_exif_header` takes it)
-        let mut prefix = [0; 5];
-        file.seek(SeekFrom::Start(start)).ok()?;
-        let prefixed = start + 6 <= end && file.read_exact(&mut prefix).is_ok() && &prefix == b"Exif\0";
-        if let Some(o) = tiff_orientation(file, if prefixed { start + 6 } else { start }, end) {
-            return Some(o);
-        }
+    if let Some(o) = exif.and_then(|(start, end)| exif_chunk_orientation(file, start, end)) {
+        return Some(o);
     }
     let (start, size) = xmp?;
     xmp_orientation(file, start, size)
@@ -449,6 +464,82 @@ fn webp_orientation(file: &mut (impl Read + Seek)) -> Option<lightcraft_meta::Or
 
 /// How many chunks [`webp_orientation`] passes over (an animated WebP has one per frame).
 const WEBP_CHUNK_STEPS: usize = 4096;
+
+/// The orientation the Exif chunk from `start` to `end` in `file` states: its TIFF stream comes after an `Exif\0\0` if
+/// the chunk starts with one (as `strip_exif_header` takes it).
+fn exif_chunk_orientation(file: &mut (impl Read + Seek), start: u64, end: u64) -> Option<lightcraft_meta::Orientation> {
+    let mut prefix = [0; 5];
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let prefixed = start + 6 <= end && file.read_exact(&mut prefix).is_ok() && &prefix == b"Exif\0";
+    tiff_orientation(file, if prefixed { start + 6 } else { start }, end)
+}
+
+/// A PNG's orientation as the import takes it: from its last `eXIf` chunk, else its last uncompressed XMP `iTXt` chunk,
+/// wherever they come (a writer may put them after the image data). The chunk headers are walked from the start of
+/// `file` to `IEND` (at most [`png_chunk_steps`], ending at a chunk that runs past the end of the file); then only the
+/// first IFD of the `eXIf` chunk is read, whatever its size ([`tiff_orientation`]), and the `iTXt` chunk if it is at
+/// most [`ORIENTATION_SPAN`].
+fn png_orientation(file: &mut (impl Read + Seek)) -> Option<lightcraft_meta::Orientation> {
+    let len = file.seek(SeekFrom::End(0)).ok()?;
+    let (mut exif, mut xmp) = (None, None);
+    let mut at = 8u64;
+    for _ in 0..png_chunk_steps(len) {
+        let (mut header, mut key) = ([0; 8], [0; 19]);
+        if at + 12 > len || file.seek(SeekFrom::Start(at)).is_err() || file.read_exact(&mut header).is_err() {
+            break;
+        }
+        let [s0, s1, s2, s3, a, b, c, d] = header;
+        let size = u64::from(u32::from_be_bytes([s0, s1, s2, s3]));
+        let Some(end) = at.checked_add(8 + size).filter(|&end| end <= len) else { break };
+        match &[a, b, c, d] {
+            b"eXIf" => exif = Some((at + 8, end)),
+            // the keyword, then compression flag 0
+            b"iTXt" if size >= 20 && file.read_exact(&mut key).is_ok() && &key == b"XML:com.adobe.xmp\0\0" => xmp = Some((at + 8, size)),
+            b"IEND" => break,
+            _ => {}
+        }
+        // past the chunk's CRC
+        at = end + 4;
+    }
+    if let Some(o) = exif.and_then(|(start, end)| exif_chunk_orientation(file, start, end)) {
+        return Some(o);
+    }
+    let (start, size) = xmp?;
+    let chunk = read_within_span(file, start, size)?;
+    // keyword\0 compression-flag compression-method language\0 translated\0 text
+    let text = chunk.get(20..)?.splitn(3, |&c| c == 0).nth(2)?;
+    lightcraft_meta::parse_whole_xmp(&String::from_utf8_lossy(text)).ok()?.metadata.orientation
+}
+
+/// How many chunks [`png_orientation`] passes over in a file of `len` bytes: 4096 and one per KiB of the file, at most
+/// 2^20. Image data is often split into many `IDAT` chunks (libpng writes 8 KiB ones by default), so the limit grows
+/// with the file; each chunk costs two system calls, so a short file of empty chunks can't hold a worker for seconds.
+fn png_chunk_steps(len: u64) -> u64 {
+    (4096 + len / 1024).min(1 << 20)
+}
+
+/// A PSD's or PSB's orientation as the import takes it, from its image resources: the file's start up to their end is
+/// read if it is at most [`PSD_RESOURCES_SPAN`]. They come before the layers and the image data, after the 26-byte
+/// header and the colour-mode data; each of those two sections starts with its length.
+fn psd_orientation(file: &mut (impl Read + Seek)) -> Option<lightcraft_meta::Orientation> {
+    let mut length = [0; 4];
+    file.seek(SeekFrom::Start(26)).ok()?;
+    file.read_exact(&mut length).ok()?;
+    let resources = 30 + u64::from(u32::from_be_bytes(length));
+    file.seek(SeekFrom::Start(resources)).ok()?;
+    file.read_exact(&mut length).ok()?;
+    let end = resources + 4 + u64::from(u32::from_be_bytes(length));
+    if end > PSD_RESOURCES_SPAN {
+        return None;
+    }
+    file.rewind().ok()?;
+    let mut bytes = Vec::new();
+    (&mut *file).take(end).read_to_end(&mut bytes).ok()?;
+    lightcraft_meta::extract(&bytes).orientation
+}
+
+/// How far into a PSD or PSB [`psd_orientation`] reads.
+const PSD_RESOURCES_SPAN: u64 = 16 * 1024 * 1024;
 
 /// The orientation the TIFF stream from `start` to `end` in `file` states in its first IFD (a TIFF file, or the Exif
 /// block of a WebP's EXIF chunk; its offsets count from `start`, and nothing past `end` is read). Only the IFD's 12-byte
@@ -501,13 +592,19 @@ fn tiff_orientation(file: &mut (impl Read + Seek), start: u64, end: u64) -> Opti
 
 /// The orientation the XMP packet of `len` bytes at `at` in `file` states, read if it is at most [`ORIENTATION_SPAN`].
 fn xmp_orientation(file: &mut (impl Read + Seek), at: u64, len: u64) -> Option<lightcraft_meta::Orientation> {
+    let packet = read_within_span(file, at, len)?;
+    lightcraft_meta::parse_whole_xmp(&String::from_utf8_lossy(&packet)).ok()?.metadata.orientation
+}
+
+/// The `len` bytes at `at` in `file`, read if they are at most [`ORIENTATION_SPAN`].
+fn read_within_span(file: &mut (impl Read + Seek), at: u64, len: u64) -> Option<Vec<u8>> {
     if len > ORIENTATION_SPAN {
         return None;
     }
     file.seek(SeekFrom::Start(at)).ok()?;
-    let mut packet = Vec::new();
-    (&mut *file).take(len).read_to_end(&mut packet).ok()?;
-    lightcraft_meta::parse_whole_xmp(&String::from_utf8_lossy(&packet)).ok()?.metadata.orientation
+    let mut bytes = Vec::new();
+    (&mut *file).take(len).read_to_end(&mut bytes).ok()?;
+    Some(bytes)
 }
 
 /// How much of a photo file [`file_orientation`] reads first.
@@ -717,6 +814,16 @@ pub(crate) fn op_photos(op: &Op, out: &mut Vec<PhotoId>) {
     }
 }
 
+/// Where a file stands in the order a shared stem sidecar is owned by: a raw first, then the file
+/// name in lower case, then the catalog id (a file an import is adding has no id yet: see
+/// [`ImportStems`]).
+type Rank = (bool, String, u64);
+
+/// The rank of the file at `path`, of kind `kind`, catalogued as `id`.
+fn rank_of(path: &str, kind: MediaKind, id: u64) -> Rank {
+    (kind != MediaKind::Raw, path.to_lowercase(), id)
+}
+
 /// Which photo owns each stem sidecar that several catalogued files map to (see
 /// [`Session::sidecar_naming`]).
 pub(crate) struct StemOwners(HashMap<String, PhotoId>);
@@ -724,10 +831,10 @@ pub(crate) struct StemOwners(HashMap<String, PhotoId>);
 impl StemOwners {
     pub(crate) fn of(cat: &lightcraft_catalog::Catalog) -> StemOwners {
         // per stem: (raw first, then file name, then id) of the best candidate; and how many
-        let mut best: HashMap<String, ((bool, String, u64), PhotoId, usize)> = HashMap::new();
+        let mut best: HashMap<String, (Rank, PhotoId, usize)> = HashMap::new();
         for p in cat.photos().filter(|p| p.copy_of.is_none()) {
             let Some(path) = file_path(p) else { continue };
-            let rank = (p.kind != MediaKind::Raw, path.to_lowercase(), p.id.0);
+            let rank = rank_of(path, p.kind, p.id.0);
             let e = best.entry(stem_key(path)).or_insert_with(|| (rank.clone(), p.id, 0));
             e.2 += 1;
             if rank < e.0 {
@@ -749,6 +856,65 @@ impl StemOwners {
     fn lookup(&self, p: &Photo, naming: SidecarNaming) -> SidecarLookup {
         let stem_ok = file_path(p).is_none_or(|path| self.0.get(&stem_key(path)).is_none_or(|owner| *owner == p.id));
         SidecarLookup { naming: self.naming(p, naming), stem_ok }
+    }
+}
+
+/// Which of the files an import is adding may read the shared stem sidecar (`IMG_0001.xmp`) of
+/// their stem, and which read their own `<file>.xmp` (`IMG_0001.TIF.xmp`) instead, so that a JPEG
+/// or a TIFF imported beside its raw does not take the raw's rating, metadata and develop
+/// settings. The order is the one [`StemOwners`] applies to writing, with the arriving files
+/// ranked against the library and against each other: a raw first, then the file name in lower
+/// case. A file that is not catalogued yet has no id, and the id it draws when the import commits
+/// is above every id in the library, so it loses a tie against a catalogued file; between
+/// arriving files the order they arrive in stands for it.
+pub(crate) struct ImportStems {
+    /// The arriving files that own the stem sidecar of their stem, by path as it arrives.
+    owners: HashSet<String>,
+}
+
+impl ImportStems {
+    /// The catalogued files arriving ones are ranked against: every file but a virtual copy, with
+    /// its kind and id.
+    pub(crate) fn library_files(cat: &lightcraft_catalog::Catalog) -> Vec<(String, MediaKind, u64)> {
+        cat.photos().filter(|p| p.copy_of.is_none()).filter_map(|p| Some((file_path(p)?.to_string(), p.kind, p.id.0))).collect()
+    }
+
+    /// Work out [`ImportStems`] for the files `incoming`, in the order they arrive, against the
+    /// `library` ([`ImportStems::library_files`], with the files earlier batches of the import
+    /// added). Only the stems the arriving files map to are looked at in the library.
+    pub(crate) fn for_import<'a>(library: &[(String, MediaKind, u64)], incoming: impl Iterator<Item = (&'a str, MediaKind)>) -> ImportStems {
+        // per stem: the best of the library's files, and the best arriving file with its path
+        let mut best: HashMap<String, (Option<Rank>, Option<(Rank, &'a str)>)> = HashMap::new();
+        for (arriving, (path, kind)) in incoming.enumerate() {
+            let e = best.entry(stem_key(path)).or_default();
+            let rank = rank_of(path, kind, arriving as u64);
+            if e.1.as_ref().is_none_or(|(b, _)| rank < *b) {
+                e.1 = Some((rank, path));
+            }
+        }
+        if !best.is_empty() {
+            for (path, kind, id) in library {
+                let Some(e) = best.get_mut(&stem_key(path)) else { continue };
+                let rank = rank_of(path, *kind, *id);
+                if e.0.as_ref().is_none_or(|b| rank < *b) {
+                    e.0 = Some(rank);
+                }
+            }
+        }
+        let owners = best
+            .into_values()
+            .filter_map(|(in_library, arriving)| {
+                let (rank, path) = arriving?;
+                let wins = in_library.as_ref().is_none_or(|b| (rank.0, rank.1.as_str()) < (b.0, b.1.as_str()));
+                wins.then(|| path.to_string())
+            })
+            .collect();
+        ImportStems { owners }
+    }
+
+    /// Whether the arriving file at `original` owns the stem sidecar of its stem.
+    pub(crate) fn owns(&self, original: &str) -> bool {
+        self.owners.contains(original)
     }
 }
 
@@ -1087,6 +1253,150 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The same for a PNG, whose `eXIf` and XMP `iTXt` chunks can follow the image data, and a PSD, whose
+    /// image resources can outgrow the first [`ORIENTATION_SPAN`].
+    #[test]
+    fn a_png_or_psd_gives_the_orientation_the_import_gives() {
+        let dir = std::env::temp_dir().join(format!("lc-png-psd-orientation-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let span = ORIENTATION_SPAN as usize;
+        let (o6, o8) = (Some(lightcraft_meta::Orientation::Rotate90), Some(lightcraft_meta::Orientation::Rotate270));
+        let exif = lightcraft_meta::write_exif(&lightcraft_meta::Metadata { orientation: o6, ..Default::default() });
+        let plain = lightcraft_meta::write_exif(&lightcraft_meta::Metadata::default());
+        let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { orientation: o8, ..Default::default() }, None);
+        // a PNG: its IHDR, then `chunks`, each with a CRC (nothing checks it)
+        let png = |chunks: &[(&[u8], Vec<u8>)]| {
+            let mut p = b"\x89PNG\r\n\x1a\n".to_vec();
+            for (id, data) in [(&b"IHDR"[..], vec![0; 13])].iter().chain(chunks) {
+                p.extend_from_slice(&(data.len() as u32).to_be_bytes());
+                p.extend_from_slice(id);
+                p.extend_from_slice(data);
+                p.extend_from_slice(&[0; 4]);
+            }
+            p
+        };
+        let idat = |len: usize| (&b"IDAT"[..], vec![0; len]);
+        let iend = (&b"IEND"[..], Vec::new());
+        let exif_chunk = (&b"eXIf"[..], exif.clone());
+        let plain_chunk = (&b"eXIf"[..], plain.clone());
+        // an `iTXt` chunk: the keyword, compression flag `flag`, method, no language, no translated keyword, the text
+        let itxt = |keyword: &[u8], flag: u8, text: &[u8]| (&b"iTXt"[..], [keyword, &[0, flag, 0, 0, 0], text].concat());
+        let xmp_key = &b"XML:com.adobe.xmp"[..];
+        let xmp_chunk = itxt(xmp_key, 0, packet.as_bytes());
+        // the XMP packet padded with whitespace, in a chunk of `len` bytes
+        let padded_xmp = |len: usize| {
+            let mut p = packet.clone().into_bytes();
+            p.resize(len - 22, b' ');
+            itxt(xmp_key, 0, &p)
+        };
+        // a big-endian TIFF stream whose IFD, stating orientation 6, is more than the span into it
+        let ifd = [0u8, 1, 1, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0];
+        let late_ifd = [&b"MM\0*"[..], &(8 + span as u32).to_be_bytes(), &vec![0; span], &ifd].concat();
+        // an `eXIf` holding only a TIFF header, whose IFD offset (20) points past the chunk's end into the next chunk's
+        // data, where an IFD stating orientation 6 sits
+        let stray_exif = (&b"eXIf"[..], b"II*\0\x14\0\0\0".to_vec());
+        let stray_ifd = (&b"juNK"[..], vec![1, 0, 0x12, 1, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0]);
+        // a PSD: its header, `colour` bytes of colour-mode data, the image resources (id, data), `pixels` other bytes
+        let psd = |colour: usize, resources: &[(u16, &[u8])], pixels: usize| {
+            let mut section = Vec::new();
+            for (id, data) in resources {
+                section.extend_from_slice(b"8BIM");
+                section.extend_from_slice(&id.to_be_bytes());
+                section.extend_from_slice(&[0, 0]);
+                section.extend_from_slice(&(data.len() as u32).to_be_bytes());
+                section.extend_from_slice(data);
+                if data.len() % 2 == 1 {
+                    section.push(0);
+                }
+            }
+            let mut p = b"8BPS\0\x01".to_vec();
+            p.resize(26, 0);
+            p.extend_from_slice(&(colour as u32).to_be_bytes());
+            p.resize(p.len() + colour, 0);
+            p.extend_from_slice(&(section.len() as u32).to_be_bytes());
+            p.extend_from_slice(&section);
+            p.resize(p.len() + pixels, 0);
+            p
+        };
+        let long = vec![0; span + 64];
+        let (exif_res, plain_res, xmp_res, long_res) = ((1058, &exif[..]), (1058, &plain[..]), (1060, packet.as_bytes()), (1039, &long[..]));
+        let late_png = png(&[idat(span + 64), exif_chunk.clone()]);
+        let late_psd = psd(0, &[long_res, exif_res], 0);
+        for (name, bytes, want) in [
+            ("early.png", png(&[exif_chunk.clone(), idat(span + 64), iend.clone()]), o6),
+            ("late.png", png(&[idat(span + 64), exif_chunk.clone(), xmp_chunk.clone(), iend.clone()]), o6),
+            // the `eXIf` wins in whichever order the chunks come, and an XMP in the first MiB doesn't stop the search
+            ("reversed.png", png(&[idat(span + 64), xmp_chunk.clone(), exif_chunk.clone(), iend.clone()]), o6),
+            ("xmp-first.png", png(&[xmp_chunk.clone(), idat(span + 64), exif_chunk.clone(), iend.clone()]), o6),
+            ("xmp.png", png(&[idat(span + 64), xmp_chunk.clone(), iend.clone()]), o8),
+            ("none.png", png(&[idat(span + 64), iend.clone()]), None),
+            // the `eXIf` is cut short, or comes after the end of the image
+            ("cut.png", late_png[..late_png.len() - 6].to_vec(), None),
+            ("after-iend.png", png(&[idat(span + 64), iend.clone(), exif_chunk.clone()]), None),
+            // an `eXIf` of any size is read by its IFD: with `Exif\0\0`, over the span, and with its IFD past the span
+            ("prefixed.png", png(&[idat(span + 64), (&b"eXIf"[..], [&b"Exif\0\0"[..], &exif].concat())]), o6),
+            ("huge.png", png(&[idat(64), (&b"eXIf"[..], [&exif[..], &vec![0; span]].concat()), xmp_chunk.clone()]), o6),
+            ("late-ifd.png", png(&[idat(span + 64), (&b"eXIf"[..], late_ifd), xmp_chunk.clone()]), o6),
+            // nothing outside the `eXIf` is read for its IFD
+            ("outside.png", png(&[idat(span + 64), stray_exif, stray_ifd, xmp_chunk.clone()]), o8),
+            // the last `eXIf` counts, here a late one stating no orientation after one in the first MiB
+            ("last-exif.png", png(&[exif_chunk.clone(), idat(span + 64), plain_chunk, xmp_chunk.clone()]), o8),
+            // a compressed packet or another keyword isn't the XMP; a chunk of the span is read
+            ("compressed.png", png(&[idat(span + 64), xmp_chunk.clone(), itxt(xmp_key, 1, packet.as_bytes())]), o8),
+            ("only-compressed.png", png(&[idat(span + 64), itxt(xmp_key, 1, packet.as_bytes())]), None),
+            ("other-text.png", png(&[idat(span + 64), itxt(b"Comment", 0, packet.as_bytes())]), None),
+            ("short-text.png", png(&[idat(span + 64), xmp_chunk.clone(), (&b"iTXt"[..], b"XML:com.adobe.xmp\0\0".to_vec())]), o8),
+            ("span-xmp.png", png(&[idat(64), padded_xmp(span)]), o8),
+            ("late.psd", late_psd.clone(), o6),
+            ("early.psd", psd(0, &[exif_res], span + 64), o6),
+            // Exif wins in whichever order the resources come; XMP fills in for none, or none stating an orientation
+            ("both.psd", psd(0, &[xmp_res, long_res, exif_res], 0), o6),
+            ("xmp.psd", psd(768, &[long_res, xmp_res], 0), o8),
+            ("plain.psd", psd(0, &[long_res, plain_res, xmp_res], 0), o8),
+            ("none.psd", psd(0, &[long_res], span), None),
+            // as at import, nothing is taken from resources that are cut short or state their Exif twice
+            ("cut.psd", late_psd[..late_psd.len() - 1].to_vec(), None),
+            ("two-exif.psd", psd(0, &[long_res, exif_res, exif_res], 0), None),
+        ] {
+            assert_eq!(lightcraft_meta::extract(&bytes).orientation, want, "import: {name}");
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            assert_eq!(file_orientation(&path.to_string_lossy()), want, "{name}");
+        }
+        // a larger XMP chunk isn't read, where the import (reading the whole file) takes its orientation
+        let over = png(&[idat(64), padded_xmp(span + 1)]);
+        assert_eq!(lightcraft_meta::extract(&over).orientation, o8);
+        std::fs::write(dir.join("over-xmp.png"), over).unwrap();
+        assert_eq!(file_orientation(&dir.join("over-xmp.png").to_string_lossy()), None);
+        std::fs::remove_dir_all(dir).unwrap();
+
+        // the `eXIf` as the last chunk walked, and as the first one not: IHDR, `chunks` of empty `IDAT`, the `eXIf`
+        let steps = png_chunk_steps;
+        let split = |chunks: usize| png(&[vec![idat(0); chunks], vec![exif_chunk.clone()]].concat());
+        let len = |chunks: usize| (8 + 25 + 12 * chunks + 12 + exif.len()) as u64;
+        let walked = (0..).find(|&n| n as u64 + 2 == steps(len(n)) && n as u64 + 3 > steps(len(n + 1))).unwrap();
+        let (last, past) = (split(walked), split(walked + 1));
+        assert_eq!(last.len() as u64, len(walked));
+        assert_eq!(png_orientation(&mut std::io::Cursor::new(&last)), o6);
+        assert_eq!(lightcraft_meta::extract(&past).orientation, o6);
+        assert_eq!(png_orientation(&mut std::io::Cursor::new(&past)), None);
+        // image data split into chunks of a KiB is walked whatever its length, up to the limit
+        let kib_chunks = png(&[vec![idat(1012); 6000], vec![exif_chunk.clone()]].concat());
+        assert_eq!(png_orientation(&mut std::io::Cursor::new(&kib_chunks)), o6);
+        assert_eq!(steps(u64::MAX), 1 << 20);
+
+        // image resources that end exactly at the limit, and a byte past it
+        let limit = PSD_RESOURCES_SPAN as usize;
+        let padding = vec![0; limit - 58 - exif.len().next_multiple_of(2)];
+        let within = psd(0, &[(1039, &padding[..]), exif_res], 0);
+        assert_eq!(within.len(), limit);
+        assert_eq!(psd_orientation(&mut std::io::Cursor::new(&within)), o6);
+        let past = psd(1, &[(1039, &padding[..]), exif_res], 0);
+        assert_eq!(lightcraft_meta::extract(&past).orientation, o6);
+        assert_eq!(psd_orientation(&mut std::io::Cursor::new(&past)), None);
+    }
+
     #[test]
     fn op_photo_collection() {
         let mut v = Vec::new();
@@ -1121,6 +1431,114 @@ mod tests {
         assert!(sidecar_contents(&path, fresh, "t").is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no backup was made");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Given a library where files share stems in several ways, when files arrive in an import,
+    /// then each of them may read the shared stem sidecar exactly when it would own it once it is
+    /// catalogued: the arriving files are ranked against the library's files and against each
+    /// other, as the write rule ranks them (upstream LightCraft 5bf0d45ba8).
+    #[test]
+    fn an_arriving_file_owns_the_stem_sidecar_exactly_when_it_would_once_catalogued() {
+        use lightcraft_catalog::Catalog;
+        const PATHS: [&str; 13] = [
+            "/pics/trip/IMG_1.CR3",
+            "/pics/trip/IMG_1.JPG",
+            "/pics/trip/img_1.jpeg",
+            "/Pics/Trip/IMG_1.tif",
+            "/pics/trip/IMG_2.JPG",
+            "/pics/trip/IMG_3.CR3",
+            "/pics/trip/IMG_3.cr3.JPG",
+            "/pics/trip/IMG_3.cr3",
+            "/pics/other/IMG_1.JPG",
+            "/pics/other/IMG_1",
+            "/pics/v1.2/a.b.JPG",
+            "/pics/v1.2/a.b.cr3",
+            "/pics/v1.2/a",
+        ];
+        // the `.cr3` files are raws
+        fn kind_of(path: &str) -> MediaKind {
+            if path.to_lowercase().ends_with("cr3") { MediaKind::Raw } else { MediaKind::Image }
+        }
+        fn add(cat: &mut Catalog, path: &str, kind: MediaKind, copy_of: Option<PhotoId>) -> PhotoId {
+            let id = cat.alloc_photo_id();
+            let name = path.rsplit('/').next().unwrap_or(path);
+            let mut p = Photo::new(id, Source::File { path: path.to_string() }, name, "X", 6, 4, "2026-01-01");
+            p.kind = kind;
+            p.copy_of = copy_of;
+            cat.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+            id
+        }
+        let mut c = Catalog::new();
+        let ids: Vec<PhotoId> = PATHS.iter().map(|path| add(&mut c, path, kind_of(path), None)).collect();
+        // a virtual copy of the first owns nothing
+        add(&mut c, PATHS[0], MediaKind::Raw, Some(ids[0]));
+        // the arrivals: the same names under an upper-case folder, so each shares its stem with the
+        // library's files (the key lower-cases the path) without being one of them
+        let incoming: Vec<(String, MediaKind)> = PATHS
+            .iter()
+            .map(|p| {
+                let (dir, name) = p.rsplit_once('/').unwrap_or(("", p));
+                (format!("{}/{name}", dir.to_uppercase()), kind_of(p))
+            })
+            .collect();
+        // the library with these arrivals in it, the ids drawn in the order they arrive
+        let arriving_in = |base: &Catalog, ks: &[usize]| -> Catalog {
+            let mut cat = base.clone();
+            for &k in ks {
+                add(&mut cat, &incoming[k].0, incoming[k].1, None);
+            }
+            cat
+        };
+        let owns_once_catalogued = |cat: &Catalog, k: usize| -> bool {
+            let path = &incoming[k].0;
+            let p = cat.photos().find(|p| matches!(&p.source, Source::File { path: x } if x == path)).unwrap();
+            StemOwners::of(cat).naming(p, SidecarNaming::Stem) == SidecarNaming::Stem
+        };
+        let as_arriving = |ks: &[usize]| -> Vec<(&str, MediaKind)> { ks.iter().map(|k| (incoming[*k].0.as_str(), incoming[*k].1)).collect() };
+        let library = ImportStems::library_files(&c);
+        assert_eq!(library.len(), PATHS.len(), "the virtual copy is not ranked");
+        for i in 0..incoming.len() {
+            let alone = ImportStems::for_import(&library, as_arriving(&[i]).into_iter());
+            assert_eq!(alone.owns(&incoming[i].0), owns_once_catalogued(&arriving_in(&c, &[i]), i), "{} alone", incoming[i].0);
+            for j in (0..incoming.len()).filter(|j| *j != i) {
+                // every pair arriving together
+                let pair = ImportStems::for_import(&library, as_arriving(&[i, j]).into_iter());
+                let cat = arriving_in(&c, &[i, j]);
+                for (k, other) in [(i, j), (j, i)] {
+                    assert_eq!(pair.owns(&incoming[k].0), owns_once_catalogued(&cat, k), "{} with {}", incoming[k].0, incoming[other].0);
+                }
+            }
+        }
+        // with an empty library the arrivals are ranked among themselves, as they would be in a
+        // library of just them
+        let all: Vec<usize> = (0..incoming.len()).collect();
+        let alone = ImportStems::for_import(&[], as_arriving(&all).into_iter());
+        let only_arrivals = arriving_in(&Catalog::new(), &all);
+        for k in all {
+            assert_eq!(alone.owns(&incoming[k].0), owns_once_catalogued(&only_arrivals, k), "{} without a library", incoming[k].0);
+        }
+    }
+
+    /// A file that does not own its stem sidecar reads only its own `<file>.xmp`, and a file with
+    /// no ending, whose own name is the shared one, reads none.
+    #[test]
+    fn a_file_that_does_not_own_the_stem_reads_only_its_own_sidecar() {
+        let dir = std::env::temp_dir().join(format!("lc-sidecar-import-stems-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        for name in ["IMG_1.xmp", "IMG_1.jpg.xmp"] {
+            std::fs::write(dir.join(name), "<x/>").unwrap();
+        }
+        let (raw, jpg, bare) = (at("IMG_1.cr3"), at("IMG_1.jpg"), at("IMG_1"));
+        let stems = ImportStems::for_import(
+            &[],
+            [(raw.as_str(), MediaKind::Raw), (jpg.as_str(), MediaKind::Image), (bare.as_str(), MediaKind::Image)].into_iter(),
+        );
+        assert_eq!(find_sidecar_for_import(&stems, SidecarNaming::Stem, &raw), Some(dir.join("IMG_1.xmp")));
+        assert_eq!(find_sidecar_for_import(&stems, SidecarNaming::Stem, &jpg), Some(dir.join("IMG_1.jpg.xmp")));
+        assert_eq!(find_sidecar_for_import(&stems, SidecarNaming::Stem, &bare), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

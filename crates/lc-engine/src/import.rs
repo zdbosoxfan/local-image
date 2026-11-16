@@ -666,6 +666,10 @@ pub struct ImportJob {
     /// Probes from a preceding scan (not read again).
     cache: HashMap<String, ProbeInfo>,
     naming: crate::sidecar::SidecarNaming,
+    /// The library's files each batch's arrivals are ranked against for the ownership of the
+    /// shared stem sidecars they read ([`crate::sidecar::ImportStems`]); each batch adds its own
+    /// arrivals, so a file in a later batch than its raw still yields the stem sidecar to it.
+    stem_library: Vec<(String, MediaKind, u64)>,
     now: String,
     seq: usize,
     /// Files found so far (folders expanded) and handled so far, for progress.
@@ -815,6 +819,7 @@ impl ImportJob {
             file_bytes: s.media.file_bytes.clone(),
             cache: std::mem::take(&mut s.import_probes),
             naming: s.xmp.naming,
+            stem_library: crate::sidecar::ImportStems::library_files(&s.catalog),
             now: (s.clock)(),
             total: Default::default(),
             done: Default::default(),
@@ -906,6 +911,14 @@ impl ImportJob {
         let probed: Vec<Result<ProbeInfo, String>> =
             cached.into_iter().map(|c| c.map(Ok).unwrap_or_else(|| fresh.next().unwrap_or_else(|| Err("not probed".into())))).collect();
         crate::memory::release();
+        // Who owns the shared stem sidecar (`IMG_0001.xmp`) among the library's files and the ones
+        // arriving with this import: a JPEG or a TIFF arriving beside its raw reads its own sidecar
+        // and never the raw's packet.
+        let arrivals: Vec<(&str, MediaKind)> =
+            todo.iter().zip(&probed).filter_map(|(path, info)| info.as_ref().ok().map(|i| (path.as_str(), i.kind))).collect();
+        let stems = crate::sidecar::ImportStems::for_import(&self.stem_library, arrivals.iter().copied());
+        // the ids they draw when the import commits are above every catalogued one
+        self.stem_library.extend(arrivals.into_iter().map(|(path, kind)| (path.to_string(), kind, u64::MAX)));
         // Copies (copy, sync, verify; optional DNG conversion) run on a bounded group of threads
         // while this loop goes on in file order; everything that decides names, folders, sequence
         // numbers and duplicates stays here, in order.
@@ -963,7 +976,7 @@ impl ImportJob {
                 // the XMP sidecar (or a raw's embedded XMP), read before copying: its capture time files
                 // and names the copy when the file itself has none
                 let raw = info.kind == MediaKind::Raw;
-                let packet = crate::sidecar::find_sidecar(&path, self.naming)
+                let packet = crate::sidecar::find_sidecar_for_import(&stems, self.naming, &path)
                     .and_then(|f| std::fs::read_to_string(f).ok())
                     .or_else(|| info.xmp.clone().filter(|_| raw));
                 let sidecar = packet.and_then(|x| match crate::sidecar::parse_sidecar(&x, raw) {

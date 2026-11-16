@@ -227,6 +227,54 @@ fn paint_view(app: &mut PhotocraftApp, ctx: &egui::Context, xf: &ViewXform) -> O
     Some(image(&c.stats, &thr, end))
 }
 
+/// A view at one device pixel per document pixel whose visible document rect (with
+/// `visible_doc_rect`'s 2 px margin) is exactly `x0..x1` × `y0..y1`.
+fn xf_over(x0: i32, x1: i32, y0: i32, y1: i32) -> ViewXform {
+    let size = egui::vec2((x1 - x0 - 4) as f32, (y1 - y0 - 4) as f32);
+    ViewXform {
+        rect: egui::Rect::from_min_size(egui::Pos2::ZERO, size),
+        zoom: 1.0,
+        center: [(x0 + x1) as f32 / 2.0, (y0 + y1) as f32 / 2.0],
+        flip: false,
+        rotation: 0.0,
+    }
+}
+
+/// Snapping the area to the block grid can widen it by up to a block; the blocks grow until the
+/// snapped area still fits the texture limit (here a 2048 px device limit) on both sides.
+#[test]
+fn the_snapped_area_fits_the_texture_limit() {
+    let bounds = Rect::new(0, 0, 20000, 20000);
+    let (r, f) = view_area(&xf_over(1, 4097, 0, 100), bounds, 1.0, 2048).unwrap();
+    assert_eq!((r.x0, f), (0, 3), "4096 px from x 1: blocks of 2 would need 2049");
+    for (x0, y0) in [(0, 0), (1, 1), (2, 3), (5, 7), (1023, 2047)] {
+        for span in 4090..4100 {
+            let (x1, y1) = (x0 + span, y0 + span / 2);
+            let (r, f) = view_area(&xf_over(x0, x1, y0, y1), bounds, 1.0, 2048).unwrap();
+            let fi = f as i32;
+            assert!(r.width().div_ceil(f) <= 2048 && r.height().div_ceil(f) <= 2048, "{x0},{y0} span {span}: {r:?} / {f}");
+            assert!(r.x0 % fi == 0 && r.y0 % fi == 0, "snapped to the grid: {r:?} / {f}");
+            assert!(r.x0 <= x0 && r.y0 <= y0 && r.x1 >= x1 && r.y1 >= y1, "covers the view: {r:?}");
+        }
+    }
+}
+
+/// However big the display, the display builds at most `MAX_BLOCKS` blocks: an 8K canvas at
+/// 100 % gets bigger blocks instead of a 33M-texel texture, while 2560×1440 keeps one block per
+/// device pixel.
+#[test]
+fn a_huge_display_grows_the_blocks() {
+    let bounds = Rect::new(0, 0, 20000, 20000);
+    let (_, f) = view_area(&xf_over(0, 2564, 0, 1444), bounds, 1.0, 8192).unwrap();
+    assert_eq!(f, 1, "2560×1440: one block per device pixel");
+    for (w, h) in [(7680, 4320), (8192, 8192), (15360, 8640)] {
+        let (r, f) = view_area(&xf_over(0, w, 0, h), bounds, 1.0, 8192).unwrap();
+        let blocks = u64::from(r.width().div_ceil(f)) * u64::from(r.height().div_ceil(f));
+        assert!(blocks <= MAX_BLOCKS, "{w}×{h}: {blocks} blocks of {f}");
+        assert!(blocks > MAX_BLOCKS / 4, "{w}×{h}: no coarser than needed ({blocks} blocks of {f})");
+    }
+}
+
 /// The display covers the view at about one texel per screen pixel, in every depth and in Gray,
 /// and goes away with the dialog.
 #[test]

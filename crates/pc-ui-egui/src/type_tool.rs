@@ -110,7 +110,17 @@ pub fn edit_active(app: &mut PhotocraftApp) -> Result<(), String> {
         commit(app);
         let key = session_key(app);
         begin_edit(app, id, &key)?;
-        app.ui.text_edit = Some(TextEdit { layer: id.0, caret: n, anchor: 0, session: key, created: false, dragging: false, resize: None, preedit: None });
+        app.ui.text_edit = Some(TextEdit {
+            layer: id.0,
+            document: active_doc_id(app),
+            caret: n,
+            anchor: 0,
+            session: key,
+            created: false,
+            dragging: false,
+            resize: None,
+            preedit: None,
+        });
     } else if let Some(ed) = app.ui.text_edit.as_mut() {
         ed.anchor = 0;
         ed.caret = n;
@@ -234,7 +244,17 @@ pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> boo
             return true;
         }
         let off = hit_offset(app, id, x, y);
-        app.ui.text_edit = Some(TextEdit { layer: id.0, caret: off, anchor: off, session: key, created: false, dragging: true, resize: None, preedit: None });
+        app.ui.text_edit = Some(TextEdit {
+            layer: id.0,
+            document: active_doc_id(app),
+            caret: off,
+            anchor: off,
+            session: key,
+            created: false,
+            dragging: true,
+            resize: None,
+            preedit: None,
+        });
         return true;
     }
     false
@@ -294,12 +314,26 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
         // Like Photoshop: the placeholder is selected, so typing replaces it.
         let n = PLACEHOLDER.chars().count();
         app.ui.caret_blink_time = app.last_frame_time;
-        app.ui.text_edit = Some(TextEdit { layer: id, caret: n, anchor: 0, session: key, created: true, dragging: false, resize: None, preedit: None });
+        app.ui.text_edit = Some(TextEdit {
+            layer: id,
+            document: active_doc_id(app),
+            caret: n,
+            anchor: 0,
+            session: key,
+            created: true,
+            dragging: false,
+            resize: None,
+            preedit: None,
+        });
     }
 }
 
 fn session_key(app: &mut PhotocraftApp) -> String {
     format!("type-{}", app.ui.alloc_id())
+}
+
+fn active_doc_id(app: &PhotocraftApp) -> Option<u64> {
+    app.session.active().map(|st| st.doc.id.0)
 }
 
 fn current_text(app: &PhotocraftApp, id: LayerId) -> Option<String> {
@@ -428,6 +462,7 @@ fn line_edge(app: &mut PhotocraftApp, id: LayerId, caret: usize, end: bool) -> u
 /// Keyboard input while editing. Returns true when a type edit session is active (single-key
 /// tool shortcuts must then be skipped). Handled events are removed from the frame's input.
 pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
+    end_if_left(app);
     let Some(ed) = app.ui.text_edit.clone() else { return false };
     // The font picker (and other focused text fields) owns keyboard input while it is open.
     if ctx.text_edit_focused() {
@@ -576,6 +611,34 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
 
 /// End the editing session. A new layer left empty is deleted; a new layer is named after its text.
 pub fn commit(app: &mut PhotocraftApp) {
+    let current = app.session.active_index();
+    let Some(home) = app.ui.text_edit.as_ref().map(|ed| edit_home(app, ed)) else { return };
+    match home {
+        Some(home) if Some(home) != current => {
+            // An edit left in a background document commits there, in its own history.
+            app.session.set_active(home);
+            commit_here(app);
+            if let Some(i) = current {
+                app.session.set_active(i);
+            }
+        }
+        Some(_) => commit_here(app),
+        // Its document closed: there is nothing to commit into, and the layer id may name a
+        // layer of another document.
+        None => app.ui.text_edit = None,
+    }
+}
+
+/// Index of the document an edit belongs to; `None` once it is closed.
+fn edit_home(app: &PhotocraftApp, ed: &TextEdit) -> Option<usize> {
+    match ed.document {
+        Some(d) => app.session.documents().iter().position(|st| st.doc.id.0 == d),
+        None => app.session.active_index(),
+    }
+}
+
+/// [`commit`] in the active document, which is the edit's own.
+fn commit_here(app: &mut PhotocraftApp) {
     let Some(ed) = app.ui.text_edit.take() else { return };
     let Some(text) = current_text(app, LayerId(ed.layer)) else { return };
     if text.trim().is_empty() && ed.created {
@@ -586,9 +649,25 @@ pub fn commit(app: &mut PhotocraftApp) {
     }
 }
 
+/// Commit the edit once its layer is no longer the one worked on: another layer became active (a
+/// Layers panel menu, the canvas layer picker, automation) or another document did (a tab, File ▸
+/// New/Open). Photoshop commits then; left open, the session took single-key shortcuts as typing
+/// and typed into whichever document was active.
+pub fn end_if_left(app: &mut PhotocraftApp) {
+    let Some(ed) = app.ui.text_edit.as_ref() else { return };
+    let here = edit_home(app, ed).is_some_and(|h| Some(h) == app.session.active_index());
+    if !here || app.session.active().is_some_and(|st| st.active_layer != Some(LayerId(ed.layer))) {
+        commit(app);
+    }
+}
+
 /// Selection highlight, caret and text frame over the canvas.
 pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     let Some(ed) = app.ui.text_edit.clone() else { return };
+    // Until it commits, an edit in a document no longer active draws nothing over this one.
+    if edit_home(app, &ed) != app.session.active_index() {
+        return;
+    }
     let id = LayerId(ed.layer);
     if let Some((layout, aff, text)) = path_layout(app, id) {
         draw_path_edit(painter, xf, &ed, &layout, aff, &text);
@@ -1482,6 +1561,10 @@ fn draw_path_edit(
 #[cfg(test)]
 #[path = "type_tool_tests.rs"]
 mod canvas_tests;
+
+#[cfg(test)]
+#[path = "type_commit_tests.rs"]
+mod commit_tests;
 
 #[cfg(test)]
 mod tests;

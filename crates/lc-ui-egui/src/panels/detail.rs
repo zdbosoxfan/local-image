@@ -1338,6 +1338,16 @@ fn moved_shape(shape: &MaskShape, handle: u8, dn: Point, at: Point, map: &Canvas
     }
 }
 
+/// The mask whose pin is under `q` (within the 10 px a grip is grabbed at), not counting the
+/// `active` mask's own pins.
+fn other_pin_at(grips: &[(u32, usize, u8, Pos2)], active: Option<u32>, q: Pos2) -> Option<u32> {
+    grips
+        .iter()
+        .filter(|g| Some(g.0) != active && g.2 == 0 && g.3.distance(q) < 10.0)
+        .min_by(|a, b| a.3.distance(q).total_cmp(&b.3.distance(q)))
+        .map(|g| g.0)
+}
+
 /// The Masking tool on the photo: outlines and handles of the selected mask, a pin per mask
 /// component (click selects its mask, drag moves the component), and brush painting. The mask
 /// itself shows as a rendered overlay ([`view_overlay`]).
@@ -1433,7 +1443,9 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             }
         }
     }
-    // Object tool: a click includes what's under it, ⌥-click leaves it out
+    // Object tool: a click includes what's under it, ⌥-click leaves it out. A click on another
+    // mask's pin selects that mask instead; the tool then stays on only if that mask has an Object
+    // selection to refine.
     if app.ui.tool == "object" {
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -1441,6 +1453,15 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         if resp.clicked()
             && let Some(q) = resp.interact_pointer_pos()
         {
+            if let Some(mid) = other_pin_at(&grips, active, q) {
+                let _ = app.run("mask.select", json!({"id": mid}));
+                let has_object =
+                    d.masks.iter().find(|m| m.id == mid).is_some_and(|m| m.components.iter().any(|c| matches!(c.shape, MaskShape::Object { .. })));
+                if !has_object {
+                    app.ui.tool.clear();
+                }
+                return;
+            }
             let n = map.norm(q);
             let exclude = ui.input(|i| i.modifiers.alt);
             match app.run("mask.objectPoint", json!({"x": n.x, "y": n.y, "exclude": exclude})) {
