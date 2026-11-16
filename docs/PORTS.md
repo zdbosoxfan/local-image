@@ -1473,3 +1473,11 @@ Adapted ports: `498c310e` keeps our payload-free `Drag::RulerNew` and reads the 
 | [storytold/photocraft@`b8b7129ca7512d19910ca54f9aa6de35e43b7cab`](https://github.com/storytold/photocraft/commit/b8b7129ca7512d19910ca54f9aa6de35e43b7cab) | Object Selection: the Hard Edge option; off, a 1-2-1 tent gives a softer rim one pixel wider on each side (#12855) | `crates/pc-engine/src/smartselect_cmds.rs`<br>`crates/pc-ui-egui/src/state.rs`<br>`crates/pc-ui-egui/src/retouch_ui.rs` | MIT OR Apache-2.0 |
 
 Adapted port: our click mode runs the learned model as a background job and has no Object Finder cache, so the rim is applied in the job's apply step (and around `grabcut::object_select` in rect mode) instead of through upstream's `object_edge`; the model's probability map is what stays as found. `object_hard_edge` sits in our flat `ToolOptions` beside `sample_all_layers`. Not ported: the Reset Tool part (`tool_reset.rs`, we have no Reset Tool), its test, and the Object Finder cache and "finding nothing changes nothing" tests (our Replace with nothing found clears the selection). Upstream's `object_hard_edge_tests.rs` lives in `smartselect_cmds.rs`'s `mod tests`, on a dragged rectangle plus one click test with the mock model. "Hard Edge" has no catalog translations yet and shows in English.
+
+## PhotoCraft Image Size Resample shortcuts (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4c5f49d9ff100880b8981c140949671f55552602`](https://github.com/storytold/photocraft/commit/4c5f49d9ff100880b8981c140949671f55552602) | Image Size: Alt+1 to Alt+8 pick the Resample method (#14789) | `crates/pc-ui-egui/src/sizing.rs` | MIT OR Apache-2.0 |
+
+Adapted port: Alt+1 picks our `bicubicAutomatic` (upstream's key is `automatic`). We have no Indexed Color filter on the Resample list (#6019 is not ported), so `resample_offered` is left out and every keyed method is offered while Resample is on. Upstream's `image_size_resample_shortcuts_tests.rs` is in `sizing.rs`'s `mod tests` without its Indexed Color case; our dialog opens with no field focused, so the focused-field test clicks into Width first.

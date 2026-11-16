@@ -166,6 +166,7 @@ fn image_size(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let (ow, oh) = (num(f, "__origW"), num(f, "__origH"));
     let bpp = num(f, "__bytesPerPixel").max(1.0);
+    resample_shortcut(ui, f);
     let resample = f.get("resample").and_then(Value::as_str).unwrap_or("bicubic").to_string();
     let resampling = resample != "none";
     let (w, h) = (num(f, "width").round(), num(f, "height").round());
@@ -262,6 +263,48 @@ fn image_size(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             }
         }
     });
+}
+
+/// Alt+1 to Alt+8 (Option on macOS) and the Resample method each picks, as in Photoshop. Alt+3 is
+/// Preserve Details 2.0, which we don't have, and Lanczos has no key.
+const RESAMPLE_KEYS: [(egui::Key, Option<&str>); 8] = [
+    (egui::Key::Num1, Some("bicubicAutomatic")),
+    (egui::Key::Num2, Some("preserveDetails")),
+    (egui::Key::Num3, None),
+    (egui::Key::Num4, Some("bicubicSmoother")),
+    (egui::Key::Num5, Some("bicubicSharper")),
+    (egui::Key::Num6, Some("bicubic")),
+    (egui::Key::Num7, Some("nearest")),
+    (egui::Key::Num8, Some("bilinear")),
+];
+
+/// Takes an Alt+1 to Alt+8 press out of this frame's input and picks its Resample method when
+/// Resample is on. It runs before the fields are drawn, so the press (and the digit, or Option's
+/// character on macOS, the key also types) never reaches a focused field. Ctrl+Alt is left alone:
+/// on Windows it's AltGr, which types characters on many layouts.
+fn resample_shortcut(ui: &egui::Ui, f: &mut Map<String, Value>) {
+    let picked = ui.ctx().input_mut(|i| {
+        let mut picked = None;
+        i.events.retain(|e| {
+            let egui::Event::Key { key, pressed, modifiers, .. } = e else { return true };
+            if !modifiers.alt || modifiers.ctrl || modifiers.command || modifiers.mac_cmd {
+                return true;
+            }
+            let Some(&(_, method)) = RESAMPLE_KEYS.iter().find(|(k, _)| k == key) else { return true };
+            if *pressed {
+                picked = Some(method);
+            }
+            false
+        });
+        if picked.is_some() {
+            i.events.retain(|e| !matches!(e, egui::Event::Text(_)));
+        }
+        picked
+    });
+    let Some(Some(method)) = picked else { return };
+    if f.get("resample").and_then(Value::as_str).unwrap_or("bicubic") != "none" {
+        f.insert("resample".into(), json!(method));
+    }
 }
 
 fn canvas_size(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
@@ -440,5 +483,167 @@ mod tests {
         assert_eq!((num(&f, "width"), num(&f, "height")), (1.0, 1.0), "{f:?}");
         crate::dialogs::confirm(h.state_mut(), id).unwrap();
         assert_eq!(h.state().session.active().unwrap().doc.size, photocraft_doc::Size::new(1, 1));
+    }
+
+    /// An open Image Size dialog for a 200 x 100 px document.
+    fn image_size_dialog() -> egui_kittest::Harness<'static, PhotocraftApp> {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 100})).unwrap();
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        open(h.state_mut(), "image.imageSize").unwrap();
+        h.run_steps(3);
+        h
+    }
+
+    fn fields(h: &egui_kittest::Harness<'static, PhotocraftApp>) -> Map<String, Value> {
+        h.state().ui.dialogs.first().map(|d| d.fields.clone()).expect("the dialog is open")
+    }
+
+    fn resample(h: &egui_kittest::Harness<'static, PhotocraftApp>) -> Value {
+        fields(h).get("resample").cloned().unwrap_or(Value::Null)
+    }
+
+    fn set_resample(h: &mut egui_kittest::Harness<'static, PhotocraftApp>, method: &str) {
+        if let Some(d) = h.state_mut().ui.dialogs.first_mut() {
+            d.fields.insert("resample".into(), json!(method));
+        }
+        h.run_steps(2);
+    }
+
+    /// Presses and releases `key` with `modifiers` in one frame, plus the text a real keyboard types
+    /// with it: winit sends the digit along with Alt+digit on Windows and Linux. (The harness's own
+    /// key helpers give each event a frame of its own, which a real keyboard doesn't.)
+    fn press(h: &mut egui_kittest::Harness<'static, PhotocraftApp>, modifiers: egui::Modifiers, key: egui::Key, text: &str) {
+        let events = &mut h.input_mut().events;
+        events.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers });
+        events.push(egui::Event::Text(text.into()));
+        events.push(egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers });
+        h.run_steps(2);
+    }
+
+    /// Each key picks its method: Alt+1 Automatic, Alt+2 Preserve Details, Alt+4 Bicubic Smoother,
+    /// Alt+5 Bicubic Sharper, Alt+6 Bicubic, Alt+7 Nearest Neighbor, Alt+8 Bilinear.
+    #[test]
+    fn each_alt_digit_picks_its_method() {
+        use egui::{Key, Modifiers};
+        use egui_kittest::kittest::Queryable;
+        let mut h = image_size_dialog();
+        for (key, digit, method) in [
+            (Key::Num7, "7", "nearest"),
+            (Key::Num1, "1", "bicubicAutomatic"),
+            (Key::Num2, "2", "preserveDetails"),
+            (Key::Num4, "4", "bicubicSmoother"),
+            (Key::Num5, "5", "bicubicSharper"),
+            (Key::Num6, "6", "bicubic"),
+            (Key::Num8, "8", "bilinear"),
+        ] {
+            press(&mut h, Modifiers::ALT, key, digit);
+            assert_eq!(resample(&h), json!(method), "Alt+{digit}");
+        }
+        // The list shows the picked method.
+        assert!(
+            h.query_all_by_role(egui::accesskit::Role::ComboBox).any(|n| n.accesskit_node().value().as_deref() == Some("Bilinear")),
+            "the Resample list shows Bilinear"
+        );
+    }
+
+    /// With Width focused and selected, Alt+7 picks Nearest Neighbor and types nothing into it, and
+    /// the field still takes typing afterwards.
+    #[test]
+    fn a_focused_field_does_not_get_the_digit() {
+        use egui::accesskit::Role;
+        use egui::{Key, Modifiers};
+        use egui_kittest::kittest::Queryable;
+        let mut h = image_size_dialog();
+        // Our dialog opens with nothing focused: click into Width first.
+        let width = h.query_all_by_role(Role::SpinButton).next().map(|n| n.rect()).expect("the Width field");
+        h.hover_at(width.center());
+        h.run_steps(1);
+        h.drag_at(width.center());
+        h.run_steps(1);
+        h.drop_at(width.center());
+        h.run_steps(2);
+        assert!(h.query_all_by_role(Role::SpinButton).next().expect("the Width field").is_focused(), "Width has focus");
+        press(&mut h, Modifiers::ALT, Key::Num7, "7");
+        assert_eq!(resample(&h), json!("nearest"));
+        assert_eq!((num(&fields(&h), "width"), num(&fields(&h), "height")), (200.0, 100.0), "the 7 was not typed into Width");
+        assert!(h.query_all_by_role(Role::SpinButton).next().expect("the Width field").is_focused(), "Width keeps the focus");
+        // macOS: Option+8 types "•" along with the key.
+        press(&mut h, Modifiers::ALT, Key::Num8, "•");
+        assert_eq!(resample(&h), json!("bilinear"));
+        assert_eq!(num(&fields(&h), "width"), 200.0, "Option's character was not typed into Width");
+        h.event(egui::Event::Text("50".into()));
+        h.run_steps(1);
+        assert_eq!(num(&fields(&h), "width"), 50.0, "plain typing still edits Width");
+    }
+
+    /// Alt+3 is Preserve Details 2.0, which we don't have: it does nothing, and Lanczos has no key.
+    #[test]
+    fn a_method_that_does_not_exist_does_nothing() {
+        use egui::{Key, Modifiers};
+        let mut h = image_size_dialog();
+        set_resample(&mut h, "bicubicSharper");
+        press(&mut h, Modifiers::ALT, Key::Num3, "3");
+        assert_eq!(resample(&h), json!("bicubicSharper"));
+        assert_eq!(num(&fields(&h), "width"), 200.0, "the 3 was not typed into Width");
+        assert!(RESAMPLE_KEYS.iter().all(|(_, m)| *m != Some("lanczos")), "Lanczos gets no shortcut");
+        // Alt+9 and Alt+0 aren't shortcuts.
+        press(&mut h, Modifiers::ALT, Key::Num9, "9");
+        assert_eq!(resample(&h), json!("bicubicSharper"));
+    }
+
+    /// With Resample off the keys do nothing: Resample stays off and the size stays.
+    #[test]
+    fn resample_off_ignores_the_keys() {
+        use egui::{Key, Modifiers};
+        let mut h = image_size_dialog();
+        set_resample(&mut h, "none");
+        for (key, digit) in [(Key::Num1, "1"), (Key::Num7, "7"), (Key::Num8, "8")] {
+            press(&mut h, Modifiers::ALT, key, digit);
+            assert_eq!(resample(&h), json!("none"), "Alt+{digit}");
+        }
+        let f = fields(&h);
+        assert_eq!((num(&f, "width"), num(&f, "height")), (200.0, 100.0), "{f:?}");
+    }
+
+    /// Ctrl+Alt is AltGr on Windows, which types characters on many layouts: it is no shortcut.
+    #[test]
+    fn ctrl_alt_digit_is_not_a_shortcut() {
+        use egui::{Key, Modifiers};
+        let mut h = image_size_dialog();
+        set_resample(&mut h, "bicubic");
+        press(&mut h, Modifiers::ALT | Modifiers::CTRL, Key::Num7, "{");
+        assert_eq!(resample(&h), json!("bicubic"));
+    }
+
+    /// OK resizes with the method a shortcut picked: Nearest Neighbor doubles a hard black/white
+    /// edge without the grey a blending method puts between them.
+    #[test]
+    fn ok_applies_the_picked_method() {
+        use egui::{Key, Modifiers};
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 4, "height": 1, "background": "white"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 0, "y": 0, "width": 2, "height": 1})).unwrap();
+        app.session.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        app.session.execute("select.deselect", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        let id = open(h.state_mut(), "image.imageSize").unwrap();
+        h.run_steps(3);
+        press(&mut h, Modifiers::ALT, Key::Num7, "7");
+        if let Some(d) = h.state_mut().ui.dialog_mut(id) {
+            d.fields.insert("width".into(), json!(8));
+            d.fields.insert("height".into(), json!(2));
+        }
+        crate::dialogs::confirm(h.state_mut(), id).expect("OK runs Image Size");
+        let doc = &h.state().session.active().unwrap().doc;
+        assert_eq!(doc.size, photocraft_doc::Size::new(8, 2));
+        let reds: Vec<u8> = photocraft_compose::flatten(doc).px.iter().take(8).map(|p| (p[0] * 255.0).round() as u8).collect();
+        assert_eq!(reds, [0, 0, 0, 0, 255, 255, 255, 255], "Nearest Neighbor keeps the edge hard");
     }
 }
