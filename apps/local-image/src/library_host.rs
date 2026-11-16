@@ -648,10 +648,7 @@ impl Host {
         let identity = session.library_identity().to_string();
         // The camera's own fields are already in the file. Compositing's Export As has no Remove
         // Location, so the Library's GPS position stays out; the place names come along.
-        let options = lightcraft_engine::export::ExportOptions {
-            metadata: lightcraft_engine::export::MetadataPolicy::AllExceptCamera,
-            ..Default::default()
-        };
+        let options = lightcraft_engine::export::ExportOptions { metadata: lightcraft_engine::export::MetadataPolicy::AllExceptCamera, ..Default::default() };
         let metadata = session
             .catalog
             .photo(lightcraft_catalog::PhotoId(photo))
