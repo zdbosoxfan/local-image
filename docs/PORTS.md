@@ -1217,7 +1217,10 @@ Local limit on a ported guard: the refusal of an Original export under Remove Lo
 | [`e96386fe47bc`](https://github.com/storytold/photocraft/commit/e96386fe47bc6381cfa3b91a66af089b657d58b2) | Bound and purge the decoded smart object source cache | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs`<br>`crates/pc-engine/src/edit_menu_cmds.rs` | MIT OR Apache-2.0 |
 | [`805d238a9780`](https://github.com/storytold/photocraft/commit/805d238a9780721eae435d7cea75caaf000d1808) | Keep an adjustment smart filter's settings when its dialog opens | `crates/pc-ui-egui/src/adjust_dialog.rs`<br>`crates/pc-ui-egui/src/smart_ui.rs` | MIT OR Apache-2.0 |
 | [`2e13ec280b3f`](https://github.com/storytold/photocraft/commit/2e13ec280b3f89b658e8335b9cea73dd20e9aebf) | Replace an adjustment smart filter's params when its dialog edits them | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs`<br>`crates/pc-ui-egui/src/smart_ui.rs` | MIT OR Apache-2.0 |
-| [`390b3b388a0a`](https://github.com/storytold/photocraft/commit/390b3b388a0aefef080714e1fcc8aeb23aa59b44) | Replace params for every adjustment smart filter dialog and Shape Blur | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-ui-egui/src/smart_ui.rs` | MIT OR Apache-2.0 |
+
+Local adaptations: `788c8956`'s first-row-length shaper detection is covered by our existing row-count heuristic, and `0baeea93` reads a shaper over 0 to its last value rather than an inferred 10-bit-or-wider range, so a linear arbitrary-range shaper stays an identity. `ee57fdb9`/`0eaf9760`/`e2cd2a33` keep our RGBA compositor and profile-aware conversion, so upstream's CMYK/Lab buffer fallback and its peak-memory test are not ported. `e96386fe`'s smaller wasm limits and its smart-filter stage cache budget are not ported (one budget on every target; no stage cache here). `805d238a` keeps no `target` key (our dialog has none).
+
+Not applicable: `390b3b38` (replace params for every adjustment dialog and Shape Blur). Our schema dialog copies only the keys it shows, so replacing from it would erase recorded json params (Selective Color's other ranges); replace stays keyed on the adjustment editors, `2e13ec28`'s form. Its Shape Blur half has no counterpart (no `edited_shape_params`).
 
 ## PhotoCraft document files, text and importer budgets (2026-11-15)
 
