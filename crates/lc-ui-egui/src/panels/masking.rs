@@ -103,7 +103,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         // four 52 pt tiles a row when they fit, else as many as fit (at least three, shrunk)
         let (cols, tile) = tile_layout(ui.available_width());
         egui::Grid::new("mask-tiles").spacing(vec2(TILE_GAP, TILE_GAP)).show(ui, |ui| {
-            for (i, (kind, label, icon)) in tiles.iter().enumerate() {
+            for (i, (kind, label, icon)) in tiles.iter().filter(|(kind, ..)| offered(kind)).enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(tile, 52.0), Sense::click());
                 register(ui.ctx(), format!("maskNew:{kind}"), r);
                 if let Some(tool) = super::tool_tips::StripTool::mask_kind(kind) {
@@ -793,6 +793,12 @@ fn component_row_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, mask: u32, k: 
     }
 }
 
+/// Whether a mask `kind` is offered: Object and Describe need SAM 3, which only some builds
+/// can run.
+pub(crate) fn offered(kind: &str) -> bool {
+    lightcraft_engine::segment::Segmenter::AVAILABLE || !matches!(kind, "object" | "prompt")
+}
+
 /// Whether the SAM 3 model is missing in a build that could use it: then the download is
 /// offered (with `then` to start afterwards) instead of starting an AI mask.
 fn needs_model(app: &mut LightcraftApp, kind: &str, op: &str) -> bool {
@@ -898,15 +904,17 @@ pub(crate) fn describe_field(app: &mut LightcraftApp, ui: &mut egui::Ui, new_mas
 }
 
 pub(crate) fn component_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, op: &str) {
-    let b = ui.button(li_i18n::library::t("Object"));
-    register(ui.ctx(), format!("maskComp:{op}:object"), b.rect);
-    if b.clicked() {
-        start_object(app, ui.ctx(), op);
-    }
-    let b = ui.button(li_i18n::library::t("Describe…"));
-    register(ui.ctx(), format!("maskComp:{op}:prompt"), b.rect);
-    if b.clicked() {
-        start_describe(app, op);
+    if lightcraft_engine::segment::Segmenter::AVAILABLE {
+        let b = ui.button(li_i18n::library::t("Object"));
+        register(ui.ctx(), format!("maskComp:{op}:object"), b.rect);
+        if b.clicked() {
+            start_object(app, ui.ctx(), op);
+        }
+        let b = ui.button(li_i18n::library::t("Describe…"));
+        register(ui.ctx(), format!("maskComp:{op}:prompt"), b.rect);
+        if b.clicked() {
+            start_describe(app, op);
+        }
     }
     for (kind, label) in [
         ("brush", "Brush"),
