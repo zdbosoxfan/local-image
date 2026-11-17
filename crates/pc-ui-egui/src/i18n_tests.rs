@@ -31,7 +31,7 @@ const PENDING_OVERWRITE_TRANSLATIONS: &[&str] = &[
     "Animated, multi-page or damaged originals can't be overwritten; save a copy instead",
     "Couldn't keep the previous version in Trash: {error}",
     "Overwrite requires a recoverable system Trash",
-    "This replaces the original file. The previous version will be kept in Trash so you can recover it.",
+    "This replaces the original file. The previous version goes to the system Trash, not the Library's originals-backup folder, so you can recover it from there.",
     "Overwrite {name}?",
     "Overwrote {path}; previous version kept in Trash",
     "Couldn't overwrite the original: {error}",

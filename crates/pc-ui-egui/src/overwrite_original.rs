@@ -104,7 +104,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let modal = egui::Modal::new(egui::Id::new("overwrite-original-confirm")).show(ctx, |ui| {
         ui.set_max_width(440.0);
         ui.heading(format!("Overwrite {name}?"));
-        ui.label(tl!("This replaces the original file. The previous version will be kept in Trash so you can recover it."));
+        ui.label(tl!("This replaces the original file. The previous version goes to the system Trash, not the Library's originals-backup folder, so you can recover it from there."));
         if std::path::Path::new(&p.path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("psd") || ext.eq_ignore_ascii_case("psb")) {
             ui.label(tl!("This replaces the original Photoshop document with flattened pixels. Its layers will be lost."));
         }
@@ -283,5 +283,48 @@ mod tests {
             assert_eq!(saves.lock().unwrap()[0], (path.to_string_lossy().into(), 71));
             std::fs::remove_dir_all(dir).unwrap();
         }
+    }
+
+    #[test]
+    fn overwrite_prompt_names_the_system_trash_and_the_old_file_is_recoverable_there() {
+        let dir = std::env::temp_dir().join(format!("li-overwrite-backup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("photo.png");
+        image::RgbImage::from_pixel(4, 3, image::Rgb([35u8, 80, 120])).save(&path).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let trash = dir.join("Trash");
+        let bin = trash.clone();
+        let mut app = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            crate::Services {
+                overwrite_original: Some(Box::new(move |_, path, _| {
+                    let original = Arc::new(std::fs::read(path).unwrap());
+                    let (path, bin) = (std::path::PathBuf::from(path), bin.clone());
+                    Ok(crate::PreparedOverwrite {
+                        original,
+                        commit: Box::new(move || {
+                            li_ai::trash::copy_to_trash_in(&path, &bin).map_err(|e| e.to_string())?;
+                            image::RgbImage::from_pixel(4, 3, image::Rgb([200u8, 20, 10])).save(&path).map_err(|e| e.to_string())?;
+                            Ok(vec![])
+                        }),
+                    })
+                })),
+                ..Default::default()
+            },
+        );
+        app.host_modes = true;
+        develop_layer::open_photo(&mut app, 7, &path.to_string_lossy(), &json!({}), "photo.png").unwrap();
+        let doc = app.session.active().unwrap().doc.id;
+        request(&mut app, doc, false).unwrap();
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(3);
+        h.get_by_label("This replaces the original file. The previous version goes to the system Trash, not the Library's originals-backup folder, so you can recover it from there.");
+        h.get_by_label("Overwrite Original").click();
+        h.run_steps(3);
+        assert!(h.state().overwrite_prompt.is_none());
+        assert_ne!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(std::fs::read(trash.join("files/photo.png")).unwrap(), original, "the old file is recoverable from the Trash");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
