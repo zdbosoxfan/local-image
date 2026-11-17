@@ -223,7 +223,7 @@ fn enhance_tool_row(
         });
         ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
             let action = if let Some(download) = download.filter(|download| !download.finished) {
-                ui.add(egui::ProgressBar::new(download.done as f32 / download.total.max(1) as f32).desired_width(120.0).show_percentage());
+                li_ui_kit::progress::bar_with_percent(ui, 120.0, li_ui_kit::progress::fraction(download.done, download.total), t);
                 let response = widgets::secondary_button(ui, tl!("Cancel"), 0.0);
                 if response.clicked() {
                     download.ctl.cancel();

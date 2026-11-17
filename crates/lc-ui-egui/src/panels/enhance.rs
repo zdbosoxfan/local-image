@@ -356,9 +356,9 @@ pub(crate) fn denoise_download(app: &mut LightcraftApp, ui: &mut egui::Ui, famil
     let status = app.services.model_download_status.as_ref().map(|f| f(family)).unwrap_or_default();
     let installed = app.services.model_installed.as_ref().is_some_and(|f| f(family));
     if status.running {
-        let progress = (status.done as f32 / status.total.max(1) as f32).clamp(0., 1.);
-        let response = ui.add(egui::ProgressBar::new(progress).show_percentage());
-        register(ui.ctx(), "progress:denoiseDownload", response.rect);
+        let fraction = li_ui_kit::progress::fraction(status.done, status.total);
+        let rect = li_ui_kit::progress::bar_with_percent(ui, 160.0, fraction, &li_ui_kit::widgets::Profile::Library.tokens(ui.ctx()));
+        register(ui.ctx(), "progress:denoiseDownload", rect);
         if text_button(ui, "denoiseDownloadCancel", "Cancel download", false).clicked()
             && let Some(download) = &app.services.download_models
             && let Err(error) = download(family, true)
