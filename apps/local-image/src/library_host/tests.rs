@@ -3576,6 +3576,26 @@ fn develop_tool_tips_follow_the_shared_interface_setting() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// The Library uses the GPU as the shared Rendering Mode says, copied only when the mode changes
+/// so its own fallback to the CPU stays.
+#[test]
+fn library_rendering_follows_the_shared_rendering_mode_when_it_changes() {
+    use photocraft_engine::prefs::RenderingMode;
+    let (dir, host) = workflow_host("shared-rendering-mode");
+    let mut h = RoundTripUi::new(host);
+    h.host.editor.session.prefs.edit(|p| p.performance.rendering_mode = RenderingMode::Cpu);
+    h.step(vec![]);
+    assert!(!h.host.library.as_ref().unwrap().ui.settings.gpu);
+    h.host.editor.session.prefs.edit(|p| p.performance.rendering_mode = RenderingMode::Gpu);
+    h.step(vec![]);
+    assert!(h.host.library.as_ref().unwrap().ui.settings.gpu);
+    h.host.library.as_mut().unwrap().ui.settings.gpu = false;
+    h.step(vec![]);
+    assert!(!h.host.library.as_ref().unwrap().ui.settings.gpu, "an unchanged mode leaves the Library's fallback alone");
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn lrc_library_preferences_are_lenient_preserve_paths_and_unreadable_settings_block() {
     let (dir, mut host) = workflow_host("lrc-library-prefs");

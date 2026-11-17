@@ -560,7 +560,10 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     use lightcraft_engine::gpu;
     heading(ui, t, li_i18n::library::t("Rendering"));
-    check(ui, "settings.gpu", &mut app.ui.settings.gpu, "Use the GPU for rendering");
+    // Hosted, the shared Performance page's Rendering Mode sets the Library's GPU use.
+    if !app.hosted_menus {
+        check(ui, "settings.gpu", &mut app.ui.settings.gpu, "Use the GPU for rendering");
+    }
     let status = if !gpu::available() {
         match gpu::unavailable_reason() {
             Some(why) => li_i18n::tr_format!("Rendering on the CPU: {why}", why = why),

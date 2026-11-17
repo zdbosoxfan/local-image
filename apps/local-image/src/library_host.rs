@@ -106,6 +106,9 @@ pub struct Host {
     /// The AI Remove engine Develop and Compositing last agreed on: the one that differs from it
     /// was just changed, and the other follows.
     remove_engine_seen: Option<String>,
+    /// The Rendering Mode last copied into the Library's GPU setting: copied again only when it
+    /// changes, so the Library's own fallback to the CPU after a GPU failure stays.
+    rendering_mode_seen: Option<photocraft_engine::prefs::RenderingMode>,
 }
 
 enum DevelopSent {
@@ -227,6 +230,7 @@ impl Host {
             round_trip_notice: None,
             library_toasts_seen: 0,
             remove_engine_seen: None,
+            rendering_mode_seen: None,
         }
     }
 
@@ -341,6 +345,15 @@ impl Host {
                 ToolTips::Simple => ToolTipMode::Simple,
                 ToolTips::Off => ToolTipMode::Off,
             };
+        }
+        if let Some(lib) = self.library.as_mut() {
+            // One GPU setting: the shared Rendering Mode, at start and whenever it changes.
+            use photocraft_engine::prefs::RenderingMode;
+            let mode = self.editor.session.prefs().performance.rendering_mode;
+            if self.rendering_mode_seen != Some(mode) {
+                lib.ui.settings.gpu = mode != RenderingMode::Cpu;
+                self.rendering_mode_seen = Some(mode);
+            }
         }
         if let Some(lib) = &self.library {
             self.editor.host_preferences_values =
