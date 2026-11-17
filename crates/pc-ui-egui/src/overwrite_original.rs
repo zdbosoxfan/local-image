@@ -286,31 +286,16 @@ mod tests {
     }
 
     #[test]
-    fn overwrite_prompt_names_the_system_trash_and_the_old_file_is_recoverable_there() {
+    fn overwrite_prompt_names_the_system_trash_as_the_backup_location() {
+        // The host service's Trash backup is checked by local-image's
+        // overwrite_original_jpeg_png_pixels_trash_atomic_reload_and_history.
         let dir = std::env::temp_dir().join(format!("li-overwrite-backup-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("photo.png");
-        image::RgbImage::from_pixel(4, 3, image::Rgb([35u8, 80, 120])).save(&path).unwrap();
-        let original = std::fs::read(&path).unwrap();
-        let trash = dir.join("Trash");
-        let bin = trash.clone();
+        image::RgbImage::new(4, 3).save(&path).unwrap();
         let mut app = PhotocraftApp::new(
             photocraft_engine::Session::new(),
-            crate::Services {
-                overwrite_original: Some(Box::new(move |_, path, _| {
-                    let original = Arc::new(std::fs::read(path).unwrap());
-                    let (path, bin) = (std::path::PathBuf::from(path), bin.clone());
-                    Ok(crate::PreparedOverwrite {
-                        original,
-                        commit: Box::new(move || {
-                            li_ai::trash::copy_to_trash_in(&path, &bin).map_err(|e| e.to_string())?;
-                            image::RgbImage::from_pixel(4, 3, image::Rgb([200u8, 20, 10])).save(&path).map_err(|e| e.to_string())?;
-                            Ok(vec![])
-                        }),
-                    })
-                })),
-                ..Default::default()
-            },
+            crate::Services { overwrite_original: Some(Box::new(|_, _, _| Err("only the prompt is shown".into()))), ..Default::default() },
         );
         app.host_modes = true;
         develop_layer::open_photo(&mut app, 7, &path.to_string_lossy(), &json!({}), "photo.png").unwrap();
@@ -320,11 +305,6 @@ mod tests {
         PhotocraftApp::setup_context(&h.ctx, Default::default());
         h.run_steps(3);
         h.get_by_label("This replaces the original file. The previous version goes to the system Trash, not the Library's originals-backup folder, so you can recover it from there.");
-        h.get_by_label("Overwrite Original").click();
-        h.run_steps(3);
-        assert!(h.state().overwrite_prompt.is_none());
-        assert_ne!(std::fs::read(&path).unwrap(), original);
-        assert_eq!(std::fs::read(trash.join("files/photo.png")).unwrap(), original, "the old file is recoverable from the Trash");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
