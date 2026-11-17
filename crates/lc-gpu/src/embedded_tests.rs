@@ -107,11 +107,15 @@ fn embedded_camera_basis_gpu_corrects_physically_misregistered_planes() {
     let actual = cx.read::<f32>(&result, w * h * 3);
     let mut max_gpu_error = 0.0f32;
     let mut max_cpu_error = 0.0f32;
+    // The lens correction crops inside every corrected plane, so each output
+    // pixel shows the ramp at its position in the cropped frame.
+    let out_to_oriented = plan.frame.out_to_oriented(w, h);
     // Keep the test independent of edge-clamp policy; all three source
     // positions are strictly inside the image in this region.
     for y in 5..h - 5 {
         for x in 5..w - 5 {
-            let truth = forward.apply_f32([brightness(x as f64 + 0.5, y as f64 + 0.5) as f32; 3]);
+            let p = out_to_oriented.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
+            let truth = forward.apply_f32([brightness(p.x, p.y) as f32; 3]);
             for (ch, expected) in truth.into_iter().enumerate() {
                 let gpu_error = (actual[(y * w + x) * 3 + ch] - expected).abs();
                 let cpu_error = (expected_cpu.data[y * w + x][ch] - expected).abs();
