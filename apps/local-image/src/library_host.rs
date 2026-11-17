@@ -930,22 +930,6 @@ impl Host {
         }
     }
 
-    /// Library's ⌘S saves its selected unsaved preview through the same editor save path.
-    fn preview_save_key(&mut self, ctx: &egui::Context) {
-        if self.mode != Module::Library || ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        let doc = self.library.as_ref().and_then(|lib| {
-            let id = lib.session.active()?;
-            unsaved_composites(&self.editor, &lib.session).into_iter().find(|(p, _, _)| *p == id).map(|(_, _, d)| d.id)
-        });
-        if let Some(doc) = doc
-            && consume_host_chord(ctx, egui::Modifiers::COMMAND, egui::Key::S)
-        {
-            self.save_preview(ctx, doc);
-        }
-    }
-
     fn round_trip_notice_ui(&mut self, ui: &mut egui::Ui) {
         let context = ui.ctx().clone();
         let ctx = &context;
@@ -1445,7 +1429,6 @@ impl eframe::App for Host {
             if self.mode == Module::Compositing || library_keys_available {
                 self.module_keys(ctx);
             }
-            self.preview_save_key(ctx);
         }
         // The editor installs the fonts (a superset of the Library's) on its first frame.
         if self.frames == 1 || self.mode == Module::Compositing {

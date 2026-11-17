@@ -2296,15 +2296,35 @@ fn roundtrip_notice_actions_keep_editing_retry_save_and_dismiss() {
     assert!(matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains("photo-Edit.psd") && msg.contains("stacked")));
     h.click("button:roundTripDismiss");
     assert!(h.host.round_trip_notice.is_none());
-    // Editing the saved PSD, saving the preview from Library with ⌘S, reloads in place.
+    // Editing the saved PSD, saving the preview from the Library's notice, reloads in place.
     h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
     h.host.editor.run("edit.fill", json!({"color": [0.0, 1.0, 0.0, 1.0]})).unwrap();
     h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
-    h.key(egui::Key::S, egui::Modifiers::COMMAND);
+    h.click("button:roundTripSave");
     assert!(!h.host.editor.has_unsaved());
     assert_eq!(catalog(&h.host).catalog.len(), 2);
     assert_eq!(catalog(&h.host).active(), Some(edit));
     assert!(matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains("updated") && msg.contains("photo-Edit.psd")));
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn library_save_shortcut_writes_metadata_even_with_unsaved_compositing_work() {
+    let (dir, path, lib, orig) = library_with_photo("library-save-metadata");
+    let host = host_with_round_trip(lib, orig, &path);
+    let mut h = RoundTripUi::new(host);
+    h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+    for _ in 0..4 {
+        h.step(vec![]);
+    }
+    assert!(matches!(h.host.round_trip_notice, Some(RoundTripNotice::Unsaved { .. })));
+    let sidecar = dir.join("photo.xmp");
+    assert!(!sidecar.exists());
+    h.key(egui::Key::S, egui::Modifiers::COMMAND);
+    assert!(sidecar.is_file(), "the Library's Save Metadata to File");
+    assert!(!dir.join("photo-Edit.psd").exists());
+    assert!(h.host.editor.has_unsaved());
     drop(h);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -2426,7 +2446,7 @@ fn generation_metadata_library_save_return_and_update_keep_settings() {
         })
         .unwrap();
     h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
-    h.key(egui::Key::S, egui::Modifiers::COMMAND);
+    h.click("button:roundTripSave");
     assert!(!h.host.editor.has_unsaved());
     assert_eq!(read().layers.iter().find_map(|layer| layer.generation.as_ref()), Some(&updated));
     drop(h);
@@ -3774,7 +3794,10 @@ fn shared_shell_host_exact_save_keeps_sync_settings_and_module_shortcuts() {
     assert!(h.host.editor.has_unsaved());
     h.host.library.as_mut().unwrap().ui.dialog = None;
     h.step(vec![]);
-    h.key(egui::Key::S, egui::Modifiers::COMMAND);
+    // The layered save is the round-trip notice's, posted on the way back from Compositing.
+    h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+    h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+    h.click("button:roundTripSave");
     h.wait_for(|host| !host.editor.has_unsaved());
     assert!(dir.join("photo-Edit.psd").exists(), "exact host Save still publishes its layered copy");
     h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
