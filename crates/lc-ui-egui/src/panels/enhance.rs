@@ -102,8 +102,17 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
                 });
             register(ui.ctx(), "button:removeAiEngine", r.response.rect);
         });
-        if let Some(p) = current.and_then(|e| e.problem) {
-            ui.label(RichText::new(p).color(Tokens::get(ui.ctx()).caution).size(11.5));
+        if let Some(engine) = current
+            && let Some(problem) = engine.problem
+        {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(problem).color(Tokens::get(ui.ctx()).caution).size(11.5));
+                if app.hosted_menus && text_button(ui, "removeSetUpAI", "Set Up Local AI…", false).clicked() {
+                    // the on-device engine is downloaded under On-device Tools, the others need the AI engine
+                    let section = if engine.key == "lama" { "ai.tools" } else { "ai.connection" };
+                    app.open_shared_ai = Some(section.into());
+                }
+            });
         }
         ui.horizontal(|ui| {
             if text_button(ui, "removeBrush", "Brush", !app.ui.remove_lasso).clicked() {

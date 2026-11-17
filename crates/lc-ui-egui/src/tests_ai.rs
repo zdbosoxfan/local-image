@@ -229,6 +229,19 @@ fn ai_remove_keeps_the_painted_area_when_it_cannot_start() {
     assert!(h.app.session.enhance.jobs().is_empty() && spots(&h).is_empty());
 }
 
+/// An engine that can't run offers the hosted Local AI setup next to its problem.
+#[test]
+fn ai_remove_problem_opens_local_ai_setup() {
+    let mut h = app_with(Arc::new(Down));
+    h.app.hosted_menus = true;
+    exec(&mut h, "panel.remove", json!({}));
+    click(&mut h, "button:removeMode-ai");
+    h.step();
+    click(&mut h, "button:removeSetUpAI");
+    h.step();
+    assert_eq!(h.app.open_shared_ai.as_deref(), Some("ai.connection"));
+}
+
 /// After an AI removal the Heal brush works over it: the brush keeps its own size, the old spot
 /// is deselected and only its pin grabs, and its outline (the "ghost" of the stroke) isn't drawn
 /// unless it is selected or hovered.

@@ -99,7 +99,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
             }
         }
         if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
-            app.open_shared_ai = true;
+            app.open_shared_ai = Some("ai.connection".into());
         }
     });
     ui.separator();
@@ -192,7 +192,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
     });
     if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
-        app.open_shared_ai = true;
+        app.open_shared_ai = Some("ai.connection".into());
     }
     crate::library_safety_ui::settings(app, ui);
     heading(ui, t, "Face recognition");

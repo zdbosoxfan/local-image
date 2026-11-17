@@ -337,11 +337,12 @@ impl Host {
         if self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_updates)) {
             photocraft_ui_egui::updates_ui::start(&mut self.editor, ctx, true);
         }
-        if self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_ai)) {
-            if let Some(lib) = self.library.as_mut() {
-                lib.ui.dialog = None;
-            }
-            photocraft_ui_egui::ai_ui::open_local_ai(&mut self.editor);
+        if let Some(lib) = self.library.as_mut()
+            && let Some(section) = lib.open_shared_ai.take()
+        {
+            lib.ui.dialog = None;
+            photocraft_ui_egui::ai_ui::refresh();
+            photocraft_ui_egui::prefs_ui::open_preferences(&mut self.editor, &section);
         }
         photocraft_ui_egui::prefs_ui::set_host_shortcut_catalog(&mut self.editor, ctx, lightcraft_ui_egui::shortcuts::catalog::host_catalog());
         let request = self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_shortcuts));
