@@ -3586,6 +3586,27 @@ fn lrc_library_preferences_are_lenient_preserve_paths_and_unreadable_settings_bl
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Reset Section on a Library page puts back only that page's application settings; Import has
+/// only catalog settings, so it offers none.
+#[test]
+fn library_preference_pages_reset_only_their_own_settings() {
+    use photocraft_ui_egui::prefs_ui::HostPreferencesPages;
+    let pages = LibraryPreferencesPages(std::rc::Rc::new(std::cell::RefCell::new(None)));
+    let defaults = serde_json::to_value(lightcraft_ui_egui::panels::settings::PreferencesDraft::default()).unwrap();
+    let mut edited = defaults.clone();
+    for pointer in ["/autoAdvance", "/navigator", "/settings/gpu"] {
+        let flipped = !edited.pointer(pointer).and_then(serde_json::Value::as_bool).unwrap();
+        *edited.pointer_mut(pointer).unwrap() = json!(flipped);
+    }
+    let general = pages.reset("library.general", &edited).unwrap();
+    assert_eq!((&general["autoAdvance"], &general["navigator"]), (&defaults["autoAdvance"], &edited["navigator"]));
+    let interface = pages.reset("library.interface", &edited).unwrap();
+    assert_eq!((&interface["navigator"], &interface["settings"]["gpu"]), (&defaults["navigator"], &edited["settings"]["gpu"]));
+    let performance = pages.reset("library.performance", &edited).unwrap();
+    assert_eq!((&performance["settings"]["gpu"], &performance["autoAdvance"]), (&defaults["settings"]["gpu"], &edited["autoAdvance"]));
+    assert!(pages.reset("library.import", &edited).is_none());
+}
+
 #[test]
 fn shared_ai_preferences_open_from_library_and_develop_settings() {
     let (dir, host) = workflow_host("shared-ai-preferences");

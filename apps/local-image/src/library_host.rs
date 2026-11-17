@@ -177,6 +177,9 @@ impl photocraft_ui_egui::prefs_ui::HostPreferencesPages for LibraryPreferencesPa
             lightcraft_ui_egui::panels::settings::shared_page(lib, ui, section.trim_start_matches("library."), draft);
         }
     }
+    fn reset(&self, section: &str, draft: &serde_json::Value) -> Option<serde_json::Value> {
+        lightcraft_ui_egui::panels::settings::reset_page(section.trim_start_matches("library."), draft)
+    }
     fn prepare(&self, draft: &serde_json::Value) -> Result<Box<dyn FnOnce() + '_>, String> {
         let values = serde_json::from_value::<lightcraft_ui_egui::panels::settings::PreferencesDraft>(draft.clone()).map_err(|e| e.to_string())?;
         let mut library = self.0.borrow_mut();

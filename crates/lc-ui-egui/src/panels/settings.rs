@@ -85,6 +85,38 @@ pub fn shared_page(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &str, draft:
     original.install(&mut app.ui);
 }
 
+/// `draft` with the application settings a hosted page shows back at their defaults, or `None`
+/// when the page has none (Import holds only catalog settings, which apply at once).
+pub fn reset_page(tab: &str, draft: &Value) -> Option<Value> {
+    let mut values = serde_json::from_value::<PreferencesDraft>(draft.clone()).ok()?;
+    let defaults = PreferencesDraft::default();
+    let (s, d) = (&mut values.settings, &defaults.settings);
+    match tab {
+        "general" => {
+            s.startup_view = d.startup_view;
+            s.confirm_save_over = d.confirm_save_over;
+            s.external_editor = d.external_editor.clone();
+            values.auto_advance = defaults.auto_advance;
+        }
+        "performance" => {
+            s.gpu = d.gpu;
+            s.preview_edge = d.preview_edge;
+            s.memory_mb = d.memory_mb;
+        }
+        "interface" => {
+            s.tool_tips = d.tool_tips;
+            s.film_names = d.film_names;
+            s.film_badges = d.film_badges;
+            s.grid_badges = d.grid_badges;
+            values.show_filenames = defaults.show_filenames;
+            values.navigator = defaults.navigator;
+            values.info_overlay = defaults.info_overlay;
+        }
+        _ => return None,
+    }
+    serde_json::to_value(values).ok()
+}
+
 /// (id, label) of the tabs, in order.
 pub const TABS: &[(&str, &str)] =
     &[("general", "General"), ("import", "Import"), ("performance", "Performance"), ("interface", "Interface"), ("attributions", "Attributions")];
