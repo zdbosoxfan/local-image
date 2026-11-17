@@ -66,11 +66,11 @@ pub fn unavailable_reason() -> Option<String> {
         return Some("disabled by LIGHTCRAFT_GPU=0".into());
     }
     if !ENABLED.load(Ordering::Relaxed) {
-        return Some("disabled by the GPU rendering preference (app.gpu)".into());
+        return Some("GPU rendering is turned off in Preferences".into());
     }
     #[cfg(not(target_arch = "wasm32"))]
     if !li_gpu::device::compute_allowed() {
-        return Some("GPU compute disabled by the shell's CPU rendering policy".into());
+        return Some("Rendering Mode is set to CPU / Compatibility in Preferences".into());
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
