@@ -904,12 +904,14 @@ pub(crate) fn describe_field(app: &mut LightcraftApp, ui: &mut egui::Ui, new_mas
 }
 
 pub(crate) fn component_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, op: &str) {
-    if lightcraft_engine::segment::Segmenter::AVAILABLE {
+    if offered("object") {
         let b = ui.button(li_i18n::library::t("Object"));
         register(ui.ctx(), format!("maskComp:{op}:object"), b.rect);
         if b.clicked() {
             start_object(app, ui.ctx(), op);
         }
+    }
+    if offered("prompt") {
         let b = ui.button(li_i18n::library::t("Describe…"));
         register(ui.ctx(), format!("maskComp:{op}:prompt"), b.rect);
         if b.clicked() {
