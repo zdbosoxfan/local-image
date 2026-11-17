@@ -3906,6 +3906,9 @@ ai	New	新着
 	All shortcuts in this profile reset to defaults.	このプロファイルのすべてのショートカットを初期設定に戻しました。
 	Editor	エディター
 	Library & Develop	ライブラリ & 現像
+	Library General	ライブラリ：一般
+	Library Performance	ライブラリ：パフォーマンス
+	Library Interface	ライブラリ：インターフェイス
 	Scope	適用範囲
 	Colour	カラー
 	Monochrome (default)	モノクロ（既定）

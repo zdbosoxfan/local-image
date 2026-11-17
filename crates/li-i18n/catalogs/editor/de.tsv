@@ -3883,6 +3883,9 @@ ai	New	Neu
 	All shortcuts in this profile reset to defaults.	Alle Tastenkürzel in diesem Profil wurden auf die Standardwerte zurückgesetzt.
 	Editor	Editor
 	Library & Develop	Bibliothek & Entwickeln
+	Library General	Bibliothek: Allgemein
+	Library Performance	Bibliothek: Leistung
+	Library Interface	Bibliothek: Benutzeroberfläche
 	Scope	Geltungsbereich
 	Colour	Farbe
 	Monochrome (default)	Monochrom (Standard)

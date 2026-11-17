@@ -3894,6 +3894,9 @@ ai	New	새 항목
 	All shortcuts in this profile reset to defaults.	이 프로필의 모든 단축키를 기본값으로 재설정했습니다.
 	Editor	편집기
 	Library & Develop	라이브러리 & 현상
+	Library General	라이브러리: 일반
+	Library Performance	라이브러리: 성능
+	Library Interface	라이브러리: 인터페이스
 	Scope	범위
 	Colour	컬러
 	Monochrome (default)	단색(기본값)

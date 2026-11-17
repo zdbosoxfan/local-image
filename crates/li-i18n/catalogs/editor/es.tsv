@@ -3914,6 +3914,9 @@ ai	New	Nuevos
 	All shortcuts in this profile reset to defaults.	Se han restablecido los atajos de este perfil a sus valores predeterminados.
 	Editor	Editor
 	Library & Develop	Biblioteca & Revelado
+	Library General	Biblioteca: General
+	Library Performance	Biblioteca: Rendimiento
+	Library Interface	Biblioteca: Interfaz
 	Scope	Ámbito
 	Colour	Color
 	Monochrome (default)	Monocromo (predeterminado)

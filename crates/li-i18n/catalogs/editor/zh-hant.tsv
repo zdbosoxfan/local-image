@@ -3901,6 +3901,9 @@ ai	New	最新
 	All shortcuts in this profile reset to defaults.	已將此設定檔中的所有快捷鍵重設為預設值。
 	Editor	編輯器
 	Library & Develop	圖庫 & 顯影
+	Library General	圖庫：一般
+	Library Performance	圖庫：效能
+	Library Interface	圖庫：介面
 	Scope	範圍
 	Colour	彩色
 	Monochrome (default)	單色（預設）

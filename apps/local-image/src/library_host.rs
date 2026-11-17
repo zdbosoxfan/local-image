@@ -161,8 +161,13 @@ fn library_ui_value(prefs: &photocraft_engine::prefs::Preferences) -> Option<ser
     (prefs.library.contains_key("settings") || prefs.library.contains_key(crate::services::LIBRARY_UNREADABLE_KEY))
         .then(|| serde_json::to_value(&prefs.library).unwrap_or_default())
 }
-const LIBRARY_PREFS_PAGES: &[(&str, &str)] =
-    &[("library.general", "General"), ("library.import", "Import"), ("library.performance", "Performance"), ("library.interface", "Interface")];
+/// Named apart from the shared General, Performance and Interface pages listed above them.
+const LIBRARY_PREFS_PAGES: &[(&str, &str)] = &[
+    ("library.general", "Library General"),
+    ("library.import", "Import"),
+    ("library.performance", "Library Performance"),
+    ("library.interface", "Library Interface"),
+];
 struct LibraryPreferencesPages(std::rc::Rc<std::cell::RefCell<Option<LightcraftApp>>>);
 impl photocraft_ui_egui::prefs_ui::HostPreferencesPages for LibraryPreferencesPages {
     fn pages(&self) -> &'static [(&'static str, &'static str)] {

@@ -4006,6 +4006,9 @@ ai	New	Новые
 	All shortcuts in this profile reset to defaults.	Все сочетания клавиш этого профиля сброшены к значениям по умолчанию.
 	Editor	Редактор
 	Library & Develop	Библиотека & Проявка
+	Library General	Библиотека: основные
+	Library Performance	Библиотека: производительность
+	Library Interface	Библиотека: интерфейс
 	Scope	Область
 	Colour	Цветные
 	Monochrome (default)	Монохром (по умолчанию)

@@ -3923,6 +3923,9 @@ ai	New	Nové
 	All shortcuts in this profile reset to defaults.	Všechny klávesové zkratky v tomto profilu byly obnoveny na výchozí hodnoty.
 	Editor	Editor
 	Library & Develop	Knihovna & Vyvolání
+	Library General	Knihovna: obecné
+	Library Performance	Knihovna: výkon
+	Library Interface	Knihovna: rozhraní
 	Scope	Rozsah
 	Colour	Barevné
 	Monochrome (default)	Monochromatický (výchozí)
