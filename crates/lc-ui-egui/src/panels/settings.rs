@@ -1,6 +1,9 @@
 //! Library/Develop Preferences pages (⌘,), hosted in the editor shell; standalone fallback: General, Import, Performance, Interface, Attributions.
 //!
-//! Changes apply immediately (no OK/Cancel). Where they are stored:
+//! In the standalone dialog every change applies at once. Hosted, application settings are a
+//! draft the Preferences shell commits on OK or Apply, while catalog settings and actions (Open
+//! Library, Clear face data, import defaults, cache maintenance) still apply at once, as each
+//! page's hint says. Where they are stored:
 //! - **app settings** ([`crate::state::AppSettings`]: startup view, delete confirmation, GPU,
 //!   preview size, filmstrip/grid badges, last library) and Auto Advance live in the UI state,
 //!   saved by the host in the shared application Preferences store;
@@ -73,7 +76,10 @@ pub fn shared_page(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &str, draft:
             performance_tab(app, ui, &t);
         }
         "interface" => interface_tab(app, ui, &t),
-        _ => general_tab(app, ui, &t),
+        _ => {
+            hint(ui, &t, "Catalog settings and maintenance actions apply immediately.");
+            general_tab(app, ui, &t);
+        }
     }
     *draft = serde_json::to_value(PreferencesDraft::from_ui(&app.ui)).unwrap_or_default();
     original.install(&mut app.ui);
