@@ -2051,7 +2051,7 @@ Not ported: storytold/photocraft@`224dcdc936` (Fix content-aware crop targets an
 
 Not ported: storytold/photocraft@`0e421d6a33` (Replace Color: Add to Sample and Subtract from Sample, #6280). Our Replace Color has no sample points, Localized Color Clusters (#4477), dialog eyedropper (#6279) or shared Color Range matcher.
 
-Not ported: storytold/photocraft@`51b9454b71` (encode lossless JPEG XL using pure Rust). Its new dependency, zune-jpegxl 0.5.2 (MIT OR Apache-2.0 OR Zlib, pure Rust, depends only on zune-core), passes `cargo deny --locked check`, `cargo xtask deps-pure` and `cargo xtask attributions` unchanged. The port waits for the owner because it makes `jxl` writable, which `registry_keeps_open_and_export_capabilities_separate` (`crates/pc-codecs/src/format.rs`) asserts it is not.
+Not ported: storytold/photocraft@`51b9454b71` (encode lossless JPEG XL using pure Rust). Its new dependency, zune-jpegxl 0.5.2 (MIT OR Apache-2.0 OR Zlib, pure Rust, depends only on zune-core), passes `cargo deny --locked check`, `cargo xtask deps-pure` and `cargo xtask attributions` unchanged. The port waits for the owner because it makes `jxl` writable, which `registry_keeps_open_and_export_capabilities_separate` asserts it is not (`assert!(!write.contains(&"jxl"))`, `crates/pc-codecs/src/format.rs:459`).
 
 Not ported: storytold/photocraft@`aee67e8194` (expose JPEG XL Save As and Export As). The second half of `51b9454b71`; waits with it.
 
