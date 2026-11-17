@@ -15,12 +15,14 @@ use super::*;
 use crate::state::Tool;
 
 thread_local! {
+    /// Stands in for the installed on-device model, which tests must not depend on.
+    pub(super) static TIER_READY: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
     static MATTE: RefCell<Option<Surface>> = const { RefCell::new(None) };
     static REQUESTS: RefCell<Vec<(String, Value)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Inject only the model's matte; the real shared engine output still edits the document.
-/// This makes UI clicks and Qwen requests testable without ComfyUI, sockets or installed models.
+/// This makes UI clicks and requests testable without installed models.
 pub(super) fn injected_result(app: &mut PhotocraftApp, cmd: &str, p: &Value) -> Option<Result<Value, String>> {
     let matte = MATTE.with(|m| m.borrow().clone())?;
     REQUESTS.with(|r| r.borrow_mut().push((cmd.to_owned(), p.clone())));
@@ -39,24 +41,30 @@ pub(super) fn injected_result(app: &mut PhotocraftApp, cmd: &str, p: &Value) -> 
     })())
 }
 
-struct Ready;
+/// Holds the AI test lock: the subject tier is shared by every test thread, and these tests
+/// start from Fast and may switch to Better Quality.
+struct Ready {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
 impl Ready {
     fn new() -> Self {
-        let mut st = crate::ai_ui::EngineStatus { checked: true, connected: true, ..Default::default() };
-        for variant in ["int8", "bf16"] {
-            st.presets.insert(format!("{}:{variant}", ModelId::Qwen.key()), Ok(()));
-        }
+        let lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), false);
+        let st = crate::ai_ui::EngineStatus { checked: true, connected: true, ..Default::default() };
         crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(st));
+        TIER_READY.with(|r| r.set(Some(true)));
         let mut matte = Surface::new(photocraft_color::PixelFormat::GRAY8);
         matte.write_region(ImageRect::new(2, 1, 8, 5), &[1.0; 24]);
         MATTE.with(|m| *m.borrow_mut() = Some(matte));
         REQUESTS.with(|r| r.borrow_mut().clear());
-        Self
+        Self { _lock: lock }
     }
 }
 impl Drop for Ready {
     fn drop(&mut self) {
+        li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), false);
         crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = None);
+        TIER_READY.with(|r| r.set(None));
         MATTE.with(|m| *m.borrow_mut() = None);
         REQUESTS.with(|r| r.borrow_mut().clear());
     }
@@ -72,7 +80,7 @@ fn app() -> PhotocraftApp {
     let mut s = photocraft_engine::Session::new();
     s.add_document(doc, None);
     let mut app = PhotocraftApp::new(s, crate::Services::default());
-    app.ui.ai.cutout_engine = "qwen-int8".into();
+    app.ui.ai.cutout_engine = "fast".into();
     app.ui.tool = Tool::Move;
     for group in
         [crate::dock::Group::Color, crate::dock::Group::Character, crate::dock::Group::Navigator, crate::dock::Group::History, crate::dock::Group::Layers]
@@ -85,7 +93,7 @@ fn app() -> PhotocraftApp {
 
 fn harness() -> Harness<'static, PhotocraftApp> {
     let app = app();
-    let mut h = Harness::builder().with_size(vec2(1680.0, 1100.0)).with_max_steps(64).build_eframe(move |cc| {
+    let mut h = Harness::builder().with_size(vec2(3200.0, 1100.0)).with_max_steps(64).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         app
     });
@@ -136,8 +144,8 @@ fn background_ui_properties_clicks_every_output_and_undoes_once() {
     for (key, label) in OUTPUTS {
         let mut h = harness();
         let area = properties_rect(&h);
-        choose(&mut h, "Qwen AI · Compact", "Qwen AI · Full", area);
-        assert_eq!(h.state().ui.ai.cutout_engine, "qwen-bf16");
+        choose(&mut h, "Fast", "Better Quality", area);
+        assert_eq!(h.state().ui.ai.cutout_engine, "better");
         if key != "mask" {
             let area = properties_rect(&h);
             choose(&mut h, "Layer mask", label, area);
@@ -149,8 +157,8 @@ fn background_ui_properties_clicks_every_output_and_undoes_once() {
         let at = in_rect(&h, "Remove Background", properties_rect(&h));
         click(&mut h, at);
         let (cmd, p) = REQUESTS.with(|r| r.borrow().last().unwrap().clone());
-        assert_eq!(cmd, "ai.removeBackground");
-        assert_eq!(p["engine"], "qwen-bf16");
+        assert_eq!(cmd, "layer.removeBackground");
+        assert_eq!(p["tier"], "better");
         assert_eq!(p["output"], key);
         assert_eq!(p["layer"], id.0);
         let s = &h.state().session;
@@ -178,18 +186,14 @@ fn background_ui_properties_clicks_every_output_and_undoes_once() {
 fn background_ui_surfaces_share_settings_and_requests() {
     let _ready = Ready::new();
     let mut h = harness();
-    let hint = in_rect(&h, "Keep… (optional)", properties_rect(&h));
-    click(&mut h, hint);
-    h.event(Event::Text("the red car".into()));
-    h.run_steps(4);
     h.state_mut().ui.tool = Tool::AiCutout;
     h.run_steps(4);
     let area = properties_rect(&h);
-    choose(&mut h, "Qwen AI · Compact", "Qwen AI · Full", area);
+    choose(&mut h, "Fast", "Better Quality", area);
     let area = properties_rect(&h);
     choose(&mut h, "Layer mask", "White background", area);
-    let toolbar = Rect::from_min_max(Pos2::ZERO, egui::pos2(1680.0, 80.0));
-    in_rect(&h, "Qwen AI · Full", toolbar);
+    let toolbar = Rect::from_min_max(Pos2::ZERO, egui::pos2(3200.0, 80.0));
+    in_rect(&h, "Better Quality", toolbar);
     in_rect(&h, "White background", toolbar);
     // Changing the options bar immediately updates Properties.
     choose(&mut h, "White background", "Blur background", toolbar);
@@ -209,10 +213,10 @@ fn background_ui_surfaces_share_settings_and_requests() {
                 .find_map(|l| m.area_rect(l.id))
         })
         .unwrap();
-    in_rect(&h, "Qwen AI · Full", popup);
-    let at = in_rect(&h, "Qwen AI · Compact", popup);
+    in_rect(&h, "Better Quality", popup);
+    let at = in_rect(&h, "Fast", popup);
     click(&mut h, at);
-    in_rect(&h, "Qwen AI · Compact", properties_rect(&h));
+    in_rect(&h, "Fast", properties_rect(&h));
     let at = h.get_by_label("Background removal options").rect().center();
     click(&mut h, at);
     let at = h.get_by_label("Cutout on a new layer").rect().center();
@@ -226,8 +230,7 @@ fn background_ui_surfaces_share_settings_and_requests() {
     click(&mut h, at);
     let (_, p) = REQUESTS.with(|r| r.borrow().last().unwrap().clone());
     assert_eq!(p["output"], "newLayer");
-    assert_eq!(p["engine"], "qwen-int8");
-    assert_eq!(p["hint"], "the red car");
+    assert_eq!(p["tier"], "fast");
     let st = h.state().session.active().unwrap();
     assert_eq!(st.doc.layers.len(), 2);
     assert!(!st.doc.layers[0].visible);
@@ -235,13 +238,13 @@ fn background_ui_surfaces_share_settings_and_requests() {
     h.state_mut().session.undo();
     h.state_mut().ui.tool = Tool::AiCutout;
     h.run_steps(4);
-    in_rect(&h, "Qwen AI · Compact", toolbar);
+    in_rect(&h, "Fast", toolbar);
     in_rect(&h, "Cutout on a new layer", toolbar);
     let at = in_rect(&h, "Remove Background", toolbar);
     click(&mut h, at);
     let (_, p) = REQUESTS.with(|r| r.borrow().last().unwrap().clone());
     assert_eq!(p["output"], "newLayer");
-    assert_eq!(p["hint"], "the red car");
+    assert_eq!(p["tier"], "fast");
     assert_eq!(h.state().session.active().unwrap().doc.layers.len(), 2);
 }
 
@@ -293,29 +296,23 @@ fn background_ui_colour_picker_and_blur_drag_reach_the_request() {
 }
 
 #[test]
-fn background_ui_readiness_and_collapsing_are_clickable() {
-    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(Default::default()));
+fn background_ui_unready_model_disables_removal_and_sections_collapse() {
+    TIER_READY.with(|r| r.set(Some(false)));
     let mut h = harness();
-    let area = properties_rect(&h);
-    let at = in_rect(&h, "Remove Background", area);
-    assert!(h.query_all_by_label("Remove Background").find(|n| n.rect().contains(at)).unwrap().accesskit_node().is_disabled());
-    let at = in_rect(&h, "Set up AI…", area);
-    click(&mut h, at);
-    // Setup now opens the shared Preferences connection page without starting ComfyUI.
-    assert!(h.query_by_label("Preferences").is_some());
-    assert_eq!(h.state().ui.dialogs.last().unwrap().fields["section"], "ai.connection");
-    h.key_press(egui::Key::Escape);
-    h.run_steps(4);
-    assert!(h.state().ui.dialogs.is_empty());
+    let disabled = |h: &Harness<'_, PhotocraftApp>, area: Rect| {
+        let at = in_rect(h, "Remove Background", area);
+        h.query_all_by_label("Remove Background").find(|n| n.rect().contains(at)).unwrap().accesskit_node().is_disabled()
+    };
+    assert!(disabled(&h, properties_rect(&h)));
     let header = crate::props_layout::sections_drawn(&h.ctx).into_iter().find(|(n, _)| n == "Remove Background").unwrap().1;
     click(&mut h, header.center());
     assert_eq!(h.ctx.data(|d| d.get_temp::<bool>(egui::Id::new(("props-section", "remove-background")))), Some(false));
     assert!(h.query_by_value("Layer mask").is_none());
     h.state_mut().ui.tool = Tool::AiCutout;
     h.run_steps(4);
-    let toolbar = Rect::from_min_max(Pos2::ZERO, egui::pos2(1680.0, 80.0));
-    in_rect(&h, "Set up AI…", toolbar);
-    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = None);
+    let toolbar = Rect::from_min_max(Pos2::ZERO, egui::pos2(3200.0, 80.0));
+    assert!(disabled(&h, toolbar));
+    TIER_READY.with(|r| r.set(None));
 }
 
 #[test]
@@ -358,18 +355,18 @@ fn background_ui_background_and_studio_properties_offer_removal() {
 }
 
 #[test]
-fn background_ui_requests_keep_model_hint_and_output_parameters() {
-    let mut ai = crate::ai_ui::AiOptions { cutout_hint: "the red car".into(), cutout_color: [0.2, 0.3, 0.4], cutout_blur: 23.0, ..Default::default() };
+fn background_ui_requests_keep_tier_and_output_parameters() {
+    let mut ai = crate::ai_ui::AiOptions { cutout_color: [0.2, 0.3, 0.4], cutout_blur: 23.0, ..Default::default() };
     for (model, _) in MODELS {
         ai.cutout_engine = model.into();
         for (output, _) in OUTPUTS {
             ai.cutout_output = output.into();
             let (cmd, p) = request(&ai, Some(7));
-            assert_eq!(cmd, if cpu(model) { "layer.removeBackground" } else { "ai.removeBackground" });
-            assert_eq!(p["engine"], if cpu(model) { "learned" } else { model });
+            assert_eq!(cmd, "layer.removeBackground");
+            assert_eq!(p["engine"], "learned");
+            assert_eq!(p["tier"], model);
             assert_eq!(p["output"], output);
             assert_eq!(p["layer"], 7);
-            assert_eq!(p.get("hint").cloned(), if cpu(model) { None } else { Some(json!(ai.cutout_hint)) });
             assert_eq!(p.get("color").cloned(), if output == "color" { Some(json!(ai.cutout_color)) } else { None });
             assert_eq!(p.get("amount").cloned(), if output == "blur" { Some(json!(ai.cutout_blur)) } else { None });
         }
@@ -382,7 +379,7 @@ fn background_ui_old_settings_load_and_new_settings_roundtrip() {
     assert_eq!(ai.cutout_output, "mask");
     assert_eq!(ai.cutout_blur, 12.0);
     assert_eq!(ai.cutout_color, [1.0; 3]);
-    assert_eq!(ai.cutout_hint, "dog");
+    assert_eq!(tier(&ai).id, li_seg::tier_spec(false).id, "a retired engine runs the Fast tier");
     let ai = crate::ai_ui::AiOptions { cutout_output: "color".into(), cutout_color: [0.1, 0.2, 0.3], ..ai };
     assert_eq!(serde_json::from_value::<crate::ai_ui::AiOptions>(serde_json::to_value(&ai).unwrap()).unwrap(), ai);
 }
@@ -401,7 +398,7 @@ fn background_ui_engine_values_are_not_aliased_and_defaults() {
 }
 
 #[test]
-fn background_ui_single_and_batch_click_all_four_shared_engines() {
+fn background_ui_single_and_batch_click_every_shared_engine() {
     let _ready = Ready::new();
     let mut h = harness();
     for (key, label) in MODELS {

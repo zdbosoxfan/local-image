@@ -18,17 +18,31 @@ pub const USAGE: &str = "\
 local-image-cli: headless Local Image
 
 USAGE:
-  local-image-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers]
+  local-image-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tiff-compression <none|lzw|zip>]
+      [--tiff-transparency <on|off>] [--tiff-pyramid]
       Convert between formats (.pcraft, .psd, .png, .jpg, .tif, .webp, .exr, …).
-      TIFF output is flat unless --tiff-layers keeps the layers (Photoshop layer data).
+      An <out> that is the <in> file is refused, as the result would replace the original;
+      --in-place allows it.
+      TIFF output is flat unless --tiff-layers keeps the layers (Photoshop layer data). TIFF Options:
+      --tiff-compression (default zip), --tiff-transparency off composites the image over white (on,
+      the default, keeps the transparency), --tiff-pyramid also writes half-size copies after the image.
       --quality sets the JPEG or WebP quality; a WebP written with a quality is lossy, without one lossless.
   local-image-cli info <file> [--compact]
       Print the document as JSON (size, mode, depth, layer tree).
-  local-image-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>] [--tiff-layers]
+  local-image-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>]
+      [--in-place] [--tiff-layers] [--tiff-compression <none|lzw|zip>] [--tiff-transparency <on|off>] [--tiff-pyramid]
       Open a file, run engine commands in order, save the result. Each --params
-      applies to the preceding --cmd. Prints each command's JSON result.
-  local-image-cli batch --actions <actions.json> --in <dir> --out <dir> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers]
-      Apply an action list to every image in a directory. Steps are [id, params] pairs,
+      applies to the preceding --cmd. Prints each command's JSON result. An --out that is the
+      <file> is refused, as the result would replace the original; --in-place allows it.
+  local-image-cli batch --actions <actions.json> --in <dir> --out <dir> [--recursive] [--naming <template>] [--start-serial <n>]
+      [--stop-on-error] [--error-log <file>] [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers]
+      [--tiff-compression <none|lzw|zip>] [--tiff-transparency <on|off>] [--tiff-pyramid]
+      Apply an action list to every image in a directory (--recursive: its subfolders too, mirrored
+      under --out). --naming names the results, default {name}.{ext}; tokens: {name} {NAME} {Name},
+      {serial} {serial:2} {serial:3} {serial:4} (from --start-serial, default 1), {letter} {LETTER},
+      {date:mmddyy|mmdd|yyyymmdd|yymmdd|yyddmm|ddmmyy}, {ext} {EXT}; other text is literal.
+      --stop-on-error stops at the first failing file (the rest are skipped) instead of going on;
+      --error-log writes the failures to a text file. Steps are [id, params] pairs,
       {\"command\": id, \"params\": {…}} objects or bare ids, as a recorded action or droplet stores them
       (a list, or wrapped in {\"actions\": …}, {\"steps\": …} or a droplet). An --out folder that is the
       --in folder is refused, as the results would replace the originals; --in-place allows it.
@@ -106,13 +120,34 @@ enum Run {
 }
 
 const SUBCOMMANDS: &[Subcommand] = &[
-    Subcommand { name: "convert", values: &["--format", "--quality"], bare: &["--tiff-layers"], run: Run::Plain(convert) },
+    Subcommand {
+        name: "convert",
+        values: &["--format", "--quality", "--tiff-compression", "--tiff-transparency"],
+        bare: &["--in-place", "--tiff-layers", "--tiff-pyramid"],
+        run: Run::Plain(convert),
+    },
     Subcommand { name: "info", values: &[], bare: &["--compact"], run: Run::Plain(|a, out, _| info(a, out)) },
-    Subcommand { name: "run", values: &["--new", "--cmd", "--params", "--out", "--format", "--quality"], bare: &["--tiff-layers"], run: Run::Plain(run_cmds) },
+    Subcommand {
+        name: "run",
+        values: &["--new", "--cmd", "--params", "--out", "--format", "--quality", "--tiff-compression", "--tiff-transparency"],
+        bare: &["--in-place", "--tiff-layers", "--tiff-pyramid"],
+        run: Run::Plain(run_cmds),
+    },
     Subcommand {
         name: "batch",
-        values: &["--actions", "--in", "--out", "--format", "--quality"],
-        bare: &["--in-place", "--tiff-layers"],
+        values: &[
+            "--actions",
+            "--in",
+            "--out",
+            "--naming",
+            "--start-serial",
+            "--error-log",
+            "--format",
+            "--quality",
+            "--tiff-compression",
+            "--tiff-transparency",
+        ],
+        bare: &["--in-place", "--tiff-layers", "--tiff-pyramid", "--recursive", "--stop-on-error"],
         run: Run::Plain(batch),
     },
     Subcommand { name: "droplet", values: &["--out"], bare: &[], run: Run::Plain(droplet) },
@@ -268,7 +303,22 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
 
 fn export_opts(a: &Args) -> Result<ExportOptions, String> {
     // TIFF output is flat unless asked: scripted conversions keep predictable sizes.
-    let mut o = ExportOptions { tiff_layers: a.has("--tiff-layers"), ..Default::default() };
+    let tiff_transparency = match a.get("--tiff-transparency") {
+        None => None,
+        Some("on") => Some(true),
+        Some("off") => Some(false),
+        Some(v) => return Err(format!("bad --tiff-transparency `{v}`: expected on or off")),
+    };
+    let mut o = ExportOptions { tiff_layers: a.has("--tiff-layers"), tiff_transparency, ..Default::default() };
+    if let Some(c) = a.get("--tiff-compression") {
+        o.encode.tiff_compression = match c {
+            "none" => photocraft_codecs::TiffCompression::None,
+            "lzw" => photocraft_codecs::TiffCompression::Lzw,
+            "zip" => photocraft_codecs::TiffCompression::Deflate,
+            _ => return Err(format!("bad --tiff-compression `{c}`: expected none, lzw or zip")),
+        };
+    }
+    o.encode.tiff_pyramid = a.has("--tiff-pyramid");
     if let Some(q) = a.get("--quality") {
         let q = q.parse().ok().filter(|q| (1..=100).contains(q)).ok_or_else(|| format!("bad --quality `{q}`: expected a whole number from 1 to 100"))?;
         o.encode.jpeg_quality = q;
@@ -290,11 +340,23 @@ fn automation_workspace(args: &Args) -> Result<AuthorizedWorkspace, String> {
         .map_err(|error| error.to_string())
 }
 
+/// An output that is the input file itself, however it is spelt (relative, with `./`, through a
+/// hard or symbolic link), would replace the original, and a lossy re-encode can't be undone: it
+/// is refused unless `--in-place` asks for it, as `batch` refuses an `--out` that is its `--in`
+/// folder.
+fn refuse_overwriting_input(a: &Args, input: &str, output: &str) -> R {
+    if !a.has("--in-place") && li_fs::same_file(Path::new(input), Path::new(output)) {
+        return Err(format!("{output} is the input file, so the result would replace the original: choose another output, or pass --in-place to overwrite it"));
+    }
+    Ok(())
+}
+
 fn convert(a: &Args, _out: &mut dyn Write, err: &mut dyn Write) -> R {
     let [input, output] = a.positional.as_slice() else {
         return Err("convert needs <in> <out>".into());
     };
     let opts = export_opts(a)?;
+    refuse_overwriting_input(a, input, output)?;
     let o = files::open(Path::new(input)).map_err(|e| e.to_string())?;
     warn_all(err, &o.warnings);
     let ws = files::save(&o.document, Path::new(output), a.get("--format"), &opts, None).map_err(|e| e.to_string())?;
@@ -346,6 +408,10 @@ fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
     let mut h = Headless::trusted_local();
     match (a.positional.as_slice(), a.get("--new")) {
         ([file], None) => {
+            // Refused before the file is read or any command runs.
+            if let Some(dest) = a.get("--out") {
+                refuse_overwriting_input(a, file, dest)?;
+            }
             let o = h.open(Path::new(file)).map_err(|e| e.to_string())?;
             let ws: Vec<String> = serde_json::from_value(o["warnings"].clone()).unwrap_or_default();
             warn_all(err, &ws);
@@ -402,42 +468,47 @@ fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
     let text = std::fs::read_to_string(actions_path).map_err(|e| format!("{actions_path}: {e}"))?;
     let actions = parse_actions(&text)?;
     let opts = export_opts(a)?;
-    // Results are saved as `<out>/<stem>.<ext>`, so an `--out` that is the `--in` folder would
-    // replace the originals (#492).
+    let start = match a.get("--start-serial") {
+        Some(n) => n.parse::<u64>().map_err(|_| format!("--start-serial {n}: not a non-negative integer"))?,
+        None => 1,
+    };
+    let naming = photocraft_engine::batch::Naming::parse(a.get("--naming").unwrap_or(photocraft_engine::batch::Naming::DEFAULT), start)
+        .map_err(|e| format!("--naming: {e}"))?;
+    let date = photocraft_engine::batch::Date::today();
+    let stop_on_error = a.has("--stop-on-error");
+    // Results are saved as `<out>/<stem>.<ext>` by default, so an `--out` that is the `--in`
+    // folder would replace the originals (#492).
     if !a.has("--in-place") && same_dir(&in_dir, &out_dir) {
         return Err(format!(
             "--out {} is the --in folder, so the results would replace the originals: choose another --out folder, or pass --in-place to overwrite them",
             out_dir.display()
         ));
     }
-    let mut inputs = Vec::new();
-    for entry in std::fs::read_dir(&in_dir).map_err(|e| format!("{}: {e}", in_dir.display()))? {
-        let path = entry.map_err(|e| format!("{}: {e}", in_dir.display()))?.path();
-        if is_input(&path) {
-            inputs.push(path);
-        } else if path.is_file() {
-            let _ = writeln!(err, "SKIP  {}: unsupported input format", path.display());
-        }
-    }
-    inputs.sort();
+    // (file, subfolder relative to --in, mirrored under --out)
+    let inputs = if a.has("--recursive") { list_inputs_recursive(&in_dir, err)? } else { list_inputs(&in_dir, err)? };
     if inputs.is_empty() {
         return Err(format!("{}: no supported input images", in_dir.display()));
     }
     std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
     let (mut ok, mut failed) = (0, 0);
+    let mut failures = Vec::new();
+    let mut skipped = 0;
     let mut written = photocraft_engine::file_cmds::OutputClaims::default();
     // `--format .jpg` names outputs `<stem>.jpg`, as `--format jpg` does (#490).
     let format = a.get("--format").map(|f| f.strip_prefix('.').unwrap_or(f));
-    for input in &inputs {
+    for (i, (input, sub)) in inputs.iter().enumerate() {
         let ext = format.map(str::to_owned).unwrap_or_else(|| {
             let input_ext = input.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "png".into());
             if photocraft_codecs::raw_from_extension(&input_ext) { "pcraft".into() } else { input_ext }
         });
         let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let target = out_dir.join(format!("{stem}.{ext}"));
+        let target = out_dir.join(sub).join(naming.file_name(&stem, &ext, i as u64, date));
         let target_text = target.to_string_lossy();
         let r = (|| -> Result<Vec<String>, String> {
             written.check(&target_text)?;
+            if !sub.as_os_str().is_empty() {
+                std::fs::create_dir_all(out_dir.join(sub)).map_err(|e| format!("{}: {e}", out_dir.join(sub).display()))?;
+            }
             let mut h = Headless::trusted_local();
             h.open(input).map_err(|e| e.to_string())?;
             for (id, p) in &actions {
@@ -456,11 +527,83 @@ fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
             Err(e) => {
                 failed += 1;
                 let _ = writeln!(err, "FAIL  {}: {e}", input.display());
+                failures.push(format!("{}: {e}", input.display()));
+                if stop_on_error {
+                    skipped = inputs.len() - i - 1;
+                    let _ = writeln!(err, "stopped at the first error (--stop-on-error); {skipped} file(s) skipped");
+                    break;
+                }
             }
         }
     }
-    let _ = writeln!(out, "{ok} succeeded, {failed} failed");
+    if let Some(log) = a.get("--error-log")
+        && !failures.is_empty()
+    {
+        let text = format!("Local Image Batch: {} error(s)\n{}\n", failures.len(), failures.join("\n"));
+        std::fs::write(log, text).map_err(|e| format!("--error-log {log}: {e}"))?;
+    }
+    if skipped > 0 {
+        let _ = writeln!(out, "{ok} succeeded, {failed} failed, {skipped} skipped");
+    } else {
+        let _ = writeln!(out, "{ok} succeeded, {failed} failed");
+    }
     if failed > 0 { Err(format!("{failed} file(s) failed")) } else { Ok(()) }
+}
+
+/// The input images of `dir`, sorted by name, at the top (an empty subfolder). Other files are
+/// reported as skipped.
+fn list_inputs(dir: &Path, err: &mut dyn Write) -> Result<Vec<(PathBuf, PathBuf)>, String> {
+    let mut inputs = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+        let path = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
+        if is_input(&path) {
+            inputs.push(path);
+        } else if path.is_file() {
+            let _ = writeln!(err, "SKIP  {}: unsupported input format", path.display());
+        }
+    }
+    inputs.sort();
+    Ok(inputs.into_iter().map(|p| (p, PathBuf::new())).collect())
+}
+
+/// The input images of `dir` and its subfolders (each folder's files sorted by name, then its
+/// subfolders), with the subfolder relative to `dir`. Other files are reported as skipped. Links
+/// to folders are not followed; a tree deeper or larger than the engine's batch limits is an error.
+fn list_inputs_recursive(dir: &Path, err: &mut dyn Write) -> Result<Vec<(PathBuf, PathBuf)>, String> {
+    fn walk(root: &Path, sub: &Path, depth: usize, out: &mut Vec<(PathBuf, PathBuf)>, err: &mut dyn Write) -> R {
+        let dir = root.join(sub);
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+            entries.push(entry.map_err(|e| format!("{}: {e}", dir.display()))?);
+        }
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        let mut folders = Vec::new();
+        for e in entries {
+            let path = e.path();
+            // `file_type` does not follow symbolic links, so a linked folder is not entered.
+            let ft = e.file_type().map_err(|x| format!("{}: {x}", path.display()))?;
+            if ft.is_dir() {
+                folders.push(e.file_name());
+            } else if is_input(&path) {
+                if out.len() >= photocraft_engine::batch::MAX_FILES {
+                    return Err(format!("{}: more than {} images", root.display(), photocraft_engine::batch::MAX_FILES));
+                }
+                out.push((path, sub.to_path_buf()));
+            } else if path.is_file() {
+                let _ = writeln!(err, "SKIP  {}: unsupported input format", path.display());
+            }
+        }
+        for name in folders {
+            if depth >= photocraft_engine::batch::MAX_DEPTH {
+                return Err(format!("{}: folders nested deeper than {} levels", dir.join(&name).display(), photocraft_engine::batch::MAX_DEPTH));
+            }
+            walk(root, &sub.join(name), depth + 1, out, err)?;
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    walk(dir, Path::new(""), 0, &mut out, err)?;
+    Ok(out)
 }
 
 fn droplet(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {

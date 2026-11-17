@@ -285,7 +285,7 @@ fn merge_visible(s: &mut Session) -> Result<Value> {
         // Composite of visible layers only (hidden ones stay where they are).
         let mut solo = doc.clone();
         solo.layers.retain(|l| l.visible);
-        let buf = photocraft_compose::flatten(&crate::vector_integration::project_document(&solo)?);
+        let buf = photocraft_compose::flatten(&crate::vector_integration::project_for_output(&solo)?);
         let buf = if is_background { buf.over_background([1.0, 1.0, 1.0]) } else { buf };
         let fmt = doc.pixel_format();
         let fmt = if is_background { fmt } else { PixelFormat::new(fmt.mode, fmt.sample, true) };
@@ -424,9 +424,11 @@ fn toggle_last_state(s: &mut Session) -> Result<Value> {
     Ok(json!(if redo { s.redo() } else { s.undo() }))
 }
 
-/// Edit › Transform › Again: replay the last `edit.transform` on the active layer.
+/// Edit › Transform › Again: replay the last `edit.transform` on the selected layers (upstream
+/// #6501).
 fn transform_again(s: &mut Session) -> Result<Value> {
-    let p = transform_again_params(s)?;
+    let ids = s.active().map(crate::transform_cmds::selection_targets).unwrap_or_default();
+    let p = transform_again_params(s, &ids)?;
     s.execute("edit.transform", p)
 }
 
@@ -434,8 +436,8 @@ fn transform_again(s: &mut Session) -> Result<Value> {
 /// last transform on the copy, as one history step, so pressing it again steps and repeats
 /// (#352). The transform is worked out before anything changes, so a refusal leaves no copy.
 fn transform_again_copy(s: &mut Session) -> Result<Value> {
-    let p = transform_again_params(s)?;
     let id = active_id(s)?;
+    let p = transform_again_params(s, &[id])?;
     s.execute("layer.duplicate", json!({"layer": id.0}))?;
     match s.execute("edit.transform", p) {
         Ok(r) => {
@@ -456,8 +458,9 @@ fn transform_again_copy(s: &mut Session) -> Result<Value> {
     }
 }
 
-/// The `edit.transform` params that repeat the last transform on the active layer.
-fn transform_again_params(s: &Session) -> Result<Value> {
+/// The `edit.transform` params that repeat the last transform on the layers `ids` (their frame
+/// together is the box it starts from).
+fn transform_again_params(s: &Session, ids: &[LayerId]) -> Result<Value> {
     let (_, last) =
         s.journal.iter().rev().find(|(id, _)| id == "edit.transform").cloned().ok_or(EngineError::Other("there is no transform to repeat".into()))?;
     let (rect, quad) = (last.get("rect").cloned(), last.get("quad").cloned());
@@ -476,8 +479,9 @@ fn transform_again_params(s: &Session) -> Result<Value> {
             )
             .ok_or(EngineError::Other("the last transform can't be repeated".into()))?;
             let d = s.active().ok_or(EngineError::NoDocument)?;
-            let l = d.doc.layer(active_id(s)?).ok_or(EngineError::Other("no active layer".into()))?;
-            let b = crate::transform_cmds::transform_bounds(&d.doc, l);
+            d.doc.layer(active_id(s)?).ok_or(EngineError::Other("no active layer".into()))?;
+            let b =
+                ids.iter().filter_map(|id| d.doc.layer(*id)).map(|l| crate::transform_cmds::transform_bounds(&d.doc, l)).fold(Rect::EMPTY, |a, b| a.union(&b));
             if b.is_empty() {
                 return Err(EngineError::Other("nothing to transform".into()));
             }

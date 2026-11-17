@@ -111,6 +111,18 @@ fn develop_open_job_matches_the_synchronous_document_and_link() {
 }
 
 #[test]
+fn develop_open_carries_the_library_metadata_into_the_document() {
+    let photo = Photo::new("library-metadata");
+    let mut s = Session::new();
+    let metadata = lightcraft_meta::Metadata { title: Some("Hero".into()), copyright: Some("(c) Studio".into()), ..Default::default() };
+    let mut params = photo.params();
+    params["metadata"] = serde_json::to_value(metadata).unwrap();
+    s.execute(OPEN_JOB, params).unwrap();
+    let info = lightcraft_meta::read_file_info(s.active().unwrap().doc.metadata.xmp.as_deref());
+    assert_eq!((info["title"].as_str(), info["copyright"].as_str()), (Some("Hero"), Some("(c) Studio")));
+}
+
+#[test]
 fn develop_superseded_render_never_replaces_newer_settings() {
     let photo = Photo::new("latest");
     let mut s = photo.session();
@@ -189,6 +201,25 @@ fn develop_compositing_started_during_render_gets_a_new_layer() {
     assert_eq!(result["added"][0]["name"], "Develop 2");
     assert_eq!(&s.active().unwrap().doc.layers[..2], &before);
     assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+}
+
+#[test]
+fn develop_size_change_resizes_an_untouched_canvas_and_keeps_compositing_work() {
+    let photo = Photo::new("rotate");
+    let mut s = photo.session();
+    assert_eq!(s.active().unwrap().doc.size, Size::new(64, 40));
+    let steps = s.active().unwrap().history.past_len();
+    let portrait = json!({"photo": 71, "settings": {"orientation": "Rotate90"}});
+    assert_eq!(s.execute("develop.syncPhoto", portrait.clone()).unwrap()["updated"], 1);
+    assert_eq!(s.active().unwrap().doc.size, Size::new(40, 64));
+    assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().doc.size, Size::new(64, 40));
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let result = s.execute("develop.syncPhoto", portrait).unwrap();
+    assert_eq!(result["geometryChanged"][0]["document"], 0);
+    assert!(Arc::ptr_eq(&before, &s.active().unwrap().doc));
 }
 
 #[test]

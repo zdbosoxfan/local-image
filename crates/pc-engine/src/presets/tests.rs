@@ -454,6 +454,8 @@ fn clone_source_flip_scale_rotation() {
     s.execute("cloneSource.set", json!({"source": [20, 20], "width": 200, "height": 200})).unwrap();
     let mut s2 = clone_doc(16);
     s2.presets.clone = s.presets.clone.clone();
+    // Transfer the transform settings, then pick this document's own source layer.
+    s2.execute("cloneSource.set", json!({"source": [20, 20]})).unwrap();
     s2.execute("paint.cloneStamp", json!({"points": [[40, 24]], "size": 21, "hardness": 100})).unwrap();
     // 200 %: 4 px right of the anchor samples 2 px right of the source.
     let px = layer_px(&s2, 44, 24);
@@ -513,4 +515,19 @@ fn a_damaged_preset_set_keeps_the_other_sets() {
     assert_eq!(next.presets.tool_presets, defaults.presets.tool_presets);
     assert_eq!(next.presets.gradients.len(), defaults.presets.gradients.len());
     assert_eq!(next.presets.layer_defaults, s.presets.layer_defaults);
+}
+
+#[test]
+fn nested_preset_commands_answer_to_the_authorization_gate() {
+    fn deny_select_all(id: &str, _: &Value) -> crate::Result<()> {
+        if id == "select.all" { Err(crate::EngineError::Other(format!("automation command `{id}` is disabled"))) } else { Ok(()) }
+    }
+    let mut s = session(8);
+    s.authorize = Some(deny_select_all);
+    let e = super::call(&mut s, "select.all", json!({})).unwrap_err().to_string();
+    assert!(e.contains("is disabled"), "{e}");
+    assert!(s.active().unwrap().doc.selection.is_none(), "the denied command did not run");
+    s.authorize = None;
+    super::call(&mut s, "select.all", json!({})).unwrap();
+    assert!(s.active().unwrap().doc.selection.is_some());
 }

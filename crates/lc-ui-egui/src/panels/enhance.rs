@@ -61,12 +61,17 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
     let Some(id) = app.session.active() else { return };
     let engines = app.session.enhance.host.as_ref().map(|h| h.remove_engines()).unwrap_or_default();
     let draft = app.ui.remove_draft.as_ref().is_some_and(|dr| dr.photo == id.0);
+    let ready = !super::detail::remove_engine_unready(app);
     padded(ui, |ui| {
         if draft {
             dim(ui, "Paint more to add to it (⌥ takes away), then remove it all at once.");
             ui.horizontal(|ui| {
-                if text_button(ui, "removePanelApply", "Remove", true).on_hover_text(li_i18n::library::t("Remove what you painted (Enter)")).clicked()
-                {
+                let apply = ui.add_enabled_ui(ready, |ui| {
+                    text_button(ui, "removePanelApply", "Remove", true)
+                        .on_hover_text(li_i18n::library::t("Remove what you painted (Enter)"))
+                        .clicked()
+                });
+                if apply.inner {
                     super::detail::apply_remove_draft(app, ui.ctx());
                 }
                 if text_button(ui, "removePanelCancel", "Cancel", false)
@@ -97,8 +102,17 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
                 });
             register(ui.ctx(), "button:removeAiEngine", r.response.rect);
         });
-        if let Some(p) = current.and_then(|e| e.problem) {
-            ui.label(RichText::new(p).color(Tokens::get(ui.ctx()).caution).size(11.5));
+        if let Some(engine) = current
+            && let Some(problem) = engine.problem
+        {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(problem).color(Tokens::get(ui.ctx()).caution).size(11.5));
+                if app.hosted_menus && text_button(ui, "removeSetUpAI", "Set Up Local AI…", false).clicked() {
+                    // an on-device engine's model is downloaded under On-device Tools, the others need the AI engine
+                    let section = if engine.on_device { "ai.tools" } else { "ai.connection" };
+                    app.open_shared_ai = Some(section.into());
+                }
+            });
         }
         ui.horizontal(|ui| {
             if text_button(ui, "removeBrush", "Brush", !app.ui.remove_lasso).clicked() {
@@ -342,9 +356,9 @@ pub(crate) fn denoise_download(app: &mut LightcraftApp, ui: &mut egui::Ui, famil
     let status = app.services.model_download_status.as_ref().map(|f| f(family)).unwrap_or_default();
     let installed = app.services.model_installed.as_ref().is_some_and(|f| f(family));
     if status.running {
-        let progress = (status.done as f32 / status.total.max(1) as f32).clamp(0., 1.);
-        let response = ui.add(egui::ProgressBar::new(progress).show_percentage());
-        register(ui.ctx(), "progress:denoiseDownload", response.rect);
+        let fraction = li_ui_kit::progress::fraction(status.done, status.total);
+        let rect = li_ui_kit::progress::bar_with_percent(ui, 160.0, fraction, &li_ui_kit::widgets::Profile::Library.tokens(ui.ctx()));
+        register(ui.ctx(), "progress:denoiseDownload", rect);
         if text_button(ui, "denoiseDownloadCancel", "Cancel download", false).clicked()
             && let Some(download) = &app.services.download_models
             && let Err(error) = download(family, true)

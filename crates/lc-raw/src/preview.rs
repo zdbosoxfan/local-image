@@ -7,11 +7,18 @@ use lightcraft_tiff::{Ifd, Tiff, makernote};
 
 /// Whether `b` looks like a displayable (DCT) JPEG: SOI, and the first SOF marker is not lossless.
 fn is_dct_jpeg(b: &[u8]) -> bool {
+    is_dct_jpeg_within(b, &mut { usize::MAX })
+}
+
+/// [`is_dct_jpeg`] charging `work` one per step (a segment, or a fill byte); `false` too when it runs out.
+fn is_dct_jpeg_within(b: &[u8], work: &mut usize) -> bool {
     if b.len() < 4 || b[0] != 0xff || b[1] != 0xd8 {
         return false;
     }
     let mut i = 2;
     while i + 4 <= b.len() {
+        let Some(left) = work.checked_sub(1) else { return false };
+        *work = left;
         if b[i] != 0xff {
             return false;
         }
@@ -51,13 +58,10 @@ fn candidates<'a>(data: &'a [u8], ifd: &Ifd, base: u64, out: &mut Vec<&'a [u8]>)
     }
     if matches!(ifd.u16(t::COMPRESSION), Some(6) | Some(7) | Some(34892))
         && let Ok(info) = ifd.image()
+        && let Some(chunk) = info.single_chunk(data.len() as u64)
+        && let Some(s) = chunk_bytes(data, &chunk)
     {
-        let chunks = info.chunks(data.len() as u64);
-        if chunks.len() == 1
-            && let Some(s) = chunk_bytes(data, &chunks[0])
-        {
-            out.push(s);
-        }
+        out.push(s);
     }
 }
 
@@ -94,7 +98,17 @@ pub fn embedded_preview(bytes: &[u8]) -> Option<Vec<u8>> {
     if let Some(p) = crate::vendor::orf::preview(bytes) {
         found.push(p);
     }
-    found.into_iter().filter(|s| is_dct_jpeg(s)).max_by_key(|s| s.len()).map(|s| trim_eoi(s).to_vec())
+    bound_candidates(&mut found, bytes.len());
+    found.into_iter().max_by_key(|s| s.len()).map(|s| trim_eoi(s).to_vec())
+}
+
+/// Keeps the candidate ranges that are a displayable JPEG, each once. Their header walks share one budget of eight
+/// times the file (at least 1 MiB), so many ranges running through fill bytes cannot each cost a walk of their
+/// length.
+fn bound_candidates(found: &mut Vec<&[u8]>, file_len: usize) {
+    let mut seen = std::collections::HashSet::new();
+    let mut work = file_len.saturating_mul(8).max(1 << 20);
+    found.retain(|s| seen.insert((s.as_ptr() as usize, s.len())) && is_dct_jpeg_within(s, &mut work));
 }
 
 /// Canon CR3: the full-size JPEG track (see [`lightcraft_meta::cr3`]), else the `PRVW` / `THMB` boxes.
@@ -111,7 +125,11 @@ fn cr3_preview(bytes: &[u8]) -> Option<&[u8]> {
 /// sample) is `u32 size, "PRVW", u32 0, u16 ?, u16 width, u16 height, u16 ?, u32 jpeg length, JPEG`; the smaller
 /// `THMB` box has the same shape. Returns the larger valid one.
 fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
+    // Candidate boxes may overlap; bound their combined marker scan.
+    const MAX_WALK_BYTES: usize = 8 << 20;
     let mut best: Option<&[u8]> = None;
+    let mut walked = 0usize;
+    let mut skipped = 0usize;
     for tag in [b"PRVW", b"THMB"] {
         let mut from = 0;
         while let Some(i) = bytes.get(from..).and_then(|s| s.windows(4).position(|w| w == tag)).map(|p| p + from) {
@@ -124,6 +142,11 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
                 continue;
             }
             let jpeg = &bytes[j..j + len];
+            if jpeg.len() > MAX_WALK_BYTES - walked {
+                skipped += 1;
+                continue;
+            }
+            walked += jpeg.len();
             if is_dct_jpeg(jpeg) {
                 if best.is_none_or(|b| b.len() < jpeg.len()) {
                     best = Some(jpeg);
@@ -131,6 +154,9 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
                 break;
             }
         }
+    }
+    if skipped > 0 {
+        log::warn!("CR3 preview: candidate boxes skipped past the {MAX_WALK_BYTES}-byte scan budget: {skipped}");
     }
     best
 }
@@ -241,5 +267,58 @@ mod tests {
         // a track pointing past the end falls back to PRVW
         file.truncate(at as usize + 100);
         assert_eq!(embedded_preview(&file).unwrap(), small);
+    }
+
+    #[test]
+    fn cr3_preview_marker_walk_is_bounded() {
+        let blocks = 9000usize;
+        let total = blocks * 256;
+        let mut file = Vec::with_capacity(total);
+        for block in 0..blocks {
+            let base = block * 256;
+            file.extend_from_slice(&[0xff, 0x01, 0, 0x3e, b'P', b'R', b'V', b'W']);
+            file.extend_from_slice(&[0; 12]);
+            file.extend_from_slice(&u32::try_from(total - base - 24).unwrap().to_be_bytes());
+            file.extend_from_slice(&[0xff, 0xd8, 0xff, 0x01, 0, 0x24]);
+            file.resize(base + 64, 0);
+            for _ in 0..48 {
+                file.extend_from_slice(&[0xff, 0x01, 0, 2]);
+            }
+        }
+        assert_eq!(file.len(), total);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(cr3_preview_boxes(&file).map(<[u8]>::len)));
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(2)), Ok(None));
+    }
+
+    /// Only a single-chunk IFD is a preview, even when its first strip is a whole JPEG.
+    #[test]
+    fn a_multi_strip_jpeg_ifd_offers_no_preview() {
+        const STRIPS: usize = 100_000;
+        let mut ifd = IfdBuilder::new();
+        ifd.set(t::COMPRESSION, Value::Short(vec![6]));
+        ifd.set(t::IMAGE_WIDTH, Value::Long(vec![1]));
+        ifd.set(t::IMAGE_LENGTH, Value::Long(vec![STRIPS as u32]));
+        ifd.set_image(ImageData::Strips { rows_per_strip: 1, strips: vec![fake_jpeg(10); STRIPS] });
+        let file = TiffWriter::default().write(&[ifd]).unwrap();
+        assert_eq!(Tiff::parse(&file).unwrap().ifds[0].image().unwrap().offsets.len(), STRIPS);
+        assert_eq!(embedded_preview(&file), None);
+    }
+
+    /// Each range starts a JPEG header and runs through fill bytes with no frame, so each walk would run to its
+    /// end: 50 of them are 5 M steps against the shared 1 MiB budget, which a later valid header is past.
+    #[test]
+    fn header_walks_of_many_candidates_share_a_budget() {
+        let valid = [0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 8, 0, 8, 1, 1, 0x11, 0];
+        let mut data = vec![0xffu8; 100_100];
+        data[..2].copy_from_slice(&[0xff, 0xd8]);
+        let mut found: Vec<&[u8]> = (0..50).map(|i| &data[..100_000 + i]).collect();
+        found.push(&valid);
+        bound_candidates(&mut found, data.len());
+        assert!(found.is_empty());
+        // the same header with no hostile ranges before it is kept, once however often it is listed
+        let mut found: Vec<&[u8]> = vec![&valid, &valid, &valid];
+        bound_candidates(&mut found, data.len());
+        assert_eq!(found.len(), 1);
     }
 }

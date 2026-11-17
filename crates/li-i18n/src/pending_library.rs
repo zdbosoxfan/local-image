@@ -41,7 +41,9 @@ pub const PENDING_AI_DENOISE_TRANSLATIONS: &[&str] = &[
 /// File-input robustness English messages awaiting translations.
 pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
     "the file changed meanwhile after import review; review it again before copying or moving",
-    "{label}: can't remove the location from an original file that embeds location info; export as JPEG, TIFF or DNG instead",
+    "{label}: can't remove the location from an original file that embeds location info; export as {formats} instead",
+    "{label}: can't verify location metadata in this original file: {e}; export as {formats} instead",
+    "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as {formats} instead",
     "Preview decoder failed unexpectedly",
     "file preview failed unexpectedly",
     "decoded PSD exceeds memory limit",
@@ -90,6 +92,9 @@ pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
     "Assisted Culling cancelled",
     "Assisted Culling is already running",
     "Assisted Culling complete: {scored} scored, {failed} failed",
+    "Auto Settings is already running",
+    "Auto Settings: {skipped} photo(s) could not be read",
+    "Auto Settings was not applied because the library changed; try again",
     "The photo geometry changed while AI Remove was running; try again.",
     "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.",
     "Cannot read the ComfyUI queue: {error}",
@@ -293,4 +298,10 @@ pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
     "Versions are snapshots of your edit that you can restore.",
     "Remove (Spot Removal)",
     "Reset all edits",
+    "Last workspace and view",
+    "Compositing",
+    "Photo ▸ Edit In… (⌘E) opens the photo in Compositing, linked to Develop. Name another application here (an app name on macOS, a program path elsewhere) to render a 16-bit TIFF copy, stack it with the original and open it there.",
+    "Set Up Local AI…",
+    "Better with the on-device model: Preferences › AI › On-device Tools",
+    "unsaved Compositing work, which this export leaves out. Save it in Compositing first.",
 ];

@@ -82,7 +82,7 @@
 	File Info…	ファイル情報…
 	Print…	プリント…
 	Print One Copy	1 部プリント
-	Exit	終了
+	Quit Local Image	Local Image を終了
 	Undo	取り消し
 	Redo	やり直し
 	Toggle Last State	直前の状態と切り替え
@@ -2140,7 +2140,6 @@ cameraRaw	Color	カラー
 	Remove Background (AI)	背景を削除 (AI)
 	Remove Backgrounds (AI)…	背景を一括削除 (AI)…
 	Set Up AI…	AI をセットアップ…
-	Subject (AI)	被写体 (AI)
 	The AI engine isn't running.	AI エンジンが起動していません。
 	Contextual task bar	コンテキストタスクバー
 	Tool presets	ツールプリセット
@@ -2250,7 +2249,6 @@ cameraRaw	Color	カラー
 	Could not save settings: {error}	設定を保存できませんでした：{error}
 	Couldn't save: {error}	保存できませんでした：{error}
 	Couldn't update profiles: {error}	プロファイルを更新できませんでした：{error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Qwen Image 2.1 で各画像の被写体を切り抜き、PNG で保存します。元の画像は変更されません。
 	Delete from Library	ライブラリから削除
 	Describe details to add (optional)…	追加する細部を説明（任意）…
 	Describe the change, e.g. “make it golden hour”…	変更内容を説明（例：「ゴールデンアワーにする」）…
@@ -2311,7 +2309,6 @@ cameraRaw	Color	カラー
 	Installation:	インストール先：
 	Installed	インストール済み
 	Keep	保持
-	Keep… (optional)	残すもの…（任意）
 	Licence	ライセンス
 	Licence gate	ライセンス同意が必要
 	Licence: see its page	ライセンス：ページを参照
@@ -2356,8 +2353,6 @@ cameraRaw	Color	カラー
 	Precision	精度
 	Preset name	プリセット名
 	Previous image ({key})	前の画像（{key}）
-	Qwen Compact	Qwen コンパクト
-	Qwen Full	Qwen フル
 	RESULTS	結果
 	Read the licence	ライセンスを読む
 	Ready	準備完了
@@ -2404,7 +2399,6 @@ cameraRaw	Color	カラー
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	先に AI エンジンを起動してください：Local Image は ComfyUI にすでにあるものを確認します。（{error}）
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	AI エンジンを起動すると GPU のメモリが表示されます。現在は 8 GB に収まるものを表示しています。
 	Starting ComfyUI… (the first start can take a minute)	ComfyUI を起動中…（初回の起動には 1 分ほどかかることがあります）
-	Starting image · {n}/{max}	開始画像 · {n}/{max}
 	Starting {name}…	{name} を起動中…
 	Steps	ステップ数
 	Stopped	停止しました
@@ -2422,7 +2416,6 @@ cameraRaw	Color	カラー
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	ワークフローに li:prompt、li:image、li:mask、li:seed、li:output という名前のノードがないため、Local Image は値を入力できません。ComfyUI でノード名を変更して再度書き出してください。
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	トークンを使うと、モデルブラウザーでアクセス制限付きやサインインが必要なモデルをダウンロードできます。トークンはそれぞれのサイトにのみ送信されます。
 	Transparent PNG	透明 PNG
-	Transparent background	透明な背景
 	Trending	人気
 	Trending this week	今週の人気
 	Unknown family	不明なファミリー
@@ -2433,7 +2426,6 @@ cameraRaw	Color	カラー
 	Upscale {scale}×	{scale}× にアップスケール
 	Use	使用
 	Use as Reference	参照画像として使用
-	Variation strength	バリエーションの強さ
 	Waiting	待機中
 	What should appear in the selection…	選択範囲に表示する内容…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	自分の API キーがあれば、生成でクラウドモデルも使えます（モデル選択の「クラウド」に表示されます）。その場合、プロンプトと画像はこのコンピューターからそのプロバイダーに送信され、あなたのアカウントに課金されます。それ以外は一切送信されません。
@@ -2467,14 +2459,11 @@ cameraRaw	Color	カラー
 	{size} · runs on the CPU · {licence}	{size} · CPU で動作 · {licence}
 	{source}: offline, showing results from {when}	{source}：オフライン、{when} の結果を表示
 	{source}: the catalogue couldn't be read	{source}：カタログを読み込めませんでした
-	{why} Qwen Image 2.1 runs these.	{why} これらは Qwen Image 2.1 で実行されます。
 	Choose…	選択…
 	Stop	停止
 	Seed	シード
 	Solid Color	べた塗り
 	Strength	強さ
-	Qwen AI · Compact	Qwen AI · コンパクト
-	Qwen AI · Full	Qwen AI · フル
 	Standard (CPU)	標準（CPU）
 	Templates	テンプレート
 	Community	コミュニティ
@@ -2603,6 +2592,8 @@ ai	New	新着
 	Float Panel Group	パネルグループをフローティング
 	Save and Return to Library	保存してライブラリに戻る
 	Added your new Develop edits as layer {name}	新しい現像の編集をレイヤー {name} として追加しました
+	The photo's crop or size changed in Develop, so {name} was not updated	現像で写真の切り抜きまたはサイズが変わったため、{name} は更新されませんでした
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	レイヤーが新しい写真と揃わなくなるため、写真は元のまま保持されます。
 	Open the Library to save into it	ライブラリに保存するにはライブラリを開いてください
 	The layers below are unchanged; hide or delete the new layer to go back.	下のレイヤーは変更されていません。元に戻すには新しいレイヤーを非表示にするか削除してください。
 # Attributions page (li-attributions)
@@ -3903,7 +3894,10 @@ ai	New	新着
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	このプロファイルのすべてのショートカットを初期設定に戻しました。
 	Editor	エディター
-	Library + Develop	ライブラリ + 現像
+	Library & Develop	ライブラリ & 現像
+	Library General	ライブラリ：一般
+	Library Performance	ライブラリ：パフォーマンス
+	Library Interface	ライブラリ：インターフェイス
 	Scope	適用範囲
 	Colour	カラー
 	Monochrome (default)	モノクロ（既定）
@@ -3920,3 +3914,29 @@ ai	New	新着
 	GPU Memory (MB, 0 = Automatic)	GPU メモリ（MB、0 = 自動）
 	{path} was saved over	{path} は上書き保存されました
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	「{doc}」はファイルとの関連付けが解除され、未保存としてマークされました。内容を保持するには新しい名前で保存してください。
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	統合
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	画像の階調を広げるグレーの配合
+	File Type	ファイル形式
+	Save as JPEG	JPEG として保存
+	Save as PSD	PSD として保存
+	Save as TIFF	TIFF として保存
+	Convert Profile to sRGB	プロファイルを sRGB に変換
+	LZW Compression	LZW 圧縮
+	Resize to Fit	サイズに合わせる
+	Run	実行
+	You must save to at least one file type.	少なくとも 1 つのファイル形式で保存してください。
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	無効な数値です。1 から 12 の値が必要です。以前の値に戻しました。
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	無効な数値です。1 から 30000 の値が必要です。以前の値に戻しました。
+	A value between 1 and 12 is required. Closest value inserted.	1 から 12 の値が必要です。最も近い値を入力しました。
+	A value between 1 and 30000 is required. Closest value inserted.	1 から 30000 の値が必要です。最も近い値を入力しました。
+	Image Compression	画像圧縮
+	Save Image Pyramid	画像ピラミッドを保存
+	Save Transparency	透明部分を保存
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	スマートオブジェクトとして開く…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	ハードエッジ
+	Last folder	最後のフォルダー

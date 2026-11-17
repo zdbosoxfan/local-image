@@ -232,7 +232,7 @@ fn parse_one(id: u32, flags: u32, params: &[u8]) -> Option<Opcode> {
         10..=13 => {
             let area = r.area()?;
             let n = r.u32()? as usize;
-            if n * 4 > r.remaining() {
+            if n > r.remaining() / 4 {
                 return None;
             }
             // deltas are signed offsets (row/column bias corrections); only scales must be non-negative
@@ -345,18 +345,49 @@ pub fn write_list(list: &[Opcode]) -> Vec<u8> {
     out
 }
 
+/// Maximum polynomial maps in one list; every map runs over each selected sample.
+const MAX_POLYNOMIALS: usize = 64;
+
 /// Parse an opcode list blob. Malformed opcodes become [`Opcode::Unknown`]; a truncated list stops early.
 pub fn parse_list(d: &[u8]) -> Vec<Opcode> {
     let mut r = Rd { d, p: 0 };
     let Some(count) = r.u32() else { return vec![] };
     let mut out = Vec::new();
+    let mut polynomials = 0;
     for _ in 0..count.min(4096) {
         let (Some(id), Some(_ver), Some(flags), Some(size)) = (r.u32(), r.u32(), r.u32(), r.u32()) else { break };
         let Some(params) = d.get(r.p..r.p.saturating_add(size as usize)) else { break };
         r.p += size as usize;
-        out.push(parse_one(id, flags, params).unwrap_or(Opcode::Unknown { id, flags, params: params.to_vec() }));
+        let op = if id == 8 && polynomials >= MAX_POLYNOMIALS {
+            // A polynomial past the cap is never applied, so its coefficients need not be retained.
+            Opcode::Unknown { id, flags, params: Vec::new() }
+        } else if let Some(op) = parse_one(id, flags, params) {
+            if matches!(&op, Opcode::MapPolynomial { .. }) {
+                polynomials += 1;
+            }
+            op
+        } else {
+            Opcode::Unknown { id, flags, params: params.to_vec() }
+        };
+        out.push(op);
     }
     out
+}
+
+/// Log once for a file what the polynomial and `OpcodeList3` pass caps leave unapplied.
+pub(crate) fn warn_capped(lists: &OpcodeLists) {
+    // Past the cap, `parse_list` keeps each polynomial as an `Unknown` without its coefficients.
+    let over_cap = |list: &[Opcode]| {
+        list.iter().filter(|op| matches!(op, Opcode::MapPolynomial { .. })).count() == MAX_POLYNOMIALS
+            && list.iter().any(|op| matches!(op, Opcode::Unknown { id: 8, params, .. } if params.is_empty()))
+    };
+    if [&lists.list1, &lists.list2, &lists.list3].into_iter().any(|list| over_cap(list)) {
+        log::warn!("DNG opcodes: MapPolynomial entries past {MAX_POLYNOMIALS} in a list were ignored");
+    }
+    let passes = lists.list3.iter().filter(|op| is_list3_pass(op)).count();
+    if passes > MAX_LIST3_PASSES {
+        log::warn!("DNG OpcodeList3: only the first {MAX_LIST3_PASSES} of {passes} passes will run");
+    }
 }
 
 /// Run `f(x, y, plane, sample)` on every sample `a` selects in an interleaved `w × h × cpp` buffer, rows
@@ -406,11 +437,43 @@ fn max_radius(cx: f64, cy: f64, w: f64, h: f64) -> f64 {
 /// every pixel: tens of GB at [`crate::MAX_SAMPLES`]. Pixels past the cap, in list order, are left as they are.
 const MAX_BAD_PIXELS: usize = 1 << 22;
 
+/// Whole-image passes one opcode list may cost, all its ops together (a real DNG's list is a handful of gain maps
+/// and tables). Ops past it, in list order, are left out: 4096 full-image ops are 4096 passes over a 100 MP raw.
+const MAX_LIST_PASSES: usize = 32;
+
+/// Sample visits `op` costs on a `w × h × cpp` buffer (coefficient evaluations for a polynomial).
+fn op_cost(op: &Opcode, w: usize, h: usize, cpp: usize) -> usize {
+    let visits = |a: &Area| {
+        let rows = (a.bottom as usize).min(h).saturating_sub(a.top as usize).div_ceil(a.row_pitch.max(1) as usize);
+        let cols = (a.right as usize).min(w).saturating_sub(a.left as usize).div_ceil(a.col_pitch.max(1) as usize);
+        let planes = (a.plane as usize).saturating_add(a.planes.max(1) as usize).min(cpp).saturating_sub(a.plane as usize);
+        rows.saturating_mul(cols).saturating_mul(planes)
+    };
+    match op {
+        Opcode::MapPolynomial { area, coefficients } => visits(area).saturating_mul(coefficients.len().max(1)),
+        Opcode::MapTable { area, .. }
+        | Opcode::GainMap { area, .. }
+        | Opcode::DeltaPerRow { area, .. }
+        | Opcode::DeltaPerColumn { area, .. }
+        | Opcode::ScalePerRow { area, .. }
+        | Opcode::ScalePerColumn { area, .. } => visits(area),
+        // `apply_list` does nothing for these
+        Opcode::Unknown { .. } | Opcode::TrimBounds { .. } | Opcode::WarpFisheye { .. } | Opcode::WarpRectilinear { .. } => 0,
+        _ => w.saturating_mul(h).saturating_mul(cpp),
+    }
+}
+
 /// Apply a list to an interleaved `w × h × cpp` buffer. `cfa` (when the data is a mosaic) is used by the
 /// bad-pixel opcodes. `scale` is the value of 1.0 in the buffer: 65535 for list 1 (raw 16-bit values), 1 for
 /// lists 2 and 3 (normalised values).
 pub fn apply_list(list: &[Opcode], buf: &mut [f32], w: usize, h: usize, cpp: usize, cfa: Option<&Cfa>, scale: f32) {
+    let mut budget = w.saturating_mul(h).saturating_mul(cpp).max(1).saturating_mul(MAX_LIST_PASSES);
     for op in list {
+        let cost = op_cost(op, w, h, cpp);
+        if cost > budget {
+            continue;
+        }
+        budget -= cost;
         match op {
             Opcode::MapTable { area, table } => {
                 let n = table.len();
@@ -584,13 +647,27 @@ pub fn list3_binnable(list: &[Opcode]) -> bool {
     })
 }
 
+/// Bound full-image resampling and per-pixel work from one hostile OpcodeList3.
+const MAX_LIST3_PASSES: usize = 8;
+
+fn is_list3_pass(op: &Opcode) -> bool {
+    !matches!(op, Opcode::TrimBounds { .. } | Opcode::Unknown { .. })
+}
+
 /// [`apply_list3`] on the demosaic of a mosaic binned as `b` says (`RawImage::develop_binned`
 /// blocks): the warps, the vignette and the gain maps are evaluated at the sensor positions the
 /// binned pixels stand for. Only meaningful when [`list3_binnable`].
 pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, b: Binning) {
     let (w, h) = (img.width, img.height);
     let b = Binning { k: b.k.max(1), ..b };
+    let mut passes = 0;
     for op in list {
+        if is_list3_pass(op) {
+            if passes >= MAX_LIST3_PASSES {
+                continue;
+            }
+            passes += 1;
+        }
         match op {
             Opcode::WarpRectilinear { planes, center } => *img = warp_rectilinear_binned(img, planes, *center, b),
             Opcode::WarpFisheye { planes, center } => *img = warp_fisheye_binned(img, planes, *center, b),
@@ -1040,5 +1117,39 @@ pub(crate) mod tests {
             let mut buf = vec![0.5f32; 12];
             apply_list(&l, &mut buf, 4, 3, 1, None, 1.0);
         }
+    }
+
+    #[test]
+    fn map_polynomials_past_the_per_list_cap_are_not_applied() {
+        let area = Area { bottom: 4, right: 4, planes: 3, row_pitch: 1, col_pitch: 1, ..Default::default() };
+        let polynomial = Opcode::MapPolynomial { area, coefficients: vec![0.0, 1.0] };
+        let ops = vec![polynomial; 65];
+        let parsed = parse_list(&write_list(&ops));
+        assert_eq!(parsed.iter().filter(|op| matches!(op, Opcode::MapPolynomial { .. })).count(), 64);
+        assert!(matches!(parsed.last(), Some(Opcode::Unknown { id: 8, .. })));
+    }
+
+    /// The parser keeps up to 4096 opcodes; a list repeating a full-image delta that often is held to
+    /// `MAX_LIST_PASSES` passes, the first ones applied and the rest left out.
+    #[test]
+    fn a_list_repeating_full_image_work_stops_at_its_budget() {
+        let (w, h) = (64usize, 48usize);
+        let area = Area { bottom: h as u32, right: w as u32, planes: 1, row_pitch: 1, col_pitch: 1, ..Default::default() };
+        let list = vec![Opcode::DeltaPerRow { area, deltas: vec![0.001; h] }; 4096];
+        let mut buf = vec![0.0f32; w * h];
+        apply_list(&list, &mut buf, w, h, 1, None, 1.0);
+        assert_eq!((buf[0] / 0.001).round() as usize, MAX_LIST_PASSES, "{}", buf[0]);
+        assert!(buf.iter().all(|v| *v == buf[0]));
+    }
+
+    #[test]
+    fn list3_stops_after_eight_full_image_passes() {
+        let warp = Opcode::WarpRectilinear { planes: vec![[1.4, 0.0, 0.0, 0.0, 0.0, 0.0]], center: [0.5, 0.5] };
+        let list = vec![warp; 9];
+        let mut actual = RgbFrame::from_fn(32, 24, |x, y| [x as f32 / 32.0, y as f32 / 24.0, (x + y) as f32 / 56.0]);
+        let mut expected = actual.clone();
+        apply_list3(&list, &mut actual);
+        apply_list3(&list[..8], &mut expected);
+        assert_eq!(actual.data, expected.data);
     }
 }

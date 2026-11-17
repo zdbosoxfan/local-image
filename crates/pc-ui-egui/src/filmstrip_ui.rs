@@ -210,7 +210,7 @@ pub fn files() -> Vec<PathBuf> {
 
 /// The strip file the active document is (an original, or the original of its edited copy).
 fn active_file(app: &PhotocraftApp) -> Option<PathBuf> {
-    let p = app.session.active().and_then(|d| d.path.as_ref()).map(PathBuf::from)?;
+    let p = app.session.active().and_then(document_file)?;
     let o = original_of(&p);
     strip(|s| s.files.contains(&o)).then_some(o)
 }
@@ -218,7 +218,13 @@ fn active_file(app: &PhotocraftApp) -> Option<PathBuf> {
 /// The open document showing strip file `file` (its original or its edited copy).
 fn document_of(app: &PhotocraftApp, file: &Path) -> Option<usize> {
     let edited = edited_path(file);
-    app.session.documents().iter().position(|d| d.path.as_deref().is_some_and(|p| Path::new(p) == file || Path::new(p) == edited))
+    app.session.documents().iter().position(|d| document_file(d).is_some_and(|p| p == file || p == edited))
+}
+
+/// The file a document shows: its own path, or for a Develop layer without one (a catalogued raw
+/// the host opened) the Library photo's file.
+fn document_file(d: &photocraft_engine::DocState) -> Option<PathBuf> {
+    d.path.clone().or_else(|| crate::develop_layer::original_of(&d.doc).map(|(_, path)| path)).map(PathBuf::from)
 }
 
 /// Opens `path` (its edited copy when there is one, so you carry on from your edit), or switches
@@ -273,7 +279,7 @@ fn step_from(app: &mut PhotocraftApp, current: Option<&Path>, delta: i32) -> boo
 fn settle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some((id, target)) = strip(|s| s.pending_close.clone()) else { return };
     let showing = active_file(app).is_some_and(|f| f == target);
-    let still_opening = !showing && !app.jobs.opens.is_empty();
+    let still_opening = !showing && (!app.jobs.opens.is_empty() || app.raw_opens.as_ref().is_some_and(|q| !q.is_empty()));
     if still_opening {
         return;
     }

@@ -190,7 +190,48 @@ fn check_object_pixels(s: &Session, all: bool, area: Rect) -> Result<()> {
     Ok(())
 }
 
+/// Object Selection with Hard Edge off: `region` with a softer rim. A 3x3 tent (1-2-1 each way)
+/// turns a hard edge into a two-pixel ramp, about 75% just inside and 25% just outside it, so the
+/// result is one pixel wider on each side. Pixels past `canvas` repeat the canvas edge, so an
+/// object that touches the document border stays fully selected there.
+fn soften_edge(region: &Region, canvas: Rect) -> Region {
+    let src = region.bbox;
+    let bbox = Rect::new(src.x0.saturating_sub(1), src.y0.saturating_sub(1), src.x1.saturating_add(1), src.y1.saturating_add(1)).intersect(&canvas);
+    if bbox.is_empty() || src.is_empty() {
+        return region.clone();
+    }
+    let (sw, sh) = (src.width() as usize, src.height() as usize);
+    let at = |x: i32, y: i32| -> u32 {
+        let (x, y) = (x.clamp(canvas.x0, canvas.x1 - 1), y.clamp(canvas.y0, canvas.y1 - 1));
+        if !src.contains(x, y) {
+            return 0;
+        }
+        let (cx, cy) = (x.abs_diff(src.x0) as usize, y.abs_diff(src.y0) as usize);
+        if cx >= sw || cy >= sh {
+            return 0;
+        }
+        region.mask.get(cy * sw + cx).copied().map_or(0, u32::from)
+    };
+    let (w, h) = (bbox.width() as usize, bbox.height() as usize);
+    // Horizontal pass over the rows the vertical pass reads: one above and one below the box.
+    let mut tmp = vec![0u32; w * (h + 2)];
+    for (y, row) in (bbox.y0.saturating_sub(1)..).zip(tmp.chunks_exact_mut(w)) {
+        for (x, t) in (bbox.x0..).zip(row.iter_mut()) {
+            *t = at(x.saturating_sub(1), y) + 2 * at(x, y) + at(x.saturating_add(1), y);
+        }
+    }
+    let mut mask = Vec::with_capacity(w * h);
+    for win in tmp.chunks_exact(w).collect::<Vec<_>>().windows(3) {
+        if let [above, mid, below] = win {
+            mask.extend(above.iter().zip(mid.iter()).zip(below.iter()).map(|((a, m), b)| ((a + 2 * m + b + 8) / 16).min(255) as u8));
+        }
+    }
+    Region { bbox, mask }
+}
+
 fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
+    // `"hardEdge"` (default on): off, the found object gets `soften_edge`'s rim.
+    let hard = b(p, "hardEdge", true);
     // local-image: click mode (`"point": [x, y]`): the object under the click, from the learned
     // model. A background job (the model and the edge refinement take seconds on large images);
     // repeated clicks on the same pixels reuse the model's map.
@@ -203,6 +244,7 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
         let all = b(p, "sampleAllLayers", false);
         let m = mode(p, "replace");
         let (doc, layer) = snapshot(s)?;
+        let canvas = doc.bounds();
         let (x, y) = (x.floor() as i32, y.floor() as i32);
         return crate::jobs::run(
             s,
@@ -212,19 +254,24 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
                 ctx.report(0.0, "Selecting object");
                 learned(&doc, layer, all, ctx, |doc, layer| crate::seg::object_at_with(&model, doc, layer, all, x, y, ctx.cancel_flag()))
             },
-            move |s, region| apply(s, "Object Selection", region, m),
+            move |s, region| apply(s, "Object Selection", region.map(|r| if hard { r } else { soften_edge(&r, canvas) }), m),
         );
     }
     let rect = rect_param(p).ok_or_else(|| bad("select.object", "needs \"rect\": [x, y, w, h] or \"point\": [x, y]"))?;
     check_object_pixels(s, b(p, "sampleAllLayers", false), rect)?;
-    let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| grabcut::object_select(smp, doc.bounds(), rect, 160_000))?;
+    let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
+        let found = grabcut::object_select(smp, doc.bounds(), rect, 160_000);
+        if hard { found } else { found.map(|r| soften_edge(&r, doc.bounds())) }
+    })?;
     apply(s, "Object Selection", region, mode(p, "replace"))
 }
 
 /// Select › Subject: a background job (the model, or the classical saliency + GrabCut, on the
-/// whole composite); the selection mode is applied to the selection when it finishes.
+/// selected layer's pixels, or the composite when no pixel layer is selected); the selection mode
+/// is applied to the selection when it finishes.
 fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
-    let all = b(p, "sampleAllLayers", true);
+    // The selected layer's pixels; the composite only when no pixel layer is selected.
+    let all = b(p, "sampleAllLayers", false);
     // local-image: the learned model when one is installed (`"engine": "auto|classic|learned"`).
     let model = if crate::seg::wanted(p).map_err(|m| bad("select.subject", &m))? { crate::seg::SubjectModel::current() } else { None };
     let m = mode(p, "replace");
@@ -371,7 +418,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.object",
             "Object Selection",
             [],
-            r##"{"rect":[x,y,w,h] | "point":[x,y] (click mode: the object under the point, needs a selection model),"mode":"replace|add|subtract|intersect"="replace","sampleAllLayers":bool=false}"##,
+            r##"{"rect":[x,y,w,h] | "point":[x,y] (click mode: the object under the point, needs a selection model),"mode":"replace|add|subtract|intersect"="replace","sampleAllLayers":bool=false,"hardEdge":bool=true (off: a softer rim, one pixel wider on each side)}"##,
             has_doc,
             object_selection
         ),
@@ -379,7 +426,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.subject",
             "Subject",
             ["Select"],
-            r##"{"sampleAllLayers":bool=true,"engine":"auto|classic|learned"="auto" (learned = the installed U²-Net/IS-Net model),"mode":"replace|add|subtract|intersect"="replace"}"##,
+            r##"{"sampleAllLayers":bool=false,"engine":"auto|classic|learned"="auto" (learned = the installed U²-Net/IS-Net model),"mode":"replace|add|subtract|intersect"="replace"} (samples the selected layer; the composite when no pixel layer is selected)"##,
             has_doc,
             select_subject
         ),
@@ -560,6 +607,23 @@ mod tests {
         assert!(s.active().unwrap().doc.selection.is_none());
     }
 
+    /// Select Subject looks at the selected layer only; with no layer selected it looks at the
+    /// whole image.
+    #[test]
+    fn select_subject_samples_the_selected_layer_else_the_composite() {
+        let (mut s, inside) = disc(8);
+        // A layer above holding only a small square in the corner: the disc is not on it.
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("paint.pencil", json!({"points": [[10, 10], [30, 10]], "size": 3, "color": "#000000"})).unwrap();
+        s.execute("select.subject", json!({})).unwrap();
+        assert!(cov(&s, 100, 80) < 0.5, "the disc on the layer below was selected");
+        s.execute("select.deselect", json!({})).unwrap();
+        // No layer selected: the whole image, so the disc is found.
+        s.execute("select.deselectLayers", json!({})).unwrap();
+        s.execute("select.subject", json!({})).unwrap();
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.9);
+    }
+
     /// A vertical Gaussian-blurred edge at x = 40 (warm left, cool right) with the left half selected.
     fn blurred_edge_selected() -> Session {
         let mut s = session_with(80, 40, 8, |x, _| {
@@ -640,8 +704,15 @@ mod tests {
     #[test]
     fn refine_edge_shift_and_contrast() {
         let mut s = blurred_edge_selected();
-        s.execute("select.refineEdge", json!({"shiftEdge": 100})).unwrap();
-        assert!(cov(&s, 42, 20) > 0.99);
+        // Shift Edge leaves a hard selection where it is (selected x < 40), at either end.
+        for shift in [100, -100] {
+            s.execute("select.refineEdge", json!({"shiftEdge": shift})).unwrap();
+            assert!(cov(&s, 39, 20) > 0.99 && cov(&s, 40, 20) < 0.01, "Shift Edge {shift}% moved a hard edge");
+            s.execute("edit.undo", json!({})).unwrap();
+        }
+        // A feathered one moves: -100% pulls its half-covered point inside the old edge.
+        s.execute("select.refineEdge", json!({"feather": 4, "shiftEdge": -100})).unwrap();
+        assert!(cov(&s, 37, 20) < 0.5 && cov(&s, 30, 20) > 0.99);
         s.execute("edit.undo", json!({})).unwrap();
         s.execute("select.refineEdge", json!({"feather": 8, "contrast": 100})).unwrap();
         assert!(cov(&s, 38, 20) == 1.0 && cov(&s, 42, 20) == 0.0);
@@ -894,7 +965,7 @@ mod tests {
         // Sample All Layers reads other pixels (the composite): its own map.
         run_job(&mut s, "select.object", json!({"point": [100, 80], "sampleAllLayers": true}));
         assert_eq!(mk.model.calls(), 2);
-        run_job(&mut s, "select.subject", json!({}));
+        run_job(&mut s, "select.subject", json!({"sampleAllLayers": true}));
         assert_eq!(mk.model.calls(), 2);
         // New pixels: the model runs again.
         s.edit("paint", |doc, _| {
@@ -939,5 +1010,153 @@ mod tests {
         assert!(s.active().unwrap().doc.selection.is_none());
         let r = s.execute("select.subject", json!({"engine": "classic"})).unwrap();
         assert_eq!(r["selected"], true);
+    }
+
+    // Object Selection › Hard Edge
+
+    const OBJ_W: i32 = 200;
+    const OBJ_H: i32 = 160;
+
+    /// A red rectangle (60..140 × 50..110) on blue.
+    fn red_rect(depth: u32) -> Session {
+        session_with(
+            OBJ_W as u32,
+            OBJ_H as u32,
+            depth,
+            |x, y| {
+                if (60..140).contains(&x) && (50..110).contains(&y) { [0.86, 0.12, 0.12] } else { [0.12, 0.12, 0.86] }
+            },
+        )
+    }
+
+    /// The selection as 8-bit coverage over the whole canvas, row by row.
+    fn sel(s: &Session) -> Vec<u8> {
+        (0..OBJ_H).flat_map(|y| (0..OBJ_W).map(move |x| (x, y))).map(|(x, y)| (cov(s, x, y) * 255.0).round() as u8).collect()
+    }
+
+    fn sel_bounds(s: &Session) -> Rect {
+        s.active().unwrap().doc.selection.as_ref().map_or(Rect::EMPTY, |m| m.content_bounds())
+    }
+
+    fn partial(m: &[u8]) -> usize {
+        m.iter().filter(|v| (1..255).contains(*v)).count()
+    }
+
+    /// The 1-2-1 by 1-2-1 tent over a whole-canvas mask, written out pixel by pixel; past the
+    /// canvas the border pixel repeats.
+    fn tent(m: &[u8]) -> Vec<u8> {
+        let at = |x: i32, y: i32| u32::from(m[(y.clamp(0, OBJ_H - 1) * OBJ_W + x.clamp(0, OBJ_W - 1)) as usize]);
+        let mut out = Vec::with_capacity(m.len());
+        for y in 0..OBJ_H {
+            for x in 0..OBJ_W {
+                let mut sum = 0;
+                for (dy, wy) in [(-1, 1), (0, 2), (1, 1)] {
+                    for (dx, wx) in [(-1, 1), (0, 2), (1, 1)] {
+                        sum += wy * wx * at(x + dx, y + dy);
+                    }
+                }
+                out.push(((sum + 8) / 16) as u8);
+            }
+        }
+        out
+    }
+
+    fn select_rect(depth: u32, params: Value) -> (Session, Value) {
+        let mut s = red_rect(depth);
+        let r = s.execute("select.object", params).unwrap();
+        (s, r)
+    }
+
+    #[test]
+    fn hard_edge_is_on_by_default_and_leaves_the_result_alone() {
+        let (plain, _) = select_rect(8, json!({"rect": [50, 40, 100, 80]}));
+        let (on, r) = select_rect(8, json!({"rect": [50, 40, 100, 80], "hardEdge": true}));
+        assert_eq!(r["changed"], true);
+        assert_eq!(sel(&plain), sel(&on));
+        assert_eq!(sel_bounds(&plain), sel_bounds(&on));
+    }
+
+    #[test]
+    fn hard_edge_off_gives_a_softer_wider_rim_at_each_depth() {
+        for depth in [8, 16, 32] {
+            let (hard, rh) = select_rect(depth, json!({"rect": [50, 40, 100, 80]}));
+            let (soft, r) = select_rect(depth, json!({"rect": [50, 40, 100, 80], "hardEdge": false}));
+            assert_eq!(r["changed"], true, "depth {depth}");
+            let (hb, sb) = (sel_bounds(&hard), sel_bounds(&soft));
+            assert_eq!(sb, Rect::new(hb.x0 - 1, hb.y0 - 1, hb.x1 + 1, hb.y1 + 1), "depth {depth}: one pixel wider on each side");
+            let at = |r: &Value, i: usize| r["bounds"][i].as_i64().unwrap();
+            assert_eq!([at(&r, 0), at(&r, 1), at(&r, 2), at(&r, 3)], [at(&rh, 0) - 1, at(&rh, 1) - 1, at(&rh, 2) + 2, at(&rh, 3) + 2], "depth {depth}");
+            assert!(partial(&sel(&soft)) > partial(&sel(&hard)), "depth {depth}: more partly selected pixels");
+            // Every pixel is the hard result under the tent: the rim ramps over the pixels on
+            // either side of the hard edge, the inside and the outside are untouched.
+            assert_eq!(sel(&soft), tent(&sel(&hard)), "depth {depth}");
+            assert!(cov(&soft, 100, 80) >= 0.99 && cov(&soft, 3, 3) == 0.0, "depth {depth}");
+        }
+    }
+
+    #[test]
+    fn a_wrong_type_hard_edge_is_the_default() {
+        let (plain, _) = select_rect(8, json!({"rect": [50, 40, 100, 80]}));
+        for v in [json!("false"), json!(0), json!(null), json!([false]), json!({"on": false})] {
+            let (s, r) = select_rect(8, json!({"rect": [50, 40, 100, 80], "hardEdge": v}));
+            assert_eq!(r["changed"], true, "hardEdge {v}");
+            assert_eq!(sel(&s), sel(&plain), "hardEdge {v}");
+        }
+    }
+
+    #[test]
+    fn hard_edge_off_softens_an_object_click_and_the_model_map_stays_as_found() {
+        let mk = mocked(None);
+        let (mut s, _) = disc(8);
+        run_job(&mut s, "select.object", json!({"point": [100, 80]}));
+        let hard = sel(&s);
+        run_job(&mut s, "select.object", json!({"point": [100, 80], "hardEdge": false}));
+        assert_eq!(sel(&s), tent(&hard));
+        // A soft click leaves no softened object behind for the next hard click.
+        run_job(&mut s, "select.object", json!({"point": [90, 70]}));
+        assert_eq!(sel(&s), hard);
+        assert_eq!(mk.model.calls(), 1);
+        // One history step each.
+        s.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(sel(&s), tent(&hard));
+    }
+
+    #[test]
+    fn soften_edge_ramps_inside_the_canvas_and_stays_full_at_its_border() {
+        let canvas = Rect::new(0, 0, 10, 10);
+        // A 4x4 block in the top-left corner: its left and top sides are the document's.
+        let r = soften_edge(&Region { bbox: Rect::new(0, 0, 4, 4), mask: vec![255; 16] }, canvas);
+        assert_eq!(r.bbox, Rect::new(0, 0, 5, 5));
+        assert_eq!(r.mask.len(), 25);
+        let at = |x: i32, y: i32| (r.at(x, y) * 255.0).round() as u8;
+        assert_eq!([at(0, 0), at(2, 0), at(3, 0), at(4, 0)], [255, 255, 191, 64], "the top row, along the border");
+        assert_eq!([at(0, 3), at(0, 4)], [191, 64], "the left column");
+        assert_eq!([at(3, 3), at(4, 4)], [143, 16], "the free corner");
+        // Away from the border the box grows on every side.
+        let r = soften_edge(&Region { bbox: Rect::new(4, 4, 6, 6), mask: vec![255; 4] }, canvas);
+        assert_eq!(r.bbox, Rect::new(3, 3, 7, 7));
+        assert_eq!(r.at(3, 3), r.at(6, 6));
+    }
+
+    #[test]
+    fn soften_edge_survives_odd_regions() {
+        let canvas = Rect::new(0, 0, 10, 10);
+        // Empty, outside the canvas, and a mask shorter than its box: no panic, nothing invented.
+        let empty = Region { bbox: Rect::new(3, 3, 3, 3), mask: Vec::new() };
+        assert_eq!(soften_edge(&empty, canvas), empty);
+        let outside = Region { bbox: Rect::new(20, 20, 24, 24), mask: vec![255; 16] };
+        assert_eq!(soften_edge(&outside, canvas), outside);
+        let short = soften_edge(&Region { bbox: Rect::new(2, 2, 6, 6), mask: vec![255; 3] }, canvas);
+        assert_eq!(short.mask.len(), 36);
+        assert_eq!(short.at(8, 8), 0.0);
+        let far = Region { bbox: Rect::new(i32::MAX - 2, i32::MAX - 2, i32::MAX, i32::MAX), mask: vec![255; 4] };
+        assert_eq!(soften_edge(&far, canvas), far);
+    }
+
+    #[test]
+    fn the_params_string_documents_hard_edge() {
+        let specs = specs();
+        let spec = specs.iter().find(|c| c.id == "select.object").unwrap();
+        assert!(spec.params.contains(r#""hardEdge":bool=true"#), "{}", spec.params);
     }
 }

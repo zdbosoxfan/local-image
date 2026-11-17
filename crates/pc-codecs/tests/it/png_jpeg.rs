@@ -220,3 +220,34 @@ fn pngsuite_corpus_matches_oracle() {
     eprintln!("pngsuite: {checked} files compared");
     assert!(checked > 100, "{}: only {checked} PNGs compared: run `cargo xtask corpus --all`", dir.display());
 }
+
+#[test]
+fn png_rows_come_in_groups_holding_exactly_the_decoded_samples() {
+    for sample in [SampleType::U8, SampleType::U16] {
+        let img = synth(37, 23, ChannelLayout::Rgba, sample, 5, 0.5);
+        let bytes = encode(&img, Format::Png, &EncodeOptions::default()).unwrap();
+        let want = decode(&bytes).unwrap();
+        let mut got = Vec::new();
+        let mut calls = 0;
+        let mut begin = |h: &PngHeader| -> Result<bool, CodecError> {
+            assert_eq!((h.width, h.height, h.layout, h.sample), (37, 23, want.layout(), want.sample_type()));
+            Ok(true)
+        };
+        let mut rows = |y0: u32, data: &[u8]| -> Result<(), CodecError> {
+            assert_eq!(y0 as usize * want.data().len() / 23, got.len(), "rows arrive in order");
+            got.extend_from_slice(data);
+            calls += 1;
+            Ok(())
+        };
+        let extras = decode_png_rows(&bytes, &DecodeOptions::default(), 8, &mut begin, &mut rows).unwrap();
+        assert!(extras.is_some(), "{sample:?}");
+        assert_eq!(calls, 3, "23 rows in groups of 8");
+        assert_eq!(got, want.data(), "{sample:?}");
+    }
+    // Adam7 rows don't come in final order: the caller decodes the whole image instead.
+    let img = synth(9, 7, ChannelLayout::Rgb, SampleType::U8, 6, 0.5);
+    let bytes = interlaced(&img);
+    let mut begin = |_: &PngHeader| -> Result<bool, CodecError> { panic!("no header for an interlaced PNG") };
+    let mut rows = |_: u32, _: &[u8]| -> Result<(), CodecError> { panic!("no rows for an interlaced PNG") };
+    assert!(decode_png_rows(&bytes, &DecodeOptions::default(), 8, &mut begin, &mut rows).unwrap().is_none());
+}

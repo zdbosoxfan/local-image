@@ -130,8 +130,8 @@ fn corners(r: [f64; 4]) -> [[f64; 2]; 4] {
     [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]
 }
 
-/// Start Free Transform on the active layer (or its selected pixels), or on the targeted unlinked
-/// layer mask, alpha channel or Quick Mask.
+/// Start Free Transform on the selected layers (or their selected pixels), or on the targeted
+/// unlinked layer mask, alpha channel or Quick Mask.
 pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String> {
     let target = crate::canvas::paint_target(app);
     let st = app.session.active().ok_or("no document")?;
@@ -140,12 +140,19 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     if let Some(surf) = lone {
         return begin_lone(app, ctx, doc, surf, target);
     }
-    let id = st.active_layer.ok_or("no active layer")?;
+    let active = st.active_layer.ok_or("no active layer")?;
+    // Several layers selected: one box moves them all, the Background left out (upstream #6501).
+    let targets = photocraft_engine::transform_cmds::selection_targets(st);
+    let ids = if targets.len() > 1 || doc.selection.is_some() { targets } else { photocraft_engine::layer_multi_cmds::move_targets(&doc, &targets) };
+    // One layer moving (the Background selected beside it stays put): the box is that layer's.
+    let id = match ids.as_slice() {
+        [only] => *only,
+        _ => active,
+    };
     let layer = doc.layer(id).ok_or("no layer")?;
     if matches!(layer.content, LayerContent::Adjustment(_)) && layer.mask.is_none() {
         return Err("Adjustment layers have nothing to transform".into());
     }
-    let ids = if doc.selection.is_none() { photocraft_engine::layer_multi_cmds::move_targets(&doc, &st.selected_layers()) } else { vec![id] };
     let b = ids
         .iter()
         .filter_map(|id| doc.layer(*id))
@@ -157,19 +164,39 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     crate::type_tool::commit(app);
     let rect = [b.x0 as f64, b.y0 as f64, b.x1 as f64, b.y1 as f64];
     let session = app.ui.alloc_id();
-    // Preview document: the moving pixels removed (layer hidden, or the selection lifted out).
+    // Preview document: the moving pixels removed (layers hidden, or the selection lifted out).
     let mut pd = (*doc).clone();
     let mut lifted = None;
-    if let Some(sel) = doc.selection.clone().filter(|_| !layer.is_group() && layer.surface().is_some()) {
-        if let Some(surf) = pd.layer_mut(id).and_then(|l| l.surface_mut()) {
-            let (l, rest) = photocraft_engine::transform_cmds::split_selected(surf, &sel);
-            *surf = rest;
-            lifted = Some(l);
+    // Several layers under a selection: each pixel layer's selected pixels; the rest move whole.
+    let mut parts = Vec::new();
+    match doc.selection.clone() {
+        Some(sel) if ids.len() > 1 => {
+            for &moving in &ids {
+                match pd.layer_mut(moving) {
+                    Some(l) if !photocraft_engine::transform_cmds::moves_whole(l) && l.surface().is_some() => {
+                        if let Some(surf) = l.surface_mut() {
+                            let (part, rest) = photocraft_engine::transform_cmds::split_selected(surf, &sel);
+                            *surf = rest;
+                            parts.push((moving, part));
+                        }
+                    }
+                    Some(l) => l.visible = false,
+                    None => {}
+                }
+            }
         }
-    } else {
-        for id in &ids {
-            if let Some(l) = pd.layer_mut(*id) {
-                l.visible = false;
+        Some(sel) if !layer.is_group() && layer.surface().is_some() => {
+            if let Some(surf) = pd.layer_mut(id).and_then(|l| l.surface_mut()) {
+                let (l, rest) = photocraft_engine::transform_cmds::split_selected(surf, &sel);
+                *surf = rest;
+                lifted = Some(l);
+            }
+        }
+        _ => {
+            for id in &ids {
+                if let Some(l) = pd.layer_mut(*id) {
+                    l.visible = false;
+                }
             }
         }
     }
@@ -177,7 +204,14 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     let max_side = ctx.input(|i| i.max_texture_side).max(app.gpu.as_ref().map_or(1, |g| g.max_texture_side()));
     let (image, uv) = if ids.len() > 1 {
         let mut solo = (*doc).clone();
-        let group = photocraft_doc::Layer::group("Transform selection", ids.iter().filter_map(|id| doc.layer(*id)).map(moving_preview_layer).collect());
+        let moving = ids.iter().filter_map(|id| doc.layer(*id)).map(|l| {
+            let mut shown = moving_preview_layer(l);
+            if let (Some((_, part)), Some(surf)) = (parts.iter().find(|(lifted_id, _)| *lifted_id == l.id), shown.surface_mut()) {
+                *surf = part.clone();
+            }
+            shown
+        });
+        let group = photocraft_doc::Layer::group("Transform selection", moving.collect());
         let group_id = group.id;
         solo.layers = vec![group];
         preview_image(&solo, group_id, None, b, max_side)
@@ -743,7 +777,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
             }
             let legacy = app.session.prefs().general.use_legacy_free_transform;
             if let (Some(g), Some(s)) = (g, app.ui.transform.as_mut()) {
-                apply_drag(s, g, [x, y], mode_mods(t.mode, g.hit, corner_mods(legacy, g.hit, mods)));
+                apply_mode_drag(s, g, [x, y], t.mode, corner_mods(legacy, g.hit, mods));
             }
         }
     }
@@ -760,10 +794,15 @@ fn corner_mods(legacy: bool, hit: Hit, mut mods: egui::Modifiers) -> egui::Modif
 }
 
 /// Skew / Distort / Perspective modes: a handle drag acts as if that gesture's keys were held
-/// (⌘-drag an edge skews, ⌘-drag a corner distorts, ⌘⌥⇧-drag a corner adds perspective).
+/// (⌘-drag an edge skews, ⌘-drag a corner distorts, ⌘⌥⇧-drag a corner adds perspective, and a
+/// Perspective side handle slides its edge along itself, ⌘⇧).
 fn mode_mods(mode: TransformMode, hit: Hit, mut mods: egui::Modifiers) -> egui::Modifiers {
     match (mode, hit) {
         (TransformMode::Skew, Hit::Edge(_)) | (TransformMode::Distort, Hit::Corner(_)) => mods.command = true,
+        (TransformMode::Perspective, Hit::Edge(_)) => {
+            mods.command = true;
+            mods.shift = true;
+        }
         (TransformMode::Perspective, Hit::Corner(_)) => {
             mods.command = true;
             mods.alt = true;
@@ -772,6 +811,48 @@ fn mode_mods(mode: TransformMode, hit: Hit, mut mods: egui::Modifiers) -> egui::
         _ => {}
     }
     mods
+}
+
+/// A handle drag in `mode`. A Perspective side handle slides its edge along itself and stops
+/// before the box folds over, which happens once the opposite edge isn't parallel.
+fn apply_mode_drag(s: &mut TransformSession, g: Gesture, p: [f64; 2], mode: TransformMode, mods: egui::Modifiers) {
+    apply_drag(s, g, p, mode_mods(mode, g.hit, mods));
+    if mode == TransformMode::Perspective && matches!(g.hit, Hit::Edge(_)) {
+        s.quad = keep_convex(g.quad0, s.quad);
+    }
+}
+
+/// The turn at each corner of a quad (cross products of consecutive edges): all the same sign
+/// for a convex quad, mixed for a concave or self-intersecting one.
+fn turns(q: &[[f64; 2]; 4]) -> [f64; 4] {
+    std::array::from_fn(|k| {
+        let (a, b, c) = (q[k], q[(k + 1) % 4], q[(k + 2) % 4]);
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+    })
+}
+
+/// Is `q` convex with the orientation `sign`, every corner turning by more than `min_turn`?
+fn convex(q: &[[f64; 2]; 4], sign: f64, min_turn: f64) -> bool {
+    turns(q).iter().all(|t| t * sign > min_turn)
+}
+
+/// Moves from `from` towards `to` as far as the quad stays convex. A box that is not convex to
+/// begin with is left free.
+fn keep_convex(from: [[f64; 2]; 4], to: [[f64; 2]; 4]) -> [[f64; 2]; 4] {
+    let t0 = turns(&from);
+    let sign = t0[0].signum();
+    // A thousandth of the starting box's smallest turn, so the stop is short of flat.
+    let min_turn = t0.iter().map(|t| t.abs()).fold(f64::INFINITY, f64::min) * 1e-3;
+    if !(min_turn.is_finite() && min_turn > 0.0 && convex(&from, sign, 0.0)) || convex(&to, sign, min_turn) {
+        return to;
+    }
+    let lerp = |t: f64| -> [[f64; 2]; 4] { std::array::from_fn(|k| [from[k][0] + (to[k][0] - from[k][0]) * t, from[k][1] + (to[k][1] - from[k][1]) * t]) };
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    for _ in 0..40 {
+        let mid = (lo + hi) / 2.0;
+        if convex(&lerp(mid), sign, min_turn) { lo = mid } else { hi = mid }
+    }
+    lerp(lo)
 }
 
 /// In Distort mode only corner drags (and moving the box from inside) do anything.
@@ -1978,6 +2059,41 @@ mod tests {
         assert_eq!(app.ui.transform.as_ref().unwrap().mode, TransformMode::Free);
     }
 
+    /// Perspective mode's side handles skew: the edge slides along itself and the opposite edge
+    /// stays, as in Photoshop, instead of scaling the box.
+    #[test]
+    fn perspective_mode_side_handles_slide_their_edge() {
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        app.ui.extras.snap = false;
+        let ctx = egui::Context::default();
+        crate::menus::invoke(&mut app, &ctx, "edit.transform.perspective", json!({})).unwrap();
+        let q0 = app.ui.transform.as_ref().unwrap().quad;
+        let top = [(q0[0][0] + q0[1][0]) / 2.0, q0[0][1]];
+        press_drag(&mut app, top, [top[0] + 6.0, top[1] + 9.0], egui::Modifiers::NONE);
+        let q = app.ui.transform.as_ref().unwrap().quad;
+        assert_eq!([q[0], q[1]], [[q0[0][0] + 6.0, q0[0][1]], [q0[1][0] + 6.0, q0[1][1]]], "the top edge slides along itself");
+        assert_eq!([q[2], q[3]], [q0[2], q0[3]], "the bottom edge stays");
+    }
+
+    /// A Perspective side handle on a box whose opposite edge isn't parallel stops before the
+    /// box folds over: a long slide along the top edge used to turn it concave.
+    #[test]
+    fn perspective_mode_edge_slide_stops_before_the_box_folds() {
+        let mut s = session();
+        s.quad = [[0.0, 0.0], [100.0, -20.0], [100.0, 70.0], [0.0, 50.0]];
+        let start = turns(&s.quad);
+        // Along the top edge, (5, -1), 100 steps the other way.
+        let g = Gesture { hit: Hit::Edge(0), start: [50.0, -10.0], quad0: s.quad, pivot0: s.pivot };
+        apply_mode_drag(&mut s, g, [-450.0, 90.0], TransformMode::Perspective, egui::Modifiers::NONE);
+        let q = s.quad;
+        assert!(turns(&q).iter().zip(start).all(|(t, t0)| t * t0.signum() > 0.0), "still convex: {q:?}");
+        assert!(q.iter().flatten().all(|v| v.is_finite()), "{q:?}");
+        assert_eq!((q[2], q[3]), (g.quad0[2], g.quad0[3]), "the other corners stay");
+        assert!(((q[0][0] - g.quad0[0][0]) + (q[0][1] - g.quad0[0][1]) * 5.0).abs() < 1e-9, "slid along the edge: {q:?}");
+        assert!([q[1][0] - q[0][0] - 100.0, q[1][1] - q[0][1] + 20.0].iter().all(|v| v.abs() < 1e-9), "{q:?}");
+        assert!(q[0][0] < -1.0, "it still slid: {q:?}");
+    }
+
     #[test]
     fn distort_past_a_neighbour_previews_and_commits_two_triangles() {
         let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
@@ -2339,6 +2455,30 @@ mod tests {
             assert_eq!(texel_alpha(&image, 2, 4), if linked { 0 } else { 255 });
             assert_eq!(texel_alpha(&image, 12, 4), 255);
         }
+    }
+
+    /// Upstream #6501: with a selection, the box over several layers lifts the selected pixels of
+    /// each pixel layer, not only the active one's.
+    #[test]
+    fn a_selection_lifts_pixels_from_every_selected_layer() {
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        let b = app.session.active().unwrap().active_layer.unwrap();
+        app.session
+            .edit("paint second", |doc, _| {
+                doc.layer_mut(b).unwrap().surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(32, 8, 40, 16), &[0., 1., 0., 1.]);
+                Ok(())
+            })
+            .unwrap();
+        app.run("layer.select", json!({"layer":a.0,"mode":"add"})).unwrap();
+        app.run("select.rect", json!({"x": 0, "y": 0, "width": 36, "height": 64})).unwrap();
+        begin(&mut app, &egui::Context::default()).unwrap();
+        let pv = app.transform_preview.as_ref().unwrap();
+        assert_eq!(pv.layers, vec![a.0, b.0]);
+        let under = |id: LayerId, x: i32| pv.doc.layer(id).unwrap().surface().unwrap().pixel(x, 10)[3];
+        assert_eq!((under(a, 10), under(b, 33)), (0.0, 0.0), "the selected pixels of both layers are lifted");
+        assert_eq!(under(b, 38), 1.0, "the unselected part stays");
     }
 
     /// A smart object clipped to the layer under it previewed as nothing while the box was open

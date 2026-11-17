@@ -132,24 +132,22 @@ fn background_output_new_layer() {
 }
 
 #[test]
-fn background_output_validates_before_either_engine_runs() {
+fn background_output_validates_before_the_engine_runs() {
     assert_eq!(BackgroundOutput::from_params(&json!({}), CMD).unwrap(), BackgroundOutput::Mask);
     assert_eq!(BackgroundOutput::from_params(&json!({"output":"blur"}), CMD).unwrap(), BackgroundOutput::Blur(12.0));
     assert_eq!(BackgroundOutput::from_params(&json!({"output":"color", "color":"#336699"}), CMD).unwrap(), BackgroundOutput::Color([0.2, 0.4, 0.6, 1.0]));
-    for cmd in [CMD, "ai.removeBackground"] {
-        for p in [
-            json!({"output":null}),
-            json!({"output":"unknown"}),
-            json!({"output":"color"}),
-            json!({"output":"color", "color":[0.0,"bad",1.0]}),
-            json!({"output":"blur","amount":-1}),
-            json!({"output":"blur","amount":1001}),
-        ] {
-            let (mut s, _, _) = scene();
-            let before = s.active().unwrap().doc.clone();
-            assert!(matches!(s.execute(cmd, p), Err(EngineError::BadParams { .. })), "{cmd}");
-            assert_eq!(s.active().unwrap().doc, before);
-        }
+    for p in [
+        json!({"output":null}),
+        json!({"output":"unknown"}),
+        json!({"output":"color"}),
+        json!({"output":"color", "color":[0.0,"bad",1.0]}),
+        json!({"output":"blur","amount":-1}),
+        json!({"output":"blur","amount":1001}),
+    ] {
+        let (mut s, _, _) = scene();
+        let before = s.active().unwrap().doc.clone();
+        assert!(matches!(s.execute(CMD, p), Err(EngineError::BadParams { .. })));
+        assert_eq!(s.active().unwrap().doc, before);
     }
 }
 

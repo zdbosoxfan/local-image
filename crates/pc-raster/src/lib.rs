@@ -717,6 +717,30 @@ impl Surface {
         }
     }
 
+    /// Fallible counterpart to [`Surface::write_interleaved`]: a tile that cannot be allocated,
+    /// or bytes that do not cover `r`, give an error instead of an abort. A failure can leave
+    /// earlier tiles written.
+    pub fn try_write_interleaved(&mut self, r: Rect, bytes: &[u8]) -> Result<(), AllocationError> {
+        let bpp = self.format.bytes_per_pixel();
+        let w = r.width() as usize;
+        let expected = w.checked_mul(r.height() as usize).and_then(|v| v.checked_mul(bpp)).ok_or(AllocationError::SizeOverflow)?;
+        if bytes.len() != expected {
+            return Err(AllocationError::SizeOverflow);
+        }
+        for tc in r.tiles() {
+            let tr = tc.rect().intersect(&r);
+            let t = self.try_tile_mut(tc)?;
+            let span = tr.width() as usize * bpp;
+            for y in tr.y0..tr.y1 {
+                let src = (((y - r.y0) as usize) * w + (tr.x0 - r.x0) as usize) * bpp;
+                let dst = (((y - tc.ty * TILE_SIZE) as usize) * TILE_SIZE as usize + (tr.x0 - tc.tx * TILE_SIZE) as usize) * bpp;
+                let (Some(d), Some(s)) = (t.data.get_mut(dst..dst + span), bytes.get(src..src + span)) else { return Err(AllocationError::SizeOverflow) };
+                d.copy_from_slice(s);
+            }
+        }
+        Ok(())
+    }
+
     /// Read `r` as interleaved encoded bytes in the surface's format.
     pub fn to_interleaved(&self, r: Rect) -> Vec<u8> {
         let bpp = self.format.bytes_per_pixel();

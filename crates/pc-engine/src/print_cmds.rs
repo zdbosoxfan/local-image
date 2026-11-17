@@ -206,7 +206,7 @@ pub fn print_pdf(page: &PrintPage) -> Vec<u8> {
 
 /// The flattened, colour-handled document as 8-bit samples in its print colour space.
 fn print_image(doc: &Document, p: &Value, cmd: &str) -> Result<(PrintImage, Value)> {
-    let projected = crate::vector_integration::project_document(doc)?;
+    let projected = crate::vector_integration::project_for_output(doc)?;
     let doc = &projected;
     let mut t = Session::new();
     t.add_document(doc.clone(), None);
@@ -422,12 +422,28 @@ fn package(s: &mut Session, p: &Value) -> Result<Value> {
     for (_, _, l) in doc.walk() {
         let LayerContent::Smart(so) = &l.content else { continue };
         let SmartSource::Linked { path } = &so.source else { continue };
+        if missing.contains(path) {
+            continue;
+        }
         let target = match copied.iter().find(|(src, _)| src == path) {
             Some((_, t)) => t.clone(),
             None => {
-                let mut fname = file_name(path);
-                if copied.iter().any(|(_, t)| file_name(t) == fname) {
-                    fname = format!("{}-{}", copied.len(), fname);
+                let base = file_name(path);
+                let taken = |name: &str| {
+                    copied.iter().any(|(_, target)| file_name(target).to_lowercase() == name.to_lowercase())
+                        || std::path::Path::new(&join(&links_dir, name)).exists()
+                        || std::fs::read_dir(&links_dir)
+                            .ok()
+                            .into_iter()
+                            .flatten()
+                            .flatten()
+                            .any(|entry| entry.file_name().to_string_lossy().to_lowercase() == name.to_lowercase())
+                };
+                let mut fname = base.clone();
+                let mut count = copied.len();
+                while taken(&fname) {
+                    fname = format!("{count}-{base}");
+                    count += 1;
                 }
                 let t = join(&links_dir, &fname);
                 match read_file(path).ok().filter(|bytes| crate::file_cmds::import(&fname, bytes).is_ok()) {
@@ -458,6 +474,12 @@ fn package(s: &mut Session, p: &Value) -> Result<Value> {
 
 // Paths to Illustrator
 
+/// `s` with line terminators and other control characters replaced by spaces, so a name stays
+/// inside its one PostScript comment line instead of ending it and adding instructions.
+fn ps_comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
+}
+
 /// The document's paths as an Illustrator 3 PostScript file. `which`: "all", "work" or a path
 /// name. Coordinates are points (pixels at the document resolution), y up.
 pub fn paths_to_ai(doc: &Document, which: &str) -> Result<(String, usize)> {
@@ -477,7 +499,7 @@ pub fn paths_to_ai(doc: &Document, which: &str) -> Result<(String, usize)> {
     }
     let mut s = String::new();
     s.push_str("%!PS-Adobe-2.0 EPSF-1.2\n%%Creator: PhotoCraft\n");
-    s.push_str(&format!("%%Title: ({})\n", doc.name.replace([')', '('], "_")));
+    s.push_str(&format!("%%Title: ({})\n", ps_comment_text(&doc.name).replace([')', '('], "_")));
     s.push_str(&format!(
         "%%BoundingBox: 0 0 {} {}\n%%HiResBoundingBox: 0 0 {w:.4} {h:.4}\n%AI3_Cropmarks: 0 0 {w:.4} {h:.4}\n",
         w.ceil() as i64,
@@ -492,7 +514,7 @@ pub fn paths_to_ai(doc: &Document, which: &str) -> Result<(String, usize)> {
             continue;
         }
         n += 1;
-        s.push_str(&format!("%%Note: {name}\n"));
+        s.push_str(&format!("%%Note: {}\n", ps_comment_text(name)));
         let compound = subs.len() > 1;
         if compound {
             s.push_str("*u\n");

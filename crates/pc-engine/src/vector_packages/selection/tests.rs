@@ -220,6 +220,42 @@ fn selection_lasso_compound_hole_is_not_bounds_hit() {
     let mut s = session(vec![donut]);
     assert!(select(&mut s, Query::Lasso { points: vec![[40., 40.], [60., 40.], [60., 60.], [40., 60.]], nodes: false }).layers.is_empty());
 }
+/// Every segment meets the centre, so their bounds all overlap past the sweep limit.
+fn crowded() -> Layer {
+    let mut points = vec![(16., 16.)];
+    for i in 0..2048 {
+        let angle = std::f64::consts::TAU * f64::from(i) / 2048.;
+        points.extend([(16. + 10. * angle.cos(), 16. + 10. * angle.sin()), (16., 16.)]);
+    }
+    let mut crowded = shape("crowded", 0., Color::BLACK);
+    let LayerContent::Shape(sh) = &mut crowded.content else { panic!() };
+    sh.path = Path::new(vec![Subpath::polygon(&points)]);
+    crowded
+}
+#[test]
+fn a_path_over_the_budget_leaves_hits_and_lassos_on_the_other_layers_working() {
+    let behind = shape("behind", 40., Color::BLACK);
+    let behind_id = behind.id;
+    let mut s = session(vec![behind, crowded()]);
+    let readers = Readers::default();
+    let doc = s.active().unwrap().doc.clone();
+
+    assert_eq!(hit(&doc, &Scope::default(), [45., 15.], 0., readers).unwrap(), Some(behind_id));
+    let lassoed = select(&mut s, Query::Lasso { points: vec![[42., 12.], [48., 12.], [48., 18.], [42., 18.]], nodes: false });
+    assert_eq!(lassoed.layers, vec![behind_id]);
+}
+#[test]
+fn a_lasso_gesture_asks_an_over_budget_path_once() {
+    let mut s = session(vec![crowded()]);
+    let watch = photocraft_pathops::RefusalWatch::begin();
+
+    // The canvas repeats the query every frame of the drag, and again on release.
+    for _ in 0..3 {
+        assert!(select(&mut s, Query::Lasso { points: vec![[42., 12.], [48., 12.], [48., 18.], [42., 18.]], nodes: false }).layers.is_empty());
+    }
+
+    assert_eq!(watch.refusals(), 1);
+}
 #[test]
 fn selection_node_lasso_across_selected_curves_and_boundary() {
     let a = shape("a", 0., Color::BLACK);

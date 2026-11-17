@@ -77,7 +77,7 @@
 	File Info…	Info File…
 	Print…	Cetak…
 	Print One Copy	Cetak Satu Salinan
-	Exit	Keluar
+	Quit Local Image	Keluar dari Local Image
 	Undo	Urungkan
 	Redo	Ulangi
 	Toggle Last State	Alihkan Status Terakhir
@@ -2575,7 +2575,6 @@ cameraRaw	Blending	Pembauran
 	Remove Background (AI)	Hapus Latar Belakang (AI)
 	Remove Backgrounds (AI)…	Hapus Latar Belakang (AI)…
 	Set Up AI…	Siapkan AI…
-	Subject (AI)	Subjek (AI)
 	The AI engine isn't running.	Mesin AI tidak berjalan.
 	Contextual task bar	Bilah tugas kontekstual
 	Tool presets	Preset alat
@@ -2678,7 +2677,6 @@ cameraRaw	Blending	Pembauran
 	Could not save settings: {error}	Tidak dapat menyimpan pengaturan: {error}
 	Couldn't save: {error}	Tidak dapat menyimpan: {error}
 	Couldn't update profiles: {error}	Tidak dapat memperbarui profil: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Memotong subjek setiap gambar dengan Qwen Image 2.1 dan menyimpan PNG. Berkas asli tidak pernah diubah.
 	Delete from Library	Hapus dari Pustaka
 	Describe details to add (optional)…	Jelaskan detail yang ingin ditambahkan (opsional)…
 	Describe the change, e.g. “make it golden hour”…	Jelaskan perubahannya, mis. “jadikan golden hour”…
@@ -2739,7 +2737,6 @@ cameraRaw	Blending	Pembauran
 	Installation:	Instalasi:
 	Installed	Terpasang
 	Keep	Pertahankan
-	Keep… (optional)	Pertahankan… (opsional)
 	Licence	Lisensi
 	Licence gate	Perlu lisensi
 	Licence: see its page	Lisensi: lihat halamannya
@@ -2784,8 +2781,6 @@ cameraRaw	Blending	Pembauran
 	Precision	Presisi
 	Preset name	Nama preset
 	Previous image ({key})	Gambar sebelumnya ({key})
-	Qwen Compact	Qwen Ringkas
-	Qwen Full	Qwen Penuh
 	RESULTS	HASIL
 	Read the licence	Baca lisensi
 	Ready	Siap
@@ -2832,7 +2827,6 @@ cameraRaw	Blending	Pembauran
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Mulai mesin AI terlebih dahulu: Local Image memeriksa apa yang sudah dimiliki ComfyUI. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Mulai mesin AI untuk melihat memori GPU Anda; menampilkan yang muat di 8 GB.
 	Starting ComfyUI… (the first start can take a minute)	Memulai ComfyUI… (mulai pertama kali bisa memakan waktu satu menit)
-	Starting image · {n}/{max}	Gambar awal · {n}/{max}
 	Starting {name}…	Memulai {name}…
 	Steps	Langkah
 	Stopped	Dihentikan
@@ -2850,7 +2844,6 @@ cameraRaw	Blending	Pembauran
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Alur kerja tidak memiliki node berjudul li:prompt, li:image, li:mask, li:seed, atau li:output, sehingga Local Image tidak dapat mengisinya. Ganti nama node di ComfyUI lalu ekspor lagi.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Token memungkinkan Penjelajah Model mengunduh model yang dibatasi atau yang memerlukan masuk. Token hanya dikirim ke situsnya sendiri.
 	Transparent PNG	PNG transparan
-	Transparent background	Latar belakang transparan
 	Trending	Tren
 	Trending this week	Tren minggu ini
 	Unknown family	Keluarga tidak dikenal
@@ -2861,7 +2854,6 @@ cameraRaw	Blending	Pembauran
 	Upscale {scale}×	Perbesar {scale}×
 	Use	Gunakan
 	Use as Reference	Gunakan sebagai Referensi
-	Variation strength	Kekuatan variasi
 	Waiting	Menunggu
 	What should appear in the selection…	Apa yang harus muncul di seleksi…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Dengan kunci API Anda sendiri, Buat juga dapat memakai model cloud (muncul di bagian Cloud pada pemilih model). Prompt dan gambar Anda lalu dikirim dari komputer ini ke penyedia tersebut dan ditagihkan ke akun Anda; tidak ada data lain yang dikirim ke mana pun.
@@ -2895,12 +2887,9 @@ cameraRaw	Blending	Pembauran
 	{size} · runs on the CPU · {licence}	{size} · berjalan di CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: offline, menampilkan hasil dari {when}
 	{source}: the catalogue couldn't be read	{source}: katalog tidak dapat dibaca
-	{why} Qwen Image 2.1 runs these.	{why} Fitur ini dijalankan oleh Qwen Image 2.1.
 	Seed	Seed
 	Solid Color	Warna Solid
 	Strength	Kekuatan
-	Qwen AI · Compact	Qwen AI · Ringkas
-	Qwen AI · Full	Qwen AI · Penuh
 	Standard (CPU)	Standar (CPU)
 	Templates	Templat
 	Community	Komunitas
@@ -3029,6 +3018,8 @@ ai	New	Baru
 	Float Panel Group	Apungkan Grup Panel
 	Save and Return to Library	Simpan dan Kembali ke Pustaka
 	Added your new Develop edits as layer {name}	Hasil edit Kembangkan baru Anda ditambahkan sebagai layer {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Pangkasan atau ukuran foto berubah di Kembangkan, jadi {name} tidak diperbarui
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Layer-nya tidak akan lagi sejajar dengan foto baru, jadi foto tetap seperti semula.
 	Open the Library to save into it	Buka Pustaka untuk menyimpan ke dalamnya
 	The layers below are unchanged; hide or delete the new layer to go back.	Layer di bawahnya tidak berubah; sembunyikan atau hapus layer baru untuk kembali.
 # Attributions page (li-attributions)
@@ -3891,7 +3882,10 @@ ai	New	Baru
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	Semua pintasan dalam profil ini telah diatur ulang ke nilai default.
 	Editor	Editor
-	Library + Develop	Pustaka + Pengembangan
+	Library & Develop	Pustaka & Pengembangan
+	Library General	Pustaka: Umum
+	Library Performance	Pustaka: Performa
+	Library Interface	Pustaka: Antarmuka
 	Scope	Cakupan
 	Colour	Warna
 	Monochrome (default)	Monokrom (default)
@@ -3908,3 +3902,29 @@ ai	New	Baru
 	GPU Memory (MB, 0 = Automatic)	Memori GPU (MB, 0 = Otomatis)
 	{path} was saved over	{path} telah ditimpa
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	"{doc}" tidak lagi terkait dengan file dan ditandai belum disimpan: simpan dengan nama baru untuk mempertahankannya.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Gabungan
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Campuran abu-abu yang menyebarkan nada gambar
+	File Type	Jenis File
+	Save as JPEG	Simpan sebagai JPEG
+	Save as PSD	Simpan sebagai PSD
+	Save as TIFF	Simpan sebagai TIFF
+	Convert Profile to sRGB	Konversi Profil ke sRGB
+	LZW Compression	Kompresi LZW
+	Resize to Fit	Ubah Ukuran agar Pas
+	Run	Jalankan
+	You must save to at least one file type.	Anda harus menyimpan ke setidaknya satu jenis file.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Entri angka tidak valid. Diperlukan nilai antara 1 dan 12. Nilai sebelumnya dikembalikan.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Entri angka tidak valid. Diperlukan nilai antara 1 dan 30000. Nilai sebelumnya dikembalikan.
+	A value between 1 and 12 is required. Closest value inserted.	Diperlukan nilai antara 1 dan 12. Nilai terdekat dimasukkan.
+	A value between 1 and 30000 is required. Closest value inserted.	Diperlukan nilai antara 1 dan 30000. Nilai terdekat dimasukkan.
+	Image Compression	Kompresi Gambar
+	Save Image Pyramid	Simpan Piramida Gambar
+	Save Transparency	Simpan Transparansi
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Buka sebagai Smart Object…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	Tepi Keras
+	Last folder	Folder terakhir

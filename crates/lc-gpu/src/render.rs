@@ -1104,6 +1104,11 @@ pub fn render(
         let buf = gpu.buffer(n);
         map(&mut cx, "sharp_preview", n, &[w as u32, h as u32, k.mask_t.to_bits(), k.edge_k.to_bits()], [Some(b2), None, None], &buf);
         Some(Ok(buf))
+    } else if req.overlay == lightcraft_pipeline::Overlay::SharpenDetail {
+        let (b1, b2) = prep.sharp.as_ref().map_or((&prep.log_l, &prep.log_l), |(b1, b2, _)| (b1, b2));
+        let buf = gpu.buffer(n);
+        map(&mut cx, "sharp_detail_preview", n, &[fp.sharp_detail.to_bits()], [Some(&prep.log_l), Some(b1), Some(b2)], &buf);
+        Some(Ok(buf))
     } else {
         req.overlay.mask(s).filter(|m| lightcraft_pipeline::masks::scalar_alpha(m).is_none()).map(|m| {
             let list = s.masks.iter().filter(|m| m.visible && !m.components.is_empty());
@@ -1622,7 +1627,7 @@ fn masks_impl(
         let mut first = true;
         for comp in &m.components {
             let op = match comp.op {
-                _ if first && comp.op != MaskOp::Intersect => 0u32,
+                _ if first => 0u32,
                 MaskOp::Add => 1,
                 MaskOp::Subtract => 2,
                 MaskOp::Intersect => 3,
@@ -1694,7 +1699,18 @@ fn masks_impl(
                     Some(5)
                 }
                 MaskShape::Brush { strokes } => {
-                    let dabs: Vec<_> = strokes.iter().map(|st| lightcraft_pipeline::masks::brush_dabs(st, frame, w, h)).collect();
+                    // The kernel takes at most MAX_DABS across the whole mask, so no more than that
+                    // (plus one, to tell "at it" from "past it") is ever built: each stroke could
+                    // otherwise construct two million dabs before the sum below rejects them all.
+                    let mut room = MAX_DABS + 1;
+                    let dabs: Vec<_> = strokes
+                        .iter()
+                        .map(|st| {
+                            let d = lightcraft_pipeline::masks::brush_dabs_within(st, frame, w, h, room);
+                            room -= d.dabs.len().min(room);
+                            d
+                        })
+                        .collect();
                     if dabs.iter().map(|d| d.dabs.len()).sum::<usize>() > MAX_DABS {
                         None
                     } else if dabs.iter().any(|d| d.auto) {
@@ -2441,6 +2457,12 @@ fn render_stack(
         let k = lightcraft_pipeline::detail::SharpK::new(0.0, (original.detail.sharpen_masking / 100.0) as f32, sigma);
         let out = cx.gpu.buffer(n);
         map(cx, "sharp_preview", n, &[w as u32, h as u32, k.mask_t.to_bits(), k.edge_k.to_bits()], [Some(b2), None, None], &out);
+        overlay = Some(Arc::new(out));
+    } else if req.overlay == lightcraft_pipeline::Overlay::SharpenDetail {
+        let (b1, b2) = prep.sharp.as_ref().map_or((&prep.log_l, &prep.log_l), |(b1, b2, _)| (b1, b2));
+        let detail = (original.detail.sharpen_detail / 100.0).clamp(0.0, 1.0) as f32;
+        let out = cx.gpu.buffer(n);
+        map(cx, "sharp_detail_preview", n, &[detail.to_bits()], [Some(&prep.log_l), Some(b1), Some(b2)], &out);
         overlay = Some(Arc::new(out));
     }
     if let Some(m) = req.overlay.mask(original).filter(|m| lightcraft_pipeline::masks::scalar_alpha(m).is_none())

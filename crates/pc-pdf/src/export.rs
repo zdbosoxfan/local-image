@@ -12,8 +12,8 @@ use photocraft_doc::vector_design::exchange::{ExportScope, ExportedVector, Vecto
 use photocraft_doc::{BlendMode, Document, Fill, FillRule, Layer, LayerContent, LayerId, Path, ShapeLayer, ShapeStroke};
 use photocraft_export_common::validate::Preflight;
 use photocraft_export_common::{
-    Clipping, clipping_base_independent, clipping_end, clipping_source_eligible, closed_isolated_group, effect_margin, mask_allocation_bytes, normalized_fill,
-    painted_shapes, partial_backdrop_dependency, soft_mask_sampling_canvas,
+    Clipping, clipping_base_independent, clipping_end, clipping_source_eligible, closed_isolated_group, effect_margin, in_clipping_chain,
+    mask_allocation_bytes, normalized_fill, painted_shapes, partial_backdrop_dependency, path_error, soft_mask_sampling_canvas,
 };
 use photocraft_geom::Rect;
 use serde::{Deserialize, Serialize};
@@ -286,7 +286,7 @@ fn layer_bounds(layers: &[Layer], doc: &Document, cx: &mut ExportContext<'_>) ->
                     let r = if shape.stroke.as_ref().is_some_and(|s| s.width > 0.0) {
                         photocraft_vector::CompiledShape::new(&shape, 0.01, doc.bounds()).bounds()
                     } else if shape.fill.is_some() {
-                        let path = normalized_fill(&shape.path, doc.bounds())?;
+                        let path = normalized_fill(l, &shape.path, doc.bounds())?;
                         photocraft_pathops::bounds(&path)
                             .map_err(|e| invalid(e.to_string()))?
                             .map(|r| Rect::new(r.0.floor() as i32, r.1.floor() as i32, r.2.ceil() as i32, r.3.ceil() as i32))
@@ -357,7 +357,7 @@ fn prepare_caches(doc: &mut Document, cx: &mut ExportContext<'_>, opts: &ExportO
         for l in layers {
             check_cancel(cx)?;
             if let Some(clip) = l.vector.clip.take() {
-                let clip = normalized_fill(&clip, region)?;
+                let clip = normalized_fill(l, &clip, region)?;
                 let coverage = photocraft_vector::path_coverage(&clip, region);
                 let previous = photocraft_compose::masks::combined_mask(l, region);
                 let data = coverage
@@ -552,7 +552,7 @@ impl Writer<'_, '_, '_> {
             if base.visible && base.opacity > 0.0 {
                 if clipped.iter().any(|l| l.visible && l.opacity > 0.0) {
                     if let Some(source) = self.clipping_source(base, clipped)? {
-                        self.layers_plain(s, std::slice::from_ref(&source), depth)?;
+                        in_clipping_chain(base, || self.layers_plain(s, std::slice::from_ref(&source), depth))?;
                     } else {
                         self.warn("clipping chain", "This isolated clipping chain was embedded as an image; unrelated artwork remains vector.");
                         let rect = layer_bounds(std::slice::from_ref(base), self.doc, self.cx)?.intersect(&self.rect);
@@ -600,7 +600,7 @@ impl Writer<'_, '_, '_> {
                 || matches!(&l.content, LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::Isolated || g.isolation == photocraft_doc::GroupIsolation::Auto && (l.blend != BlendMode::PassThrough || l.fill_opacity < 1.0));
             let result = (|| {
                 if let Some(p) = &l.vector.clip {
-                    let clip = normalized_fill(p, self.rect)?;
+                    let clip = normalized_fill(l, p, self.rect)?;
                     if let Some(p) = pdf_path(&clip)? {
                         s.push_clip_path(&p, &rule(clip.fill_rule));
                         pushes += 1;
@@ -625,7 +625,7 @@ impl Writer<'_, '_, '_> {
                         s.push_opacity(norm(if m.path.inverted { 1.0 - m.density } else { 1.0 }));
                         pushes += 1;
                     } else {
-                        let p = normalized_fill(&m.path, self.rect)?;
+                        let p = normalized_fill(l, &m.path, self.rect)?;
                         if m.density == 1.0 {
                             if let Some(path) = pdf_path(&p)? {
                                 s.push_clip_path(&path, &rule(p.fill_rule));
@@ -670,7 +670,7 @@ impl Writer<'_, '_, '_> {
                     }
                     LayerContent::Shape(sh) => self.shape(s, l, sh),
                     LayerContent::Text(t) => self.text(s, t),
-                    LayerContent::Fill(f) => self.path_fill(s, &rect_path(self.doc.bounds()), f, 1.0),
+                    LayerContent::Fill(f) => self.path_fill(s, l, &rect_path(self.doc.bounds()), f, 1.0),
                     _ => Err(invalid("unhandled projected content")),
                 }
             })();
@@ -686,23 +686,23 @@ impl Writer<'_, '_, '_> {
             for i in &a.items {
                 check_cancel(self.cx)?;
                 match i {
-                    AppearanceItem::Fill(f) if f.visible => self.path_fill(s, &shape.path, &f.paint, f.opacity)?,
-                    AppearanceItem::Stroke(st) if st.visible => self.path_stroke(s, &shape.path, &st.base)?,
+                    AppearanceItem::Fill(f) if f.visible => self.path_fill(s, l, &shape.path, &f.paint, f.opacity)?,
+                    AppearanceItem::Stroke(st) if st.visible => self.path_stroke(s, l, &shape.path, &st.base)?,
                     _ => {}
                 }
             }
         } else {
             if let Some(f) = &shape.fill {
-                self.path_fill(s, &shape.path, f, 1.0)?;
+                self.path_fill(s, l, &shape.path, f, 1.0)?;
             }
             if let Some(st) = &shape.stroke {
-                self.path_stroke(s, &shape.path, st)?;
+                self.path_stroke(s, l, &shape.path, st)?;
             }
         }
         Ok(())
     }
-    fn path_fill(&mut self, s: &mut Surface<'_>, path: &Path, fill: &Fill, opacity: f32) -> Result<()> {
-        let p = normalized_fill(path, self.rect)?;
+    fn path_fill(&mut self, s: &mut Surface<'_>, layer: &Layer, path: &Path, fill: &Fill, opacity: f32) -> Result<()> {
+        let p = normalized_fill(layer, path, self.rect)?;
         let Some(pdf) = pdf_path(&p)? else {
             return Ok(());
         };
@@ -712,12 +712,12 @@ impl Writer<'_, '_, '_> {
         s.draw_path(&pdf);
         Ok(())
     }
-    fn path_stroke(&mut self, s: &mut Surface<'_>, path: &Path, st: &ShapeStroke) -> Result<()> {
+    fn path_stroke(&mut self, s: &mut Surface<'_>, layer: &Layer, path: &Path, st: &ShapeStroke) -> Result<()> {
         if st.width == 0.0 || st.opacity == 0.0 {
             return Ok(());
         }
         if st.align != photocraft_doc::StrokeAlign::Center && path.subpaths.iter().all(|s| s.closed) {
-            let p = photocraft_pathops::outline_stroke(path, st, 0.01).map_err(|e| invalid(e.to_string()))?;
+            let p = photocraft_pathops::outline_stroke(path, st, 0.01).map_err(|e| path_error(layer, e))?;
             let Some(pdf) = pdf_path(&p)? else {
                 return Ok(());
             };

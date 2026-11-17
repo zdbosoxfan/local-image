@@ -159,6 +159,11 @@ fn edt(inside: &[bool], w: usize, h: usize) -> Vec<f32> {
 /// [`edt`] plus the index of the nearest `inside` pixel.
 fn edt_nearest(inside: &[bool], w: usize, h: usize) -> (Vec<f32>, Vec<usize>) {
     const INF: f32 = 1e20;
+    // No pixels: the scratch below is sized from the larger dimension, which a zero-by-huge
+    // plane would still allocate.
+    if w == 0 || h == 0 {
+        return (vec![INF; inside.len()], vec![0; inside.len()]);
+    }
     let mut g: Vec<f32> = inside.iter().map(|&b| if b { 0.0 } else { INF }).collect();
     let mut near_row = vec![0usize; w * h];
     let mut nearest = vec![0usize; w * h];
@@ -393,6 +398,86 @@ pub fn glow_lut(g: &Glow) -> Option<Vec<f32>> {
     ranged_lut(&g.contour, g.range)
 }
 
+/// The coverage transfer a glow paints through (`glow_coverage` and the GPU's `MFinish` stage
+/// alike): [`glow_lut`], and for an outer glow with a custom contour, capped by the glow's reach.
+///
+/// The contour remaps the falloff only within the glow's reach. Through `glow_lut` alone, a
+/// contour that starts above 0 (Photoshop's flat "always 100 %" one) also lights every pixel the
+/// glow never reaches (coverage 0), out to the edge of the effect's rectangle. The transfer here
+/// is `min(contour(u), max(edge, u))`, with `u = min(v / range, 1)` what a Linear contour paints
+/// and `edge` how much of the pixel the reach covers (`glow_reach_edge`). So coverage 0 paints
+/// 0 for any contour, a high contour is solid up to the last pixel of the reach, which steps
+/// down, and a contour that stays under the falloff is unchanged. The reach does not depend on
+/// Range.
+///
+/// Inner glows keep `glow_lut`: their unreached pixels are the shape's interior, where
+/// Photoshop's behaviour with a high contour is unmeasured. `None` = identity.
+pub fn glow_paint_lut(g: &Glow, inner: bool) -> Option<Vec<f32>> {
+    let lut = glow_lut(g);
+    if inner || matches!(g.contour, Contour::Linear) {
+        return lut;
+    }
+    let lut = lut?;
+    let range = if g.range.is_finite() { g.range.clamp(0.01, 1.0) } else { 1.0 };
+    let per_coverage = glow_edge_per_coverage(g);
+    Some(
+        (0..GLOW_LUT_LEN)
+            .map(|k| {
+                let v = k as f32 / (GLOW_LUT_LEN - 1) as f32;
+                let linear = (v / range).min(1.0);
+                lut_at(&lut, v).min(glow_reach_edge(per_coverage, v).max(linear))
+            })
+            .collect(),
+    )
+}
+
+/// Entries in a glow's transfer table: the GPU's `lut` reads 4096, linearly interpolated, as
+/// [`lut_at`] does.
+const GLOW_LUT_LEN: usize = 4096;
+
+/// How much of a pixel of glow coverage `v` the glow's reach covers, 0..=1: 0 at and beyond the
+/// reach (coverage 0), else `per_coverage * v` up to 1.
+fn glow_reach_edge(per_coverage: f32, v: f32) -> f32 {
+    let v = if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) };
+    if v == 0.0 {
+        return 0.0;
+    }
+    let edge = per_coverage * v;
+    if edge.is_finite() { edge.clamp(0.0, 1.0) } else { 1.0 }
+}
+
+/// The slope of [`glow_reach_edge`]: 1 / the coverage at which the edge reaches 1, that coverage
+/// rounded down to a whole table step (at least one), so the knee lands on a table entry and the
+/// table interpolates the edge exactly.
+///
+/// - Precise: `v = 1 - (d - solid) / soft` reaches 0 at `d = size`, so the distance left to the
+///   reach's end is `soft * v`: the last pixel steps down by how far inside the reach it is.
+/// - Softer: coverage is a tent blur, where the same coverage means a different distance for a
+///   straight edge and a single pixel. The edge is full from [`softer_full_coverage`].
+fn glow_edge_per_coverage(g: &Glow) -> f32 {
+    let full = match g.technique {
+        GlowTechnique::Precise => 1.0 / (g.size - g.size * g.spread).max(1e-3),
+        GlowTechnique::Softer => softer_full_coverage(spread_split(g.size, g.spread).1),
+    };
+    let steps = (GLOW_LUT_LEN - 1) as f32;
+    // `max` also turns a NaN into the one-step minimum.
+    steps / (full * steps).floor().max(1.0)
+}
+
+/// The coverage the Softer blur of width `bw` (the tent [`blur`] runs, of radius `R` taps) gives
+/// one opaque pixel one pixel inside its reach along a row: `t[R - 1] * t[0]`. Every pixel within
+/// `R - 1` of an opaque pixel along a row or column has at least this coverage, so only the
+/// reach's outermost pixel is soft. 0 when the blur is a single tap (no falloff).
+fn softer_full_coverage(bw: f32) -> f32 {
+    let (r, t) = tent_kernel(bw);
+    if r < 1 {
+        return 0.0;
+    }
+    // The kernel is stored from `-R` to `R`: index `R` is its centre, `2R - 1` is tap `R - 1`.
+    let at = |i: i32| usize::try_from(i).ok().and_then(|i| t.get(i)).copied().unwrap_or(0.0);
+    at(r) * at(2 * r - 1)
+}
+
 /// A contour applied over a Range (`contour(min(v / range, 1))`); `None` = identity.
 pub fn ranged_lut(contour: &Contour, range: f32) -> Option<Vec<f32>> {
     let base = contour_lut(contour);
@@ -529,7 +614,11 @@ struct PreparedGradient {
 
 impl PreparedGradient {
     fn new(g: &Gradient) -> Self {
-        Self { color: g.stops.iter().map(|(p, c)| (*p, rgb(c))).collect(), opacity: g.opacity_stops.iter().map(|(p, a)| (*p, [*a; 3])).collect() }
+        let mut color: Vec<_> = g.stops.iter().map(|(p, c)| (*p, rgb(c))).collect();
+        color.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut opacity: Vec<_> = g.opacity_stops.iter().map(|(p, a)| (*p, [*a; 3])).collect();
+        opacity.sort_by(|a, b| a.0.total_cmp(&b.0));
+        Self { color, opacity }
     }
 
     fn sample(&self, t: f32) -> [f32; 4] {
@@ -547,13 +636,15 @@ fn sample_stops(stops: &[(f32, [f32; 3])], t: f32) -> [f32; 3] {
             if t <= stops[0].0 {
                 return stops[0].1;
             }
-            for w in stops.windows(2) {
-                if t <= w[1].0 {
-                    let k = if w[1].0 > w[0].0 { (t - w[0].0) / (w[1].0 - w[0].0) } else { 0.0 };
-                    return std::array::from_fn(|i| w[0].1[i] + (w[1].1[i] - w[0].1[i]) * k);
-                }
+            // Sorted in `new`: bisect rather than scan the stops for every covered pixel.
+            let j = stops.partition_point(|s| s.0 < t);
+            // j == 0 for a NaN position: the last stop, as a scan gave.
+            if j >= stops.len() || j == 0 {
+                return stops[stops.len() - 1].1;
             }
-            stops[stops.len() - 1].1
+            let (a, b) = (&stops[j - 1], &stops[j]);
+            let k = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
+            std::array::from_fn(|i| a.1[i] + (b.1[i] - a.1[i]) * k)
         }
     }
 }
@@ -646,7 +737,7 @@ fn glow_coverage(shape: &Map, g: &Glow, inner: bool, origin: (i32, i32), gate_on
             m
         }
     };
-    m = apply_lut(m, glow_lut(g));
+    m = apply_lut(m, glow_paint_lut(g, inner));
     if gate_only {
         return m;
     }
@@ -1547,7 +1638,8 @@ pub(crate) fn composite_with_effects_prepared(
             let i = ((y - rect.y0) as usize) * rect.width() as usize + (x - rect.x0) as usize;
             let a = before.px[i];
             let b = if x >= big.x0 && x < big.x1 && y >= big.y0 && y < big.y1 { work.px[((y - big.y0) as usize) * w + (x - big.x0) as usize] } else { a };
-            backdrop.px[i] = mix_premul(a, b, op);
+            // Dissolve chooses the finished layer or the backdrop; mixing by opacity grays it.
+            backdrop.px[i] = if layer.blend == BlendMode::Dissolve { if crate::dissolve_noise(x, y) < op { b } else { a } } else { mix_premul(a, b, op) };
         }
     }
 }
@@ -1676,6 +1768,24 @@ mod tests {
         assert!((d[2 * w + 6] - 3.0).abs() < 1e-6);
         assert!((d[0] - (9.0f32 + 4.0).sqrt()).abs() < 1e-5);
         assert!((d[4 * w + 5] - (4.0f32 + 4.0).sqrt()).abs() < 1e-5);
+    }
+
+    /// Stops stored out of order are sampled by position, not by their order in the file.
+    #[test]
+    fn unsorted_gradient_stops_are_sampled_by_position() {
+        let g = Gradient { stops: vec![(1.0, photocraft_color::Color::WHITE), (0.0, photocraft_color::Color::BLACK)], ..Gradient::default() };
+        let c = sample_gradient(&g, 0.5);
+        assert!(c[..3].iter().all(|v| (v - 0.5).abs() < 1e-4), "{c:?}");
+        assert_eq!(sample_gradient(&g, f32::NAN)[..3], [1.0; 3]);
+    }
+
+    /// A plane with no pixels sizes no scratch from its other dimension: one too large to
+    /// allocate at all still returns empty.
+    #[test]
+    fn an_empty_distance_transform_allocates_nothing() {
+        let (d, n) = edt_nearest(&[], 0, usize::MAX / 2);
+        assert!(d.is_empty() && n.is_empty());
+        assert!(edt(&[], usize::MAX / 2, 0).is_empty());
     }
 
     #[test]
@@ -1957,6 +2067,63 @@ mod tests {
         assert!((lut_at(&l, 0.25) - 0.5).abs() < 1e-3 && (lut_at(&l, 0.75) - 1.0).abs() < 1e-6);
         g.range = 1.0;
         assert!(glow_lut(&g).is_none());
+    }
+
+    /// A contour above 0 at its start (the flat "always 100 %" one, and one starting at 50 %) must
+    /// not light the pixels an outer glow never reaches, out to the effect's rectangle. Nothing
+    /// past the reach may paint: `size` px for Precise (Euclidean, a pixel's slack allowed for
+    /// the distance field's half-pixel origin), `size` px along each axis for Softer's tent.
+    #[test]
+    fn high_contour_outer_glow_stays_within_its_reach() {
+        let n = 60;
+        let mut shape = Map::new(n, n, 0.0);
+        for y in 20..40 {
+            for x in 20..40 {
+                shape.v[y * n + x] = 1.0;
+            }
+        }
+        // Centre-to-centre offset from a pixel to the nearest pixel of the square.
+        let off = |v: usize| if v < 20 { (20 - v) as f32 } else { v.saturating_sub(39) as f32 };
+        for points in [[(0.0, 1.0), (1.0, 1.0)], [(0.0, 0.5), (1.0, 1.0)]] {
+            for (technique, size) in
+                [(GlowTechnique::Precise, 4.0f32), (GlowTechnique::Precise, 10.0), (GlowTechnique::Softer, 4.0), (GlowTechnique::Softer, 10.0)]
+            {
+                let g = Glow {
+                    common: photocraft_doc::FxCommon::new(BlendMode::Normal, 1.0),
+                    paint: FxPaint::Color(photocraft_color::Color::BLACK),
+                    technique,
+                    spread: 0.0,
+                    size,
+                    contour: Contour::Custom {
+                        name: "custom".into(),
+                        points: points.iter().map(|&(input, output)| photocraft_doc::adjust::CurvePoint { input, output }).collect(),
+                    },
+                    anti_alias: false,
+                    range: 0.5,
+                    jitter: 0.0,
+                    noise: 0.0,
+                    source: GlowSource::Edge,
+                };
+                let m = glow_map(&shape, &g, false, (0, 0));
+                let mut lit = 0;
+                for y in 0..n {
+                    for x in 0..n {
+                        let (dx, dy) = (off(x), off(y));
+                        let beyond = match technique {
+                            GlowTechnique::Precise => dx.hypot(dy) > size + 1.0 + 1e-3,
+                            GlowTechnique::Softer => dx.max(dy) > size,
+                        };
+                        // The running-sum blur leaves residues far below any visible level.
+                        let v = m.v[y * n + x];
+                        assert!(!beyond || v < 1e-6, "{technique:?} size {size} {points:?}: ({x}, {y}) is beyond the reach but paints {v}");
+                        lit += usize::from(v >= 1e-6 && (dx, dy) != (0.0, 0.0));
+                    }
+                }
+                // The band, not the rectangle: 3200 pixels lie outside the square.
+                let band = ((20.0 + 2.0 * (size + 1.0)).powi(2) - 400.0) as usize;
+                assert!(lit > 0 && lit <= band, "{technique:?} size {size} {points:?}: {lit} glow pixels, the band holds at most {band}");
+            }
+        }
     }
 
     #[test]

@@ -13,6 +13,7 @@
 )]
 #![cfg_attr(test, expect(clippy::unused_result_ok, reason = "baseline 2026-10-25: unreviewed"))]
 
+mod auto_settings;
 mod color_icons;
 pub mod control;
 pub mod credits;
@@ -37,6 +38,7 @@ pub mod render;
 pub mod shortcuts;
 pub mod smart_sort_keys;
 pub mod smart_sort_task;
+pub mod space_hand;
 pub mod state;
 pub mod tasks;
 pub mod theme;
@@ -88,6 +90,8 @@ mod tests_slider_speed;
 #[cfg(test)]
 mod tests_smart_sort;
 #[cfg(test)]
+mod tests_space_hand;
+#[cfg(test)]
 mod tests_switch_library;
 #[cfg(test)]
 mod tests_unsaved;
@@ -109,8 +113,12 @@ pub type PngEncode = Box<dyn Fn(&li_raster::Rgba8) -> Vec<u8>>;
 pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Open a URL in the user's browser.
 pub type OpenUrlFn = Box<dyn FnMut(&str) -> Result<(), String>>;
-/// Open a file in an application (`app` = "" for the system's default one).
+/// Open a file in an application: `app` = "" for the host's own editor (Edit In), or
+/// [`SYSTEM_DEFAULT_APP`].
 pub type OpenWithFn = Box<dyn FnMut(&str, &str) -> Result<(), String>>;
+/// The `app` an [`OpenWithFn`] gets for the system's default application (After Export with no
+/// application given). It can't be typed as an application name.
+pub const SYSTEM_DEFAULT_APP: &str = "\0system-default";
 /// Something the host does with the session (web: back up or restore the library in browser
 /// storage); the work may finish asynchronously.
 pub type HostAction = Box<dyn FnMut(&mut Session) -> Result<Value, String>>;
@@ -197,8 +205,9 @@ pub struct LightcraftApp {
     pub open_shared_shortcuts: bool,
     /// The host owns the read-only update worker/window.
     pub open_shared_updates: bool,
-    /// Open the host's shared AI resource preferences from Library or Develop.
-    pub open_shared_ai: bool,
+    /// Open the host's shared AI preferences from Library or Develop, on this section
+    /// (`ai.connection`, `ai.tools`…).
+    pub open_shared_ai: Option<String>,
     /// Hosted Preferences request (legacy command/tab ids are unchanged).
     pub open_shared_preferences: Option<String>,
     /// Legacy language commands update the shared Interface preference when hosted.
@@ -245,6 +254,8 @@ pub struct LightcraftApp {
     pub widgets: Vec<(String, egui::Rect)>,
     /// In-progress on-canvas gesture (brush stroke points, gradient drag…).
     pub gesture: Option<panels::detail::Gesture>,
+    /// Space is held over a tool on the photo: the view's hand has the pointer ([`space_hand`]).
+    pub space_hand: Option<space_hand::SpaceHand>,
     /// What the loupe drew last frame: photo and source ("render", "cached", "embedded", "small",
     /// "thumb", "none").
     pub loupe_shown: Option<(lightcraft_catalog::PhotoId, &'static str)>,
@@ -330,7 +341,7 @@ impl LightcraftApp {
             shared_shortcuts: false,
             open_shared_shortcuts: false,
             open_shared_updates: false,
-            open_shared_ai: false,
+            open_shared_ai: None,
             open_shared_preferences: None,
             open_shared_language: None,
             host_modal: false,
@@ -357,6 +368,7 @@ impl LightcraftApp {
             film_scroll: None,
             widgets: vec![],
             gesture: None,
+            space_hand: None,
             loupe_shown: None,
             merge: merge::MergeState::default(),
             import: None,
@@ -400,6 +412,9 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        panels::enhance::poll(self, ctx);
+        export_task::poll(self, ctx);
+        proof_sheet::poll(self, ctx);
         smart_sort_task::poll(self, ctx);
         people_task::poll(self, ctx);
         self.session.persist_if_dirty();
@@ -827,7 +842,7 @@ impl LightcraftApp {
             // Selection, Undo or Cancel may finish the interaction through a command while
             // the pointer is still held. Do not carry that gesture into another photo.
             self.ui.dragging_control = None;
-            self.ui.sharpen_mask_preview = false;
+            self.ui.alt_preview = false;
             ctx.stop_dragging();
         }
         self.apply_settings(ctx);
@@ -839,6 +854,9 @@ impl LightcraftApp {
         import::poll_scan(self, ctx);
         import::tick(self, ctx);
         tasks::poll(self, ctx);
+        panels::enhance::poll(self, ctx);
+        export_task::poll(self, ctx);
+        proof_sheet::poll(self, ctx);
         people_task::poll(self, ctx);
         self.preview_build_status(ctx);
         self.save_status(ctx);
@@ -860,24 +878,10 @@ impl LightcraftApp {
         if let Some(folder) = self.session.import_defaults.auto_folder.clone() {
             const LABEL: &str = "Auto Import";
             let now = ctx.input(|i| i.time);
-            if now - self.ui.auto_import_at >= 3.0 && self.import.is_none() && !self.tasks.is_running(LABEL) {
+            if now - self.ui.auto_import_at >= 3.0 && self.import.is_none() && self.scan.is_none() && !self.tasks.is_running(LABEL) {
                 self.ui.auto_import_at = now;
                 let work = move || lightcraft_engine::cmd::library::list_auto_import_folder(&folder);
-                let done = |app: &mut LightcraftApp, _ctx: &egui::Context, listing: Result<Vec<(String, u64)>, String>| {
-                    let listing = match listing {
-                        Ok(l) => l,
-                        Err(e) => return log::debug!("auto import: {e}"),
-                    };
-                    let p = serde_json::json!({"listing": listing, "start": false});
-                    let Ok(r) = app.session.execute("library.autoImportScan", &p) else { return };
-                    let Some(mut params) = r.get("import").cloned().filter(|_| app.import.is_none()) else { return };
-                    let paths: Vec<String> =
-                        params["paths"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
-                    if let Some(o) = params.as_object_mut() {
-                        o.remove("paths");
-                    }
-                    app.import = Some(import::ImportTask::new(paths, params, app.session.library_generation, false).auto());
-                };
+                let done = |app: &mut LightcraftApp, _ctx: &egui::Context, listing| import::auto_listed(app, listing);
                 if let Err(e) = tasks::spawn(self, LABEL, work, done) {
                     log::warn!("{e}");
                 }
@@ -951,9 +955,19 @@ impl LightcraftApp {
         if self.synthetic.is_empty() {
             return;
         }
-        let n = match self.synthetic[0] {
-            egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. } => 1,
-            _ => self.synthetic.iter().position(|e| matches!(e, egui::Event::Key { pressed: false, .. })).map_or(self.synthetic.len(), |i| i + 1),
+        let pointer =
+            |e: &egui::Event| matches!(e, egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. });
+        let n = if pointer(&self.synthetic[0]) {
+            1
+        } else {
+            // a key sequence up to its release; a key held down (no release yet) stops before the
+            // pointer events that follow, which then still come one per frame
+            let release = self.synthetic.iter().position(|e| matches!(e, egui::Event::Key { pressed: false, .. })).map(|i| i + 1);
+            let next_pointer = self.synthetic.iter().position(pointer);
+            match (release, next_pointer) {
+                (Some(r), Some(q)) => r.min(q),
+                (r, q) => r.or(q).unwrap_or(self.synthetic.len()),
+            }
         };
         if let Some(egui::Event::PointerMoved(p) | egui::Event::PointerButton { pos: p, .. }) = self.synthetic.first() {
             raw.events.push(egui::Event::PointerMoved(*p));
@@ -989,7 +1003,7 @@ impl LightcraftApp {
         if self.ui.dragging_control.is_some() && ctx.input(|i| !i.pointer.primary_down() || !i.focused) {
             let _ = self.run("develop.endInteraction", serde_json::json!({}));
             self.ui.dragging_control = None;
-            self.ui.sharpen_mask_preview = false;
+            self.ui.alt_preview = false;
             ctx.request_repaint();
         }
     }
@@ -1019,11 +1033,8 @@ impl LightcraftApp {
         if !self.host_modal {
             self.ai_mask_detail(&ctx);
         }
-        panels::enhance::poll(self, &ctx);
         panels::develop_tools::upright_poll(self, &ctx);
-        // Completion/failure collection continues even while interactive windows are suspended.
-        export_task::poll(self, &ctx);
-        proof_sheet::poll(self, &ctx);
+        proof_sheet::progress(self, &ctx);
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| panels::detail::show(self, ui));

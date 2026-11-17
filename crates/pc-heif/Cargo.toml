@@ -8,7 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 # Pure Rust, no unsafe. Pinned exactly: a young, single-owner crate that parses untrusted files;
-# moving the pin is a reviewed change (re-run the fuzz target and the heif corpus tests).
+# moving the pin is a reviewed change (re-run the fuzz target and the heif corpus tests, and
+# re-check the iloc census in src/census.rs against the new parser).
 heic-rs = { version = "=0.1.4", default-features = false, features = ["std"] }
 
 # The tiles of a HEIC photo decode in parallel on native; wasm stays single-threaded.

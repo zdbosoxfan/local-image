@@ -363,7 +363,7 @@ fn build() -> Vec<CommandSpec> {
             "Fill…",
             ["Edit"],
             Some("Shift+F5"),
-            r##"{"contents":"foreground|background|color|contentAware|pattern|history|black|gray|white"="color","color":"#rrggbb|[r,g,b,a]"=foreground (contents=color),"pattern":id|name (contents=pattern),"scale":%=100,"angle":deg,"state":index? (contents=history; default the oldest state),"colorAdaptation":bool=true (contents=contentAware),"mode":"normal|multiply|…"="normal","opacity":0..100=100,"preserveTransparency":bool=false,"target":"pixels"|{"channel":i}|"quickMask"?}"##,
+            r##"{"contents":"foreground|background|color|contentAware|pattern|history|black|gray|white"="color","color":"#rrggbb|[r,g,b,a]"=foreground (contents=color),"pattern":id|name (contents=pattern),"scale":%=100,"angle":deg,"state":index? (contents=history; default the oldest state),"colorAdaptation":bool=true,"scaleAdaptation":bool=false,"mirror":bool=false,"rotationAdaptation":bool=false (contents=contentAware; rotation adds quarter-turn source copies),"mode":"normal|multiply|…"="normal","opacity":0..100=100,"preserveTransparency":bool=false,"target":"pixels"|{"channel":i}|"quickMask"?}"##,
             has_pixel_or_channel,
             crate::fill_cmds::fill
         ),
@@ -736,7 +736,7 @@ fn build() -> Vec<CommandSpec> {
                 let mut bg = Layer::raster("Background", fmt);
                 bg.locks.transparency = true;
                 *crate::pixels_mut(&mut bg)? =
-                    photocraft_compose::flatten_to_surface(&crate::vector_integration::project_document(doc)?, fmt, Some([1.0, 1.0, 1.0]));
+                    photocraft_compose::flatten_to_surface(&crate::vector_integration::project_for_output(doc)?, fmt, Some([1.0, 1.0, 1.0]));
                 *active = Some(bg.id);
                 doc.layers = vec![bg];
                 Ok(())
@@ -813,6 +813,10 @@ fn build() -> Vec<CommandSpec> {
                 if doc.layer(id).is_some_and(|l| contains_layer(l, target)) {
                     return Err(EngineError::Other("can't move a group into itself".into()));
                 }
+                // Read before the layer is lifted out: afterwards the board it sat on, and any lock it
+                // had from a group or board around it, are out of reach.
+                let from = board_rect_of(doc, id);
+                let pinned = doc.effective_locks(id);
                 let layer = doc.remove(id).ok_or(EngineError::NoLayer(id))?;
                 let path = doc.path_of(target).ok_or(EngineError::NoLayer(target))?;
                 match pos.as_str() {
@@ -835,6 +839,16 @@ fn build() -> Vec<CommandSpec> {
                 }
                 // Moving a group into (or beside) a deeply nested layer can pass the nesting cap.
                 crate::layer_multi_cmds::check_group_depth(doc, "Reorder Layer")?;
+                // Boards share one canvas: a layer dropped on another board keeps its place on its
+                // board, shifting by the offset between the boards' origins, unless locked in place.
+                let locks = doc.effective_locks(id);
+                if let (Some(src), Some(dst)) = (from, board_rect_of(doc, id))
+                    && let (Some(dx), Some(dy)) = (dst.x0.checked_sub(src.x0), dst.y0.checked_sub(src.y0))
+                    && (dx, dy) != (0, 0)
+                    && !(pinned.position || pinned.all || locks.position || locks.all)
+                {
+                    crate::layer_multi_cmds::move_layers(doc, &[(id, dx, dy)])?;
+                }
                 *active = Some(id);
                 Ok(())
             })?;
@@ -1136,7 +1150,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::redeye_cmds::specs());
     v.extend(crate::symmetry_cmds::specs());
     v.extend(crate::history_cmds::specs());
-    v.extend(crate::freqsep_cmds::specs());
+    v.extend(crate::frequency_separation_cmds::specs());
     v.extend(crate::develop_layer_cmds::specs());
     v.extend(crate::develop_filter_cmds::specs());
     v.extend(crate::perspective_crop_cmds::specs());
@@ -1274,6 +1288,14 @@ fn set_mask(s: &mut Session, p: &Value, label: &str, mask: Option<LayerMask>) ->
         Ok(())
     })?;
     Ok(Value::Null)
+}
+
+/// The rect of the artboard `id` sits on, or `None` when it sits on none or is itself a board.
+fn board_rect_of(doc: &Document, id: LayerId) -> Option<Rect> {
+    if doc.layer(id)?.artboard().is_some() {
+        return None;
+    }
+    doc.layer(doc.artboard_of(id)?)?.artboard().map(|board| board.rect)
 }
 
 fn combine(a: &Surface, b: &Surface, area: Rect, f: impl Fn(f32, f32) -> f32) -> Surface {

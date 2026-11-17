@@ -2,12 +2,16 @@
 //!
 //! [`FsStore`] is the native implementation (a library directory); [`MemStore`] keeps files in
 //! memory (tests, ephemeral sessions) and lets tests simulate crashes by editing the bytes. A web
-//! host can implement [`Store`] over OPFS.
+//! host can implement [`Store`] over OPFS. [`FsStore`] writes only while its directory still leads
+//! to the folder it opened ([`crate::OpenedFolder`]).
 
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+use crate::journal::LOG;
+use crate::opened_folder::OpenedFolder;
 
 /// A flat namespace of named files with the few operations the journal needs.
 pub trait Store: Send {
@@ -79,18 +83,53 @@ fn resolve_regular_file(path: &Path) -> io::Result<PathBuf> {
     }
 }
 
+/// What this store knows of the log at the path: its length as last read or written (`None`:
+/// neither yet), and the handle of an append that failed, whose torn tail only it may cut. In a
+/// folder accepted by this session's note rather than its numbers (a copy of the library's folder
+/// put at its path), a log of another length is another file: appending to it would leave a gap,
+/// so it is refused until a snapshot replaces it.
+#[derive(Default)]
+struct LogState {
+    good: Option<u64>,
+    torn: Option<std::fs::File>,
+}
+
+fn check_log_len(len: u64, good: u64) -> io::Result<()> {
+    if len == good {
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "catalog log holds {len} bytes, the log this session read or wrote has {good}: it is another file, so a snapshot must replace it"
+    )))
+}
+
 /// Files in a directory.
 pub struct FsStore {
     dir: PathBuf,
-    /// Open append handle (kept between appends; dropped on rewrite/truncate).
-    appender: Option<(String, std::fs::File)>,
+    /// The folder `dir` named when the store was opened. Every write asks it first and is refused
+    /// when `dir` leads somewhere else now.
+    folder: OpenedFolder,
+    log: LogState,
+    /// The folder entry of the file appended to is durable (a directory sync succeeded since the
+    /// last failed append).
+    dir_synced: bool,
 }
 
 impl FsStore {
-    /// Use `dir` (created if missing).
+    /// Use `dir` (created if missing). The store writes to the folder `dir` names now, and only
+    /// while it still does.
     pub fn open(dir: impl AsRef<Path>) -> io::Result<FsStore> {
         std::fs::create_dir_all(dir.as_ref())?;
-        Ok(FsStore { dir: dir.as_ref().to_path_buf(), appender: None })
+        Ok(FsStore::in_folder(OpenedFolder::at(dir.as_ref())?))
+    }
+    /// A store in a folder that was recorded already, so that the stores and the lock of one
+    /// library ask about the same folder.
+    pub fn in_folder(folder: OpenedFolder) -> FsStore {
+        FsStore { dir: folder.path().to_path_buf(), folder, log: LogState::default(), dir_synced: false }
+    }
+    /// The folder the store opened.
+    pub fn folder(&self) -> &OpenedFolder {
+        &self.folder
     }
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -110,23 +149,67 @@ impl FsStore {
     }
 
     fn append_with_sync_dir(&mut self, name: &str, data: &[u8], sync_dir: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
-        use std::io::Write;
-        if self.appender.as_ref().is_none_or(|(n, _)| n != name) {
-            let path = resolve_regular_file(&self.path(name))?;
-            let f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+        use std::io::{Seek, Write};
+        self.folder.check()?;
+        // Opened by its path for every append: a handle kept open would go on writing into a
+        // folder moved away while a copy of it (this session's note too) is at the path.
+        let path = resolve_regular_file(&self.path(name))?;
+        let mut f = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(path)?;
+        if !self.dir_synced {
             // An existing entry may be left by an append whose directory sync failed.
             sync_dir(&self.dir)?;
-            self.appender = Some((name.to_string(), f));
+            self.dir_synced = true;
         }
-        let Some((_, f)) = self.appender.as_mut() else { return Err(io::Error::other("appender not open")) };
+        let len = f.metadata()?.len();
+        if name == LOG {
+            let good = *self.log.good.get_or_insert(len);
+            if self.folder.renumbered() {
+                check_log_len(len, good)?;
+            }
+        }
+        f.seek(io::SeekFrom::Start(len))?;
         let written = f.write_all(data).and_then(|()| f.sync_data());
+        if name == LOG {
+            match written {
+                Ok(()) => self.log.good = Some(len.saturating_add(data.len() as u64)),
+                Err(_) => self.log.torn = Some(f),
+            }
+        }
         if written.is_err() {
-            // The handle may be dead (a network share that reconnected, a removed volume): the next
-            // attempt reopens the file. Part of `data` may be in the file; the caller cuts it back
-            // ([`Store::truncate`]) before appending again.
-            self.appender = None;
+            // Part of `data` may be in the file; the caller cuts it back ([`Store::truncate`])
+            // before appending again.
+            self.dir_synced = false;
         }
         written
+    }
+
+    /// Cut the torn tail of a failed log append back through the handle that wrote it, never
+    /// through a file now at its path.
+    fn roll_back_torn_log(&mut self) -> io::Result<()> {
+        if let (Some(f), Some(good)) = (self.log.torn.as_ref(), self.log.good) {
+            if f.metadata()?.len() < good {
+                return Err(io::Error::other("the failed log was shortened: a snapshot must replace it"));
+            }
+            f.set_len(good)?;
+            f.sync_data()?;
+        }
+        self.log.torn = None;
+        Ok(())
+    }
+
+    /// Replace `name` atomically while `dir` leads to the opened folder, asked again once the
+    /// content is staged (a large snapshot takes a while).
+    fn replace(&mut self, name: &str, fill: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>) -> io::Result<u64> {
+        self.folder.check()?;
+        let path = resolve_regular_file(&self.path(name))?;
+        let staged = li_fs::stage_stream(&path, li_fs::Policy::Durable, fill)?;
+        self.folder.check()?;
+        let n = staged.len();
+        staged.commit()?;
+        if name == LOG {
+            self.log = LogState { good: Some(n), torn: None };
+        }
+        Ok(n)
     }
 }
 
@@ -145,27 +228,24 @@ impl Store for FsStore {
     }
 
     fn read(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
-        match std::fs::read(self.path(name)) {
-            Ok(b) => Ok(Some(b)),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e),
+        let bytes = match std::fs::read(self.path(name)) {
+            Ok(b) => Some(b),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e),
+        };
+        if name == LOG && self.log.good.is_none() {
+            // what the journal read is the log appends must find
+            self.log.good = Some(bytes.as_ref().map_or(0, |b| b.len() as u64));
         }
+        Ok(bytes)
     }
 
     fn write_atomic(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
-        if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
-            self.appender = None;
-        }
-        let path = resolve_regular_file(&self.path(name))?;
-        li_fs::write_atomic(&path, data)
+        self.replace(name, &mut |w| w.write_all(data)).map(|_| ())
     }
 
     fn write_atomic_with(&mut self, name: &str, fill: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>) -> io::Result<u64> {
-        if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
-            self.appender = None;
-        }
-        let path = resolve_regular_file(&self.path(name))?;
-        li_fs::write_atomic_with(&path, fill)
+        self.replace(name, fill)
     }
 
     fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
@@ -173,8 +253,9 @@ impl Store for FsStore {
     }
 
     fn truncate(&mut self, name: &str, len: u64) -> io::Result<()> {
-        if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
-            self.appender = None;
+        self.folder.check()?;
+        if name == LOG {
+            self.roll_back_torn_log()?;
         }
         let path = resolve_regular_file(&self.path(name))?;
         let f = match std::fs::OpenOptions::new().write(true).open(path) {
@@ -183,8 +264,19 @@ impl Store for FsStore {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(e),
         };
+        if name == LOG
+            && let Some(good) = self.log.good
+            && self.folder.renumbered()
+        {
+            // a refused append wrote nothing: its cleanup must not cut or extend another log
+            check_log_len(f.metadata()?.len(), good)?;
+        }
         f.set_len(len)?;
-        f.sync_all()
+        f.sync_all()?;
+        if name == LOG {
+            self.log.good = Some(len);
+        }
+        Ok(())
     }
 
     fn describe(&self) -> String {
@@ -193,7 +285,7 @@ impl Store for FsStore {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn background_writer(&self) -> Option<Box<dyn Store>> {
-        Some(Box::new(FsStore { dir: self.dir.clone(), appender: None }))
+        Some(Box::new(FsStore::in_folder(self.folder.clone())))
     }
 }
 

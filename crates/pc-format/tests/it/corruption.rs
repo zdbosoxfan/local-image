@@ -78,6 +78,30 @@ fn bad_manifest_json() {
     assert!(matches!(load_from_bytes(&b), Err(FormatError::Json(_))));
 }
 
+/// A layer id repeated anywhere in the tree is refused in both id modes: remapping could not
+/// tell which layer a comp or slice meant.
+#[test]
+fn duplicate_layer_ids_are_rejected() {
+    use photocraft_doc::{Document, Layer, Size};
+    let mut doc = Document::new("ids", Size::new(1, 1), ColorMode::Rgb, SampleType::U8);
+    let format = doc.pixel_format();
+    doc.layers = vec![Layer::raster("a", format), Layer::group("group", vec![Layer::raster("b", format)])];
+    let first = doc.layers[0].id.0;
+    let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+    let damaged = rebuild(&bytes, |name, data| {
+        if name != "manifest.json" {
+            return Some(data);
+        }
+        let mut manifest: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        manifest["document"]["layers"][1]["content"]["children"][0]["id"] = first.into();
+        Some(serde_json::to_vec(&manifest).unwrap())
+    });
+    for preserve_ids in [true, false] {
+        let error = load_from_bytes_with(&damaged, &LoadOptions { preserve_ids, ..Default::default() }).unwrap_err();
+        assert!(matches!(&error, FormatError::Corrupt(message) if message == &format!("duplicate layer id {first}")), "{error}");
+    }
+}
+
 /// Hostile nesting fails with an error instead of overflowing the stack; nesting as deep as the
 /// deepest groups a bundle may hold (three JSON levels each) parses, and is then rejected for
 /// lacking a format version.
@@ -92,6 +116,24 @@ fn over_deep_manifest_fails_cleanly() {
     // Brackets inside strings (escaped quotes included) don't count.
     let e = load_from_bytes(&with_manifest(format!(r#"{{"x":"{}\"{}"}}"#, "[".repeat(100_000), "{".repeat(10)).into_bytes())).unwrap_err();
     assert!(matches!(e, FormatError::Corrupt(_)), "{e}");
+}
+
+/// A manifest with millions of tiny JSON values is refused before constructing a large value tree.
+#[test]
+fn manifest_with_too_many_values_is_refused() {
+    let n = (4 << 20) + 16;
+    let mut manifest = Vec::with_capacity(2 * n + 1);
+    manifest.push(b'[');
+    for i in 0..n {
+        manifest.extend_from_slice(if i == 0 { b"0" } else { b",0" });
+    }
+    manifest.push(b']');
+    let bytes = rebuild(&sample(), |name, data| Some(if name == "manifest.json" { manifest.clone() } else { data }));
+
+    let error = load_from_bytes(&bytes).unwrap_err();
+    assert!(matches!(error, FormatError::LimitExceeded(_)), "{error}");
+    let error = read_manifest(&bytes).unwrap_err();
+    assert!(matches!(error, FormatError::LimitExceeded(_)), "{error}");
 }
 
 #[test]
@@ -455,4 +497,26 @@ fn out_of_range_number_refused_on_open() {
     let Err(e) = load_from_bytes(&b) else { panic!("a manifest with opacity 1e39 opened") };
     assert!(matches!(e, FormatError::Corrupt(_)), "{e}");
     assert!(e.to_string().contains("document.layers[0].opacity"), "{e}");
+}
+
+/// The default decode budget follows the machine: the format's cap, lowered to the RAM
+/// available, never below 1 GiB. A bundle that expands past the budget a machine gets stops with
+/// an error instead of running it out of memory.
+#[test]
+fn the_default_decode_budget_follows_the_machines_memory() {
+    let cap = MAX_TOTAL_BYTES;
+    assert_eq!(total_budget(cap, 4 << 30), 4 << 30);
+    assert_eq!(total_budget(cap, 64 << 30), cap);
+    assert_eq!(total_budget(cap, 0), MIN_TOTAL_BUDGET, "a brief shortage doesn't refuse every load");
+    assert_eq!(total_budget(1 << 20, 4 << 30), 1 << 20, "never above the cap");
+    // The default is this machine's budget, not the format's cap. Doubling the RAM read here
+    // leaves room for it to move between this read and the one inside `default()`.
+    let ram = lightcraft_sysmem::ram_available();
+    let default = LoadOptions::default().max_total_bytes;
+    assert!(default <= total_budget(cap, ram.saturating_mul(2)), "default {default} with {ram} bytes available");
+    // The budget a machine gets is enforced: a bundle that expands past it is refused.
+    let b = sample();
+    assert!(load_from_bytes(&b).is_ok());
+    let opts = LoadOptions { max_total_bytes: total_budget(1000, 4 << 30), ..Default::default() };
+    assert!(matches!(load_from_bytes_with(&b, &opts), Err(FormatError::LimitExceeded(_))));
 }

@@ -23,7 +23,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use quick_xml::events::Event;
 
-use crate::xmp::{MAX_NODES, MAX_OPAQUE_NAME_BYTES, XmpError, canonical_name, parse_xmp};
+use crate::xmp::{MAX_NODES, MAX_OPAQUE_NAME_BYTES, XmpError, canonical_name, check_scopes, parse_whole_xmp, parse_xmp};
 
 /// Which properties [`merge_xmp`] takes from the fresh packet. Names are canonical
 /// `prefix:name` (prefixes as [`crate::parse_xmp`] reports them); `prefix:*` is a whole namespace.
@@ -35,7 +35,7 @@ pub struct MergeRules<'a> {
     pub owned_if_present: &'a [&'a str],
 }
 
-fn listed(list: &[&str], name: &str) -> bool {
+pub(crate) fn listed(list: &[&str], name: &str) -> bool {
     list.iter().any(|p| match p.strip_suffix('*') {
         Some(ns) => name.starts_with(ns),
         None => *p == name,
@@ -77,6 +77,8 @@ pub(crate) struct Scan {
     descs: Vec<Desc>,
     /// Where the first `</rdf:RDF>` starts.
     rdf_close: Option<usize>,
+    /// The span of a self-closing `<rdf:RDF/>` (used only when there is no `</rdf:RDF>`).
+    rdf_empty: Option<(usize, usize)>,
 }
 
 enum Kind {
@@ -162,6 +164,7 @@ pub(crate) fn scan(s: &str) -> Result<Scan, XmpError> {
                     raw_attrs.push((k, v));
                 }
                 scopes.push(scope);
+                check_scopes(&scopes)?;
                 let raw_name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
                 let name = canonical_name(&raw_name, &scopes, &mut opaque_budget)?;
                 let kind = match stack.last() {
@@ -190,6 +193,9 @@ pub(crate) fn scan(s: &str) -> Result<Scan, XmpError> {
                     _ => Kind::Other,
                 };
                 if empty {
+                    if matches!(kind, Kind::Rdf) {
+                        out.rdf_empty = out.rdf_empty.or(Some((before, after)));
+                    }
                     scopes.pop();
                     if let Kind::Prop { desc, start, name, geometry } = kind
                         && let Some(d) = out.descs.get_mut(desc)
@@ -253,15 +259,17 @@ pub fn merge_xmp(existing: &str, fresh: &str, rules: MergeRules) -> Result<Strin
         Some(rest) => ("\u{feff}", rest),
         None => ("", existing),
     };
-    let previous = parse_xmp(old)?;
-    let want = parse_xmp(fresh)?;
+    let previous = parse_whole_xmp(old)?;
+    let want = parse_whole_xmp(fresh)?;
     // Preserve the original creator sequence and its XML framing when its actual
     // list is unchanged. Equal joined display strings alone are deliberately insufficient.
     let keep_creators = previous.values.contains_key("dc:creator")
         && previous.values.get("dc:creator") == want.values.get("dc:creator")
         && previous.properties.get("dc:creator") == want.properties.get("dc:creator");
     let ex = scan(old)?;
-    let rdf_close = ex.rdf_close.ok_or_else(|| XmpError::Xml("no rdf:RDF element".into()))?;
+    if ex.rdf_close.is_none() && ex.rdf_empty.is_none() {
+        return Err(XmpError::Xml("no rdf:RDF element".into()));
+    }
     let new = scan(fresh)?;
     let fresh_desc = new.descs.first().ok_or_else(|| XmpError::Xml("the new packet has no rdf:Description".into()))?;
     let fresh_names: BTreeSet<&str> = fresh_desc.props.iter().map(|p| p.name.as_str()).collect();
@@ -312,8 +320,16 @@ pub fn merge_xmp(existing: &str, fresh: &str, rules: MergeRules) -> Result<Strin
     }
     block.push_str("\n  </rdf:Description>");
     if written > 0 {
-        let at = old.get(..rdf_close).map_or(rdf_close, |h| h.trim_end().len());
-        edits.push((at, at, block));
+        if let Some(rdf_close) = ex.rdf_close {
+            let at = old.get(..rdf_close).map_or(rdf_close, |h| h.trim_end().len());
+            edits.push((at, at, block));
+        } else if let Some((s, e)) = ex.rdf_empty {
+            // a self-closing `<rdf:RDF .../>` is opened up around the new description
+            let tag = old.get(s..e).ok_or_else(|| XmpError::Xml("bad span".into()))?;
+            let open = tag.trim_end().strip_suffix("/>").ok_or_else(|| XmpError::Xml("bad rdf:RDF tag".into()))?;
+            let name = tag.get(1..).and_then(|t| t.split(|c: char| c.is_whitespace() || c == '/' || c == '>').next()).unwrap_or("rdf:RDF");
+            edits.push((s, e, format!("{open}>{block}\n</{name}>")));
+        }
     }
     edits.sort_by_key(|e| (e.0, e.1));
     // overlapping edits can't happen (properties sit inside their description, which is either
@@ -332,7 +348,7 @@ pub fn merge_xmp(existing: &str, fresh: &str, rules: MergeRules) -> Result<Strin
     out.push_str(old.get(at..).ok_or_else(|| XmpError::Xml("bad span".into()))?);
 
     // read back: everything written must come out as written
-    let merged = parse_xmp(&out)?;
+    let merged = parse_whole_xmp(&out)?;
     for (k, v) in &want.properties {
         let top = k.split('/').next().unwrap_or(k);
         if write(top) && merged.properties.get(k) != Some(v) {
@@ -648,6 +664,24 @@ mod tests {
         crate::write_xmp_lc(&m, &[("settings", "{\"a\":1}"), ("flag", "pick")])
     }
 
+    /// The app's description goes last, so foreign keys can spend the read budget first: a save must still read back
+    /// what it wrote, and an export must still find it. Keys shrink towards the end so that even a short owned key
+    /// no longer fits what is left of the budget.
+    #[test]
+    fn packets_over_the_flattened_key_budget_merge_and_export_whole() {
+        let foreign: String = (0..130_000).rev().map(|i| format!("<crs:a{i}>v</crs:a{i}>")).collect();
+        let existing = format!(
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:crs='http://ns.adobe.com/camera-raw-settings/1.0/'>{foreign}</r:Description></r:RDF>"
+        );
+        assert!(parse_xmp(&existing).unwrap().property_keys_truncated);
+        let metadata = crate::Metadata { copyright: Some("Studio".into()), ..Default::default() };
+        let rules = MergeRules { owned: &["dc:rights"], ..Default::default() };
+        let saved = merge_xmp(&existing, &crate::write_xmp(&metadata, None), rules).unwrap();
+        assert!(saved.contains(&foreign));
+        let exported = crate::file_info::copyright_xmp(&saved, false).unwrap().unwrap();
+        assert_eq!(parse_xmp(&exported).unwrap().metadata.copyright.as_deref(), Some("Studio"));
+    }
+
     #[test]
     fn keeps_foreign_properties_and_replaces_owned_ones() {
         let out = merge_xmp(&foreign(), &fresh(4, &["new", "two"]), RULES).unwrap();
@@ -738,6 +772,17 @@ mod tests {
         for bad in ["", "not xml at all", "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF", "<a><b></a>", "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>"] {
             assert!(merge_xmp(bad, &fresh(1, &[]), RULES).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_self_closing_rdf_element_is_opened_not_replaced() {
+        let old = "<!-- kept --><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><r:RDF xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/></x:xmpmeta>";
+        let out = merge_xmp(old, &fresh(3, &[]), RULES).unwrap();
+        assert!(out.starts_with("<!-- kept --><x:xmpmeta"), "{out}");
+        assert!(out.contains("</r:RDF></x:xmpmeta>"), "{out}");
+        assert_eq!(parse_xmp(&out).unwrap().properties["xmp:Rating"], vec!["3"]);
+        let no_rdf = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><x:other/></x:xmpmeta>";
+        assert!(merge_xmp(no_rdf, &fresh(3, &[]), RULES).is_err());
     }
     #[test]
     fn preserves_foreign_properties_using_known_prefixes() {

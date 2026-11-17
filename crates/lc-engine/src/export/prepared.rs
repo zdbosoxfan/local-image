@@ -110,13 +110,17 @@ pub(crate) fn prepare_guarded(
         if let Some(why) = too_big_for_memory((w, h), native.0.saturating_mul(native.1), cost, crate::memory::total_ram()) {
             return Err(format!("{}: {why}", p.file_name));
         }
-        let job = if upscale.is_some() {
+        let mut job = if upscale.is_some() {
             session.export_job(id, native.0, native.1, OutputSpace::Srgb, OutputDepth::U8)?
         } else if resample.is_some() {
             session.export_job(id, native.0, native.1, space, render_depth)?
         } else {
             session.export_job(id, w, h, space, depth)?
         };
+        // the box is the final size, fitted against the photo at full resolution: a decode that
+        // rounds its shape differently must not fit it again and lose a pixel
+        job.request.exact_size = true;
+        job.key ^= 0x86e2_fadc_0917_b435;
         Work::Render(Box::new(RenderWork { job, upscale, meta, opts: o.clone(), resample, cost }))
     } else {
         let lightcraft_catalog::Source::File { path } = &p.source else {
@@ -287,11 +291,17 @@ impl PreparedExport {
                 let Some(dng) = dng else {
                     // the file is copied byte for byte: refuse rather than leak a location it embeds
                     if remove_location {
-                        let embeds_location = original_embeds_location(&bytes)
-                            .map_err(|e| format!("{label}: can't verify location metadata in this original file: {e}"))?;
+                        if !lightcraft_meta::reads_container(&bytes) {
+                            return Err(unreadable_original(&bytes, &label));
+                        }
+                        let embeds_location = original_embeds_location(&bytes).map_err(|e| {
+                            let formats = location_free_formats(&bytes);
+                            format!("{label}: can't verify location metadata in this original file: {e}; export as {formats} instead")
+                        })?;
                         if embeds_location {
+                            let formats = location_free_formats(&bytes);
                             return Err(format!(
-                                "{label}: can't remove the location from an original file that embeds location info; export as JPEG, TIFF or DNG instead"
+                                "{label}: can't remove the location from an original file that embeds location info; export as {formats} instead"
                             ));
                         }
                     }

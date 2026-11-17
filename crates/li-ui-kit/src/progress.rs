@@ -17,6 +17,23 @@ pub fn percent(fraction: Option<f32>) -> String {
     shown(fraction).map(|f| format!("{:.0}%", f.clamp(0.0, 1.0) * 100.0)).unwrap_or_default()
 }
 
+/// `done` of `total` as a fraction; `None` until the total is known.
+pub fn fraction(done: u64, total: u64) -> Option<f32> {
+    (total > 0).then(|| done as f32 / total as f32)
+}
+
+/// A download's bar, `width` wide, with its percentage after it (as [`job_row`] shows them).
+/// Returns the bar's rect.
+pub fn bar_with_percent(ui: &mut Ui, width: f32, fraction: Option<f32>, t: &Tokens) -> Rect {
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(vec2(width, 6.0), Sense::hover());
+        bar(ui, rect, shown(fraction), t);
+        ui.label(RichText::new(percent(fraction)).size(11.0).color(t.text_dim).monospace());
+        rect
+    })
+    .inner
+}
+
 /// A progress bar: `fraction` of `rect` filled with the accent; `None` = indeterminate (a sliding
 /// segment), for jobs that haven't reported progress yet.
 pub fn bar(ui: &Ui, rect: Rect, fraction: Option<f32>, t: &Tokens) {
@@ -99,6 +116,19 @@ mod tests {
         assert_eq!(percent(Some(0.0)), "");
         assert_eq!(percent(Some(0.456)), "46%");
         assert_eq!(percent(Some(3.0)), "100%");
+    }
+
+    #[test]
+    fn progress_download_fraction_waits_for_the_total() {
+        assert_eq!(fraction(0, 0), None, "size not known yet: indeterminate");
+        assert_eq!(fraction(5, 0), None);
+        assert_eq!(percent(fraction(25, 100)), "25%");
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let t = Tokens::get(ui.ctx());
+            assert_eq!(bar_with_percent(ui, 120.0, fraction(1, 2), &t).width(), 120.0);
+        });
+        output.textures_delta.clear();
     }
 
     #[test]

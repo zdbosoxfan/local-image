@@ -584,3 +584,179 @@ fn zoo_long_random_mutations() {
         poke(&g);
     }
 }
+
+#[test]
+fn banded_decode_matches_the_whole_image_under_a_per_group_allocation_cap() {
+    // A 64x40 gray image in strips of 4 rows, turned by Orientation 6. 512 bytes hold two strips
+    // but not the image: the whole decode refuses it, the banded one goes a group at a time.
+    let (w, h) = (64u32, 40u32);
+    let t = truth((w * h) as usize, 77);
+    let d = strips(w, h, 8, 1, 1, 4, &t.u8s).tag(274, SHORT, &[6]);
+    let b = build(true, false, &[d], &[0]);
+    let small = Limits { max_alloc: 512, ..Limits::default() };
+    assert!(decode_with(&b.bytes, &DecodeOptions { limits: small, ..Default::default() }).is_err());
+    let whole = decode_ok(&b.bytes);
+    let mut bands = TiffBands::open(&b.bytes, None, &small).unwrap().upright();
+    assert_eq!(bands.dimensions(), whole.dimensions());
+    let (ow, oh) = bands.dimensions();
+    let mut out = vec![0u8; (ow * oh) as usize];
+    let mut groups = 0;
+    bands
+        .decode(|x, y, g| -> Result<(), CodecError> {
+            groups += 1;
+            let (gw, gh) = (g.width() as usize, g.height() as usize);
+            for r in 0..gh {
+                let at = (y as usize + r) * ow as usize + x as usize;
+                out[at..at + gw].copy_from_slice(&g.data()[r * gw..(r + 1) * gw]);
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert!(groups > 1, "{groups} groups");
+    assert_eq!(out, whole.data());
+    assert_eq!(bands.warnings, []);
+}
+
+/// A 64-bit gray page whose strips decode through a scratch buffer four times the size of their
+/// output rows: every sample of row `y` is `y << 48` (it reads back as the 16-bit value `y`).
+fn wide_gray(w: u32, h: u32, rows: u32) -> Vec<u8> {
+    let px: Vec<u8> = (0..h).flat_map(|y| (0..w).flat_map(move |_| (u64::from(y) << 48).to_le_bytes())).collect();
+    build(true, false, &[strips(w, h, 64, 1, 1, rows, &px)], &[0]).bytes
+}
+
+fn with_max_alloc(max_alloc: u64) -> DecodeOptions {
+    DecodeOptions { limits: Limits { max_alloc, ..Limits::default() }, ..Default::default() }
+}
+
+#[test]
+fn strip_scratch_counts_against_max_alloc() {
+    // 64x64: an 8 KiB 16-bit output, but its one strip is 32 KiB of 64-bit samples, decoded
+    // into a scratch buffer held next to the output. The two together are over 36 KiB.
+    let file = wide_gray(64, 64, 64);
+    let r = decode_with(&file, &with_max_alloc(36 << 10));
+    assert!(matches!(r, Err(CodecError::LimitExceeded(_))), "output plus strip scratch over max_alloc: {:?}", r.map(|i| i.data().len()));
+    let img = decode_with(&file, &with_max_alloc(48 << 10)).unwrap();
+    assert_eq!(img.to_u16_samples().unwrap()[64 * 63], 63);
+}
+
+#[test]
+fn a_tight_budget_decodes_its_strips_one_after_another() {
+    // 64x512 in eight 32 KiB strips: a 64 KiB output with room for only one strip's scratch
+    // beside it, so the bands are decoded by one worker, in order, and still land in place.
+    let file = wide_gray(64, 512, 64);
+    let img = decode_with(&file, &with_max_alloc((64 + 40) << 10)).unwrap();
+    let v = img.to_u16_samples().unwrap();
+    for y in 0..512 {
+        assert_eq!(v[y * 64], y as u16, "row {y}");
+        assert_eq!(v[y * 64 + 63], y as u16, "row {y}");
+    }
+    assert_eq!(decode(&file).unwrap().to_u16_samples().unwrap(), v);
+}
+
+/// The `tiff` crate reads both chunk tables in full while it opens a directory, under its own
+/// default limits. A 1x65536 gray page in one-row strips holds a 64 KiB image but 1 MiB of
+/// tables as the decoder keeps them: under a 512 KiB budget it is refused before the open.
+#[test]
+fn strip_tables_are_refused_before_the_decoder_opens() {
+    let h = 65_536u32;
+    let file = build(true, false, &[strips(1, h, 8, 1, 1, 1, &vec![7u8; h as usize])], &[0]).bytes;
+    match decode_with(&file, &with_max_alloc(512 << 10)) {
+        Err(CodecError::LimitExceeded(m)) => assert!(m.contains("tables") && m.contains("65536 chunks"), "{m}"),
+        other => panic!("tables over max_alloc must be refused: {:?}", other.map(|i| i.data().len())),
+    }
+    let img = decode_with(&file, &with_max_alloc(4 << 20)).unwrap();
+    assert_eq!(img.dimensions(), (1, h));
+    assert!(img.data().iter().all(|&v| v == 7));
+}
+
+/// The JPEG headers of every tile are read before the decode. 65536 JPEG tiles that all span
+/// the same 64 KiB of fill bytes before their frame header made that read step through billions of bytes; it is now
+/// bounded by the file's length plus a few steps per tile, and the page is refused at once.
+#[test]
+fn overlapping_jpeg_tiles_are_refused_within_the_file_length() {
+    let (w, h, tile) = (4096u32, 4096u32, 16u32);
+    let n = ((w / tile) * (h / tile)) as usize;
+    // SOI, 64 KiB of fill bytes, then a 16x16 frame header.
+    let mut fill = vec![0xFFu8; 64 << 10];
+    fill[1] = 0xD8;
+    fill.extend_from_slice(&[0xC0, 0x00, 0x0B, 0x08, 0x00, 0x10, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00]);
+    let page = |offset: u64| {
+        let mut entries = base(w, h, 8, 1, 1);
+        entries.retain(|e| e.0 != 259);
+        let d = Dir { entries, chunks: Vec::new(), tiled: true }
+            .tag(259, SHORT, &[7])
+            .tag(322, LONG, &[u64::from(tile)])
+            .tag(323, LONG, &[u64::from(tile)])
+            .tag(324, LONG, &vec![offset; n])
+            .tag(325, LONG, &vec![fill.len() as u64; n])
+            .bytes(65000, UNDEFINED, &fill);
+        build(true, false, &[d], &[0]).bytes
+    };
+    let at = page(0).windows(4).position(|s| s == [0xFF, 0xD8, 0xFF, 0xFF]).unwrap();
+    let file = page(at as u64);
+    assert_eq!(file[at..at + fill.len()], fill[..]);
+    match decode(&file) {
+        Err(CodecError::Malformed { message, .. }) => assert!(message.contains("overlap"), "{message}"),
+        other => panic!("{:?}", other.map(|i| i.data().len())),
+    }
+}
+
+/// An all-white CCITT Group 4 strip: one V0 code (a 1 bit) per row, then the EOFB.
+fn blank_g4(h: u32) -> Vec<u8> {
+    let mut bits = vec![true; h as usize];
+    for _ in 0..2 {
+        bits.extend([false; 11]);
+        bits.push(true);
+    }
+    bits.chunks(8).map(|c| c.iter().enumerate().fold(0u8, |a, (i, &b)| a | (u8::from(b) << (7 - i)))).collect()
+}
+
+fn g4_page(w: u32, h: u32, strip: Vec<u8>, compression: u64) -> Dir {
+    let mut d = Dir { entries: base(w, h, 1, 1, 0), chunks: vec![strip], tiled: false }.tag(278, LONG, &[u64::from(h)]);
+    d.entries.retain(|e| e.0 != 259);
+    d.tag(259, SHORT, &[compression])
+}
+
+#[test]
+fn a_blank_fax_page_wider_than_4096_px_passes_the_bomb_guard() {
+    // A blank 600 dpi page (A4 landscape, A3) codes each row in one bit, past 4096:1.
+    for (w, h) in [(7016u32, 4961u32), (7016, 9921)] {
+        let bytes = build(true, false, &[g4_page(w, h, blank_g4(h), 4)], &[0]).bytes;
+        let photo = DecodeOptions { limits: Limits::desktop_photo(), ..Default::default() };
+        let img = decode_with(&bytes, &photo).unwrap_or_else(|e| panic!("{w}x{h}: {e}"));
+        assert_eq!(img.dimensions(), (w, h));
+        assert!(img.data().iter().all(|&v| v == 255), "{w}x{h}: not white");
+    }
+    // Still a bound: 100 bytes of Group 4 can't hold that page (4096:1 for Group 3, which is not decoded).
+    for compression in [4, 3] {
+        let bytes = build(true, false, &[g4_page(7016, 4961, vec![0x80; 100], compression)], &[0]).bytes;
+        match decode_with(&bytes, &DecodeOptions { limits: Limits::desktop_photo(), ..Default::default() }) {
+            Err(CodecError::Malformed { message, .. }) => assert!(message.contains("cannot hold"), "{message}"),
+            other => panic!("compression {compression}: {:?}", other.map(|i| i.dimensions())),
+        }
+    }
+}
+
+/// TIFF 6.0 gives each extra sample its own ExtraSamples value, so the alpha may follow an
+/// unspecified extra sample: it is read from wherever it comes, chunky or planar.
+#[test]
+fn alpha_after_an_unspecified_extra_sample_is_the_alpha() {
+    let (w, h) = (5usize, 3usize);
+    let t = truth(w * h * 6, 9);
+    let pick = |spp: usize, at: &[usize]| -> Vec<u8> { t.u8s[..w * h * spp].chunks(spp).flat_map(|p| at.iter().map(|&i| p[i]).collect::<Vec<_>>()).collect() };
+    for planar in [false, true] {
+        for (photometric, color, layout) in [(1u16, 1usize, ChannelLayout::GrayA), (2, 3, ChannelLayout::Rgba), (5, 4, ChannelLayout::CmykA)] {
+            let spp = color + 2;
+            let px = &t.u8s[..w * h * spp];
+            let chunks = if planar { planar_strips(px, w, h, spp, 1, 2) } else { px.chunks(w * spp * 2).map(<[u8]>::to_vec).collect() };
+            let mut d =
+                Dir { entries: base(w as u32, h as u32, 8, spp as u16, photometric), chunks, tiled: false }.tag(278, LONG, &[2]).tag(338, SHORT, &[0, 2]);
+            if planar {
+                d = d.tag(284, SHORT, &[2]);
+            }
+            let img = decode_ok(&build(true, false, &[d], &[0]).bytes);
+            let want: Vec<usize> = (0..color).chain([color + 1]).collect();
+            assert_eq!((img.layout(), img.data()), (layout, &pick(spp, &want)[..]), "photometric {photometric}, planar {planar}");
+        }
+    }
+}

@@ -20,6 +20,7 @@ pub fn parse_iptc(b: &[u8]) -> Metadata {
     let mut utf8 = false;
     let mut date: Option<String> = None;
     let mut time: Option<String> = None;
+    let mut seen_keywords = std::collections::HashSet::new();
     let mut i = 0usize;
     while i + 5 <= b.len() {
         if b[i] != 0x1c {
@@ -43,7 +44,7 @@ pub fn parse_iptc(b: &[u8]) -> Metadata {
             (2, 5) => m.title = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 25) => {
                 let k = decode(data, utf8);
-                if !k.is_empty() && !m.keywords.contains(&k) {
+                if !k.is_empty() && seen_keywords.insert(k.clone()) {
                     m.keywords.push(k);
                 }
             }
@@ -53,6 +54,8 @@ pub fn parse_iptc(b: &[u8]) -> Metadata {
             (2, 95) => m.state = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 100) if m.country.is_none() => m.country = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 101) => m.country = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
+            // Content Location Code and Name: IIM's LocationShown.
+            (2, 26) | (2, 27) if !decode(data, utf8).is_empty() => m.other_location = true,
             (2, 80) => m.artist = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 116) => m.copyright = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 120) => m.caption = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
@@ -113,6 +116,18 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn content_location_counts_as_other_location() {
+        for dataset in [26, 27] {
+            let mut v = Vec::new();
+            ds(&mut v, 2, dataset, b"Boston");
+            assert!(parse_iptc(&v).other_location, "2:{dataset}");
+            let mut blank = Vec::new();
+            ds(&mut blank, 2, dataset, b"  ");
+            assert!(!parse_iptc(&blank).other_location, "blank 2:{dataset}");
+        }
+    }
+
+    #[test]
     fn latin1_and_extended_and_garbage() {
         let mut v = Vec::new();
         ds(&mut v, 2, 5, &[0x43, 0xe9]); // "Cé" in Latin-1
@@ -126,6 +141,21 @@ pub(crate) mod tests {
             let _ = parse_iptc(&s[..n]);
         }
         assert_eq!(parse_iptc(&[0x1c, 2, 5, 0xff, 0xff]), Metadata::default());
+    }
+
+    /// Each keyword was compared with every one kept before it.
+    #[test]
+    fn distinct_keywords_are_kept_once_each_without_rescanning() {
+        let mut b = Vec::new();
+        for i in 0..200_000u32 {
+            ds(&mut b, 2, 25, format!("k{i}").as_bytes());
+            ds(&mut b, 2, 25, b"same");
+        }
+        let t = std::time::Instant::now();
+        let m = parse_iptc(&b);
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "took {:?}", t.elapsed());
+        assert_eq!(m.keywords.len(), 200_001);
+        assert_eq!(m.keywords.iter().filter(|k| *k == "same").count(), 1);
     }
 }
 

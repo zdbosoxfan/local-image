@@ -56,6 +56,53 @@ pub struct ActionState {
     /// Bumped whenever `list` changes, so the preset store can skip unchanged writes.
     #[serde(skip)]
     pub rev: u64,
+    /// The document and type layer the last recorded `type.create` made, while recording: the
+    /// typing that follows folds into that step only when it types in that layer of that
+    /// document (`type_cmds::coalesce_journal`, #10113).
+    #[serde(skip)]
+    pub typing_layer: Option<(u64, u64)>,
+}
+
+/// Visibility gestures name a layer for replay, since document-local ids change on another image.
+pub(crate) fn recorded_params(s: &Session, id: &str, mut p: Value) -> Value {
+    if s.actions.recording.is_none() || id != "layer.setProps" || p.get("visible").is_none() {
+        return p;
+    }
+    let Some(st) = s.active() else { return p };
+    let Some(layer) = p.get("layer").and_then(Value::as_u64).map(photocraft_doc::LayerId).or(st.active_layer).and_then(|id| st.doc.layer(id)) else { return p };
+    let ordinal = st.doc.walk().into_iter().filter(|(_, _, l)| l.name == layer.name).position(|(_, _, l)| l.id == layer.id).unwrap_or(0);
+    if let Some(object) = p.as_object_mut() {
+        object.remove("layer");
+        object.remove("coalesce");
+        object.insert("_actionLayer".into(), json!({"name": layer.name, "ordinal": ordinal}));
+    }
+    p
+}
+
+/// The recorded visibility target resolved to a layer of the document the step plays on: the
+/// `ordinal`-th layer with the recorded name, or an error when there is none.
+pub(crate) fn playback_params(s: &Session, id: &str, p: &Value) -> Result<Value> {
+    let mut p = p.clone();
+    if id == "layer.setProps"
+        && let Some(target) = p.get("_actionLayer")
+    {
+        let name = target.get("name").and_then(Value::as_str).ok_or_else(|| bad(id, "missing recorded layer name"))?;
+        let ordinal =
+            target.get("ordinal").and_then(Value::as_u64).and_then(|v| usize::try_from(v).ok()).ok_or_else(|| bad(id, "invalid recorded layer ordinal"))?;
+        let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+        let layer = doc
+            .walk()
+            .into_iter()
+            .filter(|(_, _, l)| l.name == name)
+            .nth(ordinal)
+            .map(|(_, _, l)| l.id)
+            .ok_or_else(|| bad(id, format!("recorded layer `{name}` does not exist")))?;
+        if let Some(object) = p.as_object_mut() {
+            object.remove("_actionLayer");
+            object.insert("layer".into(), json!(layer.0));
+        }
+    }
+    Ok(p)
 }
 
 impl ActionState {
@@ -187,7 +234,7 @@ fn run_recorded(s: &mut Session, steps: &[(String, Value)], from: usize) -> (u64
             failed = Some(json!({"step": i, "id": id, "error": e.to_string()}));
             break;
         }
-        match s.execute(id, params.clone()) {
+        match playback_params(s, id, params).and_then(|p| s.execute(id, p)) {
             Ok(result) => {
                 if let Some(error) = crate::automate_cmds::nested_failure(id, &result) {
                     failed = Some(json!({"step": i, "id": id, "error": error}));
@@ -209,8 +256,19 @@ fn play(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("actions.play", "an action is already playing"));
     }
     let idx = resolve(&s.actions.list, p, "actions.play")?;
+    let len = s.actions.list[idx].steps.len();
+    let from = from_step(p, len)?;
+    // Inside a script or batch the steps a call skips cost one unit each of the shared budget,
+    // charged before the action is copied; the steps that run are charged as they run. Calls
+    // that skip a large action's steps would otherwise copy it each time for the price of one.
+    if s.actions.script_depth > 0 {
+        let max = crate::automate_cmds::MAX_SCRIPT_STEPS;
+        if s.actions.script_steps.saturating_add(from as u64) > max {
+            return Err(bad("actions.play", format!("the script or batch ran more than {max} steps in all")));
+        }
+        s.actions.script_steps += from as u64;
+    }
     let action = s.actions.list[idx].clone();
-    let from = from_step(p, action.steps.len())?;
     s.actions.playing = s.actions.playing.saturating_add(1);
     let (ran, failed) = run_recorded(s, &action.steps, from);
     s.actions.playing = s.actions.playing.saturating_sub(1);
@@ -277,7 +335,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Play Action",
             menu: &[],
             shortcut: None,
-            params: r##"{"action":name|index, "from":step?} → {action, ran, failed?:{step, id, error}}. step and from are 0-based. Stops at the first error (the command still returns ok, with failed set) and leaves one history step per step that ran. Refuses to play while a play is already running. Each step is checked with Session::authorize when one is installed."##,
+            params: r##"{"action":name|index, "from":step?} → {action, ran, failed?:{step, id, error}}. step and from are 0-based. Stops at the first error (the command still returns ok, with failed set) and leaves one history step per step that ran. Refuses to play while a play is already running. Inside a script or batch the steps before from count toward its step limit. Each step is checked with Session::authorize when one is installed."##,
             enabled: always,
             run: play,
             journal: false,
@@ -313,6 +371,28 @@ mod tests {
         let _ = s.execute("document.pixel", json!({"x": 1, "y": 1}));
         let _ = s.execute("actions.list", json!({}));
         s.execute("actions.stop", json!({})).unwrap();
+    }
+
+    #[test]
+    fn recorded_eye_visibility_replays_on_another_document_and_duplicate_names() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        s.execute("layer.new.layer", json!({"name": "Same"})).unwrap();
+        let hidden = s.execute("layer.new.layer", json!({"name": "Same"})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("actions.record", json!({"name": "Hide"})).unwrap();
+        s.execute("layer.setProps", json!({"layer": hidden, "visible": false, "coalesce": "eye-sweep"})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        // Another document: the recorded layer id is not in it.
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let keep = s.execute("layer.new.layer", json!({"name": "Same"})).unwrap()["layer"].as_u64().unwrap();
+        let target = s.execute("layer.new.layer", json!({"name": "Same"})).unwrap()["layer"].as_u64().unwrap();
+        let result = s.execute("actions.play", json!({"action": "Hide"})).unwrap();
+        assert!(result.get("failed").is_none(), "{result}");
+        let layer = |s: &Session, id: u64| s.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().visible;
+        assert!(layer(&s, keep));
+        assert!(!layer(&s, target));
+        s.execute("edit.undo", json!({})).unwrap();
+        assert!(layer(&s, target));
     }
 
     #[test]
@@ -393,6 +473,36 @@ mod tests {
         assert_eq!(r["failed"]["id"], "file.open");
         assert!(r["failed"]["error"].as_str().unwrap().contains("disabled"), "{r}");
         assert!(s.documents().is_empty(), "the refused step does not open a document");
+    }
+
+    /// Each call costs its own script step and the 1,000 it skips, so the hundredth no longer fits
+    /// in the 100,000-step budget.
+    #[test]
+    fn steps_a_call_skips_are_charged_to_the_script_budget() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        s.actions.list.push(Action { name: "Big".into(), steps: vec![("select.all".to_string(), json!({})); 1000] });
+        let calls: Vec<Value> = (0..200).map(|_| json!(["actions.play", {"action": "Big", "from": 1000}])).collect();
+        let r = s.execute("file.scripts.browse", json!({"steps": calls})).unwrap();
+        let results = r["results"].as_array().unwrap();
+        assert_eq!(results.len(), 100, "{}", r["ok"]);
+        assert!(results[99]["error"].as_str().unwrap().contains("steps in all"), "{}", results[99]);
+    }
+
+    /// Only the skipped steps are charged up front: a call that skips none still runs the steps
+    /// that fit in what is left of the budget, then reports the limit.
+    #[test]
+    fn a_call_near_the_end_of_the_script_budget_runs_the_steps_that_fit() {
+        let mut s = Session::new();
+        s.actions.script_depth = 1;
+        s.actions.script_steps = crate::automate_cmds::MAX_SCRIPT_STEPS - 3;
+        s.actions.list.push(Action { name: "queries".into(), steps: vec![("actions.list".to_string(), json!({})); 3] });
+        let r = s.execute("file.scripts.browse", json!({"steps": [["actions.play", {"action": "queries"}]]})).unwrap();
+        // The play ran and then failed at the limit (the script reports it as a failed play),
+        // rather than being refused before any step ran.
+        let error = r["results"][0]["error"].as_str().unwrap();
+        assert!(error.starts_with("actions.play failed:") && error.contains("steps in all"), "{r}");
+        assert_eq!(s.actions.script_steps, crate::automate_cmds::MAX_SCRIPT_STEPS, "the script step and the two steps that ran");
     }
 
     #[test]

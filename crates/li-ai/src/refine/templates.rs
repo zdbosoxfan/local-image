@@ -178,13 +178,12 @@ pub fn template_recipe(name: &str, template: &Value, info: &ObjectInfo, installe
     let template = activate_template_branch(template, installed);
     let mut w = custom::read(name, &template, Some(info))?;
     select_template_output(&mut w, installed)?;
-    let grid = if w.graph.as_object().is_some_and(|g| g.values().any(|n| n["class_type"] == "TextEncodeQwenImage21")) {
-        32
-    } else if w.graph.as_object().is_some_and(|g| g.values().any(|n| n["class_type"] == "EmptyFlux2LatentImage" || n["class_type"] == "EmptySD3LatentImage")) {
-        16
-    } else {
-        8
-    };
+    let grid =
+        if w.graph.as_object().is_some_and(|g| g.values().any(|n| n["class_type"] == "EmptyFlux2LatentImage" || n["class_type"] == "EmptySD3LatentImage")) {
+            16
+        } else {
+            8
+        };
     if w.fields.is_empty() {
         w.fields = custom::basic_fields(&w.graph);
     }

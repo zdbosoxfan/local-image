@@ -104,7 +104,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let modal = egui::Modal::new(egui::Id::new("overwrite-original-confirm")).show(ctx, |ui| {
         ui.set_max_width(440.0);
         ui.heading(format!("Overwrite {name}?"));
-        ui.label(tl!("This replaces the original file. The previous version will be kept in Trash so you can recover it."));
+        ui.label(tl!("This replaces the original file. The previous version goes to the system Trash, not the Library's originals-backup folder, so you can recover it from there."));
         if std::path::Path::new(&p.path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("psd") || ext.eq_ignore_ascii_case("psb")) {
             ui.label(tl!("This replaces the original Photoshop document with flattened pixels. Its layers will be lost."));
         }
@@ -283,5 +283,28 @@ mod tests {
             assert_eq!(saves.lock().unwrap()[0], (path.to_string_lossy().into(), 71));
             std::fs::remove_dir_all(dir).unwrap();
         }
+    }
+
+    #[test]
+    fn overwrite_prompt_names_the_system_trash_as_the_backup_location() {
+        // The host service's Trash backup is checked by local-image's
+        // overwrite_original_jpeg_png_pixels_trash_atomic_reload_and_history.
+        let dir = std::env::temp_dir().join(format!("li-overwrite-backup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("photo.png");
+        image::RgbImage::new(4, 3).save(&path).unwrap();
+        let mut app = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            crate::Services { overwrite_original: Some(Box::new(|_, _, _| Err("only the prompt is shown".into()))), ..Default::default() },
+        );
+        app.host_modes = true;
+        develop_layer::open_photo(&mut app, 7, &path.to_string_lossy(), &json!({}), "photo.png").unwrap();
+        let doc = app.session.active().unwrap().doc.id;
+        request(&mut app, doc, false).unwrap();
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(3);
+        h.get_by_label("This replaces the original file. The previous version goes to the system Trash, not the Library's originals-backup folder, so you can recover it from there.");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

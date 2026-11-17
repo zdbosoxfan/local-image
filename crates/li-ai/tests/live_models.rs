@@ -104,7 +104,7 @@ fn live_setup_identifies_matches_and_checks_the_installed_models() -> Result<()>
             problems.push(format!("{key}: VramLow"));
         }
     }
-    for curated in ["unet:qwen_image_2.1_bf16.safetensors", "unet:qwen_image_2.1_int8_convrot.safetensors", "unet:flux-2-klein-9b-fp8.safetensors"] {
+    for curated in ["unet:flux-2-klein-9b-fp8.safetensors"] {
         if let Some(m) = scan.server.models.get(curated) {
             println!("{curated}: {} {:?} engine={}", m.label, m.status, m.engine);
             if m.engine != "builtin" || m.status != Status::Builtin {

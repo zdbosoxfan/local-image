@@ -1016,6 +1016,16 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "photo.editInExternal" => {
+            let editor = p.get("app").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| app.ui.settings.external_editor.clone());
+            // Hosted with no other editor named: the host's own editor opens the photo itself,
+            // linked to Develop, instead of a baked TIFF copy.
+            let own_editor = editor.trim().is_empty() || editor.trim().eq_ignore_ascii_case("local image");
+            if let Some(id) = app.session.active().filter(|_| app.hosted_menus && own_editor) {
+                app.host_composite_open = Some(id);
+                return Some(Ok(Value::Null));
+            }
+            // The copy is rendered from the photo, not from what the Library shows of Compositing.
+            let unsaved = app.session.active().is_some_and(|id| app.host_composites.contains_key(&id));
             // render an edit copy (stacked on the original), then open it in the editor
             let mut params = p.clone();
             if !params.is_object() {
@@ -1029,14 +1039,17 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if let Some(id) = r["id"].as_u64() {
                 app.ui.external_edits.push(id);
             }
-            let editor = p.get("app").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| app.ui.settings.external_editor.clone());
             if let Some(f) = app.services.open_with.as_mut()
                 && let Err(e) = f(&path, &editor)
             {
                 app.toast(&ctx, format!("Couldn't open the editor: {e}"));
             }
             let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            app.toast(&ctx, format!("{name} opened for editing; it is stacked with the original"));
+            if unsaved {
+                app.toast(&ctx, format!("{name} opened for editing without the photo's unsaved Compositing work; it is stacked with the original"));
+            } else {
+                app.toast(&ctx, format!("{name} opened for editing; it is stacked with the original"));
+            }
             Ok(r)
         }
         "dialog.cull" => {
@@ -1125,6 +1138,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             crate::panels::dialogs::prompt(app, "Save Metadata Preset", "Preset name", "", "metadata.savePreset", json!({}), "name");
             Ok(Value::Null)
         }
+        // the selection is decoded by a background task, then committed as one step
+        "develop.auto" => crate::auto_settings::command(app, p),
         "file.findMissing" => {
             let Some(folder) = p.get("folder").and_then(Value::as_str).map(str::to_string) else {
                 return Some(ask_paths(app, FileDialogRequest::folder("Choose Search Folder"), id, p, "folder"));

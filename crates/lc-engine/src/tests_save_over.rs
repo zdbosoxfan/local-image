@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::Session;
 use crate::export::{Conflict, Destination, ExportFormat, ExportOptions};
-use crate::tests_xmp::{synthetic_dng_with, temp_dir};
+use crate::tests_xmp::{packet_past_xmp_budget, synthetic_dng_with, temp_dir, tiff_with_xmp};
 
 /// A library on disk (`<dir>/lib`) with `file` (written into `dir`) imported and selected.
 fn library_with(tag: &str, file: &str, bytes: &[u8]) -> (Session, PhotoId, PathBuf, PathBuf) {
@@ -158,6 +158,18 @@ fn save_over_preserves_source_profile_and_camera_metadata() {
     reopened.open_library(dir.join("lib"), false).unwrap();
     assert_eq!(reopened.catalog.photo(id).unwrap().develop.crop, Default::default());
     drop(reopened);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The lens maker is written past the XMP retention budget; saving over the original still carries it into the new file.
+#[test]
+fn save_over_keeps_fields_past_the_xmp_retention_budget() {
+    let metadata = lightcraft_meta::Metadata { lens_make: Some("Lens Maker".into()), ..Default::default() };
+    let original = tiff_with_xmp(&packet_past_xmp_budget(&metadata));
+    let (mut s, _, dir, src) = library_with("saveover-past-budget", "Shot.tif", &original);
+    s.execute("photo.saveOverOriginal", &json!({"confirm": true})).unwrap();
+    assert_eq!(lightcraft_meta::extract(&std::fs::read(&src).unwrap()).lens_make, metadata.lens_make);
+    drop(s);
     let _ = std::fs::remove_dir_all(dir);
 }
 

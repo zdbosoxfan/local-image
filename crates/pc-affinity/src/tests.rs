@@ -268,6 +268,15 @@ mod archive {
     }
 
     #[test]
+    fn archive_entry_names_share_a_size_limit() {
+        let names: Vec<String> = (0..513).map(|i| format!("{i:04}-{}", "n".repeat(65_530))).collect();
+        let mut entries = vec![("doc.dat", &[][..], Method::Stored)];
+        entries.extend(names.iter().map(|name| (name.as_str(), &[][..], Method::Stored)));
+        let bytes = synth::container(&entries, None);
+        assert!(matches!(Archive::open(&bytes, Limits::default()), Err(Error::Limit("archive entry names too large"))));
+    }
+
+    #[test]
     fn a_declared_size_smaller_than_the_data_is_rejected_not_truncated() {
         let big = vec![7u8; 1 << 20];
         let mut file = synth::container(&[("doc.dat", &big, Method::Zlib)], None);
@@ -290,6 +299,19 @@ mod archive {
         let at = fat as usize + 4;
         file[at..at + 8].copy_from_slice(&fat.to_le_bytes());
         assert_eq!(Archive::open(&file, Limits::default()).unwrap_err(), Error::Malformed("allocation tables form a cycle"));
+    }
+
+    #[test]
+    fn directory_records_count_against_the_archive_record_limit() {
+        let d = doc();
+        let mut file = synth::container(&[("doc.dat", &d, Method::Stored)], None);
+        let limits = Limits { max_objects: 1, ..Limits::default() };
+        assert!(Archive::open(&file, limits).is_ok(), "one file record is within a limit of one");
+        // The table's directory count sits after its tag, next, date, 24 reserved bytes, file count and 8 bytes.
+        let fat = u64::from_le_bytes(file[16..24].try_into().unwrap()) as usize;
+        let dirs = fat + 4 + 8 + 8 + 24 + 4 + 8;
+        file[dirs..dirs + 2].copy_from_slice(&1u16.to_le_bytes());
+        assert_eq!(Archive::open(&file, limits).unwrap_err(), Error::Limit("archive record count"));
     }
 
     #[test]
@@ -425,6 +447,64 @@ mod bounds {
     }
 
     #[test]
+    fn pixel_plane_scans_spend_the_document_work_budget() {
+        // Each decode pays for the state array twice before the plane walk, so three decodes cost
+        // 6 million slots and stay under the 8 million budget unless the walk pays as well.
+        let bitmap = F::Obj(
+            tag(b"DyBm"),
+            vec![
+                (tag(b"BmpW"), F::U32(1)),
+                (tag(b"BmpH"), F::U32(1)),
+                (tag(b"Frmt"), F::Enum(6, 0)),
+                (tag(b"Sta1"), F::U8s(vec![0; 1_000_000])),
+                (tag(b"TWi1"), F::U32(1_000_000)),
+                (tag(b"THi1"), F::U32(1)),
+            ],
+        );
+        let mut children = vec![F::Def(7, vec![tag(b"Rstr")], vec![(tag(b"Bitm"), bitmap)])];
+        children.extend(std::iter::repeat_n(F::Ref(7), 2));
+        let result = crate::read(&document(children), Limits::default());
+        assert!(matches!(result, Err(Error::Limit("array traversal slots"))), "{:?}", result.as_ref().err());
+    }
+
+    #[test]
+    fn shared_gradient_arrays_exhaust_the_document_work_budget() {
+        let gradient = F::Obj(tag(b"FilG"), vec![(tag(b"Grad"), F::Obj(tag(b"Grad"), vec![(tag(b"Cols"), F::Shared(vec![F::Null; 1_000_000]))]))]);
+        let fields = vec![(tag(b"Shpe"), F::Obj(tag(b"ShNR"), vec![])), (tag(b"ShpB"), F::F64s(vec![0., 0., 20., 20.])), (tag(b"BFil"), gradient)];
+        let mut children = vec![F::Def(7, vec![tag(b"ShpN")], fields)];
+        children.extend(std::iter::repeat_n(F::Ref(7), 8));
+        let result = crate::read(&document(children), Limits::default());
+        assert!(matches!(result, Err(Error::Limit("array traversal slots"))), "{:?}", result.as_ref().err());
+    }
+
+    /// Positional CnrD contains a byte, an i32 array and an f64 array.
+    fn live_corners(count: u32) -> F {
+        let mut corners = vec![0x30];
+        corners.extend(tag(b"CnrD").0.to_le_bytes());
+        corners.extend([0x01, 0, 0x87]);
+        corners.extend(count.to_le_bytes());
+        for i in 0..count {
+            corners.extend(i.to_le_bytes());
+        }
+        corners.push(0x8a);
+        corners.extend(count.to_le_bytes());
+        for _ in 0..count {
+            corners.extend(1f64.to_le_bytes());
+        }
+        corners.push(0);
+        F::Raw(corners)
+    }
+
+    #[test]
+    fn shared_live_corner_arrays_spend_the_geometry_work_limit() {
+        let data = F::Pos(vec![F::U8(0), F::U32(1), F::Bool(false), F::Records(18, vec![vec![0; 18]; 2])]);
+        let curve = F::Def(7, vec![tag(b"PCrv")], vec![(tag(b"Crvs"), F::Obj(tag(b"PCvD"), vec![(tag(b"Data"), data), (tag(b"CnrD"), live_corners(1000))]))]);
+        let bytes = document(vec![curve, F::Ref(7)]);
+        let result = crate::read(&bytes, Limits { max_segments: 1500, ..Limits::default() });
+        assert!(matches!(result, Err(Error::Limit("compound outlines exceeding the geometry work limit"))), "{:?}", result.as_ref().err());
+    }
+
+    #[test]
     fn zero_width_records_are_rejected_before_expansion() {
         let bytes = synth::stream(&[(tag(b"Data"), F::Records(0, vec![Vec::new(); 1024]))]);
         assert_eq!(crate::stream::parse(&bytes).unwrap_err(), Error::Malformed("array longer than its data"));
@@ -456,20 +536,6 @@ mod bounds {
                 record
             })
             .collect();
-        // Positional CnrD contains a byte, an i32 array and an f64 array.
-        let mut corners = vec![0x30];
-        corners.extend(tag(b"CnrD").0.to_le_bytes());
-        corners.extend([0x01, 0, 0x87]);
-        corners.extend(count.to_le_bytes());
-        for i in 0..count {
-            corners.extend(i.to_le_bytes());
-        }
-        corners.push(0x8a);
-        corners.extend(count.to_le_bytes());
-        for _ in 0..count {
-            corners.extend(1f64.to_le_bytes());
-        }
-        corners.push(0);
         let bytes = document(vec![F::Def(
             7,
             vec![tag(b"PCrv")],
@@ -477,7 +543,7 @@ mod bounds {
                 tag(b"Crvs"),
                 F::Obj(
                     tag(b"PCvD"),
-                    vec![(tag(b"Data"), F::Pos(vec![F::U8(0), F::U32(1), F::Bool(false), F::Records(18, records)])), (tag(b"CnrD"), F::Raw(corners))],
+                    vec![(tag(b"Data"), F::Pos(vec![F::U8(0), F::U32(1), F::Bool(false), F::Records(18, records)])), (tag(b"CnrD"), live_corners(count))],
                 ),
             )],
         )]);

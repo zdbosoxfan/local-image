@@ -12,32 +12,50 @@ pub fn is_raw(bytes: &[u8]) -> bool {
 /// Develop with Library's camera defaults; unsupported variants use its upright preview.
 pub fn import_raw(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
     let format = format!("{:?}", lightcraft_raw::probe(bytes).ok_or(lightcraft_raw::RawError::NotRaw)?).to_uppercase();
-    let (src, info) = decoded_source(bytes, &Default::default()).map_err(|e| {
-        let error = lightcraft_raw::decode(bytes).err().unwrap_or_else(|| lightcraft_raw::RawError::Corrupt(e.to_string()));
-        IoError::Raw(match error {
-            lightcraft_raw::RawError::Unsupported(reason) => lightcraft_raw::RawError::Unsupported(format!("{format}: {reason}")),
-            other => other,
-        })
-    })?;
+    let (src, info) = match decoded_source(bytes, &Default::default()) {
+        Ok(decoded) => decoded,
+        Err(e) => return undecodable(name, bytes, &format, e),
+    };
     if !info.raw {
-        let preview = lightcraft_engine::files::embedded_preview_srgb(bytes, usize::MAX)
-            .ok_or_else(|| IoError::Raw(lightcraft_raw::RawError::Unsupported(format!("{format}: no embedded preview"))))?;
-        let img = Image::from_u8(preview.width as u32, preview.height as u32, ChannelLayout::Rgba, preview.data.iter().flatten().copied().collect())?;
-        let mut result = image_to_document(name, &img)?;
         let reason = lightcraft_raw::decode(bytes).err().map(|e| e.to_string()).unwrap_or_else(|| "unsupported raw variant".into());
-        result.warnings.insert(
-            0,
-            format!(
-                "{format}: {reason}; opened the camera's embedded {}x{} JPEG preview instead (8-bit, not the raw sensor data)",
-                preview.width, preview.height
-            ),
-        );
-        return Ok(result);
+        return open_preview(name, bytes, &format!("{format}: {reason}"))
+            .unwrap_or_else(|| Err(IoError::Raw(lightcraft_raw::RawError::Unsupported(format!("{format}: no embedded preview")))));
     }
     let settings = camera_defaults(&info);
     let mut result = render_source(name, bytes, &src, &info, &settings)?;
     result.warnings.push(format!("{format} developed by LightCraft's pipeline (camera defaults, as-shot white balance) into 16-bit ProPhoto RGB"));
     Ok(result)
+}
+
+/// A raw whose decode for the editor failed with `e`, reported by the raw decoder's own error.
+fn undecodable(name: &str, bytes: &[u8], format: &str, e: IoError) -> Result<ImportResult, IoError> {
+    use lightcraft_raw::RawError;
+    match lightcraft_raw::decode(bytes).err() {
+        Some(RawError::Unsupported(reason)) => Err(IoError::Raw(RawError::Unsupported(format!("{format}: {reason}")))),
+        // Damaged sensor data: the camera's JPEG is often still intact, so the photo opens.
+        Some(RawError::Corrupt(reason)) => {
+            open_preview(name, bytes, &format!("{format}: the raw sensor data is damaged ({reason})")).unwrap_or(Err(IoError::Raw(RawError::Corrupt(reason))))
+        }
+        Some(other) => Err(IoError::Raw(other)),
+        // The raw itself is sound; the editor's load failed for another reason.
+        None => Err(IoError::Raw(RawError::Corrupt(e.to_string()))),
+    }
+}
+
+/// The camera's embedded JPEG opened in place of sensor data that can't be developed, `why` first
+/// among the warnings; `None` without a usable preview.
+fn open_preview(name: &str, bytes: &[u8], why: &str) -> Option<Result<ImportResult, IoError>> {
+    let preview = lightcraft_engine::files::embedded_preview_srgb(bytes, usize::MAX)?;
+    let open = || {
+        let img = Image::from_u8(preview.width as u32, preview.height as u32, ChannelLayout::Rgba, preview.data.iter().flatten().copied().collect())?;
+        let mut result = image_to_document(name, &img)?;
+        result.warnings.insert(
+            0,
+            format!("{why}; opened the camera's embedded {}x{} JPEG preview instead (8-bit, not the raw sensor data)", preview.width, preview.height),
+        );
+        Ok(result)
+    };
+    Some(open())
 }
 
 /// Default development shared with Library's raw open route.
@@ -103,8 +121,19 @@ fn render_source(
     settings: &lightcraft_develop::DevelopSettings,
 ) -> Result<ImportResult, IoError> {
     use lightcraft_pipeline::{OutputDepth, OutputSpace, RenderRequest};
-    let req = RenderRequest { space: OutputSpace::ProPhoto, depth: OutputDepth::U16, ..RenderRequest::fit(src.width, src.height) };
-    let rendered = lightcraft_engine::media::develop(src, info, settings, &req, None, true);
+    // The developed geometry's full size (orientation and crop applied), asked for as the
+    // Library's full-size export asks: the source's own box would shrink a photo turned 90 degrees.
+    let (w, h) = lightcraft_pipeline::native_output_size(src.width, src.height, settings);
+    let req = RenderRequest {
+        space: OutputSpace::ProPhoto,
+        depth: OutputDepth::U16,
+        exact_size: true,
+        ..RenderRequest::fit(w.round().max(1.0) as usize, h.round().max(1.0) as usize)
+    };
+    // The Library's content key of an imported file is its BLAKE3 identity; a Duplicate's own
+    // `:dupN` key is not known from the bytes, so its own AI results are left out here.
+    let content_key = blake3::hash(bytes).to_hex();
+    let rendered = lightcraft_engine::media::develop_original(src, info, settings, content_key.as_str(), &req);
     let Some((width, height, lightcraft_pipeline::DeepSamples::U16(samples))) = rendered.deep.as_ref().map(|d| (d.width, d.height, &d.samples)) else {
         return Err(IoError::Unsupported(format!("{name}: the develop pipeline produced no 16-bit output")));
     };
@@ -162,6 +191,44 @@ mod tests {
         assert_eq!(pixels(&first), pixels(&back));
     }
 
+    /// A Develop layer renders as the Library does: an AI patch made from another photo (settings
+    /// synced from another frame) is left out.
+    #[test]
+    fn develop_leaves_out_ai_patches_of_other_photos() {
+        let _test = CACHE_TEST.lock().unwrap();
+        let bytes = dng(40, 24, [0.6, 1.0, 0.8]);
+        let key = "pc-io-raw-foreign-patch";
+        let red = lightcraft_pipeline::patches::PatchPixels { width: 8, height: 8, data: vec![[1.0, 0.0, 0.0, 1.0]; 64] };
+        lightcraft_pipeline::patches::insert(key, Arc::new(red));
+        let mut settings = lightcraft_develop::DevelopSettings::default();
+        let plain = develop_with_settings("a.dng", &bytes, &settings.to_json()).unwrap();
+        settings.spots.push(lightcraft_develop::Spot {
+            mode: lightcraft_develop::SpotMode::Ai,
+            patch: Some(lightcraft_develop::AiPatch {
+                orientation: lightcraft_geom::Orientation::Normal,
+                key: key.into(),
+                source: "another photo".into(),
+                rect: [0.0, 0.0, 1.0, 1.0],
+                engine: "test".into(),
+                seed: 0,
+                geometry: String::new(),
+            }),
+            ..Default::default()
+        });
+        let foreign = develop_with_settings("a.dng", &bytes, &settings.to_json()).unwrap();
+        assert_eq!(pixels(&foreign), pixels(&plain));
+    }
+
+    /// A photo turned 90 degrees in Develop arrives at its full size, upright: not fitted into the
+    /// unturned box.
+    #[test]
+    fn develop_turned_a_quarter_keeps_the_full_size() {
+        let _test = CACHE_TEST.lock().unwrap();
+        let bytes = dng(64, 40, [0.6, 1.0, 0.8]);
+        let turned = develop_with_settings("a.dng", &bytes, &serde_json::json!({ "orientation": "Rotate90" })).unwrap();
+        assert_eq!(turned.document.size, photocraft_geom::Size::new(40, 64));
+    }
+
     #[test]
     fn develop_raw_options_are_used_and_part_of_the_decode_cache_key() {
         let _test = CACHE_TEST.lock().unwrap();
@@ -206,6 +273,45 @@ mod tests {
         let expected = render_source("camera.nef", &bytes, &Arc::new(src), &info, &settings).unwrap();
         assert_eq!(pixels(&actual), pixels(&expected));
         assert_eq!(actual.document.icc_profile, explicit.document.icc_profile);
+    }
+
+    /// A healthy raw whose editor decode failed for another reason (low memory headroom, say)
+    /// stays an error: its intact camera JPEG is not opened as if the sensor data were damaged.
+    #[test]
+    fn a_healthy_raw_that_fails_to_load_is_not_opened_as_damaged() {
+        use lightcraft_raw::testgen::{TiffBuilder, Val};
+        let (w, h) = (16, 16);
+        let data = mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535);
+        let img = Image::from_u8(32, 20, ChannelLayout::Rgb, vec![180; 32 * 20 * 3]).unwrap();
+        let jpeg = photocraft_codecs::encode(&img, photocraft_codecs::Format::Jpeg, &Default::default()).unwrap();
+        let mut t = TiffBuilder::default();
+        let strip = t.blob(data.iter().flat_map(|v| v.to_le_bytes()).collect());
+        let preview = t.blob(jpeg.clone());
+        let raw = t.ifd(vec![
+            (254, Val::Long(vec![0])),
+            (256, Val::Long(vec![w as u32])),
+            (257, Val::Long(vec![h as u32])),
+            (258, Val::Short(vec![16])),
+            (259, Val::Short(vec![1])),
+            (262, Val::Short(vec![32803])),
+            (273, Val::Blobs(vec![strip])),
+            (277, Val::Short(vec![1])),
+            (278, Val::Long(vec![h as u32])),
+            (279, Val::Long(vec![(data.len() * 2) as u32])),
+            (33421, Val::Short(vec![2, 2])),
+            (33422, Val::Byte(vec![0, 1, 1, 2])),
+        ]);
+        t.chain = vec![t.ifd(vec![
+            (271, Val::Ascii("NIKON CORPORATION".into())),
+            (330, Val::Ifds(vec![raw])),
+            (513, Val::Blobs(vec![preview])),
+            (514, Val::Long(vec![jpeg.len() as u32])),
+        ])];
+        let bytes = t.build();
+        assert!(lightcraft_raw::decode(&bytes).is_ok(), "the raw decoder itself reads it");
+        assert!(lightcraft_engine::files::embedded_preview_srgb(&bytes, usize::MAX).is_some(), "it has a camera JPEG");
+        let r = undecodable("camera.nef", &bytes, "NEF", IoError::Unsupported("memory headroom".into()));
+        assert!(matches!(r, Err(IoError::Raw(lightcraft_raw::RawError::Corrupt(_)))), "{:?}", r.map(|r| r.warnings));
     }
 
     #[test]

@@ -39,13 +39,11 @@ pub(super) fn local_request(
     req.variant = s.variant.clone();
     req.width = s.width;
     req.height = s.height;
-    req.transparent = s.transparent && info.transparent;
     // Steps/guidance fitted to what the connected ComfyUI accepts (never built-in ranges).
     let mut fitted = s.clone();
     fit_to_backend(&mut fitted, crate::ai_ui::status().limits);
     req.steps = fitted.steps;
     req.guidance = fitted.guidance;
-    req.variety = if m == ModelId::ZImageTurbo && s.mode == Mode::Create && s.variety.is_finite() { s.variety.clamp(0.0, 100.0) } else { 0.0 };
     req.negative = s.negative.clone();
     req.denoise = fitted.denoise;
     if s.mode == Mode::Refine {
@@ -225,7 +223,7 @@ pub(super) fn start_inner(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let name = format!("{}-{}", info.short.replace(' ', ""), r.seed);
         let meta = json!({
             "model": m.key(), "family": info.family, "variant": r.variant, "prompt": r.prompt, "negative_prompt": r.negative, "width": r.width, "height": r.height,
-            "seed": r.seed, "transparent": r.transparent, "steps": r.steps, "guidance": r.guidance, "denoise": r.denoise, "variety": r.variety,
+            "seed": r.seed, "steps": r.steps, "guidance": r.guidance, "denoise": r.denoise,
             "loras": s.loras.iter().map(|l| json!({"name": l.name, "strength": l.strength})).collect::<Vec<_>>(),
             "refine": r.refine,
             "reference_count": r.references.len(), "mode": format!("{:?}", s.mode).to_lowercase(),

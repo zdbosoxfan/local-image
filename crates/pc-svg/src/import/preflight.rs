@@ -136,6 +136,8 @@ fn without_external_doctype(mut source: String) -> Result<String> {
     Ok(source)
 }
 
+/// Most selector tests, estimated, both style matchers may make.
+const MAX_CSS_WORK: usize = 2_000_000;
 const SVG_NS: &str = "http://www.w3.org/2000/svg";
 const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
 const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
@@ -464,7 +466,7 @@ pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicB
     }
     // simplecss (used by usvg) backtracks descendant selectors. Admission limits
     // account for that parser too, before either style cascade is allowed to run.
-    let mut css_work = 0usize;
+    let mut css_per_element = 0usize;
     let mut rules = 0usize;
     for style in root.descendants().filter(|n| n.is_element() && n.tag_name().name() == "style") {
         let css: String = style.children().filter_map(|n| n.text()).collect();
@@ -494,9 +496,8 @@ pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicB
                     return Err(ImportError::Limit("CSS selector complexity"));
                 }
                 let class_work = if selector.contains('.') { class_terms.saturating_mul(selector.bytes().filter(|b| *b == b'.').count()) } else { 1 };
-                css_work =
-                    css_work.saturating_add(count.saturating_mul(observed_depth.saturating_pow(compounds.saturating_sub(1) as u32)).saturating_mul(class_work));
-                if css_work > 2_000_000 {
+                css_per_element = css_per_element.saturating_add(observed_depth.saturating_pow(compounds.saturating_sub(1) as u32).saturating_mul(class_work));
+                if css_per_element.saturating_mul(count) > MAX_CSS_WORK {
                     return Err(ImportError::Limit("CSS matching work"));
                 }
             }
@@ -614,6 +615,12 @@ pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicB
         Ok(total)
     }
     cost(root, &ids, &use_ids, &mut HashSet::new(), &mut HashMap::new(), limits.objects, 0, None, None, &segment_weights)?;
+    // usvg matches the style sheets again for every copy a <use> makes, but not for
+    // referenced paint servers or clip paths, so this walk follows only raw <use>/tref hrefs.
+    let copies = cost(root, &HashMap::new(), &use_ids, &mut HashSet::new(), &mut HashMap::new(), limits.objects, 0, None, None, &segment_weights)?;
+    if css_per_element.saturating_mul(copies) > MAX_CSS_WORK {
+        return Err(ImportError::Limit("CSS matching work"));
+    }
     cost(root, &ids, &use_ids, &mut HashSet::new(), &mut HashMap::new(), limits.segments, 0, Some(&segment_weights), None, &segment_weights)?;
     // usvg converts marker art for each path vertex. Charge all marker definitions
     // conservatively for all vertices, including inherited and CSS marker declarations.
@@ -722,6 +729,23 @@ mod hostile_svg_tests {
         let mut options = ImportOptions::default();
         options.limits.objects = 100;
         assert!(matches!(xml(&art, &options, &AtomicBool::new(false)), Err(ImportError::Limit("expanded marker"))));
+    }
+    #[test]
+    fn css_matching_is_charged_for_every_use_copy() {
+        let chain = format!("{}<rect width=\"1\" height=\"1\"/>{}", "<g>".repeat(12), "</g>".repeat(12));
+        let rules = ["a b c d", "e f g h"].map(|s| format!("{s} {{fill:red}}")).concat();
+        let uses = r##"<use href="#art"/>"##.repeat(100);
+        let art = format!(r#"<svg xmlns="http://www.w3.org/2000/svg"><style>{rules}</style><defs><g id="art">{chain}</g></defs>{uses}</svg>"#);
+        assert!(matches!(xml(&art, &ImportOptions::default(), &AtomicBool::new(false)), Err(ImportError::Limit("CSS matching work"))));
+    }
+    #[test]
+    fn paint_references_are_not_charged_as_css_copies() {
+        let rules = "svg g rect {fill:red}".repeat(6);
+        let rects = r##"<rect width="1" height="1" fill="url(#grad)"/>"##.repeat(10_000);
+        let art = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg"><style>{rules}</style><defs><linearGradient id="grad"><stop/><stop offset="1"/></linearGradient></defs><g><g>{rects}</g></g></svg>"#
+        );
+        xml(&art, &ImportOptions::default(), &AtomicBool::new(false)).unwrap();
     }
     #[test]
     fn exponential_css_is_rejected_before_either_style_matcher() {

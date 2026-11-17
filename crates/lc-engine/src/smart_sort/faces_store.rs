@@ -170,9 +170,7 @@ impl FacesStore {
                         let entry = entry?;
                         let name = entry.file_name();
                         let name = name.to_string_lossy();
-                        if (name.starts_with("faces-") && (name.ends_with(".bin") || name.contains(".bin.")))
-                            || (name.starts_with(".lightcraft-") && name.ends_with(".tmp"))
-                        {
+                        if (name.starts_with("faces-") && (name.ends_with(".bin") || name.contains(".bin."))) || li_fs::temp_owner(&name).is_some() {
                             std::fs::remove_file(entry.path())?;
                         }
                     }

@@ -18,6 +18,10 @@ use crate::kernel::boolean::{Arrangement, DEFAULT_PRECISION, Tidy, all_contours_
 /// Flattening/fit tolerance handed to kurbo's stroker.
 const STROKE_TOL: f64 = 1e-3;
 
+/// Most overlapping segment pairs an Offset Path sweep may have. Strokes of many overlapping
+/// copies cross densely, and the sweep took seconds well under the general limit.
+const MAX_OFFSET_SEGMENT_PAIRS: usize = 1 << 19;
+
 fn stroke_bez(bp: &BezPath, width: f64, cap: Cap, join: Join, miter_limit: f64) -> BezPath {
     let style = Stroke::new(width).with_join(join).with_caps(cap).with_miter_limit(miter_limit.max(1.0));
     close_all(&kurbo::stroke(bp.iter(), &style, &StrokeOpts::default(), STROKE_TOL))
@@ -81,7 +85,8 @@ pub fn stroke_region(outlines: &[BezPath]) -> PathData {
 
 /// Object → Path → Offset Path. Positive `delta` grows the filled area, negative insets it.
 /// Closed subpaths are treated as a non-zero filled region; open subpaths are outlined with a
-/// stroke of width `2|delta|` (butt caps).
+/// stroke of width `2|delta|` (butt caps). An open subpath whose last anchor sits on its first is
+/// offset as a closed one.
 pub fn offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64) -> PathData {
     try_offset_path(path, delta, join, miter_limit).unwrap_or_default()
 }
@@ -94,8 +99,9 @@ pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64
     if path.is_empty() {
         return Ok(PathData::default());
     }
-    let closed = PathData::new(path.subpaths.iter().filter(|s| s.closed && s.anchors.len() > 1).cloned().collect());
-    let open: Vec<SubPath> = path.subpaths.iter().filter(|s| !s.closed && s.anchors.len() > 1).cloned().collect();
+    let subpaths: Vec<SubPath> = path.subpaths.iter().map(close_if_ends_meet).collect();
+    let closed = PathData::new(subpaths.iter().filter(|s| s.closed && s.anchors.len() > 1).cloned().collect());
+    let open: Vec<SubPath> = subpaths.into_iter().filter(|s| !s.closed && s.anchors.len() > 1).collect();
     let d = delta.abs();
     if delta < 0. && !open.is_empty() {
         // Inset applies to the closed fill; open paths remain bands for either sign.
@@ -109,7 +115,7 @@ pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64
     let open_bp =
         if d > 0.0 && !open.is_empty() { stroke_bez(&PathData::new(open).to_bezpath(), 2.0 * d, Cap::Butt, join, miter_limit) } else { BezPath::new() };
     let tidy = Tidy::free_for(DEFAULT_PRECISION, [&fill, &ring, &open_bp]);
-    let arr = Arrangement::new(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)])?;
+    let arr = Arrangement::new_budgeted(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)], MAX_OFFSET_SEGMENT_PAIRS)?;
     let c = if delta >= 0.0 { arr.contours(|m| m[0] || m[1] || m[2]) } else { arr.contours(|m| m[0] && !m[1]) }?;
     // When `d` exceeds a curvature radius the stroker's inner offset inverts and its loops cancel
     // winding, leaving faces uncovered that are really within `d` of the path. Every face of the
@@ -124,6 +130,22 @@ pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64
     }
     let keep = (0..spurious.len()).filter(|&i| !has_marked_ancestor(&c, i, &spurious)).map(ContourIdx);
     Ok(contours_to_path(&c, keep, &tidy))
+}
+
+/// An open subpath of three or more anchors whose last anchor lies within 1e-6 of its first, as a
+/// closed subpath: the last anchor merges into the first, which takes its in-handle.
+fn close_if_ends_meet(sp: &SubPath) -> SubPath {
+    let mut sp = sp.clone();
+    if !sp.closed
+        && sp.anchors.len() > 2
+        && sp.anchors.first().zip(sp.anchors.last()).is_some_and(|(f, l)| f.p.distance(l.p) < 1e-6)
+        && let Some(last) = sp.anchors.pop()
+        && let Some(first) = sp.anchors.first_mut()
+    {
+        first.h_in = last.h_in;
+        sp.closed = true;
+    }
+    sp
 }
 
 fn has_marked_ancestor(c: &Contours, mut i: usize, marked: &[bool]) -> bool {
@@ -157,7 +179,7 @@ fn deep_point(bp: &BezPath) -> Option<kurbo::Point> {
                 xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
             }
         };
-        kurbo::flatten(bp.iter(), 0.01 * r.width().min(r.height()).max(1e-6), |el| match el {
+        crate::geom::bez::flatten(bp.iter(), 0.01 * r.width().min(r.height()).max(1e-6), |el| match el {
             PathEl::MoveTo(p) => {
                 start = p;
                 prev = Some(p);
@@ -197,6 +219,17 @@ mod tests {
     use kurbo::Shape;
 
     use super::*;
+
+    #[test]
+    fn offset_refuses_dense_overlapping_copies() {
+        let mut bp = BezPath::new();
+        for i in 0..300 {
+            let at = f64::from(i) * 0.1;
+            bp.extend(kurbo::Rect::new(at, at, at + 100.0, at + 100.0).to_path(0.1).iter());
+        }
+        let path = PathData::from_bezpath(&bp);
+        assert_eq!(try_offset_path(&path, 5.0, Join::Round, 4.0), Err(PathOpsError::TooComplex));
+    }
 
     #[test]
     fn stroke_region_unites_outlines_whatever_their_winding() {

@@ -10,7 +10,7 @@ other tools), and let LightCraft pick up edits made elsewhere.
 |---|---|
 | Name | `<stem>.xmp` by default (`IMG_0001.CR3` → `IMG_0001.xmp`); `<file>.xmp` (`IMG_0001.CR3.xmp`) with `naming: "full"`. Reading accepts either (preferred first) and `.XMP`. With stem naming, files sharing a stem don't share a sidecar: see *Shared names* below. |
 | Write | `photo.saveMetadataToFile {ids?}` (Photo ▸ Save Metadata to File, ⌘S), or automatically after every change with `library.xmpPreferences {autoWrite: true}` (File ▸ Automatically Write Changes into XMP). Slider drags are written once, when the drag ends; undo/redo rewrite the sidecar. An existing sidecar is **merged into, never replaced** (see *Saving into an existing sidecar*). Written atomically (temp file, fsync, rename). The result lists `written`, `merged` and `backups`. |
-| Read | On import (`library.import`, the report counts `sidecars`), and `photo.readMetadataFromFile {ids?}` (one undo step). For raw/DNG files without a sidecar, the XMP embedded in the file is used. |
+| Read | On import (`library.import`, the report counts `sidecars`), and `photo.readMetadataFromFile {ids?}` (one undo step). For raw/DNG files without a sidecar, the XMP embedded in the file is used. A file arriving in an import is ranked as if it were catalogued already: it reads its own `<file>.xmp` when another file of its stem (a raw first) owns the shared stem sidecar (issue #1905). |
 | Preferences | `library.xmpPreferences {autoWrite?, naming?: stem\|full}`, stored in the library's `prefs.json`. |
 
 What we write (standard namespaces, so other tools can read the metadata):
@@ -22,7 +22,7 @@ What we write (standard namespaces, so other tools can read the metadata):
 | Title / caption / copyright / creator | `dc:title` / `dc:description` / `dc:rights` / `dc:creator` |
 | Copyright status | `xmpRights:Marked` (`True` copyrighted, `False` public domain, absent = unknown) |
 | Rights usage terms / copyright info URL | `xmpRights:UsageTerms` / `xmpRights:WebStatement` |
-| Keywords | `dc:subject` |
+| Keywords | `dc:subject` (names: `Places`, `Italy`, `Rome`) and, when any keyword has levels, `lr:hierarchicalSubject` (paths: `Places\|Italy\|Rome`, with the flat keywords too) |
 | Capture time, GPS | `exif:DateTimeOriginal`, `photoshop:DateCreated`, `exif:GPSLatitude`/`GPSLongitude` |
 | Pick / reject flag | `lc:flag` (`pick`, `reject`, `none`) |
 | Location | `lc:location` |
@@ -43,14 +43,14 @@ A sidecar may already hold another application's data — e.g. its `crs:` develo
 the only copy of those edits outside that application's catalog. Saving never drops it:
 
 - LightCraft **owns** the properties in the table above: `xmp:Rating`, `xmp:Label`, `dc:title`, `dc:description`,
-  `dc:rights`, `dc:creator`, `dc:subject`, `Iptc4xmpCore:Location`, `Iptc4xmpCore:AltTextAccessibility`,
+  `dc:rights`, `dc:creator`, `dc:subject`, `lr:hierarchicalSubject`, `Iptc4xmpCore:Location`, `Iptc4xmpCore:AltTextAccessibility`,
   `Iptc4xmpCore:ExtDescrAccessibility`, `photoshop:City`/`State`/`Country`, `xmpRights:Marked`/`UsageTerms`/
   `WebStatement` and everything in `lc:`. They are replaced on every save, and removed when LightCraft has no value
   (clearing a title in LightCraft clears it in the file). All of them are read back on import, so the library starts
   from what the sidecar said.
 - The **capture time** (`exif:DateTimeOriginal`, `photoshop:DateCreated`) and **GPS** (`exif:GPSLatitude`,
   `exif:GPSLongitude`) are replaced only when LightCraft has a value; otherwise the file's stay.
-- **Everything else is kept byte for byte**: other namespaces (`crs:`, `xmpMM:`, `lr:hierarchicalSubject`, unknown
+- **Everything else is kept byte for byte**: other namespaces (`crs:`, `xmpMM:`, the rest of `lr:`, unknown
   ones), `xmp:CreatorTool`, comments, the packet wrapper and padding. LightCraft's properties go into one
   `rdf:Description` of their own; owned properties written by another application (in attribute or element form) are
   removed from its description, which otherwise stays as it was.
@@ -58,8 +58,12 @@ the only copy of those edits outside that application's catalog. Saving never dr
   `<name>.xmp.bak-<date><time>` (`-1`, `-2`… if taken — a backup is never overwritten), then replaced. A sidecar that
   can't be read at all (permissions) is left alone and the save fails.
 
-Limits: LightCraft writes keywords to `dc:subject` only, so another application's `lr:hierarchicalSubject` is kept as
-it was and may still list keywords removed in LightCraft. LightCraft doesn't write `crs:`: the other application's
+Keywords are written the way Lightroom Classic and darktable write them, so other applications can search them: names
+in `dc:subject`, paths in `lr:hierarchicalSubject` (`keywords::to_file`; read back by `keywords::from_file`, which gives
+the same keywords). Sidecars written before this change have paths in `dc:subject`; they still read as paths, and the
+next save writes them this way.
+
+Limits: LightCraft doesn't write `crs:`: the other application's
 develop settings stay as that application left them, next to LightCraft's own (`lc:settings`, which LightCraft reads
 first).
 
@@ -69,6 +73,10 @@ With stem naming, `IMG_0001.CR3` and `IMG_0001.JPG` map to the same `IMG_0001.xm
 library share a stem, the stem sidecar belongs to one of them — a raw first, otherwise the first by file name — and
 the others write and read `<file>.xmp` (`IMG_0001.JPG.xmp`), falling back to the stem sidecar for reading when they
 have none. So saving one photo never overwrites the other's metadata (`Session::sidecar_naming`).
+
+An import ranks the files it is adding the same way, before they are catalogued: a TIFF or JPEG arriving beside a
+raw of its stem reads its own `<file>.xmp` and takes nothing from the raw's `IMG_0001.xmp`, whether it arrives
+with the raw or after it (issue #1905).
 
 ## Face regions (MWG)
 
@@ -84,8 +92,15 @@ write them, from sidecars and from XMP embedded in the file. Named faces become 
   that misses it entirely, or has a non-finite, zero or negative size, is skipped (the rest of the list is kept).
 - **Orientation**: regions are stored on the upright (EXIF-oriented) photo. A `mwg-rs:Rotation` of −π/2, +π/2 or ±π
   (how Lightroom marks a box given in the sensor's frame for Exif orientation 6, 8 or 3) is turned back into the
-  upright frame; MWG can't say "mirrored", so boxes on mirrored photos (orientations 2, 4, 5, 7) are taken as written.
-  Boxes follow LightCraft's own Rotate Left/Right and flips.
+  upright frame; MWG can't say "mirrored", so Lightroom's boxes on mirrored photos (orientations 2, 4, 5, 7) are
+  taken as written. Other applications mark boxes drawn on the photo as stored only by their size: when
+  `mwg-rs:AppliedToDimensions` has the shape of the photo as stored rather than upright (a photo that Exif orientation
+  5–8 turns a quarter turn, and no `mwg-rs:Rotation`), the boxes are turned with the file's own Exif orientation,
+  mirror included, when imported and when read again. The image's own pixel size decides, not a size the metadata
+  states, and the orientation is found wherever the file keeps its Exif (WebP after the image data, for one). The
+  exception is a raw with a sidecar that has no `mwg-rs:Regions`: its boxes come from the file and the size its Exif
+  states decides, and with no such size they are taken as written. A square photo or size looks the same both ways
+  and is taken as written. Boxes follow LightCraft's own Rotate Left/Right and flips.
 - **Re-reading**: a sidecar that has `mwg-rs:Regions` — even with an empty list — replaces the photo's regions, so
   regions removed in another application go away here too. A sidecar without `mwg-rs:Regions` (an application that
   doesn't do regions) leaves the photo's regions as they are.

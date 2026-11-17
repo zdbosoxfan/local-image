@@ -1,6 +1,5 @@
 //! Native platform services: file dialogs (rfd), filesystem, codecs.
 
-#[cfg(any(target_os = "linux", test))]
 mod clipboard;
 #[cfg(target_os = "linux")]
 mod pdf_raster;
@@ -679,7 +678,7 @@ fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
 }
 
 pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) -> Services {
-    let clip: Rc<RefCell<Option<arboard::Clipboard>>> = Rc::default();
+    let clip: Rc<RefCell<clipboard::NativeClipboard>> = Rc::default();
     let preferences = preferences_services(prefs_file());
     if !cfg!(test)
         && let Some(path) = prefs_file()
@@ -717,11 +716,15 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             if let Some(q) = settings.jpeg_quality {
                 opts.encode.jpeg_quality = q;
             }
+            opts.encode.jpeg_chroma_subsampling = settings.jpeg_chroma_subsampling;
             opts.encode.webp_lossless = settings.webp_lossless;
             if let Some(q) = settings.webp_quality {
                 opts.encode.webp_quality = q;
             }
             opts.tiff_layers = settings.tiff_layers;
+            opts.tiff_transparency = settings.tiff_transparency;
+            opts.encode.tiff_compression = settings.tiff_compression;
+            opts.encode.tiff_pyramid = settings.tiff_pyramid;
             opts.read_linked_files = settings.read_linked_files;
             opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
             crate::crash_guard::guard("Export", || {
@@ -760,45 +763,21 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             let clip = clip.clone();
             Box::new(move |w: u32, h: u32, px: &[u8]| {
                 let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
-                let cb = match slot.as_mut() {
-                    Some(c) => c,
-                    None => slot.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
-                };
-                cb.set_image(arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(px) }).map_err(|e| e.to_string())
+                slot.writer()?
+                    .set_image(arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(px) })
+                    .map_err(|e| e.to_string())
             })
         }),
         clipboard_get_files: Some({
             let clip = clip.clone();
             Box::new(move || {
                 let Ok(mut slot) = clip.try_borrow_mut() else { return vec![] };
-                let cb = match slot.as_mut() {
-                    Some(c) => c,
-                    None => match arboard::Clipboard::new() {
-                        Ok(c) => slot.insert(c),
-                        Err(_) => return vec![],
-                    },
-                };
-                cb.get().file_list().unwrap_or_default().iter().map(|p| p.to_string_lossy().trim_end_matches('\r').to_string()).collect()
+                slot.files().iter().map(|p| p.to_string_lossy().trim_end_matches('\r').to_string()).collect()
             })
         }),
         clipboard_get_image: Some({
             let clip = clip.clone();
-            Box::new(move || {
-                guarded_clipboard(|| {
-                    let mut slot = clip.try_borrow_mut().ok()?;
-                    let cb = match slot.as_mut() {
-                        Some(c) => c,
-                        None => slot.insert(arboard::Clipboard::new().ok()?),
-                    };
-                    if let Ok(image) = cb.get_image() {
-                        return Some((image.width as u32, image.height as u32, image.bytes.into_owned()));
-                    }
-                    #[cfg(target_os = "linux")]
-                    return clipboard::wayland_clipboard_image();
-                    #[cfg(not(target_os = "linux"))]
-                    None
-                })
-            })
+            Box::new(move || clip.try_borrow_mut().ok()?.image())
         }),
         load_prefs: None,
         load_prefs_checked: preferences.load_prefs_checked,
@@ -1484,11 +1463,15 @@ pub(crate) fn prepare_document_save(
     if let Some(value) = settings.jpeg_quality {
         options.encode.jpeg_quality = value;
     }
+    options.encode.jpeg_chroma_subsampling = settings.jpeg_chroma_subsampling;
     options.encode.webp_lossless = settings.webp_lossless;
     if let Some(value) = settings.webp_quality {
         options.encode.webp_quality = value;
     }
     options.tiff_layers = settings.tiff_layers;
+    options.tiff_transparency = settings.tiff_transparency;
+    options.encode.tiff_compression = settings.tiff_compression;
+    options.encode.tiff_pyramid = settings.tiff_pyramid;
     options.read_linked_files = settings.read_linked_files;
     options.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
     let progress = |fraction| interrupt.progress(fraction * 0.8);
@@ -1631,6 +1614,37 @@ mod save_worker_native_tests {
         assert_eq!(std::fs::read(&a).unwrap(), b"old source");
         assert_eq!(std::fs::read(&link).unwrap(), b"old source");
         assert!(!std::fs::read_dir(&dir.0).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().ends_with(".pcsave.tmp")));
+    }
+    /// What TIFF Options sets in `ExportSettings` reaches the file the app writes, through the
+    /// export service and the background save: the compression, Save Transparency and Save
+    /// Image Pyramid.
+    #[test]
+    fn tiff_options_reach_the_written_file() {
+        photocraft_engine::vector_integration::initialize();
+        let mut doc = Document::new("transparent", Size::new(200, 100), ColorMode::Rgb, SampleType::U8);
+        let mut layer = Layer::raster("pixels", doc.pixel_format());
+        layer.surface_mut().unwrap().fill_rect(photocraft_doc::Rect::new(0, 0, 100, 100), &[0.2, 0.4, 0.7, 1.0]);
+        doc.layers.push(layer);
+        let doc = Arc::new(doc);
+        let settings = photocraft_ui_egui::ExportSettings {
+            tiff_compression: photocraft_codecs::TiffCompression::Lzw,
+            tiff_transparency: Some(false),
+            tiff_pyramid: true,
+            ..Default::default()
+        };
+        let check = |bytes: &[u8]| {
+            let info = photocraft_codecs::tiff_info(bytes).unwrap();
+            assert_eq!(info.pages.iter().map(|p| (p.width, p.compression)).collect::<Vec<_>>(), [(200, 5), (100, 5), (50, 5)]);
+            assert!(!photocraft_codecs::decode(bytes).unwrap().layout().has_alpha());
+        };
+        let export = native(None).export.unwrap();
+        let (bytes, _) = export(&doc, "t.tif", &settings).unwrap();
+        check(&bytes);
+        let dir = Dir::new();
+        let path = path(&dir, "t.tif");
+        let prepared = prepare_document_save(doc, &path, &settings, &Interrupt::NONE).unwrap();
+        (prepared.write.commit)().unwrap();
+        check(&std::fs::read(&path).unwrap());
     }
     #[test]
     fn background_save_native_rejects_a_new_file_created_after_staging() {

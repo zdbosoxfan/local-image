@@ -166,6 +166,8 @@ pub struct Drag {
     pub erase: bool,
     /// ⇧ constraint of a painting stroke (stroke_constraint.rs).
     pub constrain: Option<crate::stroke_constraint::Axis>,
+    /// A ⇧-click line from the previous stroke's end, which isn't smoothed.
+    pub line: bool,
     /// Modifiers held now (updated on every pointer event of the gesture).
     pub live: egui::Modifiers,
     /// Which of the modifiers held at the press have been released since.
@@ -193,6 +195,7 @@ impl Drag {
             modifiers,
             erase,
             constrain: None,
+            line: false,
             live: modifiers,
             released: egui::Modifiers::NONE,
             reposition: false,
@@ -438,6 +441,7 @@ pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.disable();
     } else {
         airbrush_tick(app, ui.ctx());
+        crate::layer_transfer::prepare(app, ui.ctx());
     }
     documents(app, ui);
     // Input is dispatched by `documents`; start its batch before an otherwise idle tap frame ends.
@@ -644,6 +648,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     if let Some(tex) = crate::channel_view::ensure(app, &ctx, idx) {
         painter.add(xf.camera().textured_quad(tex, image_bounds, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE));
     }
+    // Image › Adjustments › Levels: Alt-drag on the black / white Input slider (levels_clipping.rs).
+    crate::levels_clipping::paint(app, &ctx, &painter, &xf, idx);
     // Artboards: pasteboard between the boards, outlines and names (artboard_ui.rs).
     if doc.has_artboards() {
         let t = crate::theme::Tokens::get(&ctx);

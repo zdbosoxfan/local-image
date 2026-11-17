@@ -120,7 +120,7 @@ pub(super) fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map
                     crate::widgets::hairline(ui);
                     crate::widgets::section_label(ui, "Compositing");
                     for (id, title) in SECTIONS {
-                        if ["general", "interface", "performance", "integrations"].contains(&id) {
+                        if ["general", "interface", "performance", "integrations", "rawDefaults"].contains(&id) {
                             continue;
                         }
                         if ui.push_id(id, |ui| prefs_nav_row(ui, tl!(title), section == id, !has_visible_fields(&values, id))).inner {
@@ -148,7 +148,15 @@ pub(super) fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map
             if app.host_preferences_pages.iter().any(|(id, _)| *id == section) {
                 if let Some(host) = app.host_preferences.as_mut() {
                     let draft = f.entry("hostValues").or_insert_with(|| host.values());
-                    egui::ScrollArea::vertical().max_height(body_height).id_salt("host-prefs-scroll").show(ui, |ui| host.body(ui, &section, draft));
+                    egui::ScrollArea::vertical().max_height(body_height).id_salt("host-prefs-scroll").show(ui, |ui| {
+                        host.body(ui, &section, draft);
+                        if let Some(defaults) = host.reset(&section, draft) {
+                            ui.add_space(8.0);
+                            if crate::widgets::secondary_button(ui, tl!("Reset Section"), 110.0).clicked() {
+                                *draft = defaults;
+                            }
+                        }
+                    });
                 }
                 return;
             }

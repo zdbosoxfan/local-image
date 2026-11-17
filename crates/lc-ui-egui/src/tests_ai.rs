@@ -19,7 +19,7 @@ struct Mock;
 
 impl AiHost for Mock {
     fn remove_engines(&self) -> Vec<RemoveEngine> {
-        vec![RemoveEngine { key: "mock".into(), label: "Mock Engine".into(), problem: None }]
+        vec![RemoveEngine { key: "mock".into(), label: "Mock Engine".into(), problem: None, on_device: false }]
     }
     fn remove(&self, req: &RemoveRequest, _: &JobCtl) -> Result<RemoveResult, String> {
         let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [0.98, 0.0, 0.98] } else { *c }).collect();
@@ -27,9 +27,37 @@ impl AiHost for Mock {
     }
 }
 
+/// An engine that can't run now (the AI engine is off).
+struct Down;
+
+impl AiHost for Down {
+    fn remove_engines(&self) -> Vec<RemoveEngine> {
+        vec![RemoveEngine { key: "down".into(), label: "Down Engine".into(), problem: Some("The AI engine isn't running.".into()), on_device: false }]
+    }
+    fn remove(&self, _: &RemoveRequest, _: &JobCtl) -> Result<RemoveResult, String> {
+        Err("The AI engine isn't running.".into())
+    }
+}
+
+/// Automatic while it picks the on-device engine, whose model isn't downloaded.
+struct NoModel;
+
+impl AiHost for NoModel {
+    fn remove_engines(&self) -> Vec<RemoveEngine> {
+        vec![RemoveEngine { key: "auto".into(), label: "Automatic".into(), problem: Some("Download AI Remove first.".into()), on_device: true }]
+    }
+    fn remove(&self, _: &RemoveRequest, _: &JobCtl) -> Result<RemoveResult, String> {
+        Err("Download AI Remove first.".into())
+    }
+}
+
 fn app() -> Headless {
+    app_with(Arc::new(Mock))
+}
+
+fn app_with(host: Arc<dyn AiHost>) -> Headless {
     let mut session = lightcraft_engine::Session::with_demo();
-    session.enhance.host = Some(Arc::new(Mock));
+    session.enhance.host = Some(host);
     let app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
     let mut h = Headless::new(app, [1200.0, 800.0], 1.0);
     let r = h.request("ui.set", json!({"view": "detail"}), T);
@@ -199,6 +227,46 @@ fn ai_remove_waits_for_confirmation() {
     assert!(sp.is_ai() && !sp.points.is_empty() && sp.polygon.len() >= 3, "{sp:?}");
 }
 
+/// A removal that can't start (the engine is off) keeps what was painted.
+#[test]
+fn ai_remove_keeps_the_painted_area_when_it_cannot_start() {
+    let mut h = app_with(Arc::new(Down));
+    exec(&mut h, "panel.remove", json!({}));
+    click(&mut h, "button:removeMode-ai");
+    brush(&mut h, (0.3, 0.3), (0.35, 0.3), false);
+    let painted = h.app.ui.remove_draft.clone().expect("a draft");
+    h.request("ui.key", json!({"key": "Enter"}), T);
+    h.settle(T);
+    assert_eq!(h.app.ui.remove_draft, Some(painted), "the painted area survives the error");
+    assert!(h.app.session.enhance.jobs().is_empty() && spots(&h).is_empty());
+}
+
+/// An engine that can't run offers the hosted Local AI setup next to its problem.
+#[test]
+fn ai_remove_problem_opens_local_ai_setup() {
+    let mut h = app_with(Arc::new(Down));
+    h.app.hosted_menus = true;
+    exec(&mut h, "panel.remove", json!({}));
+    click(&mut h, "button:removeMode-ai");
+    h.step();
+    click(&mut h, "button:removeSetUpAI");
+    h.step();
+    assert_eq!(h.app.open_shared_ai.as_deref(), Some("ai.connection"));
+}
+
+/// An engine that runs on this computer opens On-device Tools, where its model is downloaded.
+#[test]
+fn ai_remove_on_device_problem_opens_on_device_tools() {
+    let mut h = app_with(Arc::new(NoModel));
+    h.app.hosted_menus = true;
+    exec(&mut h, "panel.remove", json!({}));
+    click(&mut h, "button:removeMode-ai");
+    h.step();
+    click(&mut h, "button:removeSetUpAI");
+    h.step();
+    assert_eq!(h.app.open_shared_ai.as_deref(), Some("ai.tools"));
+}
+
 /// After an AI removal the Heal brush works over it: the brush keeps its own size, the old spot
 /// is deselected and only its pin grabs, and its outline (the "ghost" of the stroke) isn't drawn
 /// unless it is selected or hovered.
@@ -264,7 +332,7 @@ fn masking_alt_preview_ends_with_the_drag() {
     d.detail.sharpen_amount = 80.0;
     app.ui.right = crate::state::RightPanel::Edit;
     app.ui.dragging_control = Some("detail.sharpenMasking".into());
-    app.ui.sharpen_mask_preview = true;
+    app.ui.alt_preview = true;
     assert_eq!(crate::panels::detail::view_overlay(&app, &d), Overlay::SharpenMask);
     app.ui.dragging_control = None;
     assert_eq!(crate::panels::detail::view_overlay(&app, &d), Overlay::None);

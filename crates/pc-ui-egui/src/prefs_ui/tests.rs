@@ -549,6 +549,16 @@ fn preferences_dialog_round_trip() {
     assert_eq!(app.session.prefs().performance.history_states, 50);
 }
 
+#[test]
+fn hosted_raw_defaults_opens_the_library_import_page() {
+    let (mut app, _) = app_with_store();
+    let ctx = egui::Context::default();
+    app.host_preferences_pages = &[("library.import", "Import")];
+    let r = crate::menus::invoke(&mut app, &ctx, "edit.preferences.rawDefaults", json!({})).unwrap();
+    let id = r["dialog"].as_u64().unwrap();
+    assert_eq!(app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["section"], "library.import");
+}
+
 /// local-image: Performance › Processing shows the automatic values and stores the optional
 /// overrides (thread count, background priority, memory share); out-of-range values set by path
 /// are refused.
@@ -699,6 +709,43 @@ fn failed_ai_save_keeps_core_host_history_and_preferences_drafts_atomic() {
             },
         );
     }
+}
+
+/// A host page that can reset offers Reset Section, which puts its defaults into the draft.
+#[test]
+fn host_preference_page_reset_section_replaces_its_draft() {
+    use egui_kittest::{Harness, kittest::Queryable};
+    struct HostReset;
+    impl HostPreferencesPages for HostReset {
+        fn pages(&self) -> &'static [(&'static str, &'static str)] {
+            &[("library.reset", "Resettable"), ("library.fixed", "Fixed")]
+        }
+        fn values(&self) -> Value {
+            json!({"enabled": true})
+        }
+        fn body(&mut self, _: &mut egui::Ui, _: &str, _: &mut Value) {}
+        fn prepare(&self, _: &Value) -> Result<Box<dyn FnOnce() + '_>, String> {
+            Ok(Box::new(|| {}))
+        }
+        fn reset(&self, section: &str, _: &Value) -> Option<Value> {
+            (section == "library.reset").then(|| json!({"enabled": false}))
+        }
+    }
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.run("prefs.set", json!({"values": {"interface.language": "en"}})).unwrap();
+    app.host_preferences_pages = HostReset.pages();
+    app.host_preferences = Some(Box::new(HostReset));
+    let mut h = Harness::builder().with_size(vec2(1200., 900.)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+    PhotocraftApp::setup_context(&h.ctx, Default::default());
+    open_preferences(h.state_mut(), "library.fixed");
+    h.run_steps(3);
+    assert!(h.query_by_label("Reset Section").is_none(), "a page with nothing to reset has no button");
+    let id = open_preferences(h.state_mut(), "library.reset");
+    h.run_steps(3);
+    h.get_by_label("Reset Section").click();
+    h.run_steps(2);
+    let dialog = h.state().ui.dialogs.iter().find(|dialog| dialog.id == id).unwrap();
+    assert_eq!(dialog.fields["hostValues"], json!({"enabled": false}));
 }
 
 #[test]
@@ -922,6 +969,29 @@ fn autosave_runs_for_dirty_documents() {
     assert_eq!(saved.lock().unwrap().len(), 2, "autosave off");
 }
 
+/// While Library or Develop is shown the editor only gets `persist_background`; crash recovery
+/// keeps running there.
+#[test]
+fn autosave_runs_while_another_module_is_shown() {
+    let saved: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let s2 = saved.clone();
+    let services = crate::Services {
+        autosave: Some(Box::new(move |_doc: &Arc<photocraft_doc::Document>, rev: u64, _path: Option<&str>| {
+            s2.lock().unwrap().push(rev);
+            Ok(())
+        })),
+        ..Default::default()
+    };
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+    let ctx = egui::Context::default();
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    tick(&mut app, &ctx);
+    app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    autosave_now(&mut app);
+    persist_background(&mut app, &ctx);
+    assert_eq!(saved.lock().unwrap().len(), 1, "the dirty document is autosaved in the background");
+}
+
 #[test]
 fn recovered_documents_adopt_their_entries_until_saved_or_closed() {
     type Log = Arc<Mutex<Vec<String>>>;
@@ -956,6 +1026,18 @@ fn recovered_documents_adopt_their_entries_until_saved_or_closed() {
     autosave_now(&mut app);
     tick(&mut app, &ctx);
     assert_eq!(take(), [format!("discard {}", ids[0]), format!("save {}", ids[1])]);
+}
+
+#[test]
+fn recovered_documents_are_announced_as_a_notice() {
+    use photocraft_doc::{Color, ColorMode, Document, SampleType, Size};
+    let doc = || Document::with_background("R", Size::new(4, 4), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+    let services = crate::Services {
+        recover: Some(Box::new(move || ["a", "b"].map(|key| crate::Recovered { key: key.into(), path: None, doc: doc() }).into())),
+        ..Default::default()
+    };
+    let app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+    assert!(app.ui.notices.iter().any(|n| n.title == "Recovered 2 documents"), "{:?}", app.ui.notices);
 }
 
 #[test]
@@ -1104,9 +1186,9 @@ mod shifted_symbol_conflict_tests {
         ];
         h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("host-shortcut-catalog"), items));
         h.run_steps(4);
-        h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Editor")).click();
+        h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Compositing")).click();
         h.run();
-        h.get_by_label("Library + Develop").click();
+        h.get_by_label("Library & Develop").click();
         h.run();
         let pos = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("shortcut-capture", "library::view.maskOverlay")))).unwrap().center();
         h.event(egui::Event::PointerMoved(pos));

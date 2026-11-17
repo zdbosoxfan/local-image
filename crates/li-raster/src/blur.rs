@@ -76,9 +76,15 @@ fn box_row<T: Pixel>(row: &mut [T], tmp: &mut Vec<T>, r: usize) {
     let s = &tmp[..];
     let last = w - 1;
     let inv = 1.0 / (2 * r + 1) as f32;
-    let mut acc = T::zero();
-    for i in 0..=2 * r {
-        acc = acc.madd(s[i.saturating_sub(r).min(last)], 1.0);
+    // the window [-r, r] with clamped edges: r copies of the first pixel, the pixels 0..=min(r, last),
+    // then the last pixel for each offset past it (O(w), not O(r), however large the radius)
+    let mut acc = T::zero().madd(s[0], r as f32);
+    for v in &s[..=r.min(last)] {
+        acc = acc.madd(*v, 1.0);
+    }
+    // only when the window reaches past the last pixel: a NaN there must not poison a row it isn't in
+    if r > last {
+        acc = acc.madd(s[last], (r - last) as f32);
     }
     for x in 0..w {
         row[x] = T::zero().madd(acc, inv);
@@ -275,6 +281,30 @@ pub fn gaussian_fine<T: Pixel>(src: &[T], width: usize, height: usize, sigma: f3
 #[cfg(test)]
 mod gaussian_policy_tests {
     use super::*;
+
+    /// Priming the running sum took O(radius) per row, so a radius far past the row stalled; it is
+    /// O(width) and matches the clamped window sum.
+    #[test]
+    fn box_row_primes_in_the_row_width_however_large_the_radius() {
+        let mut row = [1.0f32; 4];
+        box_row(&mut row, &mut Vec::new(), 1 << 40);
+        assert!(row.iter().all(|v| (v - 1.0).abs() < 1e-3), "{row:?}");
+        for (w, r) in [(1usize, 1usize), (5, 1), (5, 4), (5, 5), (5, 9), (7, 3)] {
+            let mut row: Vec<f32> = (0..w).map(|i| (i * i + 1) as f32).collect();
+            let want: Vec<f32> = (0..w as isize)
+                .map(|x| (-(r as isize)..=r as isize).map(|j| row[(x + j).clamp(0, w as isize - 1) as usize]).sum::<f32>() / (2 * r + 1) as f32)
+                .collect();
+            box_row(&mut row, &mut Vec::new(), r);
+            for (a, b) in row.iter().zip(&want) {
+                assert!((a - b).abs() < 1e-3, "w {w} r {r}: {a} vs {b}");
+            }
+        }
+        // a NaN last pixel stays out of windows that do not reach it
+        let mut row = [1.0f32; 8];
+        row[7] = f32::NAN;
+        box_row(&mut row, &mut Vec::new(), 2);
+        assert!(row[..5].iter().all(|v| v.is_finite()), "{row:?}");
+    }
 
     #[test]
     fn gaussian_policy_plan_keeps_sampled_default_and_box_consumer_distinct() {

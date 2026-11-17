@@ -3,7 +3,7 @@
 //! comes out square. Every layer is resampled through the same homography (the Background stays a
 //! Background); masks, channels and the selection follow.
 
-use photocraft_algo::transform::{Homography, Interp};
+use photocraft_algo::transform::{Homography, Interp, quad_free_size};
 use photocraft_doc::{LayerContent, Size};
 use photocraft_geom::Rect;
 use serde_json::{Value, json};
@@ -42,17 +42,16 @@ fn quad(p: &Value) -> Result<[[f64; 2]; 4]> {
     Ok(q)
 }
 
-/// The output size: the mean lengths of opposite edges.
-pub fn output_size(q: &[[f64; 2]; 4]) -> (u32, u32) {
-    let d = |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).hypot(a[1] - b[1]);
-    let w = (d(q[0], q[1]) + d(q[3], q[2])) / 2.0;
-    let h = (d(q[0], q[3]) + d(q[1], q[2])) / 2.0;
+/// The output size when none is given: the rectangle the quad shows in perspective to a camera
+/// aimed at the centre of a `doc`-sized image ([`quad_free_size`]).
+pub fn output_size(q: &[[f64; 2]; 4], doc: Size) -> (u32, u32) {
+    let (w, h) = quad_free_size(q, [f64::from(doc.width) / 2.0, f64::from(doc.height) / 2.0]);
     ((w.round() as u32).max(1), (h.round() as u32).max(1))
 }
 
 fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let q = quad(p)?;
-    let (aw, ah) = output_size(&q);
+    let (aw, ah) = output_size(&q, s.active().ok_or(EngineError::NoDocument)?.doc.size);
     let int = |k: &str| p.get(k).and_then(Value::as_u64).filter(|v| (1..=300_000).contains(v)).map(|v| v as u32);
     let (w, h) = (int("width").unwrap_or(aw), int("height").unwrap_or(ah));
     let interp = Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
@@ -68,7 +67,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
             let background = l.name == "Background" && l.locks.position && matches!(l.content, LayerContent::Raster(_));
             if background && let Some(surf) = l.surface_mut() {
                 let src = surf.content_bounds();
-                let warped = photocraft_algo::transform::warp_surface(surf, src, &hm, interp);
+                let warped = photocraft_algo::transform::warp_surface_clipped(surf, src, &hm, interp, canvas);
                 let mut base = photocraft_raster::Surface::new(fmt);
                 let fill = photocraft_raster::from_rgba(&fmt, bg);
                 base.write_region(canvas, &fill.repeat(canvas.width() as usize * canvas.height() as usize));
@@ -125,7 +124,7 @@ mod tests {
         let r = s.execute("image.perspectiveCrop", json!({"quad": q})).unwrap();
         let (w, h) = (r["width"].as_u64().unwrap(), r["height"].as_u64().unwrap());
         assert_eq!((w, h), {
-            let (a, b) = output_size(&q);
+            let (a, b) = output_size(&q, Size::new(200, 160));
             (a as u64, b as u64)
         });
         let d = &s.active().unwrap().doc;
@@ -135,5 +134,30 @@ mod tests {
         // Bad shapes are refused.
         assert!(s.execute("image.perspectiveCrop", json!({"quad": [[0, 0], [10, 10], [0, 10], [10, 0]]})).is_err());
         assert!(s.execute("image.perspectiveCrop", json!({"quad": [[0, 0], [10, 0]]})).is_err());
+    }
+
+    /// With no size given the canvas is the rectangle the quad shows in perspective, larger than
+    /// this skewed quad's own edges (661 x 375 as their means).
+    #[test]
+    fn a_free_crop_takes_the_perspective_size() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 800, "height": 500, "fill": "white"})).unwrap();
+        let q = [[100.0, 50.0], [700.0, 80.0], [760.0, 450.0], [40.0, 420.0]];
+        let r = s.execute("image.perspectiveCrop", json!({"quad": q})).unwrap();
+        let (w, h) = (r["width"].as_u64().unwrap(), r["height"].as_u64().unwrap());
+        assert!(w.abs_diff(732) <= 1 && h.abs_diff(588) <= 1, "{w} x {h}, want 732 x 588 within 1 px");
+    }
+
+    /// #7557: a quad low on a strongly converging photo (its horizon crosses the canvas, with the
+    /// canvas centre beyond it) is cropped, not left blank in the background colour.
+    #[test]
+    fn a_quad_below_a_horizon_across_the_canvas_keeps_its_content() {
+        use photocraft_color::{Color, ColorMode, SampleType};
+        let doc = photocraft_doc::Document::with_background("red", Size::new(100, 100), ColorMode::Rgb, SampleType::U8, Color::rgb(1.0, 0.0, 0.0));
+        let mut s = Session::new();
+        s.add_document(doc, None);
+        s.execute(CMD, json!({"quad": [[40, 70], [60, 70], [90, 95], [10, 95]], "width": 50, "height": 39})).unwrap();
+        let px = s.active().unwrap().doc.layers[0].surface().unwrap().rgba(25, 20);
+        assert_eq!(px, [1.0, 0.0, 0.0, 1.0]);
     }
 }

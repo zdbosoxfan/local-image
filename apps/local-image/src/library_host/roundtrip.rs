@@ -40,6 +40,27 @@ pub(super) fn document_of(editor: &PhotocraftApp, s: &lightcraft_engine::Session
     })
 }
 
+/// Open documents whose newest Develop layer for Library photo `photo` (of the Library named
+/// `library`) is behind `settings`, compared as `develop.syncPhoto` compares them.
+pub(super) fn documents_behind<'a>(editor: &'a PhotocraftApp, library: &str, photo: u64, settings: &serde_json::Value) -> Vec<&'a photocraft_doc::Document> {
+    editor
+        .session
+        .documents()
+        .iter()
+        .map(|state| &*state.doc)
+        .filter(|doc| {
+            doc.walk()
+                .into_iter()
+                .filter_map(|(_, _, layer)| match &layer.content {
+                    photocraft_doc::LayerContent::Smart(smart) => smart.develop.as_ref(),
+                    _ => None,
+                })
+                .rfind(|link| link.photo == Some(photo) && link.library.as_deref() == Some(library))
+                .is_some_and(|link| link.library_baseline.as_deref().unwrap_or(&link.settings) != settings)
+        })
+        .collect()
+}
+
 /// The Library photos Compositing has unsaved work on: (photo, version key, document). A document
 /// counts once it has unsaved changes (a one-layer document can have a mask, filter or retouching);
 /// it stands for the
@@ -166,6 +187,14 @@ pub(super) fn add_saved_file(
             flag: source.flag,
             label: source.label,
             keywords: source.meta.keywords.clone(),
+            title: source.meta.title.clone(),
+            caption: source.meta.caption.clone(),
+            copyright: source.meta.copyright.clone(),
+            creator: source.meta.creator.clone(),
+            location: source.meta.location.clone(),
+            city: source.meta.city.clone(),
+            state: source.meta.state.clone(),
+            country: source.meta.country.clone(),
         }),
         ..Default::default()
     };

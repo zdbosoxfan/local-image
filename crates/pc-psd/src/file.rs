@@ -1,13 +1,14 @@
 //! The top-level [`PsdFile`] model, parser and writer.
 
 use crate::Compression;
+use crate::compression::{reserve_rle_widening, widen_rle_counts};
 use crate::error::{PsdError, Result};
 use crate::header::{ColorMode, Header, Version};
 use crate::image_data::ImageData;
 use crate::io::{Reader, WriteExt};
 use crate::layer::{LayerInfo, LayerRecord};
 use crate::resources::{self, ImageResource, ResourceData, ids};
-use crate::tagged::{TaggedBlock, read_blocks, write_blocks};
+use crate::tagged::{TaggedBlock, read_blocks, uses_long_length, write_blocks};
 
 /// Where the layer info was stored in the file.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -228,6 +229,85 @@ impl PsdFile {
         Ok(out)
     }
 
+    /// The number of bytes [`Self::to_bytes`] writes, computed without serializing the channel
+    /// data (only the layer records, which are small, are serialized to measure them). Lets a
+    /// writer check a file against the 2 GB PSD limit before choosing the version.
+    pub fn encoded_len(&self) -> Result<u64> {
+        let v = self.header.version;
+        let psb = v.is_psb();
+        let len_field = |long: bool| if long { 8u64 } else { 4 };
+        let body_len = |info: &LayerInfo| -> Result<u64> {
+            let unpadded = info.unpadded_len(v)?;
+            let padding = info.padding.as_ref().map_or(unpadded % 2, |p| p.len() as u64);
+            Ok(unpadded.saturating_add(padding))
+        };
+        // Header, colour mode data, resources.
+        let mut n = 26u64.saturating_add(4).saturating_add(self.color_mode_data.len() as u64).saturating_add(resources::section_len(&self.resources));
+
+        let in_block = matches!(self.layer_info_placement, LayerInfoPlacement::GlobalBlock { .. });
+        let section_empty =
+            self.layer_info.is_none() && self.global_layer_mask.is_none() && self.global_blocks.is_empty() && self.layer_mask_trailing.is_empty();
+        n = n.saturating_add(len_field(psb));
+        if !section_empty {
+            n = n.saturating_add(len_field(psb));
+            if let (Some(info), false) = (&self.layer_info, in_block) {
+                n = n.saturating_add(body_len(info)?);
+            }
+            let need_mask_field = self.global_layer_mask.is_some() || !self.global_blocks.is_empty() || (in_block && self.layer_info.is_some());
+            if need_mask_field {
+                n = n.saturating_add(4).saturating_add(self.global_layer_mask.as_ref().map_or(0, |g| g.data.len() as u64));
+            }
+            n = self.global_blocks.iter().fold(n, |n, b| n.saturating_add(b.encoded_len(v) as u64));
+            // The layer block is written as a tagged block: its padding defaults to even.
+            if let (Some(info), LayerInfoPlacement::GlobalBlock { key, padding, .. }) = (&self.layer_info, &self.layer_info_placement) {
+                let body = body_len(info)?;
+                let pad = padding.as_ref().map_or(body % 2, |p| p.len() as u64);
+                n = n.saturating_add(8).saturating_add(len_field(uses_long_length(v, key))).saturating_add(body).saturating_add(pad);
+            }
+            n = n.saturating_add(self.layer_mask_trailing.len() as u64);
+        }
+        Ok(n.saturating_add(2).saturating_add(self.image_data.data.len() as u64))
+    }
+
+    /// Turns a PSD into the equivalent PSB in place, without re-encoding any pixels: the RLE
+    /// row-count tables of the layer channels and the merged image widen from two to four bytes
+    /// per row (the packed rows are the same in both versions), and the length fields widen when
+    /// the file is written. Raw and ZIP channel data is the same in both. A PSB is left as is.
+    ///
+    /// Atomic: every RLE stream is checked (and the room to widen it reserved) before the first
+    /// is changed, so an error leaves the file untouched. The layer info padding is kept; a
+    /// writer that pads to an alignment re-pads for the new version.
+    pub fn promote_to_psb(&mut self) -> Result<()> {
+        if self.header.version.is_psb() {
+            return Ok(());
+        }
+        let merged_rows = match self.image_data.compression {
+            Compression::Rle => Some(ImageData::layout(&self.header).rows()?),
+            _ => None,
+        };
+        let layers = self.layer_info.as_mut().map_or(&mut [][..], |info| &mut info.layers[..]);
+        let mut streams: Vec<(&mut Vec<u8>, usize)> = Vec::new();
+        for layer in layers.iter_mut() {
+            let rects: Vec<_> = layer.channels.iter().map(|c| layer.channel_rect(c.id)).collect();
+            for (c, rect) in layer.channels.iter_mut().zip(rects) {
+                if c.compression == Some(Compression::Rle) {
+                    streams.push((&mut c.data, rect.size()?.1));
+                }
+            }
+        }
+        if let Some(rows) = merged_rows {
+            streams.push((&mut self.image_data.data, rows));
+        }
+        for (data, rows) in &mut streams {
+            reserve_rle_widening(data, *rows)?;
+        }
+        for (data, rows) in streams {
+            widen_rle_counts(data, rows)?;
+        }
+        self.header.version = Version::Psb;
+        Ok(())
+    }
+
     /// Layer records in file order (bottom-most first); empty if none.
     pub fn layers(&self) -> &[LayerRecord] {
         self.layer_info.as_ref().map_or(&[], |i| &i.layers)
@@ -288,8 +368,38 @@ impl PsdFile {
         let marked = self.global_blocks.iter().any(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32"));
         match &self.layer_info {
             Some(li) => li.merged_alpha || marked,
-            None => true,
+            // A flat file from Photoshop names only its alpha and spot channels, while writers of
+            // plain RGBA files name nothing: a full list without "Transparency" first means none.
+            None => {
+                let names = self.alpha_channel_names();
+                marked || names.len() != usize::from(self.header.channels - color) || names.first().is_some_and(|n| n == "Transparency")
+            }
         }
+    }
+
+    /// The alpha channel names: the Unicode names (resource 1045), else the Pascal names (1006).
+    /// Reading stops at a truncated entry; empty when the file names no channel.
+    pub fn alpha_channel_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        if let Some(r) = self.resource(1045) {
+            let mut at = 0usize;
+            while let Some(len) = r.data.get(at..at.saturating_add(4)).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_be_bytes) {
+                at += 4;
+                let Some(end) = usize::try_from(len).ok().and_then(|n| n.checked_mul(2)).and_then(|n| at.checked_add(n)) else { break };
+                let Some(b) = r.data.get(at..end) else { break };
+                let units: Vec<u16> = b.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).collect();
+                names.push(String::from_utf16_lossy(&units).trim_end_matches('\0').to_string());
+                at = end;
+            }
+        } else if let Some(r) = self.resource(1006) {
+            let mut at = 0usize;
+            while let Some(&len) = r.data.get(at) {
+                let Some(name) = r.data.get(at + 1..at + 1 + usize::from(len)) else { break };
+                names.push(String::from_utf8_lossy(name).into_owned());
+                at += 1 + usize::from(len);
+            }
+        }
+        names
     }
 
     /// Checks structural invariants that the writer relies on.
@@ -348,5 +458,104 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Without layer records the extra channels hold a merged transparency
+    /// unless the alpha channel names (1045, else 1006) name each of them and none first as
+    /// "Transparency".
+    #[test]
+    fn a_flat_file_names_its_extra_channels() {
+        let mut file = testgen::small(Version::Psd, Compression::Raw);
+        file.layer_info = None;
+        file.header.channels = 5;
+        file.resources.retain(|r| r.id != 1045 && r.id != 1006);
+        assert!(file.merged_has_alpha(), "nothing named: a plain RGBA file");
+        let pascal = |names: &[&str]| names.iter().flat_map(|n| std::iter::once(n.len() as u8).chain(n.bytes())).collect::<Vec<u8>>();
+        let unicode = |names: &[&str]| {
+            names
+                .iter()
+                .flat_map(|n| (n.encode_utf16().count() as u32).to_be_bytes().into_iter().chain(n.encode_utf16().flat_map(u16::to_be_bytes)))
+                .collect::<Vec<u8>>()
+        };
+        for (names, transparency) in
+            [(&["Spot", "Alpha 1"][..], false), (&["Transparency", "Alpha 1"][..], true), (&["Alpha 1"][..], true), (&["A", "B", "C"][..], true)]
+        {
+            let mut p = file.clone();
+            p.resources.push(ImageResource::new(1006, pascal(names)));
+            assert_eq!(p.merged_has_alpha(), transparency, "1006 {names:?}");
+            assert_eq!(p.alpha_channel_names(), names, "1006");
+            let mut u = file.clone();
+            u.resources.push(ImageResource::new(1045, unicode(names)));
+            assert_eq!(u.merged_has_alpha(), transparency, "1045 {names:?}");
+            assert_eq!(u.alpha_channel_names(), names, "1045");
+        }
+        // A merged-transparency marker wins over a complete list of names.
+        let mut marked = file.clone();
+        marked.resources.push(ImageResource::new(1006, pascal(&["Spot", "Alpha 1"])));
+        marked.global_blocks.push(TaggedBlock::new(*b"Mt32", Vec::new()));
+        assert!(marked.merged_has_alpha());
+        // Truncated names stop at the damage.
+        let mut cut = file.clone();
+        cut.resources.push(ImageResource::new(1006, vec![9, b'a']));
+        assert!(cut.alpha_channel_names().is_empty());
+        assert!(cut.merged_has_alpha());
+    }
+
+    /// `encoded_len` is exactly what `to_bytes` writes, for every generated file and both layer
+    /// info placements, with and without padding (#5285).
+    #[test]
+    fn encoded_len_matches_the_written_length() {
+        for case in testgen::all_cases() {
+            assert_eq!(case.file.encoded_len().unwrap(), case.file.to_bytes().unwrap().len() as u64, "{}", case.name);
+        }
+        for version in [Version::Psd, Version::Psb] {
+            for key in [*b"Lr16", *b"Layr"] {
+                for padding in [None, Some(vec![]), Some(vec![1, 2, 3])] {
+                    for body_padding in [None, Some(vec![]), Some(vec![9])] {
+                        let mut file = testgen::small(version, Compression::Rle);
+                        file.global_blocks = vec![TaggedBlock::new(*b"zz01", vec![11]), TaggedBlock::new(*b"lnk2", vec![1; 5])];
+                        file.layer_info_placement = LayerInfoPlacement::GlobalBlock { index: 1, signature: *b"8BIM", key, padding: padding.clone() };
+                        file.layer_info.as_mut().unwrap().padding = body_padding;
+                        file.layer_mask_trailing = vec![0; 3];
+                        file.resources.push(ImageResource { name: b"odd".to_vec(), ..ImageResource::new(4000, vec![1, 2, 3]) });
+                        assert_eq!(file.encoded_len().unwrap(), file.to_bytes().unwrap().len() as u64, "{version:?} {key:?}");
+                    }
+                }
+            }
+        }
+        let mut empty = testgen::small(Version::Psd, Compression::Raw);
+        empty.layer_info = None;
+        empty.global_layer_mask = None;
+        empty.global_blocks.clear();
+        assert_eq!(empty.encoded_len().unwrap(), empty.to_bytes().unwrap().len() as u64);
+    }
+
+    /// Promoting a PSD gives exactly the PSB written directly from the same pixels: only the RLE
+    /// row counts (and the length fields, on write) widen (#5285).
+    #[test]
+    fn promote_to_psb_equals_the_psb_written_directly() {
+        let cases = testgen::all_cases();
+        let (psd, psb) = cases.split_at(cases.len() / 2);
+        for (psd, psb) in psd.iter().zip(psb) {
+            assert_eq!(psd.file.header.version, Version::Psd, "{}", psd.name);
+            let mut promoted = psd.file.clone();
+            promoted.promote_to_psb().unwrap();
+            assert_eq!(promoted, psb.file, "{}", psd.name);
+            assert_eq!(promoted.to_bytes().unwrap(), psb.file.to_bytes().unwrap(), "{}", psd.name);
+        }
+    }
+
+    /// A damaged RLE table is refused before anything changes: the file stays a valid PSD.
+    #[test]
+    fn promote_to_psb_is_atomic() {
+        let mut file = testgen::small(Version::Psd, Compression::Rle);
+        // The last layer with pixels ("b", two rows): its red channel loses its row-count table.
+        let layers = &mut file.layer_info.as_mut().unwrap().layers;
+        let red = layers[2].channels.iter_mut().find(|c| c.id == 0).unwrap();
+        assert_eq!(red.compression, Some(Compression::Rle));
+        red.data.truncate(1);
+        let before = file.clone();
+        assert!(file.promote_to_psb().is_err());
+        assert_eq!(file, before);
     }
 }

@@ -16,6 +16,18 @@ pub(super) fn module_preference(value: Option<&str>) -> Module {
     }
 }
 
+/// The module last shown, unless the Library's Startup › Open in names a view (older settings
+/// without one keep the module).
+pub(super) fn startup_module(library: &std::collections::BTreeMap<String, serde_json::Value>) -> Module {
+    use lightcraft_ui_egui::state::StartupView;
+    let view: Option<StartupView> =
+        library.get("settings").and_then(|settings| settings.get("startupView")).and_then(|view| serde_json::from_value(view.clone()).ok());
+    match view.unwrap_or_default() {
+        StartupView::Last => module_preference(library.get("module").and_then(serde_json::Value::as_str)),
+        StartupView::Grid | StartupView::Detail => Module::Library,
+    }
+}
+
 pub(super) fn validate_library_ui(ui: UiState, rejected: Vec<String>) -> Result<(UiState, Vec<String>), String> {
     if rejected.iter().any(|key| key.is_empty() || key == "settings" || key == "settings.libraryPath") {
         return Err(li_i18n::library::t("the stored Library path could not be recovered").into());

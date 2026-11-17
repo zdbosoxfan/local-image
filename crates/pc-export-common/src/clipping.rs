@@ -15,6 +15,21 @@ pub struct Clipping<'a> {
     pub warnings: &'a mut BTreeMap<String, VectorWarning>,
 }
 
+/// Writes a clipping chain rewritten around `base`. The rewrite adds layers the document does not
+/// have, so a path the work budget refuses is reported against the chain.
+pub fn in_clipping_chain<T, E: From<Error>>(base: &Layer, write: impl FnOnce() -> std::result::Result<T, E>) -> std::result::Result<T, E> {
+    let refusal = photocraft_pathops::RefusalWatch::begin();
+    write().map_err(|error| {
+        if refusal.refused() {
+            let reason = photocraft_pathops::PathOpsError::TooComplex;
+            invalid(format!("the clipping chain of layer \"{}\" could not be exported: {reason}. Simplify the layer or the layers clipped to it.", base.name))
+                .into()
+        } else {
+            error
+        }
+    })
+}
+
 /// False when the chain needs the bounded raster fallback; checked before any bounds work.
 pub fn clipping_source_eligible(doc: &Document, base: &Layer, clipped: &[Layer]) -> bool {
     // The row-wise opaque RGB decomposition does not install document ICC
@@ -148,7 +163,7 @@ impl Clipping<'_> {
                 opaque.alpha = 1.0;
                 let mut body = isolated_group("Clipping colors", vec![Layer::new("Base color", LayerContent::Fill(Fill::Solid(opaque)))]);
                 body.opacity = color.alpha;
-                let geometry = normalized_fill(&shape.path, self.rect)?;
+                let geometry = normalized_fill(base, &shape.path, self.rect)?;
                 if geometry.is_empty() {
                     // Compound fill operations can cancel while the original
                     // subpaths still have a visible centered stroke.

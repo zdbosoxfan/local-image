@@ -130,17 +130,17 @@ fn family_for_label_variants_and_unknown() {
     assert_eq!(family_for_label(reg, "SDXL"), Some("sdxl".to_string()));
     assert_eq!(family_for_label(reg, "sd 1.5"), Some("sd15".to_string()));
     assert_eq!(family_for_label(reg, "pony"), Some("pony".to_string()));
-    assert_eq!(family_for_label(reg, "illustrious"), Some("illustrious".to_string()));
-    assert_eq!(family_for_label(reg, "noobai"), Some("illustrious".to_string()));
+    assert_eq!(family_for_label(reg, "illustrious"), None);
+    assert_eq!(family_for_label(reg, "noobai"), None);
 
     // Prefix variants
-    assert_eq!(family_for_label(reg, "flux.1"), Some("flux1".to_string()));
     assert_eq!(family_for_label(reg, "flux.2 klein"), Some("flux2-klein".to_string()));
     assert_eq!(family_for_label(reg, "qwen-image"), Some("qwen-image".to_string()));
-    assert_eq!(family_for_label(reg, "qwen 2"), Some("qwen-image-21".to_string()));
+    assert_eq!(family_for_label(reg, "qwen 2"), None);
 
     // Unknown label
     assert_eq!(family_for_label(reg, "totally-unknown"), None);
+    assert_eq!(family_for_label(reg, "flux.1"), None);
 
     // A newer generation is not its older namesake
     assert_eq!(family_for_label(reg, "HiDream"), Some("hidream".to_string()));
@@ -158,10 +158,10 @@ fn model_folder_handles_gguf_and_loader() {
     assert_eq!(model_folder(reg, None, "model.safetensors"), "checkpoints");
 
     // .gguf always diffusion_models
-    assert_eq!(model_folder(reg, Some("flux1"), "model.gguf"), "diffusion_models");
+    assert_eq!(model_folder(reg, Some("flux2"), "model.gguf"), "diffusion_models");
 
     // Known family with Unet loader -> diffusion_models
-    assert_eq!(model_folder(reg, Some("flux1"), "model.safetensors"), "diffusion_models");
+    assert_eq!(model_folder(reg, Some("flux2"), "model.safetensors"), "diffusion_models");
 
     // Known family without Unet loader -> checkpoints
     assert_eq!(model_folder(reg, Some("sdxl"), "model.safetensors"), "checkpoints");
@@ -753,12 +753,12 @@ fn placed(item: &Item) -> Vec<(String, String)> {
 
 #[test]
 fn hf_cards_place_files_by_their_repository_folders_and_skip_diffusers_layouts() {
-    // FLUX.1-dev: the ComfyUI file at the root, the VAE by its component name, no diffusers copies.
-    let flux = hf_card(
-        "black-forest-labs/FLUX.1-dev",
-        &["text-to-image", "flux"],
+    // HiDream: the ComfyUI file at the root, the VAE by its component name, no diffusers copies.
+    let hidream = hf_card(
+        "someone/HiDream-I1-Dev",
+        &["text-to-image", "hidream"],
         &[
-            "flux1-dev.safetensors",
+            "hidream_i1_dev_fp8.safetensors",
             "ae.safetensors",
             "transformer/diffusion_pytorch_model-00001-of-00003.safetensors",
             "transformer/diffusion_pytorch_model-00002-of-00003.safetensors",
@@ -767,7 +767,7 @@ fn hf_cards_place_files_by_their_repository_folders_and_skip_diffusers_layouts()
             "vae/diffusion_pytorch_model.safetensors",
         ],
     );
-    assert_eq!(placed(&flux), [("diffusion_models".into(), "flux1-dev.safetensors".into()), ("vae".into(), "ae.safetensors".into())]);
+    assert_eq!(placed(&hidream), [("diffusion_models".into(), "hidream_i1_dev_fp8.safetensors".into()), ("vae".into(), "ae.safetensors".into())]);
     // SDXL base: the two root checkpoints, not the fp16 UNet or diffusers parts.
     let sdxl = hf_card(
         "stabilityai/stable-diffusion-xl-base-1.0",
@@ -804,41 +804,49 @@ fn hf_cards_place_files_by_their_repository_folders_and_skip_diffusers_layouts()
         ]
     );
     // GGUF quantisations of one model: each a choice, installing only the one picked.
-    let gguf = hf_card("city96/FLUX.1-dev-gguf", &["text-to-image", "flux"], &["flux1-dev-Q4_K_S.gguf", "flux1-dev-Q8_0.gguf", "flux1-dev-F16.gguf"]);
+    let gguf = hf_card("city96/FLUX.2-dev-gguf", &["text-to-image", "flux2"], &["flux2-dev-Q4_K_S.gguf", "flux2-dev-Q8_0.gguf", "flux2-dev-F16.gguf"]);
     assert!(gguf.files.iter().all(|f| f.folder == "diffusion_models"));
     let choices: Vec<&str> = hf::variants(&gguf).iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(choices.first(), Some(&"flux1-dev-F16.gguf"), "{choices:?}");
-    let one = hf::selection(&gguf, Some("flux1-dev-Q8_0.gguf"), &[]);
-    assert_eq!(placed(&one), [("diffusion_models".into(), "flux1-dev-Q8_0.gguf".into())]);
+    assert_eq!(choices.first(), Some(&"flux2-dev-F16.gguf"), "{choices:?}");
+    let one = hf::selection(&gguf, Some("flux2-dev-Q8_0.gguf"), &[]);
+    assert_eq!(placed(&one), [("diffusion_models".into(), "flux2-dev-Q8_0.gguf".into())]);
 }
 
 #[test]
 fn a_misplaced_component_file_does_not_stand_in_for_the_component() {
     let reg = registry();
-    let flux = reg.family("flux1").unwrap();
+    let hidream = reg.family("hidream").unwrap();
     let tree = |repo: &str, files: &[(&str, u64)]| -> (String, Result<Vec<u8>, String>) {
         let body: Vec<Value> = files.iter().map(|(p, n)| json!({"type": "file", "path": p, "size": n, "lfs": {"oid": "b".repeat(64), "size": n}})).collect();
         (format!("https://huggingface.co/api/models/{repo}/tree/main?recursive=true"), Ok(serde_json::to_vec(&body).unwrap()))
     };
     let net = FakeNet {
         bodies: BTreeMap::from([
-            tree("user/flux-mix", &[("ae.safetensors", 300), ("flux1-mix.safetensors", 1000)]),
-            tree("comfyanonymous/flux_text_encoders", &[("clip_l.safetensors", 10), ("t5xxl_fp8_e4m3fn_scaled.safetensors", 20)]),
-            tree("Comfy-Org/Lumina_Image_2.0_Repackaged", &[("split_files/vae/ae.safetensors", 300)]),
+            tree("user/hidream-mix", &[("ae.safetensors", 300), ("hidream-mix.safetensors", 1000)]),
+            tree(
+                "Comfy-Org/HiDream-I1_ComfyUI",
+                &[
+                    ("split_files/text_encoders/clip_l_hidream.safetensors", 10),
+                    ("split_files/text_encoders/clip_g_hidream.safetensors", 10),
+                    ("split_files/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors", 20),
+                    ("split_files/text_encoders/llama_3.1_8b_instruct_fp8_scaled.safetensors", 20),
+                    ("split_files/vae/ae.safetensors", 300),
+                ],
+            ),
         ]),
         head: None,
     };
     let file = |name: &str, folder: &str| CatalogFile {
         name: name.into(),
         folder: folder.into(),
-        url: format!("https://huggingface.co/user/flux-mix/resolve/main/{name}"),
+        url: format!("https://huggingface.co/user/hidream-mix/resolve/main/{name}"),
         ..Default::default()
     };
-    let item = Item { id: "hf:user/flux-mix".into(), kind: Some(Kind::Model), family: Some("flux1".into()), ..Default::default() };
+    let item = Item { id: "hf:user/hidream-mix".into(), kind: Some(Kind::Model), family: Some("hidream".into()), ..Default::default() };
     let p = plan(
         &item,
-        &[file("flux1-mix.safetensors", "diffusion_models"), file("ae.safetensors", "checkpoints")],
-        Some(flux),
+        &[file("hidream-mix.safetensors", "diffusion_models"), file("ae.safetensors", "checkpoints")],
+        Some(hidream),
         &ObjectInfo(json!({})),
         &Config::default(),
         &net,

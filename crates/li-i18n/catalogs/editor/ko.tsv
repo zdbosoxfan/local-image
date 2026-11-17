@@ -74,7 +74,7 @@
 	File Info…	파일 정보…
 	Print…	인쇄…
 	Print One Copy	한 부 인쇄
-	Exit	종료
+	Quit Local Image	Local Image 종료
 	Undo	실행 취소
 	Redo	다시 실행
 	Toggle Last State	마지막 상태 토글
@@ -2741,7 +2741,6 @@ cameraRaw	Color	색상
 	Remove Background (AI)	배경 제거(AI)
 	Remove Backgrounds (AI)…	배경 일괄 제거(AI)…
 	Set Up AI…	AI 설정…
-	Subject (AI)	피사체(AI)
 	The AI engine isn't running.	AI 엔진이 실행되고 있지 않습니다.
 	Contextual task bar	상황별 작업 표시줄
 	Tool presets	도구 사전 설정
@@ -2850,7 +2849,6 @@ cameraRaw	Color	색상
 	Could not save settings: {error}	설정을 저장할 수 없습니다: {error}
 	Couldn't save: {error}	저장할 수 없습니다: {error}
 	Couldn't update profiles: {error}	프로필을 업데이트할 수 없습니다: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Qwen Image 2.1로 각 이미지의 피사체를 잘라내 PNG로 저장합니다. 원본은 변경되지 않습니다.
 	Delete from Library	라이브러리에서 삭제
 	Describe details to add (optional)…	추가할 세부 사항 설명(선택 사항)…
 	Describe the change, e.g. “make it golden hour”…	변경 내용을 설명하세요. 예: “골든 아워로 만들기”…
@@ -2911,7 +2909,6 @@ cameraRaw	Color	색상
 	Installation:	설치 위치:
 	Installed	설치됨
 	Keep	유지
-	Keep… (optional)	유지할 대상…(선택 사항)
 	Licence	라이선스
 	Licence gate	라이선스 동의 필요
 	Licence: see its page	라이선스: 해당 페이지 참조
@@ -2956,8 +2953,6 @@ cameraRaw	Color	색상
 	Precision	정밀도
 	Preset name	사전 설정 이름
 	Previous image ({key})	이전 이미지({key})
-	Qwen Compact	Qwen 컴팩트
-	Qwen Full	Qwen 전체
 	RESULTS	결과
 	Read the licence	라이선스 읽기
 	Ready	준비됨
@@ -3004,7 +2999,6 @@ cameraRaw	Color	색상
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	먼저 AI 엔진을 시작하세요: Local Image가 ComfyUI에 이미 있는 항목을 확인합니다. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	AI 엔진을 시작하면 GPU 메모리를 볼 수 있습니다. 지금은 8 GB에 맞는 항목을 표시합니다.
 	Starting ComfyUI… (the first start can take a minute)	ComfyUI 시작 중…(처음 시작할 때는 1분 정도 걸릴 수 있습니다)
-	Starting image · {n}/{max}	시작 이미지 · {n}/{max}
 	Starting {name}…	{name} 시작 중…
 	Steps	단계 수
 	Stopped	중지됨
@@ -3022,7 +3016,6 @@ cameraRaw	Color	색상
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	워크플로에 li:prompt, li:image, li:mask, li:seed 또는 li:output 제목의 노드가 없어 Local Image가 값을 채울 수 없습니다. ComfyUI에서 노드 이름을 바꾸고 다시 내보내세요.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	토큰을 사용하면 모델 브라우저에서 접근 제한 모델이나 로그인이 필요한 모델을 다운로드할 수 있습니다. 토큰은 해당 사이트로만 전송됩니다.
 	Transparent PNG	투명 PNG
-	Transparent background	투명 배경
 	Trending	인기
 	Trending this week	이번 주 인기
 	Unknown family	알 수 없는 패밀리
@@ -3033,7 +3026,6 @@ cameraRaw	Color	색상
 	Upscale {scale}×	{scale}× 업스케일
 	Use	사용
 	Use as Reference	참조 이미지로 사용
-	Variation strength	변형 강도
 	Waiting	대기 중
 	What should appear in the selection…	선택 영역에 나타날 내용…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	자신의 API 키가 있으면 생성에서 클라우드 모델도 사용할 수 있습니다(모델 선택기의 클라우드 아래에 표시됨). 이때 프롬프트와 이미지는 이 컴퓨터에서 해당 공급자로 전송되며 내 계정으로 요금이 청구됩니다. 그 외에는 아무것도 전송되지 않습니다.
@@ -3067,11 +3059,8 @@ cameraRaw	Color	색상
 	{size} · runs on the CPU · {licence}	{size} · CPU에서 실행 · {licence}
 	{source}: offline, showing results from {when}	{source}: 오프라인, {when}의 결과 표시
 	{source}: the catalogue couldn't be read	{source}: 카탈로그를 읽을 수 없습니다
-	{why} Qwen Image 2.1 runs these.	{why} 이 기능은 Qwen Image 2.1로 실행됩니다.
 	Choose…	선택…
 	Stop	중지
-	Qwen AI · Compact	Qwen AI · 컴팩트
-	Qwen AI · Full	Qwen AI · 전체
 	Standard (CPU)	표준(CPU)
 	Templates	템플릿
 	Community	커뮤니티
@@ -3197,6 +3186,8 @@ ai	New	새 항목
 	Float Panel Group	패널 그룹 플로팅
 	Save and Return to Library	저장 후 라이브러리로 돌아가기
 	Added your new Develop edits as layer {name}	새 현상 편집 내용을 {name} 레이어로 추가했습니다
+	The photo's crop or size changed in Develop, so {name} was not updated	현상에서 사진의 자르기 또는 크기가 바뀌어 {name}을(를) 업데이트하지 않았습니다
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	레이어가 새 사진과 더 이상 맞지 않으므로 사진을 원래대로 유지합니다.
 	Open the Library to save into it	라이브러리에 저장하려면 라이브러리를 여세요
 	The layers below are unchanged; hide or delete the new layer to go back.	아래 레이어는 변경되지 않았습니다. 되돌리려면 새 레이어를 숨기거나 삭제하세요.
 # Attributions page (li-attributions)
@@ -3891,7 +3882,10 @@ ai	New	새 항목
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	이 프로필의 모든 단축키를 기본값으로 재설정했습니다.
 	Editor	편집기
-	Library + Develop	라이브러리 + 현상
+	Library & Develop	라이브러리 & 현상
+	Library General	라이브러리: 일반
+	Library Performance	라이브러리: 성능
+	Library Interface	라이브러리: 인터페이스
 	Scope	범위
 	Colour	컬러
 	Monochrome (default)	단색(기본값)
@@ -3908,3 +3902,29 @@ ai	New	새 항목
 	GPU Memory (MB, 0 = Automatic)	GPU 메모리(MB, 0 = 자동)
 	{path} was saved over	{path} 파일이 덮어써졌습니다
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	"{doc}" 문서는 더 이상 파일에 연결되어 있지 않으며 저장되지 않은 상태로 표시됩니다. 내용을 유지하려면 새 이름으로 저장하세요.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	병합
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	이미지의 톤을 넓게 펼치는 회색 혼합
+	File Type	파일 형식
+	Save as JPEG	JPEG로 저장
+	Save as PSD	PSD로 저장
+	Save as TIFF	TIFF로 저장
+	Convert Profile to sRGB	프로파일을 sRGB로 변환
+	LZW Compression	LZW 압축
+	Resize to Fit	크기에 맞게 조정
+	Run	실행
+	You must save to at least one file type.	하나 이상의 파일 형식으로 저장해야 합니다.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	잘못된 숫자 입력입니다. 1에서 12 사이의 값이 필요합니다. 이전 값으로 되돌렸습니다.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	잘못된 숫자 입력입니다. 1에서 30000 사이의 값이 필요합니다. 이전 값으로 되돌렸습니다.
+	A value between 1 and 12 is required. Closest value inserted.	1에서 12 사이의 값이 필요합니다. 가장 가까운 값을 입력했습니다.
+	A value between 1 and 30000 is required. Closest value inserted.	1에서 30000 사이의 값이 필요합니다. 가장 가까운 값을 입력했습니다.
+	Image Compression	이미지 압축
+	Save Image Pyramid	이미지 피라미드 저장
+	Save Transparency	투명도 저장
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	스마트 오브젝트로 열기…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	선명한 가장자리
+	Last folder	마지막 폴더

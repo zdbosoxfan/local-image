@@ -6,17 +6,20 @@
 //! Retouching and compositing happen in layers above; the Develop layer itself is never
 //! rasterised by them.
 //!
-//! * `develop.openPhoto {path, settings, photo?, name?}` — a new document whose Background is a
-//!   Develop layer of the file (or the open document that already shows that photo).
+//! * `develop.openPhoto {path, settings, photo?, name?, metadata?}` — a new document whose
+//!   Background is a Develop layer of the file (or the open document that already shows that
+//!   photo); `metadata`, the Library's for the photo, goes into the document's XMP.
 //! * `layer.develop.set {settings, layer?}` — re-develops a Develop layer (or turns a smart object
 //!   into one).
 //! * `develop.syncPhoto {photo, settings}` — the new settings of that Library photo reach every
 //!   open document following it (one undo step per document): a document that is still just the
 //!   photo re-develops its layer; one with compositing work gets a new Develop layer on top
-//!   ("Develop 2"…) and keeps every existing layer as it was.
+//!   ("Develop 2"…) and keeps every existing layer as it was. When the photo's size changed (crop,
+//!   rotation, perspective), a document that is still just the photo takes the new canvas size;
+//!   any other keeps the photo as it was and is listed under `geometryChanged`.
 //! * `develop.layers {}` — the Develop layers of the open documents (for the host).
 
-use photocraft_doc::{DevelopLink, DocId, Document, Layer, LayerContent, LayerId, SmartObject, SmartSource};
+use photocraft_doc::{DevelopLink, DocId, Document, Layer, LayerContent, LayerId, Size, SmartObject, SmartSource};
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
@@ -107,6 +110,10 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
     if library.is_some() && photo.is_none() {
         return Err(bad(C, "a qualified Library open needs a photo identity"));
     }
+    let catalog_metadata = match p.get("metadata") {
+        None | Some(Value::Null) => None,
+        Some(m) => Some(serde_json::from_value::<lightcraft_meta::Metadata>(m.clone()).map_err(|e| bad(C, format!("metadata: {e}")))?),
+    };
     let keys = vec![
         photo.map(|photo| format!("develop/open/{}", photo_key(library.as_deref(), photo))).unwrap_or_else(|| format!("develop/open/{path}")),
         format!("develop/open/source/{}", json!([library, photo, path, ask_color_profile])),
@@ -136,7 +143,10 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let file_name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
             ctx.report(0.05, "Developing");
             work_probe(ctx)?;
-            let r = photocraft_io::raw::develop_with_settings(&file_name, &bytes, &settings).map_err(|e| bad(C, e.to_string()))?;
+            let mut r = photocraft_io::raw::develop_with_settings(&file_name, &bytes, &settings).map_err(|e| bad(C, e.to_string()))?;
+            if let Some(metadata) = &catalog_metadata {
+                add_catalog_xmp(&mut r, metadata);
+            }
             ctx.check()?;
             ctx.report(1.0, "Opening");
             Ok((r, path, settings, photo, library, name, ask_color_profile))
@@ -169,6 +179,18 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             )
         },
     )
+}
+
+/// The Library's metadata for the photo, written over the same properties in the file's own
+/// packet; the file's other properties stay. A file packet that can't be merged is kept as it is.
+fn add_catalog_xmp(r: &mut photocraft_io::ImportResult, metadata: &lightcraft_meta::Metadata) {
+    let fresh = lightcraft_meta::write_xmp(metadata, None);
+    let rules = lightcraft_meta::MergeRules { owned: &[], owned_if_present: &["*"] };
+    match r.document.metadata.xmp.as_deref().map(|own| lightcraft_meta::merge_xmp(own, &fresh, rules)) {
+        None => r.document.metadata.xmp = Some(fresh),
+        Some(Ok(merged)) => r.document.metadata.xmp = Some(merged),
+        Some(Err(e)) => r.warnings.push(format!("The Library's title, caption and copyright were not added to the file's metadata: {e}")),
+    }
 }
 
 fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
@@ -354,16 +376,30 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let active = s.active_index();
             let mut updated = 0;
             let mut added = Vec::new();
+            let mut geometry_changed = Vec::new();
             for (base, old, mut clean, in_place) in rendered {
                 let Some(i) = s.documents().iter().position(|d| d.doc.id == base.id) else { continue };
                 if s.job_on(base.id).is_some() || validate_layer(&s.documents()[i].doc, &base, &old).is_err() {
                     continue;
                 }
-                let untouched = is_untouched(&s.documents()[i].doc);
+                let doc = &s.documents()[i].doc;
+                let in_place = in_place.filter(|_| is_untouched(doc));
+                let old_size = rendered_size(&old);
+                let resize = rendered_size(in_place.as_ref().unwrap_or(&clean)).filter(|new| old_size.is_some_and(|was| was != *new));
+                // Layers above the photo, or a canvas sized by hand, would no longer line up with
+                // the new crop: keep the document as it is.
+                if resize.is_some() && (in_place.is_none() || old_size != Some(doc.size)) {
+                    geometry_changed.push(json!({"document": i, "name": doc.name}));
+                    continue;
+                }
                 s.set_active(i);
-                let result = if let Some(new) = in_place.filter(|_| untouched) {
+                let result = if let Some(new) = in_place {
                     s.edit("Update from Develop", |doc, _| {
                         *doc.layer_mut(old.id).ok_or(EngineError::NoLayer(old.id))? = new;
+                        if let Some(size) = resize {
+                            doc.size = size;
+                            doc.selection = None;
+                        }
                         Ok(())
                     })
                     .map(|_| updated += 1)
@@ -379,9 +415,16 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
                 restore_active(s, active);
                 result?;
             }
-            Ok(json!({"updated": updated, "added": added}))
+            Ok(json!({"updated": updated, "added": added, "geometryChanged": geometry_changed}))
         },
     )
+}
+
+/// The size of a Develop layer's rendered photo (its pixels' extent); `None` without pixels.
+fn rendered_size(layer: &Layer) -> Option<Size> {
+    let LayerContent::Smart(sm) = &layer.content else { return None };
+    let r = sm.cache.as_ref()?.content_bounds();
+    Some(Size::new(r.width(), r.height()))
 }
 
 fn list(s: &mut Session, _: &Value) -> Result<Value> {
@@ -409,7 +452,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Open Photo as Develop Layer",
             menu: &[],
             shortcut: None,
-            params: r##"{"path":str,"settings":DevelopSettings JSON,"photo":id?,"name":str?,"askColorProfile":bool=false} → {document, existing, layer?}"##,
+            params: r##"{"path":str,"settings":DevelopSettings JSON,"photo":id?,"name":str?,"askColorProfile":bool=false,"metadata":Metadata JSON?} → {document, existing, layer?}"##,
             enabled: always,
             run: open_photo,
             journal: true,
@@ -429,7 +472,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Update Develop Layers",
             menu: &[],
             shortcut: None,
-            params: r##"{"photo":id,"settings":DevelopSettings JSON} → {updated, added: [{document, layer, name}]}"##,
+            params: r##"{"photo":id,"settings":DevelopSettings JSON} → {updated, added: [{document, layer, name}], geometryChanged: [{document, name}]}"##,
             enabled: always,
             run: sync_photo,
             journal: true,

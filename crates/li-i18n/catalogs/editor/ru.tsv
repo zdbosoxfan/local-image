@@ -1747,7 +1747,7 @@
 	Enhanced Controls…	Расширенное управление…
 	Entropy	Энтропия
 	Exclude Overlapping Shapes	Исключить пересечения фигур
-	Exit	Выход
+	Quit Local Image	Выйти из Local Image
 	Expand…	Расширить…
 	Extra Large	Очень крупный
 	File Info…	Сведения о файле…
@@ -2431,7 +2431,6 @@ cameraRaw	Roughness	Неровность
 	Remove Background (AI)	Удалить фон (ИИ)
 	Remove Backgrounds (AI)…	Удалить фоны (ИИ)…
 	Set Up AI…	Настроить ИИ…
-	Subject (AI)	Объект (ИИ)
 	The AI engine isn't running.	Движок ИИ не запущен.
 	Contextual task bar	Контекстная панель задач
 	Tool presets	Наборы параметров инструмента
@@ -2601,7 +2600,6 @@ cameraRaw	Roughness	Неровность
 	Could not save settings: {error}	Не удалось сохранить настройки: {error}
 	Couldn't save: {error}	Не удалось сохранить: {error}
 	Couldn't update profiles: {error}	Не удалось обновить профили: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Вырезает объект на каждом изображении с помощью Qwen Image 2.1 и сохраняет PNG. Оригиналы не изменяются.
 	Delete from Library	Удалить из библиотеки
 	Describe details to add (optional)…	Опишите детали, которые нужно добавить (необязательно)…
 	Describe the change, e.g. “make it golden hour”…	Опишите изменение, например «сделай золотой час»…
@@ -2662,7 +2660,6 @@ cameraRaw	Roughness	Неровность
 	Installation:	Установка:
 	Installed	Установлено
 	Keep	Оставить
-	Keep… (optional)	Оставить… (необязательно)
 	Licence	Лицензия
 	Licence gate	Нужно принять лицензию
 	Licence: see its page	Лицензия: см. страницу модели
@@ -2707,8 +2704,6 @@ cameraRaw	Roughness	Неровность
 	Precision	Точность
 	Preset name	Имя пресета
 	Previous image ({key})	Предыдущее изображение ({key})
-	Qwen Compact	Qwen компактная
-	Qwen Full	Qwen полная
 	RESULTS	РЕЗУЛЬТАТЫ
 	Read the licence	Прочитать лицензию
 	Ready	Готово
@@ -2755,7 +2750,6 @@ cameraRaw	Roughness	Неровность
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Сначала запустите движок ИИ: Local Image проверяет, что уже есть в ComfyUI. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Запустите движок ИИ, чтобы увидеть память GPU; показано то, что помещается в 8 ГБ.
 	Starting ComfyUI… (the first start can take a minute)	Запуск ComfyUI… (первый запуск может занять минуту)
-	Starting image · {n}/{max}	Исходное изображение · {n}/{max}
 	Starting {name}…	Запуск {name}…
 	Steps	Шаги
 	Stopped	Остановлено
@@ -2773,7 +2767,6 @@ cameraRaw	Roughness	Неровность
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	В рабочем процессе нет узлов с заголовками li:prompt, li:image, li:mask, li:seed или li:output, поэтому Local Image не может его заполнить. Переименуйте узлы в ComfyUI и экспортируйте снова.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Токены позволяют Обозревателю моделей скачивать модели с ограниченным доступом или требующие входа. Они отправляются только на свой сайт.
 	Transparent PNG	Прозрачный PNG
-	Transparent background	Прозрачный фон
 	Trending	Популярное
 	Trending this week	Популярное на этой неделе
 	Unknown family	Неизвестное семейство
@@ -2784,7 +2777,6 @@ cameraRaw	Roughness	Неровность
 	Upscale {scale}×	Увеличить в {scale}×
 	Use	Использовать
 	Use as Reference	Использовать как референс
-	Variation strength	Сила вариации
 	Waiting	Ожидание
 	What should appear in the selection…	Что должно появиться в выделении…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	С собственным ключом API генерация может использовать и облачные модели (они появятся в разделе «Облако» в выборе модели). Тогда ваш запрос и изображения передаются с этого компьютера этому провайдеру и оплачиваются с вашего аккаунта; больше ничего никуда не отправляется.
@@ -2818,12 +2810,9 @@ cameraRaw	Roughness	Неровность
 	{size} · runs on the CPU · {licence}	{size} · работает на CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: нет связи, показаны результаты ({when})
 	{source}: the catalogue couldn't be read	{source}: не удалось прочитать каталог
-	{why} Qwen Image 2.1 runs these.	{why} Qwen Image 2.1 выполняет эти функции.
 	Seed	Сид
 	Solid Color	Сплошной цвет
 	Strength	Интенсивность
-	Qwen AI · Compact	Qwen ИИ · компактная
-	Qwen AI · Full	Qwen ИИ · полная
 	Standard (CPU)	Стандартный (CPU)
 	Templates	Шаблоны
 	Community	Сообщество
@@ -2954,6 +2943,8 @@ ai	New	Новые
 	Float Panel Group	Открепить группу панелей
 	Save and Return to Library	Сохранить и вернуться в библиотеку
 	Added your new Develop edits as layer {name}	Ваши новые правки обработки добавлены как слой {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Кадрирование или размер фото изменились при обработке, поэтому {name} не обновлён
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Его слои больше не совпадали бы с новым фото, поэтому фото остаётся прежним.
 	Open the Library to save into it	Откройте библиотеку, чтобы сохранить в неё
 	The layers below are unchanged; hide or delete the new layer to go back.	Нижние слои не изменены; чтобы вернуться, скройте или удалите новый слой.
 # Attributions page (li-attributions)
@@ -4003,7 +3994,10 @@ ai	New	Новые
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	Все сочетания клавиш этого профиля сброшены к значениям по умолчанию.
 	Editor	Редактор
-	Library + Develop	Библиотека + Проявка
+	Library & Develop	Библиотека & Проявка
+	Library General	Библиотека: основные
+	Library Performance	Библиотека: производительность
+	Library Interface	Библиотека: интерфейс
 	Scope	Область
 	Colour	Цветные
 	Monochrome (default)	Монохром (по умолчанию)
@@ -4020,3 +4014,29 @@ ai	New	Новые
 	GPU Memory (MB, 0 = Automatic)	Память GPU (МБ, 0 = автоматически)
 	{path} was saved over	Файл {path} перезаписан
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	Документ «{doc}» больше не связан с файлом и помечен как несохранённый: сохраните его под новым именем, чтобы не потерять содержимое.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Сведённое
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Смесь серого, которая растягивает тона изображения
+	File Type	Тип файла
+	Save as JPEG	Сохранить как JPEG
+	Save as PSD	Сохранить как PSD
+	Save as TIFF	Сохранить как TIFF
+	Convert Profile to sRGB	Преобразовать профиль в sRGB
+	LZW Compression	Сжатие LZW
+	Resize to Fit	Вписать в размер
+	Run	Выполнить
+	You must save to at least one file type.	Выберите хотя бы один тип файла для сохранения.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Недопустимое числовое значение. Требуется значение от 1 до 12. Восстановлено предыдущее значение.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Недопустимое числовое значение. Требуется значение от 1 до 30000. Восстановлено предыдущее значение.
+	A value between 1 and 12 is required. Closest value inserted.	Требуется значение от 1 до 12. Подставлено ближайшее значение.
+	A value between 1 and 30000 is required. Closest value inserted.	Требуется значение от 1 до 30000. Подставлено ближайшее значение.
+	Image Compression	Сжатие изображения
+	Save Image Pyramid	Сохранить пирамиду изображения
+	Save Transparency	Сохранить прозрачность
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Открыть как смарт-объект…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	Жёсткий край
+	Last folder	Последняя папка

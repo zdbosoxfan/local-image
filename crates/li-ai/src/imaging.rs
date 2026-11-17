@@ -344,7 +344,7 @@ fn solve_membrane(w: usize, h: usize, unknown: &[bool], boundary: &[[f32; 3]]) -
     x
 }
 
-/// Size for a secondary Qwen reference or repair input: at most 4 MP and 4096 px, aligned to 32.
+/// Size for a reference image: at most 4 MP and 4096 px, aligned to 32.
 pub fn qwen_canvas_size(w: u32, h: u32) -> (u32, u32) {
     let (wf, hf) = (w as f64, h as f64);
     let scale = 1f64.min((4194304.0 / (wf * hf)).sqrt()).min(4096.0 / wf.max(hf));
@@ -355,30 +355,10 @@ pub fn qwen_canvas_size(w: u32, h: u32) -> (u32, u32) {
     (al(wf, bw), al(hf, bh))
 }
 
-/// Snaps a generation canvas to the model's grid (16 px; 32 for Qwen with references), within
-/// 256..=4096 per edge.
+/// Snaps a generation canvas to the model's grid, within 256..=4096 per edge.
 pub fn snap_size(w: u32, h: u32, grid: u32) -> (u32, u32) {
     let s = |v: u32| (((v.clamp(256, 4096) + grid / 2) / grid) * grid).clamp(256, 4096);
     (s(w), s(h))
-}
-
-/// Cutout alpha cleanup: alpha ≤1 → 0, ≥254 → 255. Fails when the model returned no usable
-/// transparency.
-pub fn finish_cutout(img: &RgbaImage) -> anyhow::Result<GrayImage> {
-    let (lo, hi) = img.pixels().fold((255u8, 0u8), |(l, h), p| (l.min(p[3]), h.max(p[3])));
-    if lo >= 250 || hi <= 5 {
-        anyhow::bail!("The model did not return a usable transparent cutout. Try again (a new seed), or describe the subject in the prompt.");
-    }
-    Ok(GrayImage::from_fn(img.width(), img.height(), |x, y| {
-        let a = img.get_pixel(x, y)[3];
-        Luma([if a <= 1 {
-            0
-        } else if a >= 254 {
-            255
-        } else {
-            a
-        }])
-    }))
 }
 
 /// Composite an RGBA result over white (opaque outputs whose invisible pixels may hold junk).
@@ -391,30 +371,7 @@ pub fn over_white(img: &RgbaImage) -> RgbaImage {
     })
 }
 
-/// Validate the raw alpha of a dedicated empty background before white compositing.
-pub fn finish_background(img: &RgbaImage) -> anyhow::Result<RgbaImage> {
-    // Permit incidental edge transparency up to 1% missing coverage, before flattening.
-    let missing: u64 = img.pixels().map(|p| u64::from(255 - p[3])).sum();
-    let pixels = u64::from(img.width()) * u64::from(img.height());
-    anyhow::ensure!(
-        pixels > 0 && missing <= pixels * 255 / 100,
-        "The model returned a transparent subject instead of an empty background. Try again with a new seed or describe the empty scene more clearly."
-    );
-    Ok(over_white(img))
-}
-
-/// Pads `img` into `w × h` keeping its aspect (letterboxed with transparency), as Qwen's first
-/// generation reference.
-pub fn pad_to(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
-    let scale = (w as f64 / img.width() as f64).min(h as f64 / img.height() as f64);
-    let (nw, nh) = (((img.width() as f64 * scale).round() as u32).max(1), ((img.height() as f64 * scale).round() as u32).max(1));
-    let r = li_raster::resize_rgba8(img, nw, nh, li_raster::Filter::Lanczos3);
-    let mut out = RgbaImage::new(w, h);
-    imageops::overlay(&mut out, &r, ((w - nw) / 2) as i64, ((h - nh) / 2) as i64);
-    out
-}
-
-/// Centre-crops to fill `w × h` (Z-Image starting images).
+/// Centre-crops to fill `w × h`.
 pub fn fit_cover(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
     let scale = (w as f64 / img.width() as f64).max(h as f64 / img.height() as f64);
     let (nw, nh) = (((img.width() as f64 * scale).ceil() as u32).max(w), ((img.height() as f64 * scale).ceil() as u32).max(h));
@@ -443,53 +400,6 @@ pub fn decode_frame(bytes: &[u8]) -> anyhow::Result<RgbaFrame> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn shared_resize_cc0_cutout_preserves_colour_at_transparent_edges() {
-        // Original synthetic cutout authored for this regression, dedicated to CC0-1.0.
-        // The disc's visible colour is constant, so its exact composite at every alpha
-        // is known. Hidden black deliberately reproduces the old dark-fringe failure.
-        const COLOUR: [u8; 3] = [224, 176, 96];
-        let source = RgbaImage::from_fn(128, 96, |x, y| {
-            let distance = ((x as f32 - 63.5).powi(2) + (y as f32 - 47.5).powi(2)).sqrt();
-            let alpha = ((35.5 - distance).clamp(0.0, 1.0) * 255.0).round() as u8;
-            if alpha == 0 { Rgba([0, 0, 0, 0]) } else { Rgba([COLOUR[0], COLOUR[1], COLOUR[2], alpha]) }
-        });
-        let fringe_error = |img: &RgbaImage| {
-            let white = over_white(img);
-            let mut total = 0u64;
-            let mut samples = 0u64;
-            for (x, y, p) in img.enumerate_pixels() {
-                if !(2..254).contains(&p[3]) {
-                    continue;
-                }
-                let alpha = f32::from(p[3]) / 255.0;
-                for (c, colour) in COLOUR.iter().enumerate() {
-                    let expected = (f32::from(*colour) * alpha + 255.0 * (1.0 - alpha)).round() as u8;
-                    total += u64::from(white.get_pixel(x, y)[c].abs_diff(expected));
-                    samples += 1;
-                }
-            }
-            assert!(samples > 30, "must sample actual antialiased edges");
-            total as f64 / samples as f64
-        };
-        for (w, h) in [(257, 193), (65, 49)] {
-            // These matching aspect ratios round to exactly w × h in pad_to's fit.
-            let scale = (f64::from(w) / 128.0).min(f64::from(h) / 96.0);
-            let nw = (128.0 * scale).round() as u32;
-            let nh = (96.0 * scale).round() as u32;
-            let old_resize = imageops::resize(&source, nw, nh, imageops::FilterType::Lanczos3);
-            let mut old = RgbaImage::new(w, h);
-            imageops::overlay(&mut old, &old_resize, i64::from((w - nw) / 2), i64::from((h - nh) / 2));
-            let new = pad_to(&source, w, h);
-            assert_eq!(new.dimensions(), (w, h));
-            let before = fringe_error(&old);
-            let after = fringe_error(&new);
-            eprintln!("CC0 cutout {w}x{h}: white-composite edge MAE {before:.6} -> {after:.6} u8 levels");
-            assert!(before > 1.0, "fixture must expose the old fringe: {before}");
-            assert!(after < 0.1 && after < before * 0.1, "premultiplied resize must remove the fringe: {before} -> {after}");
-        }
-    }
 
     #[test]
     fn regions_split_at_wide_gaps() {
@@ -555,17 +465,6 @@ mod tests {
         assert!(w % 32 == 0 && h % 32 == 0 && w * h <= 4194304, "{w}x{h}");
         assert_eq!(snap_size(1000, 1500, 16), (1008, 1504));
         assert_eq!(snap_size(10, 9000, 32), (256, 4096));
-    }
-
-    #[test]
-    fn cutout_alpha_validation() {
-        let opaque = RgbaImage::from_pixel(8, 8, Rgba([1, 2, 3, 255]));
-        assert!(finish_cutout(&opaque).is_err());
-        let mut cut = opaque.clone();
-        cut.put_pixel(0, 0, Rgba([0, 0, 0, 1]));
-        cut.put_pixel(1, 0, Rgba([0, 0, 0, 128]));
-        let a = finish_cutout(&cut).unwrap();
-        assert_eq!((a.get_pixel(0, 0)[0], a.get_pixel(1, 0)[0], a.get_pixel(2, 0)[0]), (0, 128, 255));
     }
 }
 

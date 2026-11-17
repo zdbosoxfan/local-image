@@ -45,6 +45,7 @@ pub struct DevelopSettings {
     pub orientation: Orientation,
     pub masks: Vec<Mask>,
     pub spots: Vec<Spot>,
+    /// Red eye corrections; the first [`MAX_RED_EYES`] render.
     pub red_eye: Vec<RedEye>,
     pub lens_blur: LensBlur,
     pub enhance: Enhance,
@@ -1065,6 +1066,35 @@ impl Default for BrushStroke {
     }
 }
 
+/// Most samples a colour-range mask keeps. It compares every pixel against every sample, so render
+/// and export cost is pixels x samples; the interactive sampler stops at 5.
+pub const MAX_COLOR_RANGE_SAMPLES: usize = 64;
+
+/// Deserialize a colour range's samples, keeping the first [`MAX_COLOR_RANGE_SAMPLES`] (the rest are
+/// skipped without being stored), however the settings arrive: sidecar, catalog, history, preset or
+/// merge.
+fn de_color_range_samples<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<[f64; 3]>, D::Error> {
+    struct Capped;
+    impl<'de> serde::de::Visitor<'de> for Capped {
+        type Value = Vec<[f64; 3]>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a list of OkLab colours")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<[f64; 3]>, A::Error> {
+            let mut out = Vec::new();
+            while out.len() < MAX_COLOR_RANGE_SAMPLES {
+                match seq.next_element::<[f64; 3]>()? {
+                    Some(s) => out.push(s),
+                    None => return Ok(out),
+                }
+            }
+            while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+            Ok(out)
+        }
+    }
+    d.deserialize_seq(Capped)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum MaskShape {
@@ -1087,8 +1117,10 @@ pub enum MaskShape {
         feather: f64,
         invert: bool,
     },
-    /// Colour range: sampled OkLab colours with a refine amount 0..100.
+    /// Colour range: sampled OkLab colours (at most [`MAX_COLOR_RANGE_SAMPLES`]) with a refine
+    /// amount 0..100.
     ColorRange {
+        #[serde(deserialize_with = "de_color_range_samples")]
         samples: Vec<[f64; 3]>,
         refine: f64,
     },
@@ -1539,13 +1571,17 @@ pub struct AiPatch {
     pub source: String,
     /// Where the patch goes: `[x0, y0, x1, y1]`, normalized coordinates (as spots).
     pub rect: [f64; 4],
-    /// The AI engine (`klein`, `qwen-int8`, …) and seed that made it.
+    /// The AI engine (`klein`, `lama`, …) and seed that made it.
     pub engine: String,
     pub seed: u64,
     /// The photo's geometry (orientation, lens, perspective) when it was made; another one means
     /// the patch may not line up (Develop offers Regenerate).
     pub geometry: String,
 }
+
+/// Most red eye / pet eye corrections a photo renders. Every output pixel goes through every eye,
+/// so render cost is pixels x eyes.
+pub const MAX_RED_EYES: usize = 64;
 
 /// A red eye / pet eye correction: the user's ellipse (centre normalized, radii as fractions of
 /// the long edge); the pupil inside it is found automatically.

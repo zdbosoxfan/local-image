@@ -6,6 +6,189 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Edit > Convert to Profile can dither 8-bit documents, so a change of profile that lands between
+  whole 8-bit steps no longer bands smooth gradients. It is off by default and the same image
+  always dithers the same way.
+- Layer > Smart Objects > Reset Transform puts a smart object back at 100 % of its contents' own
+  size with rotation, skew, Distort and Perspective cleared, centred where it sits, in one undo
+  step. Its Warp and smart filters stay, and it re-renders from its contents without losing detail.
+- The Match Color dialog has a Source Layer menu: match to one layer of the Source document instead
+  of its merged image. Layers with the same name stay separate choices, and choosing another
+  Source document goes back to Merged.
+- Levels: hold Alt while dragging the black or white Input slider to see what it clips. The canvas
+  turns white with the clipped shadows in black or colour (black slider), or black with the clipped
+  highlights in white or colour (white slider); release Alt or the mouse to see the preview again.
+  The document is never changed. Grayscale shows black and white; CMYK and Lab documents, channel,
+  mask and Quick Mask targets, and Smart Filter Levels keep the normal preview.
+- Hue/Saturation: drag between a colour range's handles to move them together. The fully-on span
+  moves all four, each fade moves its own two; a side stops at the other and the range never grows
+  past a full turn. Each drag is one undo step.
+- Black & White has an Auto button beside Default, in the Properties panel and in Image >
+  Adjustments. It sets the colour weights for the image (what lies under the adjustment layer, or
+  the layer's own pixels) so colours the default mix turns into the same grey are told apart, with
+  the mildest change that does it. It is one undo step; automation can ask for the weights with
+  `image.adjustments.blackWhite.auto`, which changes nothing.
+
+### Changed
+
+- Filter > Other > Frequency Separation now puts its Low and High Frequency layers in a
+  "Frequency Separation" group above the source, in one undo step, and rebuilds the source
+  exactly at 16 and 32 bits (within one level at 8 bits). It asks for a radius of 0.1 to 1000 px
+  (default 4) and is refused on an empty layer, a non-pixel layer, a targeted alpha channel, Quick
+  Mask or shown layer mask, and in CMYK and Lab, where the split does not add back up.
+
+### Security
+
+- HEIF decoding bounds metadata parsing, extent-record allocations, item reconstruction,
+  transforms and output samples. Alpha-grid tiles share the primary reconstruction budget.
+- RAW, HEIF and metadata readers bound more hostile-input work: DNG opcode lists, embedded-preview
+  header scans, HEIC parameter sets and decode peak memory, oversized Sony lossless tiles, and
+  XML references, IPTC keywords and Luminar look settings read in linear time.
+
+### Added
+
+- Develop: holding Alt (Option on macOS) while dragging an Edit slider shows Lightroom's
+  temporary previews: highlight clipping for Exposure, Highlights and Whites, shadow clipping for
+  Shadows and Blacks, greyscale for Sharpening Amount and the detail band for Radius and Detail,
+  as Masking already showed its mask. Settings and the histogram are unchanged.
+- Develop: with Crop, Masking, Remove, Red Eye or a picker on the photo, holding Space lends the
+  pointer to the view, as Lightroom's temporary Hand: a click zooms to the click-zoom ratio at the
+  point clicked (or back to Fit), a drag pans the zoomed photo, and the tool gets neither. A quick
+  tap still toggles the zoom, on its release.
+- Develop: with Show Pins on, Object and Describe masks show a pin on the photo: an Object at its
+  first click, a Describe mask in the middle of what it selected. Clicking the pin selects the
+  mask; dragging it changes nothing and adds no History step.
+
+### Changed
+
+- Develop: Auto straighten levels a sea or landscape horizon among waves and clouds, and levels
+  a building shot upward by where its verticals converge instead of by their lean. It turns a
+  photo by at most 5° (was 10°).
+- Develop: Auto Settings applies to every selected photo, each measured on its own source, as
+  one undo step. The photos are decoded in the background, with progress and Cancel in the task
+  panel; a photo that can't be read is skipped and counted, and a result that arrives after an
+  edit or undo is not applied.
+
+### Fixed
+
+- Develop: holding Space no longer toggles the zoom over and over as the key repeats.
+- Image decoding refuses hostile files before they can allocate far past their size: PNG colour
+  profiles and dropped text, EXR previews and header sizes, TIFF strip scratch, chunk tables,
+  repeated structural tags, predictor rows and JPEG chunks, GIF, BMP, TGA, ICO and QOI header sizes,
+  and icon colour profiles. JPEG Extended XMP fragments no longer make opening a file slow.
+- TIFF opens YCbCr images as RGB, blank Group 4 fax pages wider than 4096 pixels, and an alpha
+  channel that follows another extra channel.
+- A raw with damaged sensor data opens in the editor as its camera JPEG, with a warning, instead of failing.
+- A raw's embedded preview is read in Adobe RGB when the raw's EXIF says the camera was set to it.
+- Incomplete ISO and EXIF timestamps no longer become capture times, so the next valid date is used. A JPEG ICC profile whose chunks are missing, repeated or cut off is dropped from metadata.
+- RAW/TIFF imports bound hostile tile, opcode, and maker-note work before it can multiply memory or CPU use. Truncated Deflate tiles are rejected, and non-finite DNG WhiteLevel uses the bit-depth default.
+- Answering OK to the "Rasterize?" prompt that a brush or pencil opens on a type, shape, Smart
+  Object or fill layer only rasterizes the layer, as in Photoshop. The click that opened the prompt
+  no longer paints; the next click does.
+- The Magnetic Lasso snaps to the edges of the visible image in an RGB document, whichever layer is
+  active; hidden layers add none. Other colour modes still follow the active layer's own pixels.
+- Magic Wand and Magic Eraser Anti-alias keep the matched region fully selected and soften only
+  the pixels just outside it, by how close their colour is to the tolerance, as in Photoshop. A
+  shape next to a clearly different colour or transparency gets a hard edge.
+- Select > Subject looks at the selected layer's pixels; it uses the whole image only when no pixel
+  layer is selected or Sample All Layers is asked for.
+- Select and Mask's Shift Edge moves only soft borders, as in Photoshop: a hard selection edge
+  stays where it is, and a feathered edge is pulled in or pushed out along a fixed coverage curve
+  (at -100% a half-selected pixel drops to 2%, at +100% it rises to 98%).
+- Saving a PSD chooses PSB by the size of the file actually written, not by the uncompressed pixels:
+  a document that packs to well under 2 GB stays a PSD. A file over 2 GB is still saved as PSB
+  automatically; if it can't be, the save warns.
+- Panorama merges refuse more than 256 frames before decoding them at full size.
+- A Develop layer in Compositing renders as the Library does: with the photo's AI Denoise result, and without AI Remove patches made from another photo.
+- Cropping or rotating a photo in Develop no longer leaves its Compositing document at the old canvas size. A document that is still just the photo takes the new size; one with retouching keeps the photo as it was and says so, so its layers stay lined up.
+- Cancelling the unsaved-changes prompt after quitting from Library or Develop goes back to that module instead of leaving Compositing on screen.
+- A Camera Raw Filter session keeps its edits when another module is picked or the window is closed: the module switch asks to finish with OK or Cancel first, and cancelling the quit prompt returns to the session.
+- A saved `-Edit.psd` selected in the Library opens in Compositing with its layers, also when coming from Develop or after a restart, instead of as a second, flattened document.
+- Closing the window from Compositing when the Library couldn't save its catalog now shows the Library's Try Saving Again / Quit Anyway prompt instead of doing nothing.
+- Undoing an update from Develop in Compositing lasts: switching modules no longer puts it back. A Library edit made outside a Develop session entered from a retouched document (Sync, Paste, a preset) no longer adds a Develop layer over the retouching; a notice says the Library's edit is newer, and opening Develop from that document brings it in.
+- A file opened from the file manager or the command line is shown in Compositing instead of loading out of sight behind the Library, and a folder opened the same way is scanned for the Library's import instead of failing to open.
+- Develop's AI Remove keeps what was painted when the removal can't start, Remove is disabled while the chosen engine reports a problem, and a Camera Raw Filter session no longer offers the AI mode it can't run.
+- Crash recovery keeps autosaving Compositing documents while Library or Develop is shown, instead of pausing until Compositing is back.
+- Export's After Export "Open in Other Application" with no application given opens the exported files in the system's default application, as its hint says, instead of opening every file in Compositing.
+- A raw the Library has, opened in Compositing with File › Open, Open Recent, a drop, the filmstrip or the command line, opens as a Develop layer with its Develop edits instead of at camera defaults, and its saves join the Library.
+- Documents recovered after a crash are announced as a notice, so the count shows in the Library and Develop as well as in the Compositing status bar.
+- Ctrl/Cmd+Alt+1/2/3 no longer switches modules past an open Library dialog, Smart Sort or People, or past a running filter's progress window, which left the job without its Cancel.
+- Switching from Library to Compositing keeps the document being worked on in front instead of opening the last photo clicked in Library over it. The Library photo still comes across into an empty Compositing, and Develop still carries its photo.
+- Coming back from Compositing keeps the Library selection when it holds the edited photo, which becomes the active one, instead of collapsing it to that photo.
+- Opening Info or Keywords from Develop's tool strip keeps Develop in the title bar and as the module to start in, instead of switching both to Library.
+- Library Settings › Startup › Open in Photo Grid or Loupe now starts in the Library even when Develop or Compositing was last shown. The remembering choice is now called "Last workspace and view".
+- Photo › Edit In… (Cmd+E) with no other application named opens the photo in Compositing as a Develop layer, linked to Develop, instead of writing a stacked 16-bit TIFF copy every time. Naming an application in Settings › External Editor still sends it a TIFF copy.
+- A Library export, proof sheet or Develop AI result that finishes while Compositing is shown completes there (Show in Folder, Add to Library and the other After Export steps included) and its message shows as a Compositing notice, instead of waiting until the Library is opened again.
+- Develop and Compositing use one AI Remove engine choice: picking an engine in either one sets it in both, and both offer the same engines.
+- Preferences opened in Compositing no longer opens the Library's catalog first, so it doesn't wait on a slow or unreachable Library folder. The catalog opens when one of the Library's own pages is shown.
+- Cmd+Alt+Shift+K opens Keyboard Shortcuts in Library and Develop as well, the same chord as in Compositing.
+- Edit › Preferences › Raw Defaults… opens Library & Develop › Import, where the raw defaults Local Image uses are set, instead of an empty page. The empty Camera Raw Defaults row is gone from the Compositing list.
+- Edit › Search in Compositing also finds Library and Develop, and running one switches to that module.
+- A Library photo opened in Compositing carries its Library title, caption, copyright, creator, keywords and location in the document's metadata, the saved `-Edit` file's Library entry gets the same title, caption, copyright, creator and location where the file has none of its own. Export As still starts with Metadata: None; choose All to embed them.
+- AI Denoise that can't use the GPU because AI work holds its memory now says so and points to waiting for AI jobs or to Eject in Compositing's status bar, instead of asking to retry after other GPU work finishes.
+- Compositing's File › Exit is now Quit Local Image, as in Library and Develop. Library and Develop messages and shortcut lists name Compositing and "Library & Develop" instead of "the editor" and "Library", and the Global shortcut F reads "Screen mode / Full Screen Preview".
+- Keyboard Shortcuts names its scopes Global, "Library & Develop" and Compositing, and the Global list calls the Ctrl/Cmd+Alt+1-3 switches the Library, Develop and Compositing modules instead of workspaces.
+- Blend modes in Develop's and the Library's Layers list read as in Compositing's Layers panel; German showed "Überlagerung" for Overlay instead of "Überlagern".
+- Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
+- Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
+- Remove Location Info refuses an Original export holding metadata the check can't read, instead of copying it unchecked: malformed XMP in any format, compressed or text-chunk XMP and raw metadata profiles in PNG, and a second Exif block or XMP packet in JPEG, PNG or WebP. The error names the block.
+- Remove Location Info now checks JPEG extended XMP, IPTC Location Created and Location Shown, country codes, GPS destination and area fields, and GPS values short of a full position.
+- Remove Location Info offers DNG in its refusals only for raw photos.
+- Remove Location Info on an Original export is best-effort, not a guarantee. Corrupt Exif in a file other than PSD or PSB reads as no Exif, so a location inside it isn't seen and the file is copied. The same goes for JPEG data past the first scan, IPTC past the first JPEG APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside a TIFF's first directory, CR3 previews and PNG text chunks under other keywords. Export as JPEG or TIFF when the location must go.
+- Perspective Crop with no size set makes the canvas the rectangle the frame shows in perspective, so a façade or page shot at an angle keeps its proportions. It used the average length of the frame's opposite edges, which squashed it. A frame whose sides barely converge takes its longest edges.
+- HEIC, HEIF and AVIF photos import with the capture time, camera, lens, location and keywords in their Exif and XMP items. They used to import with none of it, dated by the file's modification time. Remove Location Info still refuses to copy these originals.
+
+### Removed
+
+- Qwen Image 2.1 and its Turbo version are no longer offered or downloaded: their licence does not
+  allow client use of the pictures they make. Saved settings that named it fall back to FLUX.2
+  Klein 4B, and an installed Qwen Image 2.1 file is no longer recognised as a known model. A file
+  you install yourself may still run through a matching ComfyUI workflow template.
+
+- The Qwen engines for AI Remove are gone. AI Remove offers Automatic, on-device LaMa and FLUX.2
+  Klein; a saved Qwen choice now runs as Automatic.
+
+- Remove Background (AI) and Select › Subject (AI) no longer use Qwen Image 2.1. Remove Background
+  uses the on-device Fast and Better Quality models (see Changed) everywhere (Layer › Layer Mask › Remove
+  Background (AI) now runs them too), and Select › Subject (AI) is gone: use Select › Subject. The
+  "Keep…" hint field went with the Qwen engine.
+
+- Transparent generation is gone: the Generate panel no longer offers "Transparent background"
+  and the "Alpha" tag no longer appears, because no remaining model makes real transparency.
+  Regenerating an older transparent result now makes an opaque picture.
+
+- FLUX.1 is no longer supported: dev, schnell, Kontext, Fill, Redux and the Canny/Depth control
+  models. Their licences do not allow client use of the pictures they make. Installed FLUX.1 files
+  and LoRAs are no longer recognised as a known model, and FLUX.1 LoRAs are not offered for other
+  models. A file you install yourself may still run through a matching ComfyUI workflow template.
+
+- Black Forest Labs is gone as a cloud provider, with its FLUX.1 Kontext [pro], FLUX1.1 [pro] and
+  FLUX.1 Fill [pro] models. A saved key is no longer used, and a saved choice of one of those
+  models falls back to FLUX.2 Klein 4B.
+
+- Illustrious and NoobAI are no longer offered: their profile and the "Anime (Illustrious)" style
+  preset are gone, because their licence does not allow client use of the pictures they make. An
+  installed Illustrious or NoobAI file is now treated as plain SDXL.
+
+- Z-Image and Z-Image Turbo are no longer offered or downloaded, and the Turbo-only Variety
+  control, the "Starting image" reference and its Variation strength slider went with them. Saved
+  settings that named Z-Image Turbo fall back to FLUX.2 Klein 4B, and an installed Z-Image file or
+  LoRA is no longer recognised as a known model. A file you install yourself may still run through
+  a matching ComfyUI workflow template.
+
+### Changed
+
+- The on-device background-removal models changed so their masks can be used for client work: Fast
+  is now InSPyReNet (395 MB) and Better Quality is the new BiRefNet lite (224 MB), both MIT
+  licensed. BRIA RMBG-1.4, whose licence is non-commercial, is removed and its file is no longer
+  used, so a new download is needed. Select › Subject and Remove Background use whichever of the
+  two is installed.
+
+- Generative Fill and Generate Background now run on FLUX.2 Klein 4B instead of Qwen Image 2.1.
+  Their old "engine" setting is ignored.
+
 ## [0.8.0-alpha] - 2026-10-29
 
 The first published alpha of the rebuilt Local Image. It was developed as 2.0.0-alpha.1, which was

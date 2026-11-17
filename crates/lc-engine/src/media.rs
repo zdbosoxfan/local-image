@@ -63,7 +63,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 24;
+pub const RENDER_CACHE_VERSION: u64 = 25;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -718,6 +718,19 @@ impl RenderJob {
                 // Thumbnails (many small jobs side by side) stay on the CPU; views and exports use
                 // the GPU when there is one.
                 let gpu = self.cache.is_none();
+                if let Err(e) = lightcraft_pipeline::check_brush_budget(&src, &info, &settings, &self.request) {
+                    return RenderResult {
+                        request_id: self.request_id,
+                        source_key: self.source_key,
+                        photo: self.photo,
+                        level: self.level,
+                        key: self.key,
+                        rendered: Err(e),
+                        loaded: None,
+                        quick: None,
+                        proof_monitor: None,
+                    };
+                }
                 let rendered = develop(&src, &info, &settings, &self.request, self.stages.as_deref(), gpu);
                 if let Some((cache, key)) = &self.cache {
                     cache.put_at(self.cache_generation, *key, Arc::new(rendered.image.clone()));
@@ -773,6 +786,16 @@ pub fn develop(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req:
         Some(st) => lightcraft_pipeline::render_cached(src, info, s, req, st),
         None => lightcraft_pipeline::render(src, info, s, req),
     })
+}
+
+/// local-image: [`develop`] of a photo's original outside the Library (a Compositing Develop
+/// layer) as a Library render shows it: its AI Denoise result mixed in and AI patches made from
+/// other photos left out ([`crate::enhance::for_render`]). `content_key` is the photo's
+/// [`content_key`].
+pub fn develop_original(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, content_key: &str, req: &RenderRequest) -> Rendered {
+    let source = Hasher128::new().str(content_key).finish();
+    let (src, settings) = crate::enhance::for_render(src, &Arc::new(s.clone()), Some(source));
+    develop(&src, info, &settings, req, None, true)
 }
 
 /// Why [`develop`] renders `s` for `req` on the CPU even with a GPU (`None`: the GPU takes it).
@@ -1268,6 +1291,7 @@ impl crate::Session {
 
     /// Synchronous render (CLI, MCP, tests).
     pub fn render_now(&mut self, id: PhotoId, max_w: usize, max_h: usize) -> Result<Rendered, String> {
+        lightcraft_pipeline::check_output_size(max_w, max_h)?;
         let job = self.render_job(id, max_w, max_h, false, true).ok_or("no such photo")?;
         let r = job.run();
         self.accept(&r);
@@ -1298,6 +1322,7 @@ impl crate::Session {
         space: lightcraft_pipeline::OutputSpace,
         depth: lightcraft_pipeline::OutputDepth,
     ) -> Result<RenderJob, String> {
+        lightcraft_pipeline::check_output_size(max_w, max_h)?;
         if self.develop_of(id).is_some_and(|d| d.enhance.denoise > 0.0 && d.enhance.ai.is_some_and(|a| a.preview)) {
             return Err("Run Apply AI Denoise at full resolution before exporting the preview result.".into());
         }
@@ -1385,6 +1410,9 @@ pub struct ProbeInfo {
     pub embedded_lens: Option<lightcraft_develop::EmbeddedLens>,
     /// The file's embedded XMP packet (raw/DNG files), for develop settings stored inside the file.
     pub xmp: Option<String>,
+    /// The file's Exif orientation, when it states one: how its stored pixels turn upright (`width` and `height` are
+    /// the upright size).
+    pub orientation: Option<lightcraft_geom::Orientation>,
     /// A raw variant that can't be decoded yet: why. The file is described (and will be shown and
     /// edited) from its embedded preview; see [`lightcraft_catalog::Photo::preview_only`].
     pub preview_only: Option<String>,

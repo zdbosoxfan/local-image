@@ -95,9 +95,21 @@ impl PhotocraftApp {
         untitled_name(tl!("Untitled"), |n| self.session.documents().iter().any(|d| d.doc.name == n) || self.jobs.opens.iter().any(|o| o.name == n))
     }
 
-    /// Read and open the file at `path` (see [`open_file`](Self::open_file)).
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Open the file at `path`. While the host takes raw files ([`raw_opens`](Self::raw_opens)),
+    /// a raw is queued for it; anything else is read and opened here.
     pub fn open_path(&mut self, path: &str) -> Result<Vec<String>, String> {
+        let raw = std::path::Path::new(path).extension().is_some_and(|ext| photocraft_codecs::raw_from_extension(&ext.to_string_lossy()));
+        if let Some(queue) = self.raw_opens.as_mut().filter(|_| raw) {
+            queue.push(path.to_string());
+            return Ok(Vec::new());
+        }
+        self.open_path_here(path)
+    }
+
+    /// Read and open the file at `path` in this editor, a raw at its camera defaults (see
+    /// [`open_file`](Self::open_file)).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_path_here(&mut self, path: &str) -> Result<Vec<String>, String> {
         if self.show_if_open(path) {
             return Ok(Vec::new());
         }
@@ -117,7 +129,7 @@ impl PhotocraftApp {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn open_path(&mut self, path: &str) -> Result<Vec<String>, String> {
+    pub fn open_path_here(&mut self, path: &str) -> Result<Vec<String>, String> {
         Err(format!("cannot open paths on the web: {path}"))
     }
 
@@ -306,12 +318,12 @@ impl PhotocraftApp {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn absolute(p: &str) -> String {
+pub(crate) fn absolute(p: &str) -> String {
     std::path::absolute(p).map(|a| a.to_string_lossy().to_string()).unwrap_or_else(|_| p.to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
-fn absolute(p: &str) -> String {
+pub(crate) fn absolute(p: &str) -> String {
     p.to_string()
 }
 

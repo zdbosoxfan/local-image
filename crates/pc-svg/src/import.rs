@@ -49,6 +49,8 @@ pub fn import_with(bytes: &[u8], options: &ImportOptions, mut fonts: Option<&mut
         let (prepared, slots) = text::prepare(&source, &xml, options, fonts.as_deref_mut(), &mut warnings, cancel)?;
         cancelled(cancel)?;
         let limit = options.limits.decompressed_bytes;
+        let max_pixels = options.limits.pixels;
+        let allowance = std::sync::atomic::AtomicU64::new(limit);
         let opt = usvg::Options {
             dpi: options.dpi,
             // usvg's default string resolver opens files, even with resources_dir=None.
@@ -60,11 +62,19 @@ pub fn import_with(bytes: &[u8], options: &ImportOptions, mut fonts: Option<&mut
                     }
                     // Nested SVG/SVGZ images have their own expansion graph. They are deliberately
                     // excluded rather than calling usvg's unbounded recursive default resolver.
+                    if !matches!(mime, "image/png" | "image/jpeg" | "image/jpg" | "image/webp") {
+                        return None;
+                    }
+                    if cancel.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    if let Some(png) = upright_png(&data, max_pixels, &allowance) {
+                        return Some(usvg::ImageKind::PNG(std::sync::Arc::new(png)));
+                    }
                     match mime {
                         "image/png" => Some(usvg::ImageKind::PNG(data)),
-                        "image/jpeg" | "image/jpg" => Some(usvg::ImageKind::JPEG(data)),
                         "image/webp" => Some(usvg::ImageKind::WEBP(data)),
-                        _ => None,
+                        _ => Some(usvg::ImageKind::JPEG(data)),
                     }
                 }),
             },
@@ -75,6 +85,35 @@ pub fn import_with(bytes: &[u8], options: &ImportOptions, mut fonts: Option<&mut
         tree::convert(&normalized, &xml, slots, options, fonts, cancel, warnings)
     }))
     .map_err(|_| ImportError::Invalid("SVG decoder rejected malformed data".into()))?
+}
+
+/// `data` re-encoded upright as PNG when its EXIF orientation turns or flips its pixels, so usvg
+/// sizes and fits the image as it is shown (CSS `image-orientation: from-image`). usvg asks again
+/// for every use of an image, so all turning shares one decode `allowance`. None when it needs no
+/// turn or can't be turned within the limits: it is then handed on as stored, and the layer
+/// conversion applies its own limits to it.
+fn upright_png(data: &[u8], max_pixels: u64, allowance: &std::sync::atomic::AtomicU64) -> Option<Vec<u8>> {
+    use image::ImageDecoder as _;
+    let left = allowance.load(Ordering::Relaxed);
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(left);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder().ok()?;
+    let orientation = decoder.orientation().ok()?;
+    let (w, h) = decoder.dimensions();
+    let pixels = u64::from(w) * u64::from(h);
+    // The decoded pixels and their turned copy.
+    let bytes = pixels.saturating_mul(u64::from(decoder.color_type().bytes_per_pixel())).saturating_mul(2);
+    if orientation == image::metadata::Orientation::NoTransforms || pixels > max_pixels || bytes > left {
+        return None;
+    }
+    allowance.store(left - bytes, Ordering::Relaxed);
+    let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
+    image.apply_orientation(orientation);
+    let mut png = Vec::new();
+    image.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+    Some(png)
 }
 
 pub(super) fn cancelled(cancel: &AtomicBool) -> Result<()> {

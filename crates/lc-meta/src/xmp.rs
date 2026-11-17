@@ -8,6 +8,7 @@
 //! Writing emits the interchange subset in standard namespaces (dc, xmp, photoshop, exif, exifEX, tiff, lr) and
 //! LightCraft's full develop settings as an opaque JSON string in `lc:settings`.
 
+use crate::xmp_merge::listed;
 use crate::{DateTime, Flash, Gps, Metadata, Orientation, Region, RegionKind, parse_number};
 use lightcraft_geom::{Point, Rect};
 use quick_xml::escape::{escape, partial_escape};
@@ -30,6 +31,8 @@ const NAMESPACES: &[(&str, &str)] = &[
     ("aux", "http://ns.adobe.com/exif/1.0/aux/"),
     ("lr", "http://ns.adobe.com/lightroom/1.0/"),
     ("Iptc4xmpCore", "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"),
+    // Read-only: its location structures matter to privacy checks under any prefix.
+    ("Iptc4xmpExt", "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"),
     ("lc", LC_NS),
     ("drone-dji", crate::DJI_NS),
     // Read-only: develop settings written by other raw developers (interchange).
@@ -75,6 +78,19 @@ pub struct XmpData {
     /// Every top-level property with its full structure (arrays of structs such as local
     /// corrections, which [`XmpData::properties`] flattens).
     pub values: BTreeMap<String, XmpValue>,
+    /// True when properties were omitted to stay within the flattened-key memory budget.
+    pub property_keys_truncated: bool,
+}
+
+impl XmpData {
+    /// The pixel size the packet's regions were drawn on (`mwg-rs:AppliedToDimensions`), unless one of them says how
+    /// the photo was turned (`mwg-rs:Rotation`: Lightroom's boxes, which the reader already turns upright). It tells
+    /// boxes drawn on the photo as stored from boxes drawn on it upright: see [`crate::upright_regions`].
+    pub fn regions_drawn_on(&self) -> Option<(f64, f64)> {
+        let regions = self.values.get("mwg-rs:Regions")?;
+        let turned = regions.field("mwg-rs:RegionList").is_some_and(|l| l.items().iter().any(|r| r.field("mwg-rs:Rotation").is_some()));
+        if turned { None } else { applied_to(regions) }
+    }
 }
 
 /// A structured XMP value.
@@ -153,7 +169,34 @@ const MAX_DEPTH: usize = 64;
 pub(crate) const MAX_NODES: usize = 200_000;
 // Bound amplification from namespace expansion and flattened struct paths separately.
 pub(crate) const MAX_OPAQUE_NAME_BYTES: usize = 8 * 1024 * 1024;
+// Hard stop for packets whose total flattened paths exceed this budget.
 const MAX_PROPERTY_KEY_BYTES: usize = 64 * 1024 * 1024;
+// Flattened property keys repeat every ancestor name for each leaf.
+const MAX_FLATTENED_PROPERTY_KEY_BYTES: usize = 1 << 20;
+/// Properties that say where a photo is, read only while they don't amount to a [`Gps`] position.
+/// The other [`Metadata`] location fields have their own properties.
+const OTHER_LOCATION_PROPERTIES: &[&str] = &[
+    "Iptc4xmpExt:LocationCreated",
+    "Iptc4xmpExt:LocationShown",
+    "Iptc4xmpCore:CountryCode",
+    "exif:GPSAreaInformation",
+    "exif:GPSDest*",
+    "exif:GPSLatitude",
+    "exif:GPSLongitude",
+    "exif:GPSAltitude",
+];
+
+/// Most namespace declarations in scope at once. Prefix lookup scans them, so declarations times
+/// the names of a start tag is the work; real packets declare a few dozen.
+const MAX_NS_DECLS: usize = 512;
+
+/// Refuses a scope stack holding more than [`MAX_NS_DECLS`] declarations.
+pub(crate) fn check_scopes(scopes: &[Vec<(String, String)>]) -> Result<(), XmpError> {
+    if scopes.iter().map(Vec::len).sum::<usize>() > MAX_NS_DECLS {
+        return Err(XmpError::TooComplex);
+    }
+    Ok(())
+}
 
 /// Canonical names preserve foreign bindings without allowing unbounded URI expansion.
 pub(crate) fn canonical_name(qname: &str, scopes: &[Vec<(String, String)>], opaque_budget: &mut usize) -> Result<String, XmpError> {
@@ -195,6 +238,13 @@ fn entity(name: &str) -> Option<char> {
     })
 }
 
+/// Index of the `;` that ends a reference starting at `rest` (its `&`). The scan stops at the first byte that cannot
+/// appear in a name or a numeric reference, so each run of name bytes is read once, not once per `&`.
+fn entity_end(rest: &str) -> Option<usize> {
+    let n = rest.bytes().skip(1).take_while(|b| b.is_ascii_alphanumeric() || *b == b'#').count();
+    (rest.as_bytes().get(n + 1) == Some(&b';')).then_some(n + 1)
+}
+
 /// Unescape attribute values (predefined + numeric references; unknown references kept verbatim).
 fn unescape_attr(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -202,7 +252,7 @@ fn unescape_attr(s: &str) -> String {
     while let Some(i) = rest.find('&') {
         out.push_str(&rest[..i]);
         rest = &rest[i..];
-        match rest.find(';').and_then(|j| entity(&rest[1..j]).map(|c| (c, j))) {
+        match entity_end(rest).and_then(|j| entity(&rest[1..j]).map(|c| (c, j))) {
             Some((c, j)) => {
                 out.push(c);
                 rest = &rest[j + 1..];
@@ -246,6 +296,7 @@ fn parse_tree(s: &str) -> Result<Node, XmpError> {
                     }
                 }
                 scopes.push(scope);
+                check_scopes(&scopes)?;
                 let name = canonical_name(&String::from_utf8_lossy(e.name().as_ref()), &scopes, &mut opaque_budget)?;
                 let attrs = raw_attrs
                     .into_iter()
@@ -312,26 +363,56 @@ fn is_rdf_meta_attr(k: &str) -> bool {
     matches!(k, "rdf:about" | "rdf:ID" | "rdf:nodeID" | "xml:lang" | "rdf:parseType" | "rdf:resource" | "rdf:datatype") || k.starts_with("xmlns")
 }
 
-fn property_key(prefix: &str, name: &str, budget: &mut usize) -> Result<String, XmpError> {
+fn property_key(prefix: &str, name: &str, budget: &mut usize, flattened_budget: &usize, limited: &mut bool) -> Result<Option<String>, XmpError> {
     let size = prefix.len().checked_add(name.len()).ok_or(XmpError::TooComplex)?;
     *budget = budget.checked_sub(size).ok_or(XmpError::TooComplex)?;
-    Ok(format!("{prefix}{name}"))
+    if size > *flattened_budget {
+        *limited = true;
+        return Ok(None);
+    }
+    Ok(Some(format!("{prefix}{name}")))
 }
 
-fn collect_description(d: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>, key_budget: &mut usize) -> Result<(), XmpError> {
+fn take_key_bytes(key: &str, budget: &mut usize, limited: &mut bool) -> bool {
+    if key.len() > *budget {
+        *limited = true;
+        return false;
+    }
+    *budget -= key.len();
+    true
+}
+
+fn collect_description(
+    d: &Node,
+    prefix: &str,
+    props: &mut BTreeMap<String, Vec<String>>,
+    key_budget: &mut usize,
+    flattened_budget: &mut usize,
+    limited: &mut bool,
+) -> Result<(), XmpError> {
     for (k, v) in &d.attrs {
-        if !is_rdf_meta_attr(k) {
-            props.entry(property_key(prefix, k, key_budget)?).or_default().push(v.clone());
+        if !is_rdf_meta_attr(k)
+            && let Some(key) = property_key(prefix, k, key_budget, flattened_budget, limited)?
+            && take_key_bytes(&key, flattened_budget, limited)
+        {
+            props.entry(key).or_default().push(v.clone());
         }
     }
     for c in &d.children {
-        collect_property(c, prefix, props, key_budget)?;
+        collect_property(c, prefix, props, key_budget, flattened_budget, limited)?;
     }
     Ok(())
 }
 
-fn collect_property(p: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>, key_budget: &mut usize) -> Result<(), XmpError> {
-    let key = property_key(prefix, &p.name, key_budget)?;
+fn collect_property(
+    p: &Node,
+    prefix: &str,
+    props: &mut BTreeMap<String, Vec<String>>,
+    key_budget: &mut usize,
+    flattened_budget: &mut usize,
+    limited: &mut bool,
+) -> Result<(), XmpError> {
+    let Some(key) = property_key(prefix, &p.name, key_budget, flattened_budget, limited)? else { return Ok(()) };
     if let Some(arr) = p.children.iter().find(|c| matches!(c.name.as_str(), "rdf:Seq" | "rdf:Bag" | "rdf:Alt")) {
         let mut items: Vec<(bool, String)> = arr
             .children
@@ -344,29 +425,37 @@ fn collect_property(p: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<Str
         if arr.name == "rdf:Alt" {
             items.sort_by_key(|(default, _)| !*default);
         }
-        props.entry(key).or_default().extend(items.into_iter().map(|(_, v)| v));
+        if take_key_bytes(&key, flattened_budget, limited) {
+            props.entry(key).or_default().extend(items.into_iter().map(|(_, v)| v));
+        }
         return Ok(());
     }
     let struct_prefix = format!("{key}/");
     if p.attr("rdf:parseType") == Some("Resource") {
         for c in &p.children {
-            collect_property(c, &struct_prefix, props, key_budget)?;
+            collect_property(c, &struct_prefix, props, key_budget, flattened_budget, limited)?;
         }
         return Ok(());
     }
     if let Some(d) = p.children.iter().find(|c| c.name == "rdf:Description") {
-        collect_description(d, &struct_prefix, props, key_budget)?;
+        collect_description(d, &struct_prefix, props, key_budget, flattened_budget, limited)?;
         return Ok(());
     }
     let field_attrs: Vec<&(String, String)> = p.attrs.iter().filter(|(k, _)| !is_rdf_meta_attr(k)).collect();
     if !field_attrs.is_empty() && p.children.is_empty() && p.text.trim().is_empty() {
         for (k, v) in field_attrs {
-            props.entry(property_key(&struct_prefix, k, key_budget)?).or_default().push(v.clone());
+            if let Some(full) = property_key(&struct_prefix, k, key_budget, flattened_budget, limited)?
+                && take_key_bytes(&full, flattened_budget, limited)
+            {
+                props.entry(full).or_default().push(v.clone());
+            }
         }
         return Ok(());
     }
     let v = p.attr("rdf:resource").map(str::to_string).unwrap_or_else(|| p.text.trim().to_string());
-    props.entry(key).or_default().push(v);
+    if take_key_bytes(&key, flattened_budget, limited) {
+        props.entry(key).or_default().push(v);
+    }
     Ok(())
 }
 
@@ -378,6 +467,19 @@ fn find_descriptions<'a>(n: &'a Node, out: &mut Vec<&'a Node>) {
     for c in &n.children {
         find_descriptions(c, out);
     }
+}
+
+fn has_value(n: &Node) -> bool {
+    !n.text.trim().is_empty()
+        || n.attrs.iter().any(|(k, v)| (k == "rdf:resource" || !is_rdf_meta_attr(k)) && !v.trim().is_empty())
+        || n.children.iter().any(has_value)
+}
+
+/// Whether any node in the packet, however it is nested, fills an [`OTHER_LOCATION_PROPERTIES`] name.
+fn names_other_location(n: &Node) -> bool {
+    (listed(OTHER_LOCATION_PROPERTIES, &n.name) && has_value(n))
+        || n.attrs.iter().any(|(k, v)| listed(OTHER_LOCATION_PROPERTIES, k) && !v.trim().is_empty())
+        || n.children.iter().any(names_other_location)
 }
 
 /// XMP GPS coordinate `DDD,MM,SSk` or `DDD,MM.mmk` (k = N/S/E/W) → signed degrees.
@@ -404,15 +506,20 @@ fn parse_gps_coord(s: &str) -> Option<f64> {
 /// Malformed or out-of-range entries are skipped rather than rejecting the whole list: one bad region
 /// (from Lightroom, digiKam, Picasa, or a hand-edited file) shouldn't hide the rest.
 fn parse_regions(regions: &XmpValue) -> Vec<Region> {
-    // `AppliedToDimensions` documents the pixel size regions were authored against. It's only consulted
+    // `AppliedToDimensions` documents the pixel size regions were authored against. Here it's only consulted
     // for the rare region whose own Area is in pixel units instead of MWG's normalized default below.
-    let px_dims = regions.field("mwg-rs:AppliedToDimensions").and_then(|d| {
+    let px_dims = applied_to(regions);
+    let Some(list) = regions.field("mwg-rs:RegionList") else { return Vec::new() };
+    list.items().iter().filter_map(|item| parse_one_region(item, px_dims)).collect()
+}
+
+/// `mwg-rs:AppliedToDimensions` of a `mwg-rs:Regions` struct: (width, height) in pixels, both positive.
+fn applied_to(regions: &XmpValue) -> Option<(f64, f64)> {
+    regions.field("mwg-rs:AppliedToDimensions").and_then(|d| {
         let w = d.field("stDim:w").and_then(XmpValue::text).and_then(parse_number)?;
         let h = d.field("stDim:h").and_then(XmpValue::text).and_then(parse_number)?;
         (w > 0.0 && h > 0.0).then_some((w, h))
-    });
-    let Some(list) = regions.field("mwg-rs:RegionList") else { return Vec::new() };
-    list.items().iter().filter_map(|item| parse_one_region(item, px_dims)).collect()
+    })
 }
 
 fn parse_one_region(item: &XmpValue, px_dims: Option<(f64, f64)>) -> Option<Region> {
@@ -473,17 +580,31 @@ fn fmt_gps_coord(v: f64, pos: char, neg: char) -> String {
     format!("{},{:.6}{}", d as i64, m, if v < 0.0 { neg } else { pos })
 }
 
-/// Parse an XMP packet (with or without the `<?xpacket?>` wrapper / `x:xmpmeta` element).
+/// Parse an XMP packet (with or without the `<?xpacket?>` wrapper / `x:xmpmeta` element). Properties past the
+/// flattened-key budget are omitted ([`XmpData::property_keys_truncated`]), so this is only for develop presets,
+/// listings and validation; anything that reaches a catalog, sidecar, image file or export uses [`parse_whole_xmp`].
 pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
+    parse_xmp_within(s, MAX_FLATTENED_PROPERTY_KEY_BYTES)
+}
+
+/// [`parse_xmp`] up to the hard stop alone, for reads that can reach a catalog, sidecar, save or export: the budget
+/// would turn into lost properties, or a location a privacy check never sees.
+pub fn parse_whole_xmp(s: &str) -> Result<XmpData, XmpError> {
+    parse_xmp_within(s, MAX_PROPERTY_KEY_BYTES)
+}
+
+fn parse_xmp_within(s: &str, flattened_key_bytes: usize) -> Result<XmpData, XmpError> {
     let s = s.trim_start_matches('\u{feff}');
     let tree = parse_tree(s)?;
     let mut descs = Vec::new();
     find_descriptions(&tree, &mut descs);
     let mut props = BTreeMap::new();
     let mut key_budget = MAX_PROPERTY_KEY_BYTES;
+    let mut flattened_budget = flattened_key_bytes;
+    let mut property_keys_truncated = false;
     let mut values = BTreeMap::new();
     for d in descs {
-        collect_description(d, "", &mut props, &mut key_budget)?;
+        collect_description(d, "", &mut props, &mut key_budget, &mut flattened_budget, &mut property_keys_truncated)?;
         if let XmpValue::Struct(m) = node_struct(d) {
             values.extend(m);
         }
@@ -569,10 +690,11 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
         let altitude = num("exif:GPSAltitude").map(|a| if first("exif:GPSAltitudeRef").as_deref() == Some("1") { -a } else { a });
         m.gps = Some(Gps { latitude: lat, longitude: lon, altitude });
     }
+    m.other_location = m.gps.is_none() && names_other_location(&tree);
     m.dji = crate::DjiMetadata::from_properties(&props);
     m.regions = values.get("mwg-rs:Regions").map(parse_regions).unwrap_or_default();
     let lc_settings = props.get("lc:settings").and_then(|v| v.first()).cloned();
-    Ok(XmpData { metadata: m, lc_settings, properties: props, values })
+    Ok(XmpData { metadata: m, lc_settings, properties: props, values, property_keys_truncated })
 }
 
 fn frac(v: f64) -> String {
@@ -651,7 +773,7 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     x.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Local Image\">\n");
     x.push_str(" <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
     x.push_str("  <rdf:Description rdf:about=\"\"");
-    for (p, u) in NAMESPACES.iter().skip(2).filter(|(p, _)| *p != "crs") {
+    for (p, u) in NAMESPACES.iter().skip(2).filter(|(p, _)| !matches!(*p, "crs" | "Iptc4xmpExt")) {
         x.push_str(&format!("\n    xmlns:{p}=\"{u}\""));
     }
     x.push_str(">\n");
@@ -796,6 +918,7 @@ mod tests {
             white_balance: Some(1),
             orientation: Some(Orientation::Rotate270),
             gps: Some(Gps { latitude: 48.858222, longitude: -2.2945, altitude: Some(-3.5) }),
+            other_location: false,
             width: Some(8000),
             height: Some(6000),
             artist: Some("Ann \"Photo\" Lee".into()),
@@ -1177,6 +1300,16 @@ mod tests {
         );
         assert!(matches!(parse_xmp(&packet), Err(XmpError::TooComplex)));
     }
+
+    /// A million `&` then one `;`: each `&` once searched the whole rest of the attribute for the `;`.
+    #[test]
+    fn many_ampersands_before_one_semicolon_are_read_once() {
+        let hostile = format!("{};&amp;", "&".repeat(1_000_000));
+        let t = std::time::Instant::now();
+        assert_eq!(unescape_attr(&hostile), format!("{};&", "&".repeat(1_000_000)));
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "took {:?}", t.elapsed());
+        assert_eq!(unescape_attr("&lt;a&gt; &#x10FFFF; C&#0000000097;non &unknownreference;"), "<a> \u{10FFFF} Canon &unknownreference;");
+    }
 }
 
 #[cfg(test)]
@@ -1225,6 +1358,31 @@ mod sony_dji_tests {
         let mut target = Metadata::default();
         target.fill_missing(&m);
         assert_eq!(target.dji, m.dji);
+    }
+
+    #[test]
+    fn flattened_properties_stay_within_the_document_budget() {
+        let level = "n".repeat(200);
+        let mut doc = String::from(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:lc=\"https://lightcraft.example/lc/\" xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\"><rdf:RDF><rdf:Description tiff:Make=\"Camera\"><lc:root rdf:parseType=\"Resource\">",
+        );
+        for _ in 0..4 {
+            doc.push_str(&format!("<lc:{level} rdf:parseType=\"Resource\">"));
+        }
+        for i in 0..3000 {
+            doc.push_str(&format!("<lc:leaf{i} lc:att=\"v\"/>"));
+        }
+        doc.push_str("</lc:root>");
+        for _ in 0..4 {
+            doc.push_str(&format!("</lc:{level}>"));
+        }
+        doc.push_str("</rdf:Description></rdf:RDF></x:xmpmeta>");
+        let parsed = parse_xmp(&doc).unwrap();
+        let key_bytes: usize = parsed.properties.keys().map(String::len).sum();
+        assert!(key_bytes <= 1 << 20, "flattened keys use {key_bytes} bytes");
+        assert!(parsed.properties.len() < 3000);
+        assert_eq!(parsed.metadata.make.as_deref(), Some("Camera"));
+        assert!(parsed.property_keys_truncated, "the parse result reports omitted flattened properties");
     }
 }
 

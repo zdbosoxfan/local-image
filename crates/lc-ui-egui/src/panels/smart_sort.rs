@@ -699,7 +699,8 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         if app.services.download_models.is_some() {
             let download = app.services.model_download_status.as_ref().map(|f| f(model_id)).unwrap_or_default();
             if download.running {
-                ui.add(egui::ProgressBar::new(download.done as f32 / download.total.max(1) as f32));
+                let kit = li_ui_kit::widgets::Profile::Library.tokens(ui.ctx());
+                li_ui_kit::progress::bar_with_percent(ui, 160.0, li_ui_kit::progress::fraction(download.done, download.total), &kit);
                 if button(ui, "smartSort:downloadCancel", "Cancel download").clicked()
                     && let Some(f) = &app.services.download_models
                 {

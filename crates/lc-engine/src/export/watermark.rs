@@ -170,6 +170,9 @@ pub(super) fn watermark_coverage(
     }
 }
 
+/// Most bytes of a watermark graphic file.
+const MAX_GRAPHIC_BYTES: u64 = 256 << 20;
+
 /// A watermark graphic, decoded once per file (and again when the file changes).
 fn watermark_logo(path: &str) -> Option<std::sync::Arc<Rgba8>> {
     use std::collections::HashMap;
@@ -183,7 +186,7 @@ fn watermark_logo(path: &str) -> Option<std::sync::Arc<Rgba8>> {
     {
         return Some(img.clone());
     }
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = li_fs::read::file(std::path::Path::new(path), MAX_GRAPHIC_BYTES, &lightcraft_sysmem::jobs::Interrupt::NONE).ok()?;
     let img = Arc::new(lightcraft_codecs::decode(&bytes, Default::default()).ok()?.to_srgb8());
     map.insert(path.to_string(), (modified, img.clone()));
     Some(img)

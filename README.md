@@ -25,7 +25,7 @@ Develop camera RAW files with tone, colour, optics, detail and local-mask contro
 
 The Generate panel combines **Create, Edit, Fill, Refine and Upscale**, with model presets, image references, LoRAs, Draft → Refine and custom ComfyUI workflows. Open results as documents, place them as layers or reuse them as references. AI Remove, background removal, Generative Fill and background generation are available from the editing workflow.
 
-Connect a local or remote **ComfyUI** server; **Find on LAN** helps locate one. A remote GPU server is the practical option for large generative models on Apple Silicon. Optional OpenAI, Google, Black Forest Labs and Stability AI adapters use your own keys and provider billing. Each paid cloud run asks for confirmation (provider, model and count) and respects an optional session cap. Requested remote/cloud operations send their inputs to the selected service, re-encoded from pixels so EXIF and GPS metadata stay on the computer.
+Connect a local or remote **ComfyUI** server; **Find on LAN** helps locate one. A remote GPU server is the practical option for large generative models on Apple Silicon. Optional OpenAI, Google and Stability AI adapters use your own keys and provider billing. Each paid cloud run asks for confirmation (provider, model and count) and respects an optional session cap. Requested remote/cloud operations send their inputs to the selected service, re-encoded from pixels so EXIF and GPS metadata stay on the computer.
 
 ### Layered photo editing and compositing
 
@@ -111,7 +111,7 @@ Implementation: [Tool registry](crates/pc-engine/src/toolsets.rs) · [Shared too
 <details>
 <summary>Selections, painting, retouching, transforms and type</summary>
 
-- **Selections and masks:** All; Deselect; Reselect; Inverse Selection; Color Range; Focus Area; Subject; Subject (AI); Sky; Select and Mask; Border, Smooth, Expand, Contract and Feather; Grow; Similar; Transform Selection; Quick Mask; saved/loaded selections and alpha channels; raster and vector layer masks; clipping masks; convert selection to shape; object masks; mask painting; Color Decontaminate, Defringe, Remove Black Matte and Remove White Matte.
+- **Selections and masks:** All; Deselect; Reselect; Inverse Selection; Color Range; Focus Area; Subject; Sky; Select and Mask; Border, Smooth, Expand, Contract and Feather; Grow; Similar; Transform Selection; Quick Mask; saved/loaded selections and alpha channels; raster and vector layer masks; clipping masks; convert selection to shape; object masks; mask painting; Color Decontaminate, Defringe, Remove Black Matte and Remove White Matte.
 
 - **Painting/retouch operations:** brush settings and presets; pressure-sensitive strokes; brush symmetry; pattern stamp and color replacement through paint commands/options; content-aware Fill/Move/Scale; Fill and Stroke; clone/heal sample control; History Brush and history snapshots; Frequency Separation; seamless paste; foreground/background color management; gradients and patterns; brush, pattern and custom-shape preset definition/import/export.
 
@@ -240,7 +240,7 @@ Implementation: [Vector feature packages](crates/pc-engine/src/vector_packages) 
 <details>
 <summary>AI generation, on-device functions and batch tools</summary>
 
-- **Generate workspace:** Create (text-to-image); Edit (image plus instruction); Fill (selected-area generation); Refine; Upscale. Model capability tags control which modes are available. Reference images and multiple references where supported; styles/LoRAs where supported; prompt/negative prompt, seeds and sampler controls; optional transparent/alpha generation where supported; generation results/history; open result as document, insert as layer or reuse as reference; generated-image library.
+- **Generate workspace:** Create (text-to-image); Edit (image plus instruction); Fill (selected-area generation); Refine; Upscale. Model capability tags control which modes are available. Reference images and multiple references where supported; styles/LoRAs where supported; prompt/negative prompt, seeds and sampler controls; generation results/history; open result as document, insert as layer or reuse as reference; generated-image library.
 
 - **Generative editor workflows:** New from Prompt; Generative Fill; Generate Background; AI Remove Brush; AI Remove Selection; AI Cutout with editable mask and erase/restore painting; add a solid/image/generated background; AI Enhance; Restore; Draft & Refinement workspace with independent draft/refinement setup and source/result comparison; import a compatible ComfyUI workflow; Model Browser; install/manage/check models and LoRAs; Local AI connection/start/stop/settings.
 
@@ -250,7 +250,7 @@ Implementation: [Vector feature packages](crates/pc-engine/src/vector_packages) 
 
 - **Batch Remove Backgrounds:** choose inputs and a destination folder, output naming/template, PNG/TIFF/PSD output, progress/status and cancellation. Outputs go to a folder; this tool has no separate reviewed-export or ZIP stage.
 
-- **Setup boundaries:** generative models need a configured local or remote ComfyUI server plus the selected model/files/nodes, or an optional cloud provider with the user’s own API key. Available providers: OpenAI, Google, Black Forest Labs and Stability AI. Cloud sends the prompt/images to that provider and is billed there. Cloud use is optional. Optional SAM 3 Object/Describe masking is feature-gated and not shipped in normal builds. Installed family profiles do not mean every downloadable model/checkpoint is usable on every Mac or backend. Apple Silicon support does not imply Neural Engine/Core ML execution.
+- **Setup boundaries:** generative models need a configured local or remote ComfyUI server plus the selected model/files/nodes, or an optional cloud provider with the user’s own API key. Available providers: OpenAI, Google and Stability AI. Cloud sends the prompt/images to that provider and is billed there. Cloud use is optional. Optional SAM 3 Object/Describe masking is feature-gated and not shipped in normal builds. Installed family profiles do not mean every downloadable model/checkpoint is usable on every Mac or backend. Apple Silicon support does not imply Neural Engine/Core ML execution.
 
 Implementation: [Generate interface](crates/pc-ui-egui/src/generate_ui.rs) · [AI workflows](crates/li-ai/src) · [On-device models](crates/li-seg/src/lib.rs).
 

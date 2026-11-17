@@ -163,6 +163,7 @@ mod i18n_live_tests;
 #[cfg(test)]
 mod i18n_tests;
 pub mod icons;
+mod image_processor_ui;
 pub mod jobs_ui;
 pub mod lasso_ui;
 pub mod layer_menu_ui;
@@ -173,6 +174,7 @@ pub mod layer_row_ui;
 pub mod layer_style;
 mod layer_transfer;
 pub mod layer_tree_ui;
+pub mod levels_clipping;
 pub mod links;
 pub mod liquify_ui;
 pub mod magnetic_lasso_ui;
@@ -270,12 +272,21 @@ pub type ImportFn = Box<dyn Fn(&str, &[u8]) -> Result<(Document, Vec<String>), S
 pub struct ExportSettings {
     /// JPEG quality 1–100 (None = codec default).
     pub jpeg_quality: Option<u8>,
+    /// JPEG chroma sampling: `true` is 4:2:0, `false` keeps full 4:4:4 colour detail.
+    pub jpeg_chroma_subsampling: bool,
     /// WebP: lossless (VP8L) rather than lossy (VP8 at [`Self::webp_quality`]).
     pub webp_lossless: bool,
     /// Lossy WebP quality 1–100 (None = codec default).
     pub webp_quality: Option<u8>,
     /// TIFF: keep the layers (Photoshop layer data); `false` is "Discard Layers and Save a Copy".
     pub tiff_layers: bool,
+    /// TIFF Options › Image Compression.
+    pub tiff_compression: photocraft_codecs::TiffCompression,
+    /// TIFF Options › Save Transparency (`None`: kept; see
+    /// [`photocraft_io::ExportOptions::tiff_transparency`]).
+    pub tiff_transparency: Option<bool>,
+    /// TIFF Options › Save Image Pyramid.
+    pub tiff_pyramid: bool,
     /// Whether PSD, PSB and layered TIFF saves may embed linked sources.
     pub read_linked_files: bool,
     /// Embed the document's whole XMP packet. `true` by default (Save As keeps the metadata);
@@ -286,7 +297,18 @@ pub struct ExportSettings {
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        ExportSettings { jpeg_quality: None, webp_lossless: true, webp_quality: None, tiff_layers: true, read_linked_files: true, xmp_all: true }
+        ExportSettings {
+            jpeg_quality: None,
+            jpeg_chroma_subsampling: true,
+            webp_lossless: true,
+            webp_quality: None,
+            tiff_layers: true,
+            tiff_compression: photocraft_codecs::TiffCompression::Deflate,
+            tiff_transparency: None,
+            tiff_pyramid: false,
+            read_linked_files: true,
+            xmp_all: true,
+        }
     }
 }
 
@@ -599,6 +621,11 @@ pub struct PhotocraftApp {
     /// them): the Library adds a document that came from one of its photos, stacked on top of
     /// that photo, and reloads a file it already has (see [`develop_layer::LibrarySave`]).
     pub library_saves: Vec<develop_layer::LibrarySave>,
+    /// local-image: raw files File › Open, Open Recent, drops, the filmstrip and launch arguments
+    /// asked to open, while the host takes them (`Some`): it opens a raw its Library has with
+    /// that photo's Develop settings, and any other with [`open_path_here`](Self::open_path_here).
+    /// `None`: raws open here, at camera defaults.
+    pub raw_opens: Option<Vec<String>>,
     pub library_save_sources: develop_layer::LibrarySaveSources,
     /// local-image: Filter › Camera Raw Filter… sessions in the Library's Develop module (the host
     /// takes `develop_filter.request`), and the prompts around them.
@@ -639,6 +666,8 @@ pub struct PhotocraftApp {
     pub(crate) color_range: Option<color_range_ui::Preview>,
     /// Image › Adjustments dialog preview through a temporary clipped adjustment layer.
     pub(crate) adjust_preview: Option<adjust_preview::AdjustPreview>,
+    /// The Levels dialog's Alt-drag clipping display over the canvas.
+    pub(crate) levels_clipping: Option<levels_clipping::Cache>,
     /// Synthetic input events queued by automation (`ui.click`, `ui.key`, …), injected next frame.
     pub(crate) synthetic: Vec<egui::Event>,
     /// True only while a frame is processing synthetic automation input. It
@@ -647,8 +676,8 @@ pub struct PhotocraftApp {
     pub(crate) automation_input: bool,
     /// Levels/Curves histogram cache: (document, adjustment layer, revision it is valid for).
     pub(crate) tone_hist: Option<(DocId, photocraft_doc::LayerId, u64, std::sync::Arc<tone::Histograms>)>,
-    /// Histogram panel cache: (document, revision, computed at ms, histograms).
-    pub(crate) doc_hist: Option<(DocId, u64, f64, std::sync::Arc<tone::Histograms>)>,
+    /// Histogram panel cache: (document, revision, computed at ms, counted pixels, histograms).
+    pub(crate) doc_hist: Option<(DocId, u64, f64, u64, std::sync::Arc<tone::Histograms>)>,
     /// Free Transform preview (document without the moving pixels + their texture).
     pub(crate) transform_preview: Option<transform_tool::TransformPreview>,
     /// Move-tool ⇧/⌥ drag state (move_mods).
@@ -708,8 +737,10 @@ pub struct PhotocraftApp {
     pub(crate) discard: Option<discard_ui::Prompt>,
     /// The Open or Save dialog in progress, and the action waiting on it (see `file_dialog`).
     pub(crate) file_dialog: Option<file_dialog::Pending>,
-    /// A Save As to a layered TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
+    /// A Save As or Save a Copy to a TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
     pub(crate) tiff_options: Option<tiff_options_ui::Prompt>,
+    /// The last TIFF Options compression and pyramid answer, where the next prompt starts. Session-only.
+    pub(crate) tiff_remembered: tiff_options_ui::Remembered,
     pub(crate) pending_save: Option<save_worker::Pending>,
     /// Each document's own file as it was when the document was opened from it or saved to it
     /// (see [`FileStamp`]).
@@ -790,6 +821,7 @@ impl PhotocraftApp {
             automation_browse: None,
             develop_request: None,
             library_saves: Vec::new(),
+            raw_opens: None,
             library_save_sources: Default::default(),
             develop_filter: Default::default(),
             current_module: Module::Compositing,
@@ -813,6 +845,7 @@ impl PhotocraftApp {
             filter_preview: None,
             color_range: None,
             adjust_preview: None,
+            levels_clipping: None,
             synthetic: Vec::new(),
             automation_input: false,
             channel_thumbs: None,
@@ -844,6 +877,7 @@ impl PhotocraftApp {
             updates: Default::default(),
             discard: None,
             tiff_options: None,
+            tiff_remembered: Default::default(),
             pending_save: None,
             file_dialog: None,
             disk_stamps: HashMap::new(),
@@ -990,6 +1024,9 @@ impl PhotocraftApp {
         }
         if let Some(r) = transform_tool::intercept(self, id) {
             return r;
+        }
+        if crop_ui::holds_history(self, id) {
+            return Err("Commit or cancel the crop first".into());
         }
         if matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteSeamless" | "file.newFromClipboard") {
             let files =
@@ -1275,10 +1312,10 @@ impl PhotocraftApp {
 
     /// [`Self::save_as`] once the path is known.
     fn save_to(&mut self, path: String) -> Result<Value, String> {
-        // A layered TIFF asks about its layers first (Preferences › File Handling); the save
+        // A TIFF asks for TIFF Options (compression, pyramid, transparency, layers); the save
         // continues from the prompt.
         if tiff_options_ui::wants_prompt(self, &path) {
-            tiff_options_ui::park(self, path.clone());
+            tiff_options_ui::park(self, path.clone(), None);
             return Ok(serde_json::json!({"path": path, "warnings": []}));
         }
         let (path, warnings) = self.write_document(path, &ExportSettings::default())?;
@@ -1498,6 +1535,8 @@ impl eframe::App for PhotocraftApp {
         if self.ui.text_edit.is_some() && !self.ui.tool.is_type() {
             type_tool::commit(self);
         }
+        // So does selecting another layer or document by any route.
+        type_tool::end_if_left(self);
         if self.ui.pen.is_some() && self.ui.tool != state::Tool::Pen {
             vector_ui::pen_commit(self, false);
         }

@@ -60,7 +60,7 @@ impl State {
     /// Start through the ordinary bounded file reader and photo decoder. The host
     /// must switch modules without opening the active Library photo a second time.
     pub fn open_path(&mut self, app: &mut PhotocraftApp, photo: u64, path: &str) -> Result<(), String> {
-        self.begin(app, photo, Some(path), |app| app.open_path(path).map(|_| ()))
+        self.begin(app, photo, Some(path), |app| app.open_path_here(path).map(|_| ()))
     }
 
     /// Already-read bytes use the same decode route (also usable by offscreen tests).

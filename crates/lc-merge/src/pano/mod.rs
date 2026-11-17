@@ -49,6 +49,9 @@ impl Default for PanoOptions {
     }
 }
 
+/// Limit pairwise registration work before features are computed for a panorama.
+pub const MAX_FRAMES: usize = 256;
+
 /// The stitched panorama.
 #[derive(Clone, Debug)]
 pub struct PanoResult {
@@ -258,7 +261,7 @@ pub fn register(frames: &[Frame], progress: &Progress) -> Result<(Vec<Option<Cam
         }
     }
     let long = sizes[ids[0]].0.max(sizes[ids[0]].1) as f64;
-    let exif_f = frames[ids[0]].metadata.focal_length_35mm.filter(|v| *v > 1.0).map(|f35| f35 / 36.0 * long);
+    let exif_f = exif_focal(&frames[ids[0]]);
     let hom_f = (!fs.is_empty()).then(|| median(fs.clone())).filter(|f| *f > 0.1 * long && *f < 20.0 * long);
     let f0 = exif_f.or(hom_f).unwrap_or(long * 1.07);
     let cams = camera::initial_cameras(&ids, &sizes, &pairs, f0);
@@ -270,12 +273,27 @@ pub fn register(frames: &[Frame], progress: &Progress) -> Result<(Vec<Option<Cam
     Ok((cams, adj.rms_before, adj.rms))
 }
 
-/// Stitch `frames` (oriented, linear) into a panorama.
-pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Result<PanoResult> {
-    let n = frames.len();
+/// A frame's focal length in pixels, from EXIF's 35 mm equivalent.
+fn exif_focal(frame: &Frame) -> Option<f64> {
+    let long = frame.width().max(frame.height()) as f64;
+    frame.metadata.focal_length_35mm.filter(|v| *v > 1.0).map(|f35| f35 / 36.0 * long)
+}
+
+/// Whether [`stitch`] accepts `n` frames; callers that know the count ask before loading them.
+pub fn check_frame_count(n: usize) -> Result<()> {
     if n < 2 {
         return Err(MergeError::TooFew(n, 2));
     }
+    if n > MAX_FRAMES {
+        return Err(MergeError::TooMany(n, MAX_FRAMES));
+    }
+    Ok(())
+}
+
+/// Stitch `frames` (oriented, linear) into a panorama.
+pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Result<PanoResult> {
+    let n = frames.len();
+    check_frame_count(n)?;
     check(progress, 0.01, "Finding features")?;
     let (cams, rms_before, rms) = register(&frames, progress)?;
     let used: Vec<usize> = (0..n).filter(|&i| cams[i].is_some()).collect();
@@ -294,7 +312,13 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
     }
     // output scale: native resolution, limited to max_megapixels
     let max_px = (opts.max_megapixels.max(0.1) * 1e6).min(400e6);
-    let s = (max_px / ((bx1 - bx0) * (by1 - by0))).sqrt().min(1.0);
+    // Bundle adjustment fits the focal length freely, and a few wide frames can settle it below the
+    // lens's: the canvas, sized from it, then holds fewer pixels than the photos do. The lens's own
+    // focal length, where EXIF gives it, sets the native scale instead: a canvas pixel at the centre
+    // of a frame is then one pixel of the photo, and nothing is upsampled past that.
+    let lens = used.iter().filter_map(|&i| exif_focal(&frames[i])).fold(0.0, f64::max);
+    let native = if fmed > 0.0 { (lens / fmed).max(1.0) } else { 1.0 };
+    let s = (max_px / ((bx1 - bx0) * (by1 - by0))).sqrt().min(native);
     let f_out = fmed * s;
     let (ox, oy) = (bx0 * s, by0 * s);
     let (cw, ch) = (((bx1 - bx0) * s).ceil() as usize + 1, ((by1 - by0) * s).ceil() as usize + 1);

@@ -197,9 +197,42 @@ pub fn magic_wand(px: &[[f32; 4]], area: Rect, seed: (i32, i32), tolerance: f32,
         }
     }
     if anti_alias {
-        antialias(&mut m, w, h);
+        let tol = (tolerance + 1e-3).floor().max(0.0);
+        let src = m.clone();
+        for (i, v) in m.iter_mut().enumerate() {
+            if src[i] == 0.0 && touches_region(i % w, i / w, w, h, |x, y| src[y * w + x] > 0.0) {
+                let p = px[i];
+                let over = (0..3).map(|c| (p[c] - target[c]).abs() * 255.0).fold(0.0f32, f32::max) - tol;
+                *v = f32::from(fringe_coverage(over, p[3].min(target[3]) * 255.0)) / 255.0;
+            }
+        }
     }
     m
+}
+
+/// How many levels past the tolerance the anti-aliased fringe fades over, from fully selected to
+/// nothing. Measured in the reference application: 3 levels past gives 251, 5 gives 249 and 123
+/// gives 110; a straight fade to zero at 216 levels gives all three.
+const FRINGE_LEVELS: f32 = 216.0;
+
+/// Coverage (0–255) of an anti-aliased fringe pixel: a neighbour of the region whose colour is
+/// `over` levels past the tolerance, and `alpha` (0–255) the lower of its and the clicked pixel's
+/// opacity. Photoshop keeps the region itself fully selected and softens only the pixels just
+/// outside it, fading with the distance past the tolerance; a neighbour without colour
+/// (transparent, next to a shape on its own layer) gets none.
+fn fringe_coverage(over: f32, alpha: f32) -> u8 {
+    let k = (1.0 - over.max(0.0) / FRINGE_LEVELS).clamp(0.0, 1.0) * (alpha / 255.0).clamp(0.0, 1.0);
+    (k * 255.0).round() as u8
+}
+
+/// True when one of the 8 neighbours of `(x, y)` (inside a `w` x `h` area) is in the region.
+fn touches_region(x: usize, y: usize, w: usize, h: usize, selected: impl Fn(usize, usize) -> bool) -> bool {
+    (-1i32..=1).any(|dy| {
+        (-1i32..=1).any(|dx| {
+            let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+            (dx, dy) != (0, 0) && nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h && selected(nx as usize, ny as usize)
+        })
+    })
 }
 
 /// Mean colour of the `sample`×`sample` window centred on `seed` (clipped to `area`).
@@ -260,6 +293,27 @@ impl Region {
     }
 }
 
+/// How a wand-style fill measures how far an 8-bit colour is from the clicked one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorDistance {
+    /// The largest difference in any one of R, G and B.
+    LargestChannel,
+    /// The spread of `{0, dR, dG, dB}`: changes in the same direction count once, opposite
+    /// changes add up. Only opaque colours were measured, so a partly transparent seed or pixel
+    /// uses [`Self::LargestChannel`].
+    Spread,
+}
+
+impl ColorDistance {
+    fn rgb(self, p: [u8; 4], seed: [u8; 4]) -> i32 {
+        let d = [0, 1, 2].map(|c| p[c] as i32 - seed[c] as i32);
+        match self {
+            Self::Spread if p[3] == 255 && seed[3] == 255 => d.iter().fold(0, |m, v| m.max(*v)) - d.iter().fold(0, |m, v| m.min(*v)),
+            Self::LargestChannel | Self::Spread => d.iter().fold(0, |m, v| m.max(v.abs())),
+        }
+    }
+}
+
 /// Magic wand on 8-bit pixels: a scanline flood fill (or a global match) that only allocates a
 /// byte mark per pixel, then anti-aliases just the edges inside the touched bounding box.
 /// Matches [`magic_wand`] for 8-bit sources. `None` if the seed is outside `area`.
@@ -271,13 +325,37 @@ pub fn wand_region(img: &[[u8; 4]], area: Rect, seed: (i32, i32), tolerance: f32
 /// `sample`×`sample` pixels around the seed (clipped to `area`), so one noisy pixel in a photo no
 /// longer decides the whole selection.
 pub fn wand_region_sampled(img: &[[u8; 4]], area: Rect, seed: (i32, i32), sample: u32, tolerance: f32, contiguous: bool, anti_alias: bool) -> Option<Region> {
+    wand_region_within(img, area, seed, sample, tolerance, contiguous, anti_alias, None, ColorDistance::LargestChannel)
+}
+
+/// [`wand_region_sampled`] whose contiguous fill only passes through pixels at least half selected
+/// in `within` (the current selection's coverage over `area`, row-major): Subtract and Intersect
+/// grow the region from the seed through the selection only, so a seed outside it finds nothing.
+/// A global match (`contiguous` off) ignores `within`. `distance` measures how far a colour is
+/// from the target.
+pub fn wand_region_within(
+    img: &[[u8; 4]],
+    area: Rect,
+    seed: (i32, i32),
+    sample: u32,
+    tolerance: f32,
+    contiguous: bool,
+    anti_alias: bool,
+    within: Option<&[f32]>,
+    distance: ColorDistance,
+) -> Option<Region> {
     if !area.contains(seed.0, seed.1) {
         return None;
     }
     let (w, h) = (area.width() as usize, area.height() as usize);
+    let within = within.filter(|m| contiguous && m.len() >= w * h);
+    let inside = |i: usize| within.is_none_or(|m| m[i] >= 0.5);
+    if !inside((seed.1 - area.y0) as usize * w + (seed.0 - area.x0) as usize) {
+        return None;
+    }
     let target = sample_mean(img, area, seed, sample);
     let tol = (tolerance + 1e-3).floor().max(0.0) as i32;
-    let similar = |p: [u8; 4]| (0..4).all(|c| (p[c] as i32 - target[c] as i32).abs() <= tol);
+    let similar = |p: [u8; 4]| distance.rgb(p, target) <= tol && (p[3] as i32 - target[3] as i32).abs() <= tol;
     let mut marks = vec![0u8; w * h];
     let (mut bx0, mut by0, mut bx1, mut by1) = (usize::MAX, usize::MAX, 0usize, 0usize);
     if contiguous {
@@ -289,10 +367,10 @@ pub fn wand_region_sampled(img: &[[u8; 4]], area: Rect, seed: (i32, i32), sample
                 continue;
             }
             let (mut l, mut r) = (x, x);
-            while l > 0 && marks[row + l - 1] == 0 && similar(img[row + l - 1]) {
+            while l > 0 && marks[row + l - 1] == 0 && similar(img[row + l - 1]) && inside(row + l - 1) {
                 l -= 1;
             }
-            while r + 1 < w && marks[row + r + 1] == 0 && similar(img[row + r + 1]) {
+            while r + 1 < w && marks[row + r + 1] == 0 && similar(img[row + r + 1]) && inside(row + r + 1) {
                 r += 1;
             }
             marks[row + l..=row + r].fill(255);
@@ -304,7 +382,7 @@ pub fn wand_region_sampled(img: &[[u8; 4]], area: Rect, seed: (i32, i32), sample
                 let nrow = ny * w;
                 let mut in_run = false;
                 for nx in l..=r {
-                    let ok = marks[nrow + nx] == 0 && similar(img[nrow + nx]);
+                    let ok = marks[nrow + nx] == 0 && similar(img[nrow + nx]) && inside(nrow + nx);
                     if ok && !in_run {
                         stack.push((nx, ny));
                     }
@@ -352,25 +430,11 @@ pub fn wand_region_sampled(img: &[[u8; 4]], area: Rect, seed: (i32, i32), sample
             let x = x0 + xx;
             let v = at(x, y);
             *o = v;
-            if !anti_alias {
-                continue;
-            }
-            // Same rule as `antialias`: edge pixels blend with their 3×3 neighbourhood; neighbours
-            // outside the area count as the pixel itself.
-            let mut sum = 0u32;
-            let mut edge = false;
-            for dy in -1i32..=1 {
-                for dx in -1i32..=1 {
-                    let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-                    let n = if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 { v } else { at(nx as usize, ny as usize) };
-                    edge |= n != v;
-                    sum += n as u32;
-                }
-            }
-            if edge {
-                let avg = sum as f32 / (9.0 * 255.0);
-                let f = if v > 127 { 0.5 + 0.5 * avg } else { 0.5 * avg };
-                *o = (f * 255.0).round() as u8;
+            // Same rule as `magic_wand`: the region stays fully selected; a pixel just outside
+            // it gets a fringe by how far its colour is past the tolerance.
+            if anti_alias && v == 0 && touches_region(x, y, w, h, |nx, ny| at(nx, ny) != 0) {
+                let p = img[y * w + x];
+                *o = fringe_coverage((distance.rgb(p, target) - tol) as f32, f32::from(p[3].min(target[3])));
             }
         }
     };
@@ -424,32 +488,6 @@ pub fn combine_region(old: Option<&Surface>, new: Option<&Region>, mode: Selecti
             s.write_region(b, &out);
             s.prune();
             nonempty(s)
-        }
-    }
-}
-
-/// Softens hard mask edges: edge pixels become the 3×3 average.
-fn antialias(m: &mut [f32], w: usize, h: usize) {
-    let src = m.to_vec();
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * w + x;
-            let mut sum = 0.0;
-            let mut cnt = 0.0;
-            let mut edge = false;
-            for dy in -1i32..=1 {
-                for dx in -1i32..=1 {
-                    let (xx, yy) = (x as i32 + dx, y as i32 + dy);
-                    let v = if xx < 0 || yy < 0 || xx >= w as i32 || yy >= h as i32 { src[i] } else { src[yy as usize * w + xx as usize] };
-                    edge |= v != src[i];
-                    sum += v;
-                    cnt += 1.0;
-                }
-            }
-            if edge {
-                // Keep selected pixels mostly selected, add a soft fringe.
-                m[i] = if src[i] > 0.5 { 0.5 + 0.5 * sum / cnt } else { 0.5 * sum / cnt };
-            }
         }
     }
 }
@@ -646,6 +684,87 @@ pub fn polygon(points: &[(f32, f32)], area: Rect, anti_alias: bool) -> Vec<f32> 
     m
 }
 
+/// Matches colours against a set of selected colours: a colour matches when every channel is
+/// within the tolerance of one selected colour's.
+///
+/// One box around all the selected colours would also take the colours between them (black and
+/// purple between a selected red and blue), so the colours are held in a bounding-volume tree and
+/// a query is tested against a subtree only when it is within the tolerance of that subtree's
+/// box. Fully transparent pixels match each other whatever their hidden RGB.
+pub struct ColorMatcher {
+    has_transparent: bool,
+    tree: ColorBvh,
+    tol: f32,
+}
+
+enum ColorBvh {
+    Empty,
+    Leaf(Vec<[f32; 4]>),
+    Node { min: [f32; 4], max: [f32; 4], left: Box<ColorBvh>, right: Box<ColorBvh> },
+}
+
+impl ColorBvh {
+    fn build(mut points: Vec<[f32; 4]>) -> Self {
+        if points.is_empty() {
+            return Self::Empty;
+        }
+        if points.len() <= 16 {
+            return Self::Leaf(points);
+        }
+        let (mut min, mut max) = ([f32::MAX; 4], [f32::MIN; 4]);
+        for p in &points {
+            for c in 0..4 {
+                min[c] = min[c].min(p[c]);
+                max[c] = max[c].max(p[c]);
+            }
+        }
+        // Split at the median of the channel with the widest spread.
+        let axis = (0..4usize).max_by(|a, b| (max[*a] - min[*a]).total_cmp(&(max[*b] - min[*b]))).unwrap_or(0);
+        let mid = points.len() / 2;
+        points.select_nth_unstable_by(mid, |a, b| a[axis].total_cmp(&b[axis]));
+        let right = points.split_off(mid);
+        Self::Node { min, max, left: Box::new(Self::build(points)), right: Box::new(Self::build(right)) }
+    }
+
+    fn matches(&self, q: &[f32; 4], tol: f32) -> bool {
+        match self {
+            Self::Empty => false,
+            Self::Leaf(points) => points.iter().any(|p| (0..4).all(|c| (q[c] - p[c]).abs() <= tol)),
+            Self::Node { min, max, left, right } => {
+                (0..4).all(|c| q[c] >= min[c] - tol && q[c] <= max[c] + tol) && (left.matches(q, tol) || right.matches(q, tol))
+            }
+        }
+    }
+}
+
+impl ColorMatcher {
+    /// A matcher for the `selected` RGBA colours with a per-channel tolerance in 0–1.
+    pub fn new(selected: impl IntoIterator<Item = [f32; 4]>, tol: f32) -> Self {
+        let mut has_transparent = false;
+        let mut seen = std::collections::HashSet::new();
+        let mut colors = Vec::new();
+        for c in selected {
+            // A transparent colour stays in the tree too: a nearly transparent query is compared
+            // by its RGB and alpha like any other.
+            has_transparent |= c[3] == 0.0;
+            if seen.insert(c.map(f32::to_bits)) {
+                colors.push(c);
+            }
+        }
+        Self { has_transparent, tree: ColorBvh::build(colors), tol: tol.max(0.0) + 1e-6 }
+    }
+
+    /// Whether no colour was given.
+    pub fn is_empty(&self) -> bool {
+        matches!(self.tree, ColorBvh::Empty)
+    }
+
+    /// Whether `q` is within the tolerance of a selected colour.
+    pub fn matches(&self, q: [f32; 4]) -> bool {
+        (q[3] == 0.0 && self.has_transparent) || self.tree.matches(&q, self.tol)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -675,7 +794,9 @@ mod tests {
         let g = magic_wand(&px, a, (3, 3), 10.0, false, false);
         assert_eq!(g.iter().filter(|v| **v > 0.0).count(), 80);
         let aa = magic_wand(&px, a, (3, 3), 10.0, true, true);
-        assert!(aa[3 * 20 + 6] > 0.0 && aa[3 * 20 + 6] < 1.0);
+        // Anti-aliasing keeps the region whole and adds no fringe next to a colour this far past
+        // the tolerance (white is 245 levels from red, beyond the fringe's fade).
+        assert_eq!((aa[3 * 20 + 5], aa[3 * 20 + 6]), (1.0, 0.0));
         assert!(magic_wand(&px, a, (50, 3), 10.0, true, false).iter().all(|v| *v == 0.0));
     }
 
@@ -950,6 +1071,131 @@ mod tests {
             }
         }
         assert!(combine_region(None, None, SelectionMode::Subtract).is_none());
+    }
+
+    // The Magic Wand's Anti-alias against the reference measurement: the region itself stays fully
+    // selected, and a one-pixel soft fringe lies only outside it, next to colours just past the
+    // tolerance. Document 800 x 600: a solid red rectangle 100,100–300,250 on a transparent layer, and
+    // a grey ramp of ten 40 px blocks (grey 100, 105, …, 145) from x 100 at y 350–450, on its own
+    // transparent layer or composited on white (Sample All Layers).
+
+    const AREA: Rect = Rect { x0: 0, y0: 0, x1: 800, y1: 600 };
+    const W: usize = 800;
+    const H: usize = 600;
+
+    fn red_rectangle() -> Vec<[u8; 4]> {
+        let mut img = vec![[0u8; 4]; W * H];
+        for y in 100..250 {
+            for x in 100..300 {
+                img[y * W + x] = [220, 30, 30, 255];
+            }
+        }
+        img
+    }
+
+    /// The grey ramp at y 350–450 on a transparent layer, or on white when `on_white`.
+    fn ramp(on_white: bool) -> Vec<[u8; 4]> {
+        let mut img = vec![if on_white { [255u8; 4] } else { [0u8; 4] }; W * H];
+        for y in 350..450 {
+            for b in 0..10u8 {
+                let g = 100 + 5 * b;
+                for x in 100 + 40 * b as usize..140 + 40 * b as usize {
+                    img[y * W + x] = [g, g, g, 255];
+                }
+            }
+        }
+        img
+    }
+
+    /// (bounds of every touched pixel, fully selected count, partly selected count).
+    fn stats(r: &Region) -> (Rect, usize, usize) {
+        let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        let (mut full, mut part) = (0, 0);
+        for y in r.bbox.y0..r.bbox.y1 {
+            for x in r.bbox.x0..r.bbox.x1 {
+                let v = (r.at(x, y) * 255.0).round() as u8;
+                if v == 0 {
+                    continue;
+                }
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
+                if v == 255 { full += 1 } else { part += 1 }
+            }
+        }
+        (Rect::new(x0, y0, x1, y1), full, part)
+    }
+
+    fn coverage(r: &Region, x: i32, y: i32) -> u8 {
+        (r.at(x, y) * 255.0).round() as u8
+    }
+
+    #[test]
+    fn a_shape_next_to_a_clearly_different_colour_gets_no_fringe() {
+        let img = red_rectangle();
+        for aa in [true, false] {
+            let r = wand_region(&img, AREA, (150, 150), 32.0, true, aa).unwrap();
+            assert_eq!(stats(&r), (Rect::new(100, 100, 300, 250), 30000, 0), "anti-alias {aa}");
+        }
+    }
+
+    #[test]
+    fn the_grey_ramp_gets_one_nearly_selected_column_past_the_tolerance() {
+        let img = ramp(false);
+        // Tolerance 32 from grey 100: blocks 100 to 130 (x 100–380) fully selected; the 135 block
+        // is 3 levels past it, so its first column is nearly selected.
+        let r = wand_region(&img, AREA, (110, 400), 32.0, true, true).unwrap();
+        let (bounds, full, part) = stats(&r);
+        assert_eq!((full, part), (280 * 100, 100), "{bounds:?}");
+        assert_eq!(bounds, Rect::new(100, 350, 381, 450));
+        for y in [350, 400, 449] {
+            assert_eq!(coverage(&r, 379, y), 255, "the region's last column stays fully selected");
+            assert_eq!(coverage(&r, 380, y), 251, "one fringe column of the next block, as measured");
+            assert_eq!(coverage(&r, 381, y), 0, "only one column");
+        }
+        // Transparent pixels above and below the ramp have no colour: no fringe there.
+        assert_eq!(coverage(&r, 200, 349), 0);
+        assert_eq!(coverage(&r, 200, 450), 0);
+        // Tolerance 10: x 100–220 plus one partly selected column of the 115 block.
+        let r = wand_region(&img, AREA, (110, 400), 10.0, true, true).unwrap();
+        let (bounds, full, part) = stats(&r);
+        assert_eq!((bounds, full, part), (Rect::new(100, 350, 221, 450), 120 * 100, 100));
+        assert_eq!(coverage(&r, 220, 400), 249, "5 levels past tolerance 10, as measured");
+    }
+
+    #[test]
+    fn anti_alias_off_has_no_partly_selected_pixels() {
+        let img = ramp(false);
+        let r = wand_region(&img, AREA, (110, 400), 32.0, true, false).unwrap();
+        assert_eq!(stats(&r), (Rect::new(100, 350, 380, 450), 28000, 0));
+    }
+
+    #[test]
+    fn the_8_bit_and_f32_wands_draw_the_same_fringe() {
+        let img = ramp(false);
+        let f: Vec<[f32; 4]> = img.iter().map(|p| p.map(|v| f32::from(v) / 255.0)).collect();
+        for (tol, contiguous) in [(32.0, true), (10.0, true), (32.0, false)] {
+            let r = wand_region(&img, AREA, (110, 400), tol, contiguous, true).unwrap();
+            let m = magic_wand(&f, AREA, (110, 400), tol, contiguous, true);
+            for y in 340..460 {
+                for x in 90..520 {
+                    let want = (m[y as usize * W + x as usize] * 255.0).round() as u8;
+                    assert_eq!(coverage(&r, x, y), want, "tolerance {tol}, contiguous {contiguous} at {x},{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn on_the_composite_the_white_around_the_ramp_gets_the_measured_fringe() {
+        // Sample All Layers: the ramp on white. White is 155 levels from grey 100, 123 past
+        // tolerance 32; the reference application's fringe there reads 110 (Photoshop 2025, the
+        // same points; the issue reports 131–177 around the ramp).
+        let img = ramp(true);
+        let r = wand_region(&img, AREA, (110, 400), 32.0, true, true).unwrap();
+        for (x, y) in [(200, 349), (200, 450), (99, 400), (99, 349)] {
+            assert_eq!(coverage(&r, x, y), 110, "{x},{y}");
+        }
+        assert_eq!(coverage(&r, 380, 400), 251, "the near-miss block still gets the stronger fringe");
+        assert_eq!(coverage(&r, 200, 400), 255, "inside stays fully selected");
     }
 }
 

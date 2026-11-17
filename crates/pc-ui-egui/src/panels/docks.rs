@@ -111,6 +111,45 @@ pub(super) fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::
     }
 }
 
+/// The Info panel's ruler cells, shown while the Ruler tool is active and a ruler is drawn: the
+/// angle and length(s), and the point and size the X/Y and W/H cells show instead of the pointer's
+/// and the selection's.
+#[derive(Clone, Debug, PartialEq)]
+struct RulerRows {
+    /// "A:" and then "L:" (a plain ruler) or "L1:" and "L2:" (a protractor), with their values.
+    measure: Vec<(&'static str, String)>,
+    /// The start point (a plain ruler) or the second arm's end (a protractor), in document pixels.
+    point: [f64; 2],
+    /// End minus start, signed and y down, for a plain ruler. A protractor's is not measured, so
+    /// W/H keep showing the selection's size.
+    size: Option<[f64; 2]>,
+}
+
+/// [`RulerRows`] for the active document, or `None` with another tool or no ruler. Lengths are in
+/// the ruler unit with 2 decimals and the angle has 1 decimal and "°"; the options bar's Use
+/// Measurement Scale never changes them.
+fn ruler_rows(app: &PhotocraftApp) -> Option<RulerRows> {
+    if app.ui.tool != Tool::Ruler {
+        return None;
+    }
+    let doc = &app.session.active()?.doc;
+    let r = doc.measurement.ruler?;
+    // A unit scale: the Info panel reads pixels converted to the ruler unit, never the scale.
+    let info = photocraft_engine::analysis_cmds::ruler_info(&r, &Default::default());
+    let g = |k: &str| info[k].as_f64();
+    let units = &app.session.prefs().units_and_rulers;
+    let dpi = f64::from(doc.resolution_dpi);
+    let length = |px: f64| {
+        let v = units.rulers.from_px(px, dpi, f64::from(doc.size.width), units.point_size.per_inch());
+        format!("{v:.2}")
+    };
+    let angle = format!("{:.1}°", g("angle")?);
+    match r.protractor {
+        None => Some(RulerRows { measure: vec![("A:", angle), ("L:", length(g("l1")?))], point: r.start, size: Some([g("w")?, g("h")?]) }),
+        Some(q) => Some(RulerRows { measure: vec![("A:", angle), ("L1:", length(g("l1")?)), ("L2:", length(g("l2")?))], point: q, size: None }),
+    }
+}
+
 /// Photoshop's Info panel: colour under the pointer (RGB and CMYK), position, selection size.
 pub(super) fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
@@ -126,7 +165,9 @@ pub(super) fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let fx = move |px: f64| units.format(px, dpi, size.width as f64);
     let units_y = app.session.prefs().units_and_rulers.clone();
     let fy = move |px: f64| units_y.format(px, dpi, size.height as f64);
-    let sel = st.doc.selection.as_ref().map(photocraft_compose::bounds::content_bounds);
+    let sel = st.doc.selection.as_ref().map(photocraft_compose::bounds::content_bounds).map(|r| [r.width() as f64, r.height() as f64]);
+    let ruler = ruler_rows(app);
+    let wh = ruler.as_ref().and_then(|r| r.size).or(sel);
     let pos = app
         .hover_doc
         .map(|p| (p[0].floor() as i32, p[1].floor() as i32))
@@ -161,12 +202,23 @@ pub(super) fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
     });
     widgets::hairline(ui);
+    // The Ruler tool's angle and length(s).
+    if let Some(r) = &ruler {
+        ui.columns(2, |cols| {
+            for (i, (k, v)) in r.measure.iter().enumerate() {
+                row(&mut cols[usize::from(i > 0)], k, v.clone());
+            }
+        });
+        widgets::hairline(ui);
+    }
+    // With a ruler, X/Y are its point instead of the pointer's.
+    let xy = ruler.as_ref().map(|r| r.point).or(pos.map(|p| [p.0 as f64, p.1 as f64]));
     ui.columns(2, |cols| {
         let dash = || "—".to_string();
-        row(&mut cols[0], "X:", pos.map_or_else(dash, |p| fx(p.0 as f64)));
-        row(&mut cols[0], "Y:", pos.map_or_else(dash, |p| fy(p.1 as f64)));
-        row(&mut cols[1], "W:", sel.map_or_else(dash, |r| fx(r.width() as f64)));
-        row(&mut cols[1], "H:", sel.map_or_else(dash, |r| fy(r.height() as f64)));
+        row(&mut cols[0], "X:", xy.map_or_else(dash, |p| fx(p[0])));
+        row(&mut cols[0], "Y:", xy.map_or_else(dash, |p| fy(p[1])));
+        row(&mut cols[1], "W:", wh.map_or_else(dash, |s| fx(s[0])));
+        row(&mut cols[1], "H:", wh.map_or_else(dash, |s| fy(s[1])));
     });
     widgets::hairline(ui);
     ui.label(
@@ -405,8 +457,9 @@ pub(super) fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.ui.status_error = true;
     }
     // An open Free Transform owns Undo (transform_tool::intercept): stepping the document's history under
-    // its box would leave it transforming pixels that changed.
-    if let Some(delta) = target.filter(|_| app.ui.transform.is_none()) {
+    // its box would leave it transforming pixels that changed. A drawn crop frame holds the jumps
+    // back for the same reason (crop_ui::holds_history).
+    if let Some(delta) = target.filter(|_| app.ui.transform.is_none() && !crate::crop_ui::pending(app)) {
         let (cmd, n) = if delta < 0 { ("edit.undo", -delta) } else { ("edit.redo", delta) };
         for _ in 0..n {
             if app.run(cmd, json!({})).is_err() {
@@ -432,5 +485,73 @@ mod tests {
         for rgb in [[-0.2, 0.5, 0.5], [f32::NAN, 0.5, 0.5], [f32::INFINITY, f32::NEG_INFINITY, 0.5]] {
             assert!(in_range(readout_cmyk(None, rgb)), "{rgb:?}");
         }
+    }
+
+    /// An 800 × 600 document at 72 ppi with the Ruler tool active and rulers in pixels.
+    fn ruler_app() -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 800, "height": 600, "resolution": 72})).unwrap();
+        app.run("prefs.set", json!({"path": "unitsAndRulers.rulers", "value": "pixels"})).unwrap();
+        app.ui.tool = Tool::Ruler;
+        app
+    }
+
+    fn measure(rows: &RulerRows) -> Vec<(&str, &str)> {
+        rows.measure.iter().map(|(k, v)| (*k, v.as_str())).collect()
+    }
+
+    #[test]
+    fn info_plain_ruler_shows_a_l_and_its_start_and_size() {
+        let mut app = ruler_app();
+        app.run("image.analysis.rulerTool", json!({"start": [100, 100], "end": [300, 250]})).unwrap();
+        let r = ruler_rows(&app).expect("the ruler cells");
+        assert_eq!(measure(&r), [("A:", "-36.9°"), ("L:", "250.00")]);
+        assert_eq!((r.point, r.size), ([100.0, 100.0], Some([200.0, 150.0])));
+    }
+
+    #[test]
+    fn info_protractor_shows_a_l1_l2_and_its_second_arm_end() {
+        let mut app = ruler_app();
+        app.run("image.analysis.rulerTool", json!({"start": [400, 300], "end": [600, 300], "protractor": [500, 200]})).unwrap();
+        let r = ruler_rows(&app).expect("the ruler cells");
+        assert_eq!(measure(&r), [("A:", "45.0°"), ("L1:", "200.00"), ("L2:", "141.42")]);
+        assert_eq!((r.point, r.size), ([500.0, 200.0], None));
+    }
+
+    #[test]
+    fn info_ruler_cells_ignore_the_measurement_scale() {
+        let mut app = ruler_app();
+        app.run("image.analysis.rulerTool", json!({"start": [100, 100], "end": [300, 250]})).unwrap();
+        app.run("image.analysis.setMeasurementScale", json!({"pixelLength": 100, "logicalLength": 2, "units": "cm"})).unwrap();
+        assert!((app.session.active().unwrap().doc.measurement.scale.factor() - 0.02).abs() < 1e-9, "the custom scale is set");
+        app.ui.analysis.use_measurement_scale = true;
+        let r = ruler_rows(&app).expect("the ruler cells");
+        assert_eq!(measure(&r), [("A:", "-36.9°"), ("L:", "250.00")]);
+        assert_eq!(r.size, Some([200.0, 150.0]));
+    }
+
+    #[test]
+    fn info_another_tool_or_no_ruler_has_no_ruler_cells() {
+        let mut app = ruler_app();
+        assert_eq!(ruler_rows(&app), None, "no ruler");
+        app.run("image.analysis.rulerTool", json!({"start": [100, 100], "end": [300, 250]})).unwrap();
+        app.ui.tool = Tool::Brush;
+        assert_eq!(ruler_rows(&app), None, "another tool");
+    }
+
+    #[test]
+    fn info_panel_draws_the_ruler_cells() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let mut a = ruler_app();
+        a.run("image.analysis.rulerTool", json!({"start": [100, 100], "end": [300, 250]})).unwrap();
+        let mut h = Harness::builder().with_size(egui::vec2(320.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| info_panel(app, ui), a);
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(3);
+        for text in ["A:", "-36.9°", "L:", "250.00", "W:", "200", "H:", "150"] {
+            assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+        }
+        // X and Y are the start point, 100 each.
+        assert!(h.query_all_by_label("100").count() >= 2, "X 100 and Y 100");
     }
 }

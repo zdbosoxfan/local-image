@@ -39,6 +39,12 @@ fn pos(v: Option<f64>) -> Option<f64> {
     v.filter(|x| x.is_finite() && *x > 0.0)
 }
 
+/// The orientation the Exif's own first IFD states. [`from_tiff`] also reports one that only the XMP packet in
+/// the Exif's tag 700 states; a photo is displayed by the Exif's alone, so that one can't tell how a photo is stored.
+pub(crate) fn ifd0_orientation(tiff: &Tiff) -> Option<Orientation> {
+    tiff.ifds.first().and_then(|i| i.u16(t::ORIENTATION)).filter(|v| (1..=8).contains(v)).map(Orientation::from_exif)
+}
+
 /// Build [`Metadata`] from a parsed TIFF stream (IFD0 + Exif + GPS; DNG tags as fallbacks).
 pub fn from_tiff(tiff: &Tiff) -> Metadata {
     let ifd0 = tiff.ifds.first();
@@ -63,7 +69,7 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
     if let Some(s) = spec.filter(|s| s.len() == 4 && s[0] > 0.0) {
         m.lens_spec = Some([s[0], s[1], s[2], s[3]]);
     }
-    m.orientation = ifd0.and_then(|i| i.u16(t::ORIENTATION)).filter(|v| (1..=8).contains(v)).map(Orientation::from_exif);
+    m.orientation = ifd0_orientation(tiff);
     m.rating = ifd0.and_then(|i| i.i64(t::RATING)).map(|r| r.clamp(-1, 5) as i8);
 
     m.exposure_time = pos(either(t::EXPOSURE_TIME).and_then(|v| v.get_f64(0)))
@@ -107,6 +113,7 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
     m.height = exif.and_then(|e| e.u32(t::PIXEL_Y_DIMENSION)).filter(|&v| v > 0).or_else(|| ifd0.and_then(|i| i.u32(t::IMAGE_LENGTH)));
 
     m.gps = gps.and_then(read_gps);
+    m.other_location = m.gps.is_none() && gps.is_some_and(says_where);
     // The validated Sony curves may also survive a DNG round trip in IFD0.
     if let Some(lens) = crate::sony::lens_correction(tiff) {
         m.sony = Some(crate::SonyMetadata { lens_correction: Some(lens), ..Default::default() });
@@ -120,10 +127,13 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
         m.fill_missing(&crate::parse_iptc(&bytes));
     }
     if let Some(x) = ifd0.and_then(|i| i.bytes(t::XMP)).map(String::from_utf8_lossy)
-        && let Ok(x) = crate::parse_xmp(&x)
+        && let Ok(x) = crate::parse_whole_xmp(&x)
     {
+        // the size stays the one Exif states: `extract` turns regions by it, and a size only the XMP states may be the upright one
+        let size = (m.width, m.height);
         m.overlay_user_fields(&x.metadata);
         m.fill_missing(&x.metadata);
+        (m.width, m.height) = size;
     }
     m.fill_dji_gps();
     m
@@ -150,6 +160,12 @@ fn read_gps(g: &Ifd) -> Option<Gps> {
     }
     let altitude = g.f64(t::GPS_ALTITUDE).filter(|a| a.is_finite()).map(|a| if g.u32(t::GPS_ALTITUDE_REF) == Some(1) { -a } else { a });
     Some(Gps { latitude: lat, longitude: lon, altitude })
+}
+
+/// Whether a GPS IFD holds a coordinate, GPSDest* (19-26) or GPSAreaInformation (28). Its presence alone
+/// says nothing: cameras without a fix still write one, with a version, date or status.
+fn says_where(g: &Ifd) -> bool {
+    g.entries.iter().any(|e| matches!(e.tag, t::GPS_LATITUDE | t::GPS_LONGITUDE | t::GPS_ALTITUDE | 19..=26 | 28))
 }
 
 #[cfg(test)]
@@ -226,6 +242,34 @@ pub(crate) mod tests {
             assert!((g.longitude - 151.2112).abs() < 1e-4);
             assert_eq!(g.altitude, Some(-12.5));
         }
+    }
+
+    #[test]
+    fn gps_entries_short_of_a_position_count_as_other_location() {
+        let with = |entries: &[(u16, Value)]| {
+            let mut gps = IfdBuilder::new();
+            for (tag, value) in entries {
+                gps.set(*tag, value.clone());
+            }
+            let mut ifd0 = IfdBuilder::new();
+            ifd0.set_child(t::GPS_IFD, gps);
+            read_exif(&TiffWriter::default().write(&[ifd0]).unwrap())
+        };
+        let coordinate = Value::Rational(vec![(42, 1), (21, 1), (36, 1)]);
+        let located = [
+            (t::GPS_LATITUDE, coordinate.clone()),
+            (t::GPS_LONGITUDE, coordinate.clone()),
+            (t::GPS_ALTITUDE, Value::Rational(vec![(125, 10)])),
+            (20, coordinate.clone()),                              // GPSDestLatitude
+            (26, Value::Rational(vec![(125, 10)])),                // GPSDestDistance
+            (28, Value::Undefined(b"ASCII\0\0\0Boston".to_vec())), // GPSAreaInformation
+        ];
+        for entry in located {
+            let m = with(std::slice::from_ref(&entry));
+            assert_eq!((m.gps, m.other_location), (None, true), "tag {}", entry.0);
+        }
+        let silent = [(t::GPS_VERSION_ID, Value::Byte(vec![2, 3, 0, 0])), (t::GPS_DATE_STAMP, Value::Ascii("2026:10:30".into()))];
+        assert!(!with(&silent).other_location, "a camera without a fix still writes a GPS IFD");
     }
 
     #[test]

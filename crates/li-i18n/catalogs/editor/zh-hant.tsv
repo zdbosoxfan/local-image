@@ -86,7 +86,7 @@
 	File Info…	檔案資訊…
 	Print…	列印…
 	Print One Copy	列印一份拷貝
-	Exit	結束
+	Quit Local Image	結束 Local Image
 	Undo	復原
 	Redo	重做
 	Toggle Last State	切換最後狀態
@@ -2134,7 +2134,6 @@ cameraRaw	Blending	混合
 	Remove Background (AI)	移除背景 (AI)
 	Remove Backgrounds (AI)…	批次移除背景 (AI)…
 	Set Up AI…	設定 AI…
-	Subject (AI)	主體 (AI)
 	The AI engine isn't running.	AI 引擎未執行。
 	Contextual task bar	內容相關工作列
 	Tool presets	工具預設集
@@ -2244,7 +2243,6 @@ cameraRaw	Blending	混合
 	Could not save settings: {error}	無法儲存設定：{error}
 	Couldn't save: {error}	無法儲存：{error}
 	Couldn't update profiles: {error}	無法更新設定檔：{error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	使用 Qwen Image 2.1 為每張影像的主體去背並儲存為 PNG。原始影像永遠不會變更。
 	Delete from Library	從圖庫中刪除
 	Describe details to add (optional)…	描述要新增的細節（選用）…
 	Describe the change, e.g. “make it golden hour”…	描述變更，例如「變成黃金時刻」…
@@ -2305,7 +2303,6 @@ cameraRaw	Blending	混合
 	Installation:	安裝：
 	Installed	已安裝
 	Keep	保留
-	Keep… (optional)	保留…（選用）
 	Licence	授權條款
 	Licence gate	需接受授權條款
 	Licence: see its page	授權條款：請參閱其頁面
@@ -2350,8 +2347,6 @@ cameraRaw	Blending	混合
 	Precision	精度
 	Preset name	預設集名稱
 	Previous image ({key})	上一張影像（{key}）
-	Qwen Compact	Qwen 精簡版
-	Qwen Full	Qwen 完整版
 	RESULTS	結果
 	Read the licence	閱讀授權條款
 	Ready	就緒
@@ -2398,7 +2393,6 @@ cameraRaw	Blending	混合
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	請先啟動 AI 引擎：Local Image 會檢查 ComfyUI 中已有的內容。（{error}）
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	啟動 AI 引擎即可檢視 GPU 記憶體；目前顯示可在 8 GB 中執行的內容。
 	Starting ComfyUI… (the first start can take a minute)	正在啟動 ComfyUI…（首次啟動可能需要一分鐘）
-	Starting image · {n}/{max}	起始影像 · {n}/{max}
 	Starting {name}…	正在啟動 {name}…
 	Steps	步數
 	Stopped	已停止
@@ -2416,7 +2410,6 @@ cameraRaw	Blending	混合
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	該工作流程中沒有標題為 li:prompt、li:image、li:mask、li:seed 或 li:output 的節點，因此 Local Image 無法填入。請在 ComfyUI 中重新命名節點後再次匯出。
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	權杖可讓模型瀏覽器下載受限或需登入的模型。權杖只會傳送到各自的網站。
 	Transparent PNG	透明 PNG
-	Transparent background	透明背景
 	Trending	熱門
 	Trending this week	本週熱門
 	Unknown family	未知系列
@@ -2427,7 +2420,6 @@ cameraRaw	Blending	混合
 	Upscale {scale}×	放大 {scale}×
 	Use	使用
 	Use as Reference	用作參考圖
-	Variation strength	變化強度
 	Waiting	等待中
 	What should appear in the selection…	選取範圍中應出現的內容…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	使用你自己的 API 金鑰，產生功能也可以使用雲端模型（它們顯示在模型選擇器的「雲端」下）。此時你的提示詞和影像會從這台電腦傳送到該供應商，並記入你的帳戶；不會向任何地方傳送其他內容。
@@ -2461,14 +2453,11 @@ cameraRaw	Blending	混合
 	{size} · runs on the CPU · {licence}	{size} · 在 CPU 上執行 · {licence}
 	{source}: offline, showing results from {when}	{source}：離線，顯示 {when} 的結果
 	{source}: the catalogue couldn't be read	{source}：無法讀取目錄
-	{why} Qwen Image 2.1 runs these.	{why} 這些功能由 Qwen Image 2.1 執行。
 	Choose…	選擇…
 	Stop	停止
 	Seed	種子
 	Solid Color	純色
 	Strength	強度
-	Qwen AI · Compact	Qwen AI · 精簡版
-	Qwen AI · Full	Qwen AI · 完整版
 	Standard (CPU)	標準（CPU）
 	Templates	範本
 	Community	社群
@@ -2597,6 +2586,8 @@ ai	New	最新
 	Float Panel Group	浮動面板群組
 	Save and Return to Library	儲存並返回圖庫
 	Added your new Develop edits as layer {name}	已將您新的 Develop 編輯加入為圖層 {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	相片的裁切或尺寸已在 Develop 中變更，因此未更新 {name}
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	其圖層將無法再與新相片對齊，因此相片保持原樣。
 	Open the Library to save into it	請先開啟圖庫再儲存至其中
 	The layers below are unchanged; hide or delete the new layer to go back.	下方圖層未變更；如需還原，請隱藏或刪除新圖層。
 # Attributions page (li-attributions)
@@ -3898,7 +3889,10 @@ ai	New	最新
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	已將此設定檔中的所有快捷鍵重設為預設值。
 	Editor	編輯器
-	Library + Develop	圖庫 + 顯影
+	Library & Develop	圖庫 & 顯影
+	Library General	圖庫：一般
+	Library Performance	圖庫：效能
+	Library Interface	圖庫：介面
 	Scope	範圍
 	Colour	彩色
 	Monochrome (default)	單色（預設）
@@ -3915,3 +3909,29 @@ ai	New	最新
 	GPU Memory (MB, 0 = Automatic)	GPU 記憶體（MB，0 = 自動）
 	{path} was saved over	{path} 已被覆寫儲存
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	「{doc}」已不再關聯檔案，並標記為未儲存：請使用新名稱儲存以保留內容。
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	合併
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	拉開影像色調的灰階混合
+	File Type	檔案類型
+	Save as JPEG	儲存為 JPEG
+	Save as PSD	儲存為 PSD
+	Save as TIFF	儲存為 TIFF
+	Convert Profile to sRGB	將描述檔轉換為 sRGB
+	LZW Compression	LZW 壓縮
+	Resize to Fit	調整尺寸以符合
+	Run	執行
+	You must save to at least one file type.	必須至少儲存為一種檔案類型。
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	數值輸入無效。需要介於 1 到 12 之間的值。已恢復先前的值。
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	數值輸入無效。需要介於 1 到 30000 之間的值。已恢復先前的值。
+	A value between 1 and 12 is required. Closest value inserted.	需要介於 1 到 12 之間的值。已插入最接近的值。
+	A value between 1 and 30000 is required. Closest value inserted.	需要介於 1 到 30000 之間的值。已插入最接近的值。
+	Image Compression	影像壓縮
+	Save Image Pyramid	儲存影像金字塔
+	Save Transparency	儲存透明度
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	開啟為智慧型物件…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	硬邊
+	Last folder	上次的資料夾

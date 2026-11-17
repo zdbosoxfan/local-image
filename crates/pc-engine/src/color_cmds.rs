@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
+mod profile_dither;
+
 // State
 
 /// View › Proof Setup settings.
@@ -707,22 +709,7 @@ fn paint_colors(p: &mut FxPaint, cc: &mut impl FnMut(&mut Color)) {
 /// converted. The document is tagged with `dst`.
 pub fn convert_document(doc: &mut Document, dst: &Profile, intent: Intent, bpc: bool) -> Result<()> {
     let to_mode = space_mode(dst.color_space).ok_or_else(|| EngineError::Other(format!("cannot convert to a {:?} profile", dst.color_space)))?;
-    // Explicit conversion must not silently treat malformed or wrong-model ICC
-    // bytes as a default profile. Display-only fallback remains document_profile().
-    let src = match &doc.icc_profile {
-        Some(bytes) => {
-            let profile = profile_from_bytes(bytes).map_err(cms_err)?;
-            if profile.color_space != mode_space(doc.mode) {
-                return Err(EngineError::Other(format!(
-                    "embedded profile is {:?}, but the document is {:?}; assign the correct source profile before converting",
-                    profile.color_space,
-                    mode_space(doc.mode)
-                )));
-            }
-            profile
-        }
-        None => working_profile(doc.mode),
-    };
+    let src = conversion_source(doc)?;
     let from_mode = doc.pixel_format().mode;
     let t = Transform::new(&src, dst, intent, bpc).map_err(cms_err)?;
     let fmt = PixelFormat::new(to_mode, doc.depth, true);
@@ -749,6 +736,26 @@ pub fn convert_document(doc: &mut Document, dst: &Profile, intent: Intent, bpc: 
     doc.color_table = None;
     doc.duotone = None;
     Ok(())
+}
+
+/// The profile an explicit conversion starts from. Explicit conversion must not silently treat
+/// malformed or wrong-model ICC bytes as a default profile. Display-only fallback remains
+/// document_profile().
+fn conversion_source(doc: &Document) -> Result<Arc<Profile>> {
+    match &doc.icc_profile {
+        Some(bytes) => {
+            let profile = profile_from_bytes(bytes).map_err(cms_err)?;
+            if profile.color_space != mode_space(doc.mode) {
+                return Err(EngineError::Other(format!(
+                    "embedded profile is {:?}, but the document is {:?}; assign the correct source profile before converting",
+                    profile.color_space,
+                    mode_space(doc.mode)
+                )));
+            }
+            Ok(profile)
+        }
+        None => Ok(working_profile(doc.mode)),
+    }
 }
 
 /// Image › Mode › RGB/Grayscale/CMYK/Lab through the CMS. Params: `profile` (destination,
@@ -809,6 +816,19 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
 
+/// Assign Profile is greyed for Lab, Bitmap and Multichannel documents, as in Photoshop, and a
+/// scripted run fails there. Convert to Profile keeps [`has_doc`]: it stays enabled for Lab.
+fn assign_profile_enabled(s: &Session) -> std::result::Result<(), String> {
+    let doc = &s.active().ok_or("no document open")?.doc;
+    let mode = match doc.mode {
+        ColorMode::Lab => "Lab",
+        ColorMode::Bitmap => "Bitmap",
+        ColorMode::Multichannel => "Multichannel",
+        _ => return Ok(()),
+    };
+    Err(format!("not available in {mode} mode"))
+}
+
 fn always(_: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
@@ -846,9 +866,25 @@ fn convert_to_profile(s: &mut Session, p: &Value) -> Result<Value> {
     let dst = s.color.resolve(spec, Some(doc), None)?;
     let intent = intent_or(p, s.color.settings.intent())?;
     let bpc = bool_param(p, "bpc", s.color.settings.bpc);
-    s.edit("Convert to Profile", |doc, _| convert_document(doc, &dst, intent, bpc))?;
+    let dither = match p.get("dither") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => *value,
+        Some(value) => {
+            return Err(EngineError::BadParams { cmd: "edit.convertToProfile".into(), msg: format!("`dither` must be true or false, not {value}") });
+        }
+    };
+    // A document tagged with a profile of the destination's colours (compared by colour, not
+    // bytes) stays as it is, with no history state, as in Photoshop. That was measured for these
+    // four modes only; an untagged document, another mode, and an embedded profile that cannot
+    // be read or does not fit the mode still go through the conversion.
+    let measured = matches!(doc.mode, ColorMode::Rgb | ColorMode::Cmyk | ColorMode::Grayscale | ColorMode::Lab);
+    let embedded = doc.icc_profile.as_ref().and_then(|b| profile_from_bytes(b).ok()).filter(|e| e.color_space == mode_space(doc.mode));
+    if measured && embedded.is_some_and(|e| e.same_colors(&dst)) {
+        return Ok(json!({ "profile": dst.description, "mode": format!("{:?}", doc.mode), "intent": intent.id(), "bpc": bpc, "converted": false }));
+    }
+    s.edit("Convert to Profile", |doc, _| if dither { profile_dither::convert(doc, &dst, intent, bpc) } else { convert_document(doc, &dst, intent, bpc) })?;
     let d = &s.active().ok_or(EngineError::NoDocument)?.doc;
-    Ok(json!({ "profile": dst.description, "mode": format!("{:?}", d.mode), "intent": intent.id(), "bpc": bpc }))
+    Ok(json!({ "profile": dst.description, "mode": format!("{:?}", d.mode), "intent": intent.id(), "bpc": bpc, "converted": true }))
 }
 
 fn profile_info(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1057,7 +1093,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Assign Profile…",
             ["Edit"],
             r##"{"profile":"working|srgb|display-p3|adobe-rgb-compat|prophoto-compat|linear-srgb|rec2020|gray-gamma-2.2|sgray|dot-gain-20-compat|lab-d50|coated-cmyk|none" (or a path to an .icc file)}"##,
-            has_doc,
+            assign_profile_enabled,
             assign_profile,
             true
         ),
@@ -1065,7 +1101,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "edit.convertToProfile",
             "Convert to Profile…",
             ["Edit"],
-            r##"{"profile":"srgb|display-p3|adobe-rgb-compat|prophoto-compat|linear-srgb|rec2020|gray-gamma-2.2|sgray|dot-gain-20-compat|lab-d50|coated-cmyk|working" (or a path to an .icc file),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true}"##,
+            r##"{"profile":"srgb|display-p3|adobe-rgb-compat|prophoto-compat|linear-srgb|rec2020|gray-gamma-2.2|sgray|dot-gain-20-compat|lab-d50|coated-cmyk|working" (or a path to an .icc file),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true,"dither":bool=false (deterministic color quantization for 8-bit profile changes)}"##,
             has_doc,
             convert_to_profile,
             true
@@ -1212,6 +1248,47 @@ mod tests {
         assert_eq!(info["profile"]["colorSpace"], "Cmyk");
         assert!(info["builtins"].as_array().unwrap().len() >= 10);
         assert!(s.execute("edit.convertToProfile", json!({"profile": "nope"})).is_err());
+    }
+
+    #[test]
+    fn assign_profile_is_greyed_for_lab_documents() {
+        let mut s = session("rgb", 8);
+        assert!(s.is_enabled("edit.assignProfile"));
+        s.execute("image.mode.lab", json!({})).unwrap();
+        assert_eq!(doc(&s).mode, ColorMode::Lab);
+        assert!(!s.is_enabled("edit.assignProfile"));
+        let before = doc(&s).icc_profile.clone();
+        let e = s.execute("edit.assignProfile", json!({"profile": "lab-d50"})).unwrap_err();
+        assert!(matches!(e, EngineError::Disabled(..)) && e.to_string().contains("Lab mode"), "{e}");
+        assert_eq!(doc(&s).icc_profile, before, "a refused run leaves the profile alone");
+        assert!(s.is_enabled("edit.convertToProfile"), "Convert to Profile stays enabled for Lab");
+        assert!(s.undo());
+        assert!(s.is_enabled("edit.assignProfile"), "back in RGB");
+    }
+
+    #[test]
+    fn convert_to_the_documents_own_profile_changes_nothing() {
+        let mut s = session("rgb", 8);
+        paint_rgb(&mut s);
+        s.execute("edit.assignProfile", json!({"profile": "srgb"})).unwrap();
+        let past = s.active().unwrap().history.past_len();
+        let (profile, px) = (doc(&s).icc_profile.clone(), doc(&s).layers[1].surface().unwrap().pixel(8, 8));
+        let r = s.execute("edit.convertToProfile", json!({"profile": "srgb"})).unwrap();
+        assert_eq!(r["converted"], false, "{r}");
+        assert_eq!(s.active().unwrap().history.past_len(), past, "no history state");
+        assert_eq!(doc(&s).icc_profile, profile);
+        assert_eq!(doc(&s).layers[1].surface().unwrap().pixel(8, 8), px);
+        // Another profile still converts, as one history state.
+        let r = s.execute("edit.convertToProfile", json!({"profile": "display-p3"})).unwrap();
+        assert_eq!(r["converted"], true, "{r}");
+        assert_eq!(s.active().unwrap().history.past_len(), past + 1);
+        // An embedded profile that cannot be read is not taken for the destination's colours.
+        s.edit("break the tag", |doc, _| {
+            doc.icc_profile = Some(Arc::new(b"not an ICC profile".to_vec()));
+            Ok(())
+        })
+        .unwrap();
+        assert!(s.execute("edit.convertToProfile", json!({"profile": "display-p3"})).is_err());
     }
 
     #[test]

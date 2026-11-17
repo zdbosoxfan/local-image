@@ -369,7 +369,11 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> 
         if !o.remove_location {
             out.dji = m.dji.clone();
         }
-        out.model = text(&m.camera);
+        // `camera` is maker and model together: Exif keeps them apart, and a photo from before
+        // the maker was read keeps the whole string as its Model
+        out.make = text(&m.make);
+        out.model = text(m.camera.strip_prefix(m.make.as_str()).and_then(|rest| rest.strip_prefix(' ')).unwrap_or(&m.camera));
+        out.lens_make = text(&m.lens_make);
         out.lens_model = text(&m.lens);
         out.focal_length = m.focal_mm.map(f64::from);
         out.f_number = m.aperture.map(f64::from);
@@ -443,6 +447,14 @@ pub struct Destination {
     pub exact: Option<String>,
 }
 
+/// A subfolder that stays inside the destination folder: `\`, `:` and NUL become `_` (no drive,
+/// root or Windows separator) and empty, `.` and `..` parts are dropped; `a/b` still nests. Applied
+/// where the folder is used, so presets and the Export dialog's field are covered too.
+pub(crate) fn clean_subfolder(s: &str) -> String {
+    let s = s.trim().replace(['\\', ':', '\0'], "_");
+    s.split('/').map(str::trim).filter(|p| !p.is_empty() && *p != "." && *p != "..").collect::<Vec<_>>().join("/")
+}
+
 /// Where each of `ids` would be exported to under `o` and `to`, before any conflict policy:
 /// the folder ([`ExportOptions::same_folder`]: the photo's own; plus the subfolder) and the file
 /// name ([`ExportOptions::file_name_for`]). `None` for a photo with no folder of its own. Used to
@@ -454,7 +466,8 @@ pub fn planned_paths(
     to: &Destination,
 ) -> Vec<Option<String>> {
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
-    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    let sub = clean_subfolder(&o.subfolder);
+    let in_sub = |d: &str| if sub.is_empty() { d.to_string() } else { join(d, &sub) };
     ids.iter()
         .enumerate()
         .map(|(i, id)| {
@@ -764,7 +777,8 @@ pub(crate) fn run_batch_shaped(
 ) -> Result<Vec<serde_json::Value>, String> {
     use std::sync::atomic::{AtomicBool, Ordering};
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
-    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    let sub = clean_subfolder(&o.subfolder);
+    let in_sub = |d: &str| if sub.is_empty() { d.to_string() } else { join(d, &sub) };
     let batch_dir = in_sub(&to.dir);
     let single = items.len() == 1;
 
@@ -985,5 +999,27 @@ fn original_embeds_location(bytes: &[u8]) -> Result<bool, String> {
     let m = lightcraft_meta::try_extract(bytes).map_err(|e| e.to_string())?;
     Ok(m.dji.is_some()
         || m.gps.is_some()
+        || m.other_location
         || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty())))
+}
+
+/// Why an original the location check has no reader for can't be copied. The format comes from the
+/// bytes, or from the extension where they don't name one (non-TIFF raws, unknown files).
+fn unreadable_original(bytes: &[u8], file_name: &str) -> String {
+    let format = match lightcraft_codecs::sniff(bytes).and_then(lightcraft_codecs::Format::raster) {
+        Some(format) => format.name().to_owned(),
+        None => match crate::files::ext_upper(file_name) {
+            extension if extension.is_empty() => "unrecognized".to_owned(),
+            extension => extension,
+        },
+    };
+    let formats = location_free_formats(bytes);
+    format!(
+        "{file_name}: can't check this {format} file for location metadata, so the original can't be exported with Remove Location Info; export as {formats} instead"
+    )
+}
+
+/// What a refused original can be exported as. DNG export needs a raw photo.
+fn location_free_formats(bytes: &[u8]) -> &'static str {
+    if lightcraft_raw::probe(bytes).is_some() { "JPEG, TIFF or DNG" } else { "JPEG or TIFF" }
 }

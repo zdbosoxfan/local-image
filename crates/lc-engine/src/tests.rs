@@ -180,6 +180,50 @@ fn masks_crop_and_render() {
     s.execute("develop.wbPick", &json!({"x": 0.5, "y": 0.5})).unwrap();
 }
 
+/// Auto applies to every selected photo, not only the highlighted one, each measured on its own
+/// source.
+#[test]
+fn auto_applies_to_every_selected_photo() {
+    use crate::media::SourceLevel;
+    use lightcraft_catalog::PhotoId;
+    let mut s = demo();
+    let ids: Vec<u64> = s.catalog.photos().take(3).map(|p| p.id.0).collect();
+    assert_eq!(ids.len(), 3, "the demo library has enough photos to select");
+    let contrast: Vec<f64> = ids
+        .iter()
+        .map(|id| {
+            let id = PhotoId(*id);
+            let src = s.source_now(id, SourceLevel::Thumb).unwrap();
+            let d = s.develop_of(id).unwrap();
+            lightcraft_pipeline::auto::auto_tone(&src, &s.source_info(id), &d).contrast
+        })
+        .collect();
+    s.execute("library.select", &json!({"ids": ids.clone(), "active": ids[1]})).unwrap();
+    s.execute("develop.auto", &json!({})).unwrap();
+    for (id, contrast) in ids.into_iter().zip(contrast) {
+        let d = (*s.develop_of(PhotoId(id)).unwrap()).clone();
+        assert_eq!(d.light.contrast, contrast, "photo {id} got Auto's contrast");
+        assert_eq!(d.color.vibrance, 12.0, "photo {id} got Auto's vibrance");
+    }
+}
+
+/// A photo that can't be read is left out: the rest of the selection still gets Auto.
+#[test]
+fn auto_skips_a_selected_photo_it_cannot_read() {
+    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+    let mut s = demo();
+    let good = s.catalog.photos().next().unwrap().id;
+    let missing = s.catalog.alloc_photo_id();
+    let photo = Photo::new(missing, Source::File { path: "/local-image-test/missing.jpg".into() }, "missing.jpg", "JPEG", 100, 100, "");
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    s.execute("library.select", &json!({"ids": [missing.0, good.0], "active": good.0})).unwrap();
+    s.execute("develop.auto", &json!({})).unwrap();
+    assert_eq!(s.develop_of(PhotoId(good.0)).unwrap().color.vibrance, 12.0, "the readable photo got Auto");
+    s.execute("library.select", &json!({"ids": [missing.0], "active": missing.0})).unwrap();
+    assert!(s.execute("develop.auto", &json!({})).is_err(), "with nothing readable the error is reported");
+    assert!(s.execute("develop.auto", &json!({"ids": [good.0, 999_999]})).is_err(), "a wrong id is refused, not skipped");
+}
+
 #[test]
 fn versions_history_and_reset() {
     let mut s = demo();
@@ -395,6 +439,21 @@ fn crop_set_refuses_a_crop_smaller_than_the_tool_allows() {
     }
     s.execute("crop.set", &json!({"rect": [0.45, 0.45, 0.55, 0.55]})).unwrap();
     assert_eq!(active_dev(&s).crop.geometry.rect, lightcraft_geom::Rect::new(0.45, 0.45, 0.55, 0.55));
+}
+
+/// A rect far wider or taller than the photo passes the minimum as given, then is shrunk to fit
+/// the photo and comes out a sliver: `crop.set` refuses it too and keeps the crop it had (upstream
+/// LightCraft be34283943).
+#[test]
+fn crop_set_refuses_an_oversized_rect_that_fits_to_a_sliver() {
+    let mut s = demo();
+    s.execute("crop.set", &json!({"rect": [0.1, 0.1, 0.9, 0.9]})).unwrap();
+    let before = active_dev(&s).crop.geometry;
+    for rect in [[0.0, 0.0, 1e6, 1.0], [0.0, 0.0, 1.0, 1e6]] {
+        let e = s.execute("crop.set", &json!({"rect": rect})).unwrap_err();
+        assert!(e.to_string().contains("smaller"), "{rect:?}: {e}");
+        assert_eq!(active_dev(&s).crop.geometry, before, "{rect:?}");
+    }
 }
 
 /// `mask.move` with a delta near `i64::MAX` overflowed `index + delta` (a panic wherever overflow
@@ -1137,4 +1196,77 @@ fn rating_rejects_fractional_values() {
     s.execute("photo.rate", &json!({"rating": 5.0})).unwrap();
     s.execute("photo.rate", &json!({"rating": 3})).unwrap();
     assert_eq!(s.catalog.photo(id).unwrap().rating, 3);
+}
+
+/// Work weighed with saturating maths can ask for `usize::MAX` bytes. Adding to that overflowed (a
+/// panic with the gate's mutex held in a debug build, a wrapped count that let everything in for a
+/// release one). The count is exact past `usize::MAX`: later work waits, whichever permit is
+/// released first, and even on a gate whose limit is `usize::MAX`.
+#[test]
+fn work_gate_counts_past_usize_max_instead_of_overflowing() {
+    use crate::memory::WorkGate;
+    use std::sync::Arc;
+    // a holder of one byte, on its own thread; still waiting 50 ms later
+    let waiting = |g: &Arc<WorkGate>| {
+        let g2 = g.clone();
+        let t = std::thread::spawn(move || {
+            let _b = g2.acquire(1);
+            g2.usage().0
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!t.is_finished(), "the next holder waits");
+        t
+    };
+
+    // the huge permit released first: the urgent one is still counted
+    let g = Arc::new(WorkGate::new(100));
+    let huge = g.acquire(usize::MAX);
+    let urgent = g.acquire_urgent(101);
+    assert_eq!(g.usage().0, usize::MAX, "reported saturated");
+    drop(huge);
+    assert_eq!(g.usage().0, 101);
+    let t = waiting(&g);
+    drop(urgent);
+    assert_eq!(t.join().unwrap(), 1);
+    assert_eq!(g.usage().0, 0);
+
+    // the urgent permit released first
+    let huge = g.acquire(usize::MAX);
+    drop(g.acquire_urgent(1));
+    assert_eq!(g.usage().0, usize::MAX);
+    let t = waiting(&g);
+    drop(huge);
+    assert_eq!(t.join().unwrap(), 1);
+    assert_eq!(g.usage().0, 0);
+
+    // a gate without a practical limit is still full when it holds usize::MAX
+    let g = Arc::new(WorkGate::new(usize::MAX));
+    let huge = g.acquire(usize::MAX);
+    let t = waiting(&g);
+    drop(huge);
+    assert_eq!(t.join().unwrap(), 1);
+}
+
+/// Past the shared dab budget a brush mask fails the render, rather than rendering a mask missing
+/// its later (erase) strokes.
+#[test]
+fn an_over_budget_brush_mask_fails_the_render() {
+    use lightcraft_develop::{BrushStroke, Mask, MaskComponent, MaskOp, MaskShape};
+    use lightcraft_geom::Point;
+    let mut s = demo();
+    let id = s.active().unwrap();
+    let far = BrushStroke { points: vec![Point::new(-4000.0, 0.5), Point::new(4000.0, 0.5)], size: 0.05, ..Default::default() };
+    let brush = |strokes| Mask {
+        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes } }],
+        ..Default::default()
+    };
+    let mut d = active_dev(&s);
+    d.masks = vec![brush(vec![far; 10])];
+    s.set_develop(id, d.clone(), "Brush").unwrap();
+    let e = s.render_now(id, 64, 64).err().expect("an over-budget brush mask is an error");
+    assert!(e.contains("dabs"), "{e}");
+    let near = BrushStroke { points: vec![Point::new(0.1, 0.1), Point::new(0.9, 0.9)], size: 0.05, ..Default::default() };
+    d.masks = vec![brush(vec![near])];
+    s.set_develop(id, d, "Brush").unwrap();
+    assert!(s.render_now(id, 64, 64).is_ok());
 }

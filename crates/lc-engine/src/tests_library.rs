@@ -297,6 +297,41 @@ fn quick_collection_and_target_album() {
     assert_eq!(s.catalog.album_count(quick), 0);
 }
 
+/// Album commands drop ids the catalog doesn't have, and a call that adds nothing records no undo
+/// step.
+#[test]
+fn album_commands_skip_missing_photos_and_record_nothing_for_nothing() {
+    use lightcraft_catalog::{AlbumId, PhotoId};
+    let gone = PhotoId(987_654);
+    let mut s = crate::Session::with_demo();
+    assert!(s.catalog.photo(gone).is_none());
+    let photo = s.catalog.photos().next().unwrap().id;
+    let a = AlbumId(s.execute("album.create", &json!({"name": "Trip"})).unwrap()["id"].as_u64().unwrap());
+    s.execute("library.select", &json!({"ids": [photo.0]})).unwrap();
+    let steps = s.undo.len();
+
+    let r = s.execute("album.addPhotos", &json!({"id": a.0, "ids": [gone.0]})).unwrap();
+    assert_eq!(r["added"], 0, "{r}");
+    assert!(s.catalog.album(a).unwrap().photos.is_empty());
+    assert_eq!(s.undo.len(), steps, "nothing added: no undo step");
+
+    s.execute("album.addPhotos", &json!({"id": a.0, "ids": [gone.0, photo.0]})).unwrap();
+    assert_eq!(s.catalog.album(a).unwrap().photos, vec![photo]);
+    assert_eq!(s.undo.len(), steps + 1);
+    s.execute("album.addPhotos", &json!({"id": a.0, "ids": [photo.0]})).unwrap();
+    assert_eq!(s.undo.len(), steps + 1, "already in: no undo step");
+
+    let r = s.execute("album.toggleTarget", &json!({"ids": [gone.0]})).unwrap();
+    assert!(r["added"].is_null(), "{r}");
+    assert!(s.catalog.quick_collection().is_none(), "no Quick Collection for nothing");
+    assert_eq!(s.undo.len(), steps + 1);
+
+    s.selection = crate::Selection::single(gone);
+    let r = s.execute("album.create", &json!({"name": "New", "addSelected": true})).unwrap();
+    let new = s.catalog.album(AlbumId(r["id"].as_u64().unwrap())).unwrap();
+    assert!(new.photos.is_empty() && new.cover.is_none(), "{r}");
+}
+
 /// Scaling check (ignored: `cargo test --release -p lightcraft-engine -- --ignored scale --nocapture`):
 /// the per-frame / per-click library queries on a 100k-photo catalog.
 #[test]
@@ -551,4 +586,36 @@ fn library_identity_persists_and_copied_catalog_locations_remain_distinct() {
     drop(session);
     assert_ne!(Session::new().library_identity(), Session::new().library_identity());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A library writes only to the folder it was opened from: with another folder at its path (a
+/// share mounted over it) saving stops with the reason and nothing is written there; with the
+/// opened folder back, the queued change is saved.
+#[cfg(unix)]
+#[test]
+fn a_library_does_not_save_into_a_folder_that_replaced_the_one_it_opened() {
+    let base = temp_dir("opened-folder");
+    let dir = base.join("lib");
+    let mut s = open(&dir, true);
+    let id = s.selection.active.unwrap();
+    let away = base.join("lib.away");
+    std::fs::rename(&dir, &away).unwrap();
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::write(dir.join("catalog.log"), b"their log\n").unwrap();
+
+    let _ = s.execute("photo.rate", &json!({"rating": 4}));
+    let e = s.persist().expect_err("the path leads to another folder").to_string();
+    assert!(e.contains("is no longer the folder this library was opened from"), "{e}");
+    assert_eq!(std::fs::read(dir.join("catalog.log")).unwrap(), b"their log\n");
+    for name in ["catalog.snap", "catalog.lock.owner", "presets.json", "view.json", "prefs.json"] {
+        assert!(!dir.join(name).exists(), "{name} was written into the folder at the path now");
+    }
+
+    std::fs::rename(&dir, base.join("lib.theirs")).unwrap();
+    std::fs::rename(&away, &dir).unwrap();
+    s.persist().expect("the opened folder is back");
+    drop(s);
+    let again = open(&dir, false);
+    assert_eq!(again.catalog.photo(id).unwrap().rating, 4);
+    let _ = std::fs::remove_dir_all(&base);
 }

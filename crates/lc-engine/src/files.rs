@@ -33,7 +33,9 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         sony: m.sony.clone(),
         dji: m.dji.clone(),
         camera,
+        make: m.make.clone().unwrap_or_default(),
         lens: m.lens_model.clone().unwrap_or_default(),
+        lens_make: m.lens_make.clone().unwrap_or_default(),
         focal_mm: m.focal_length.map(|f| f as f32),
         focal_35mm: m.focal_length_35mm.map(|f| f as f32),
         aperture: m.f_number.map(|f| f as f32),
@@ -54,7 +56,8 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         copyright_url: m.copyright_url.clone().unwrap_or_default(),
         creator: m.artist.clone().unwrap_or_default(),
         creators: m.creators.clone(),
-        keywords: m.keywords.clone(),
+        // paths from `lr:hierarchicalSubject`, names from `dc:subject` that aren't their levels
+        keywords: lightcraft_catalog::keywords::from_file(&m.keywords, &m.hierarchical_keywords),
         regions: m.regions.clone(),
         person_ids: Vec::new(),
     };
@@ -176,7 +179,7 @@ pub(crate) fn is_lens_opcode(op: &lightcraft_raw::Opcode) -> bool {
     )
 }
 
-fn ext_upper(name: &str) -> String {
+pub(crate) fn ext_upper(name: &str) -> String {
     std::path::Path::new(name).extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default()
 }
 
@@ -207,6 +210,7 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
                     as_shot_wb: None,
                     content_hash,
                     xmp,
+                    orientation: m.orientation,
                     preview_only: Some(why),
                     ..Default::default()
                 });
@@ -243,6 +247,7 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
             as_shot_wb,
             content_hash,
             xmp,
+            orientation: Some(raw.orientation),
             preview_only: None,
             modified: None,
         });
@@ -256,6 +261,18 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
     let (mut w, mut h) = (d.source_width, d.source_height);
     if o.swaps_axes() {
         std::mem::swap(&mut w, &mut h);
+    }
+    // regions another app drew on the photo as stored: `extract` could only tell by the size the metadata states, which
+    // can be missing or wrong; the header's is the size as stored, so the boxes as written are turned by it
+    let mut meta = meta;
+    if o.swaps_axes()
+        && !meta.regions.is_empty()
+        && let Some(xmp) = xmp.as_deref().and_then(|x| lightcraft_meta::parse_whole_xmp(x).ok())
+        && let Some(drawn_on) = xmp.regions_drawn_on()
+        && !xmp.metadata.regions.is_empty()
+    {
+        meta.regions = xmp.metadata.regions;
+        lightcraft_meta::upright_regions(&mut meta.regions, drawn_on, o, (d.source_width, d.source_height));
     }
     let format = match ext_upper(name).as_str() {
         "JPG" | "JPEG" => "JPEG".to_string(),
@@ -275,6 +292,7 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
         content_hash,
         embedded_lens: None,
         xmp: None,
+        orientation: m.orientation,
         preview_only: None,
         modified: None,
     })
@@ -724,7 +742,7 @@ fn embedded_preview_size(bytes: &[u8]) -> Option<(u32, u32)> {
 /// The embedded preview of a raw file as a working-space image no larger than `max_edge`, oriented.
 pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(RgbFrame, SourceInfo)> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
-    let d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
+    let d = lightcraft_codecs::decode_raw_preview(bytes, &jpeg, still_image_decode_options(max_edge)).ok()?;
     let img = d.to_working();
     let img = if img.width.max(img.height) > max_edge { img.fit_antiring(max_edge, max_edge) } else { img };
     Some((img.oriented(preview_orientation(bytes, d.orientation)), SourceInfo::default()))
@@ -734,7 +752,7 @@ pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(RgbFrame,
 /// loupe and grid show it until the raw itself has been developed ([`crate::media::QuickJob`]).
 pub fn embedded_preview_srgb(bytes: &[u8], max_edge: usize) -> Option<li_raster::Rgba8> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
-    let mut d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
+    let mut d = lightcraft_codecs::decode_raw_preview(bytes, &jpeg, still_image_decode_options(max_edge)).ok()?;
     if d.image.width.max(d.image.height) > max_edge {
         d.image = d.image.fit(max_edge, max_edge, Filter::Box);
         d.alpha = None;

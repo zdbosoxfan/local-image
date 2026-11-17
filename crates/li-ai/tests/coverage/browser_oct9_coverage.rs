@@ -24,14 +24,14 @@ fn lora_file_name_edge_cases() {
 #[test]
 fn hf_path_parses_resolve_urls() {
     let f = CatalogFile {
-        url: "https://hf.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors?download=true".into(),
+        url: "https://hf.co/Comfy-Org/flux2-klein-4B/resolve/main/split_files/diffusion_models/flux-2-klein-4b.safetensors?download=true".into(),
         ..Default::default()
     };
-    assert_eq!(f.hf_path("https://hf.co"), Some(("Comfy-Org/z_image_turbo".into(), "split_files/diffusion_models/z_image_turbo_bf16.safetensors".into())));
-    let bad = CatalogFile { url: "https://hf.co/Comfy-Org/z_image_turbo".into(), ..Default::default() };
+    assert_eq!(f.hf_path("https://hf.co"), Some(("Comfy-Org/flux2-klein-4B".into(), "split_files/diffusion_models/flux-2-klein-4b.safetensors".into())));
+    let bad = CatalogFile { url: "https://hf.co/Comfy-Org/flux2-klein-4B".into(), ..Default::default() };
     assert_eq!(bad.hf_path("https://hf.co"), None);
     let base = "https://hf.co/";
-    assert_eq!(f.hf_path(base), Some(("Comfy-Org/z_image_turbo".into(), "split_files/diffusion_models/z_image_turbo_bf16.safetensors".into())));
+    assert_eq!(f.hf_path(base), Some(("Comfy-Org/flux2-klein-4B".into(), "split_files/diffusion_models/flux-2-klein-4b.safetensors".into())));
 }
 
 #[test]

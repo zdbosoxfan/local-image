@@ -70,11 +70,11 @@ fn every_state_shows_its_status_reason_and_next_step() {
     h.get_by_label("FLUX.3 Klein Distilled · BF16, ready, not tested");
     h.get_by_label("MOSS-Image SFT · BF16, needs attention");
     h.get_by_label("Krea 2 Turbo · BF16, verified");
-    h.get_by_label("Qwen Image 2.1 Turbo · BF16, test failed");
+    h.get_by_label("FLUX.3 Klein Base · BF16, test failed");
     h.get_by_label("FLUX.2 Klein 9B · FP8, needs testing again");
     h.get_by_label("HiDream O1 · BF16, needs attention");
     h.get_by_label("Ming Image · BF16, no matching template");
-    h.get_by_label("Qwen Image 2.1 · BF16, built-in support");
+    h.get_by_label("FLUX.2 Klein 4B · BF16, built-in support");
     for heading in ["NEW · 1", "NEEDS ATTENTION · 5", "VERIFIED · 1", "BUILT-IN · 1"] {
         h.get_by_label(heading);
     }
@@ -110,8 +110,8 @@ fn every_state_shows_its_status_reason_and_next_step() {
     h.run_steps(60);
     h.get_by_label("Checked on ComfyUI 0.42.5 · 2026-10-24 14:02:11-04:00 · seed 518877231");
     // Failed: the failure in plain words.
-    select(&mut h, TURBO, Step::Verify);
-    assert!(h.query_by_label_contains("The Create test image is noise, not a picture. The VAE (qwen_image_vae.safetensors)").is_some());
+    select(&mut h, FLUX3_BASE, Step::Verify);
+    assert!(h.query_by_label_contains("The Create test image is noise, not a picture. The VAE (flux2-vae.safetensors)").is_some());
     // A missing node, and no template: the reason and what to do.
     select(&mut h, HIDREAM, Step::Check);
     h.get_by_label("Needs attention: This ComfyUI (0.43.0) doesn't have the node HiDreamO1Sampler that HiDream O1 uses. Update ComfyUI.");
@@ -271,7 +271,7 @@ fn model_setup_screens() {
         ("ready-check", FLUX3, Step::Check),
         ("blocked-check", MOSS, Step::Check),
         ("verified-verify", KREA, Step::Verify),
-        ("failed-verify", TURBO, Step::Verify),
+        ("failed-verify", FLUX3_BASE, Step::Verify),
         ("needs-reverify-check", KLEIN9B, Step::Check),
         ("missing-node-check", HIDREAM, Step::Check),
         ("unmatched-check", MING, Step::Check),
@@ -398,7 +398,7 @@ fn reverify_has_an_action_and_results_name_their_outcomes() {
     let create = h.get_by_label("Create").rect();
     let refine = h.get_by_label("Refine").rect();
     assert!((create.left() - refine.left()).abs() < 0.5, "result labels must align");
-    select(&mut h, TURBO, Step::Verify);
+    select(&mut h, FLUX3_BASE, Step::Verify);
     h.get_by_label_contains("Create failed: 7.0 s");
 }
 
@@ -462,14 +462,14 @@ fn keyboard_navigation_reveals_rows_and_skips_folded_ignored_models() {
         assert!(h.get_by_label(&label).accesskit_node().is_focused(), "focus follows the selected model");
     }
     h.run_steps(20);
-    assert_eq!(with(|s| s.selected.clone()), Some(QWEN21.into()));
-    let row = h.get_by_label("Qwen Image 2.1 · BF16, built-in support").rect();
+    assert_eq!(with(|s| s.selected.clone()), Some(KLEIN4B.into()));
+    let row = h.get_by_label("FLUX.2 Klein 4B · BF16, built-in support").rect();
     let footer = h.get_by_label("Copy report").rect();
     assert!(row.bottom() < footer.top(), "the focused row must be visible above the footer: {row:?}");
     assert!(row.top() > h.get_by_label("Re-check").rect().bottom());
     h.key_press(egui::Key::ArrowDown);
     h.run_steps(4);
-    assert_eq!(with(|s| s.selected.clone()), Some(QWEN21.into()), "folded ignored rows are not keyboard targets");
+    assert_eq!(with(|s| s.selected.clone()), Some(KLEIN4B.into()), "folded ignored rows are not keyboard targets");
     h.key_press(egui::Key::ArrowUp);
     h.run_steps(6);
     assert_eq!(with(|s| s.selected.clone()), Some(KREA.into()));

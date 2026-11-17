@@ -287,24 +287,49 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"mix": m}))
             }
         ),
-        cmd!("develop.auto", "Auto Settings", ["Photo"], Some("Cmd+U"), "{}", has_active, |s, _| {
-            let id = active(s, "develop.auto")?;
-            let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.auto", e))?;
-            let info = s.source_info(id);
-            let d = s.develop_of(id).unwrap_or_default();
-            let a = lightcraft_pipeline::auto::auto_tone(&src, &info, &d);
-            edit(s, "develop.auto", "Auto", |d| {
-                d.light.exposure = a.exposure;
-                d.light.contrast = a.contrast;
-                d.light.highlights = a.highlights;
-                d.light.shadows = a.shadows;
-                d.light.whites = a.whites;
-                d.light.blacks = a.blacks;
-                d.color.vibrance = a.vibrance;
-                d.color.saturation = a.saturation;
-                Ok(())
-            })?;
-            Ok(serde_json::to_value(a).unwrap_or_default())
+        cmd!("develop.auto", "Auto Settings", ["Photo"], Some("Cmd+U"), "{ids?}", has_selection, |s, p| {
+            const C: &str = "develop.auto";
+            let ids = s.targets(p)?;
+            // a wrong id is a bad request, unlike a photo that can't be read just now
+            if let Some(id) = ids.iter().find(|id| s.catalog.photo(**id).is_none()) {
+                return Err(bad(C, format!("no such photo: {}", id.0)));
+            }
+            let mut first: Option<Value> = None;
+            let mut ops: Vec<Op> = Vec::new();
+            let mut failed = None;
+            for id in ids {
+                // a photo that can't be read (offline, no decoder) is left out, not the whole selection
+                let src = match s.source_now(id, SourceLevel::Thumb) {
+                    Ok(src) => src,
+                    Err(e) => {
+                        failed.get_or_insert(e);
+                        continue;
+                    }
+                };
+                let info = s.source_info(id);
+                let d = s.develop_of(id).unwrap_or_default();
+                let a = lightcraft_pipeline::auto::auto_tone(&src, &info, &d);
+                if first.is_none() {
+                    first = Some(serde_json::to_value(a).unwrap_or_default());
+                }
+                let mut nd = (*d).clone();
+                nd.light.exposure = a.exposure;
+                nd.light.contrast = a.contrast;
+                nd.light.highlights = a.highlights;
+                nd.light.shadows = a.shadows;
+                nd.light.whites = a.whites;
+                nd.light.blacks = a.blacks;
+                nd.color.vibrance = a.vibrance;
+                nd.color.saturation = a.saturation;
+                ops.extend(s.develop_op(id, nd, "Auto"));
+            }
+            if let (None, Some(e)) = (&first, failed) {
+                return Err(bad(C, e));
+            }
+            if !ops.is_empty() {
+                s.commit("Auto", Op::Batch { ops })?;
+            }
+            Ok(first.unwrap_or_default())
         }),
         cmd!(
             "develop.wb",
@@ -459,19 +484,21 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("crop.set", "Set Crop", [], None, "{rect?: [x0,y0,x1,y1] normalized in the straightened frame, angle?: degrees}", has_active, |s, p| {
             let id = active(s, "crop.set")?;
             let (w, h) = crop_dims(s, id);
+            let min_side = MIN_CROP_FRACTION * w.min(h) * (1.0 - 1e-9);
+            let too_small = |r: Rect| {
+                (!(r.width() * w >= min_side && r.height() * h >= min_side))
+                    .then(|| bad("crop.set", format!("rect is smaller than the smallest crop ({} % of the shorter side)", MIN_CROP_FRACTION * 100.0)))
+            };
             edit(s, "crop.set", "Crop", |d| {
-                if let Some(a) = p.get("rect").and_then(Value::as_array) {
+                let explicit = p.get("rect").and_then(Value::as_array);
+                if let Some(a) = explicit {
                     let v: Vec<f64> = a.iter().filter_map(Value::as_f64).collect();
                     if v.len() != 4 {
                         return Err(bad("crop.set", "rect needs 4 numbers"));
                     }
                     let r = Rect::new(v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3]));
-                    let min_side = MIN_CROP_FRACTION * w.min(h) * (1.0 - 1e-9);
-                    if !(r.width() * w >= min_side && r.height() * h >= min_side) {
-                        return Err(bad(
-                            "crop.set",
-                            format!("rect is smaller than the smallest crop ({} % of the shorter side)", MIN_CROP_FRACTION * 100.0),
-                        ));
+                    if let Some(e) = too_small(r) {
+                        return Err(e);
                     }
                     d.crop.geometry.rect = r;
                 }
@@ -479,6 +506,12 @@ pub fn specs() -> Vec<CommandSpec> {
                     d.crop.geometry.angle = a.clamp(-45.0, 45.0);
                 }
                 d.crop.geometry = d.crop.geometry.constrained(w, h);
+                // a rect far larger than the photo is shrunk to fit it, and can come out a sliver
+                if explicit.is_some()
+                    && let Some(e) = too_small(d.crop.geometry.rect)
+                {
+                    return Err(e);
+                }
                 Ok(())
             })
         }),
@@ -852,7 +885,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 .iter()
                 .filter_map(|id| {
                     let d = s.develop_of(*id)?;
-                    let mut settings = preset.apply(&d, amount);
+                    // The amount is measured from the import look when the photo has one. Settings from
+                    // a sidecar or a catalog import record none, and their baseline is the current ones.
+                    let imported =
+                        s.catalog.photo(*id).filter(|photo| photo.import_look.is_some() && amount != 1.0).map(|photo| photo.import_defaults());
+                    let mut settings = preset.apply_on(&d, imported.as_ref().unwrap_or(&*d), amount);
                     s.resolve_transferred_wb(*id, &preset.settings, &mut settings);
                     s.refresh_transferred_masks(*id, &mut settings, d.masks.len());
                     if preset.settings.get("geometry").is_some() {

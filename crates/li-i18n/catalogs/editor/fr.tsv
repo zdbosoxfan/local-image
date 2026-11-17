@@ -84,7 +84,7 @@
 	File Info…	Informations sur le fichier…
 	Print…	Imprimer…
 	Print One Copy	Imprimer un exemplaire
-	Exit	Quitter
+	Quit Local Image	Quitter Local Image
 	Undo	Annuler
 	Redo	Rétablir
 	Toggle Last State	Basculer sur le dernier état
@@ -2588,7 +2588,6 @@ cameraRaw	Blending	Fusion
 	Remove Background (AI)	Supprimer l'arrière-plan (IA)
 	Remove Backgrounds (AI)…	Supprimer les arrière-plans (IA)…
 	Set Up AI…	Configurer l'IA…
-	Subject (AI)	Sujet (IA)
 	The AI engine isn't running.	Le moteur d'IA n'est pas lancé.
 	Contextual task bar	Barre des tâches contextuelle
 	Tool presets	Formes d'outils prédéfinies
@@ -2691,7 +2690,6 @@ cameraRaw	Blending	Fusion
 	Could not save settings: {error}	Impossible d'enregistrer les réglages : {error}
 	Couldn't save: {error}	Enregistrement impossible : {error}
 	Couldn't update profiles: {error}	Impossible de mettre à jour les profils : {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Détoure le sujet de chaque image avec Qwen Image 2.1 et enregistre des PNG. Les originaux ne sont jamais modifiés.
 	Delete from Library	Supprimer de la bibliothèque
 	Describe details to add (optional)…	Décrivez les détails à ajouter (facultatif)…
 	Describe the change, e.g. “make it golden hour”…	Décrivez la modification, par ex. « en lumière de l'heure dorée »…
@@ -2752,7 +2750,6 @@ cameraRaw	Blending	Fusion
 	Installation:	Installation :
 	Installed	Installé
 	Keep	Conserver
-	Keep… (optional)	Conserver… (facultatif)
 	Licence	Licence
 	Licence gate	Licence requise
 	Licence: see its page	Licence : voir sa page
@@ -2797,8 +2794,6 @@ cameraRaw	Blending	Fusion
 	Precision	Précision
 	Preset name	Nom du préréglage
 	Previous image ({key})	Image précédente ({key})
-	Qwen Compact	Qwen compact
-	Qwen Full	Qwen complet
 	RESULTS	RÉSULTATS
 	Read the licence	Lire la licence
 	Ready	Prêt
@@ -2845,7 +2840,6 @@ cameraRaw	Blending	Fusion
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Démarrez d'abord le moteur d'IA : Local Image vérifie ce dont ComfyUI dispose déjà. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Démarrez le moteur d'IA pour voir la mémoire de votre GPU ; affichage de ce qui tient dans 8 Go.
 	Starting ComfyUI… (the first start can take a minute)	Démarrage de ComfyUI… (le premier démarrage peut prendre une minute)
-	Starting image · {n}/{max}	Image de départ · {n}/{max}
 	Starting {name}…	Démarrage de {name}…
 	Steps	Étapes
 	Stopped	Arrêté
@@ -2863,7 +2857,6 @@ cameraRaw	Blending	Fusion
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Le workflow n'a aucun nœud intitulé li:prompt, li:image, li:mask, li:seed ou li:output, donc Local Image ne peut pas le remplir. Renommez les nœuds dans ComfyUI et exportez à nouveau.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Les jetons permettent au Navigateur de modèles de télécharger des modèles à accès restreint ou nécessitant une connexion. Ils ne sont envoyés qu'à leur propre site.
 	Transparent PNG	PNG transparent
-	Transparent background	Arrière-plan transparent
 	Trending	Tendances
 	Trending this week	Tendances de la semaine
 	Unknown family	Famille inconnue
@@ -2874,7 +2867,6 @@ cameraRaw	Blending	Fusion
 	Upscale {scale}×	Agrandir {scale}×
 	Use	Utiliser
 	Use as Reference	Utiliser comme référence
-	Variation strength	Intensité de la variation
 	Waiting	En attente
 	What should appear in the selection…	Ce qui doit apparaître dans la sélection…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Avec votre propre clé API, Générer peut aussi utiliser des modèles cloud (ils apparaissent sous Cloud dans le sélecteur de modèles). Votre prompt et vos images partent alors de cet ordinateur vers ce fournisseur et sont facturés sur votre compte ; rien d'autre n'est envoyé nulle part.
@@ -2908,12 +2900,9 @@ cameraRaw	Blending	Fusion
 	{size} · runs on the CPU · {licence}	{size} · s'exécute sur le CPU · {licence}
 	{source}: offline, showing results from {when}	{source} : hors ligne, résultats de {when}
 	{source}: the catalogue couldn't be read	{source} : impossible de lire le catalogue
-	{why} Qwen Image 2.1 runs these.	{why} Ces fonctions utilisent Qwen Image 2.1.
 	Seed	Graine
 	Solid Color	Couleur unie
 	Strength	Intensité
-	Qwen AI · Compact	Qwen IA · compact
-	Qwen AI · Full	Qwen IA · complet
 	Standard (CPU)	Standard (CPU)
 	Templates	Modèles de workflow
 	Community	Communauté
@@ -3042,6 +3031,8 @@ ai	New	Nouveautés
 	Float Panel Group	Détacher le groupe de panneaux
 	Save and Return to Library	Enregistrer et retourner à la Bibliothèque
 	Added your new Develop edits as layer {name}	Vos nouvelles retouches de développement ont été ajoutées en tant que calque {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Le recadrage ou la taille de la photo a changé dans Développement, donc {name} n'a pas été mis à jour
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Ses calques ne seraient plus alignés sur la nouvelle photo, il conserve donc la photo telle qu'elle était.
 	Open the Library to save into it	Ouvrez la Bibliothèque pour y enregistrer
 	The layers below are unchanged; hide or delete the new layer to go back.	Les calques du dessous sont inchangés ; masquez ou supprimez le nouveau calque pour revenir en arrière.
 # Attributions page (li-attributions)
@@ -3903,7 +3894,10 @@ ai	New	Nouveautés
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	Tous les raccourcis de ce profil ont été réinitialisés aux valeurs par défaut.
 	Editor	Éditeur
-	Library + Develop	Bibliothèque + Développement
+	Library & Develop	Bibliothèque & Développement
+	Library General	Bibliothèque : Général
+	Library Performance	Bibliothèque : Performances
+	Library Interface	Bibliothèque : Interface
 	Scope	Portée
 	Colour	Couleur
 	Monochrome (default)	Monochrome (par défaut)
@@ -3920,3 +3914,29 @@ ai	New	Nouveautés
 	GPU Memory (MB, 0 = Automatic)	Mémoire GPU (Mo, 0 = Automatique)
 	{path} was saved over	{path} a été écrasé
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	« {doc} » n’est plus associé à un fichier et est marqué comme non enregistré : enregistrez-le sous un nouveau nom pour le conserver.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Calques fusionnés
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Un mélange de gris qui étale les tons de l'image
+	File Type	Type de fichier
+	Save as JPEG	Enregistrer en JPEG
+	Save as PSD	Enregistrer en PSD
+	Save as TIFF	Enregistrer en TIFF
+	Convert Profile to sRGB	Convertir le profil en sRVB
+	LZW Compression	Compression LZW
+	Resize to Fit	Redimensionner pour adapter
+	Run	Exécuter
+	You must save to at least one file type.	Vous devez enregistrer dans au moins un type de fichier.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Entrée numérique non valide. Une valeur comprise entre 1 et 12 est requise. La valeur précédente a été rétablie.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Entrée numérique non valide. Une valeur comprise entre 1 et 30000 est requise. La valeur précédente a été rétablie.
+	A value between 1 and 12 is required. Closest value inserted.	Une valeur comprise entre 1 et 12 est requise. La valeur la plus proche a été insérée.
+	A value between 1 and 30000 is required. Closest value inserted.	Une valeur comprise entre 1 et 30000 est requise. La valeur la plus proche a été insérée.
+	Image Compression	Compression de l'image
+	Save Image Pyramid	Enregistrer la pyramide d'images
+	Save Transparency	Enregistrer la transparence
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Ouvrir en tant qu'objet intelligent…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	Bord net
+	Last folder	Dernier dossier

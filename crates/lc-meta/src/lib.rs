@@ -1,4 +1,4 @@
-//! Photo metadata for LightCraft: EXIF (TIFF/raw files, JPEG APP1, PNG `eXIf`, WebP `EXIF`), XMP packets
+//! Photo metadata for LightCraft: EXIF (TIFF/raw files, JPEG APP1, PNG `eXIf`, WebP `EXIF`, HEIF items), XMP packets
 //! (read + write, standard namespaces plus our own `lc:` namespace) and basic IPTC-IIM.
 //!
 //! Entry points:
@@ -7,7 +7,8 @@
 //! - [`parse_xmp`] / [`write_xmp`] — XMP packets (interchange fields + the opaque `lc:settings` JSON).
 //! - [`parse_iptc`] — IPTC-IIM record 2 datasets.
 //! - [`parse_gpx`] — GPS track logs (GPX) for geotagging by capture time.
-//! - [`extract`] — all of the above for a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, Canon CR3, PSD/PSB).
+//! - [`extract`] — all of the above for a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, Canon CR3, PSD/PSB,
+//!   HEIF/HEIC/AVIF).
 //! - [`cr3`] — the Canon CR3 container (metadata blocks, XMP, the JPEG and raw tracks).
 #![forbid(unsafe_code)]
 #![expect(clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
@@ -26,6 +27,7 @@ pub use sony::{SonyLensCorrection, SonyMetadata, SonyPixelShift};
 mod exif;
 mod file_info;
 mod gpx;
+mod heif;
 mod iptc;
 pub mod tags;
 mod xmp;
@@ -34,14 +36,14 @@ pub use file_info::{copyright_xmp, read_file_info, try_write_file_info};
 pub use xmp_orientation::upright_xmp;
 mod xmp_merge;
 
-pub use container::{Embedded, embedded, jpeg_segments, png_chunks, webp_chunks};
+pub use container::{Embedded, embedded, jpeg_segments, png_chunks, reads_container, webp_chunks};
 pub use datetime::DateTime;
 pub use exif::{exif_ifd, from_tiff, from_tiff_with_bytes, read_exif, strip_exif_header, try_read_exif, write_exif};
 pub use gpx::{GpxError, Match, TrackPoint, Tracklog, parse_gpx};
 pub use iptc::parse_iptc;
 pub use lightcraft_geom::{Orientation, Rect};
 pub use tags::{TagRow, file_tag_rows, tag_rows};
-pub use xmp::{CRS_NS, LC_NS, XmpData, XmpError, XmpValue, parse_xmp, write_xmp, write_xmp_lc};
+pub use xmp::{CRS_NS, LC_NS, XmpData, XmpError, XmpValue, parse_whole_xmp, parse_xmp, write_xmp, write_xmp_lc};
 pub use xmp_merge::{MergeRules, merge_xmp, normalize_xmp_geometry, normalize_xmp_geometry_with_extended_guid, xmp_has_extended_guid};
 
 use serde::{Deserialize, Serialize};
@@ -136,6 +138,10 @@ pub struct Metadata {
     pub white_balance: Option<u16>,
     pub orientation: Option<Orientation>,
     pub gps: Option<Gps>,
+    /// The file says where the photo is in a place no field here carries: GPS values short of a
+    /// position, a GPS destination or area, IPTC LocationCreated or LocationShown, a country code.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub other_location: bool,
     /// Pixel dimensions as recorded (not oriented).
     pub width: Option<u32>,
     pub height: Option<u32>,
@@ -209,6 +215,7 @@ impl Metadata {
     pub fn fill_missing(&mut self, other: &Metadata) {
         self.lens_corrections_baked |= other.lens_corrections_baked;
         self.chromatic_aberration_baked |= other.chromatic_aberration_baked;
+        self.other_location |= other.other_location;
         if self.artist.is_none() {
             self.artist = other.artist.clone();
             self.creators = other.creators.clone();
@@ -333,7 +340,7 @@ impl Metadata {
     }
 }
 
-/// Read metadata from a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, CR3, PSD/PSB).
+/// Read metadata from a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, CR3, PSD/PSB, HEIF/HEIC/AVIF).
 /// Precedence: EXIF, then IPTC fills gaps, then XMP overrides user fields and fills the rest.
 pub fn extract(bytes: &[u8]) -> Metadata {
     extract_with_xmp(bytes).0
@@ -342,47 +349,105 @@ pub fn extract(bytes: &[u8]) -> Metadata {
 /// [`extract`] and the file's XMP packet ([`Embedded::xmp`]) from one pass over the container.
 pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
     let (e, tiff) = container::blocks(bytes);
-    let m = match &tiff {
+    let xmp = e.xmp.as_deref().and_then(|x| parse_whole_xmp(x).ok());
+    (extract_embedded(&e, tiff.as_ref(), exif_metadata(bytes, &e, tiff.as_ref()), xmp), e.xmp)
+}
+
+fn exif_metadata(bytes: &[u8], e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff>) -> Metadata {
+    match tiff {
         // a TIFF-based file is its own Exif block: read it in place, from the parse already made
         Some(t) => from_tiff_with_bytes(bytes, t),
         None => e.exif.as_deref().map(read_exif).unwrap_or_default(),
-    };
-    let xmp = e.xmp.as_deref().and_then(|x| parse_xmp(x).ok()).map(|x| x.metadata);
-    (extract_embedded(&e, m, xmp), e.xmp)
+    }
 }
 
-/// Read metadata, reporting malformed PSD/PSB containers and embedded EXIF/XMP.
-/// Other formats retain [`extract`]'s best-effort behavior.
+/// Read metadata for a promise about what a file does not hold, so what a best-effort read would
+/// take for absent is an error: malformed PSD/PSB resources, and in any container an XMP packet that
+/// is malformed or past the parser's hard limits, or a block named by [`Embedded::unread`].
+///
+/// The promise has limits. Corrupt Exif outside PSD/PSB stays best-effort and reads as no Exif, so a
+/// location inside it goes unseen. Nothing looks at JPEG data past the first scan, IPTC past the first
+/// APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3
+/// preview boxes, or PNG text chunks under other keywords. HEIF items are read best-effort and carry
+/// no promise at all: [`reads_container`] refuses the format.
 pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
     if !bytes.starts_with(b"8BPS") {
-        return Ok(extract(bytes));
+        let (e, tiff) = container::blocks(bytes);
+        if let Some(block) = e.unread {
+            return Err(ExtractError::UnreadBlock(block));
+        }
+        check_exif_xmp(&e)?;
+        let xmp = e.xmp.as_deref().map(strict_xmp).transpose()?;
+        let extended = e.xmp_extended.as_deref().map(strict_xmp).transpose()?;
+        let mut m = extract_embedded(&e, tiff.as_ref(), exif_metadata(bytes, &e, tiff.as_ref()), xmp);
+        if let Some(x) = extended {
+            m.fill_missing(&x.metadata);
+        }
+        return Ok(m);
     }
     let e = psd::parse(bytes).ok_or(ExtractError::MalformedPsd)?;
+    check_exif_xmp(&e)?;
     let m = e.exif.as_deref().map(try_read_exif).transpose().map_err(|_| ExtractError::MalformedPsd)?.unwrap_or_default();
-    let xmp = e
-        .xmp
-        .as_deref()
-        .map(|packet| {
-            // Best-effort parsing tolerates broken XML; privacy checks need strict syntax validation.
-            xmp_merge::scan(packet)?;
-            parse_xmp(packet)
-        })
-        .transpose()
-        .map_err(|_| ExtractError::MalformedPsd)?
-        .map(|x| x.metadata);
-    Ok(extract_embedded(&e, m, xmp))
+    let xmp = e.xmp.as_deref().map(strict_xmp).transpose().map_err(|_| ExtractError::MalformedPsd)?;
+    Ok(extract_embedded(&e, None, m, xmp))
 }
 
-fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<Metadata>) -> Metadata {
+/// Best-effort parsing tolerates broken XML; privacy checks need strict syntax validation.
+fn strict_xmp(packet: &str) -> Result<XmpData, XmpError> {
+    xmp_merge::scan(packet)?;
+    parse_whole_xmp(packet)
+}
+
+/// An Exif block can hold an XMP packet of its own, which only [`from_tiff`] reads.
+fn check_exif_xmp(e: &Embedded) -> Result<(), ExtractError> {
+    let tiff = e.exif.as_deref().and_then(|x| lightcraft_tiff::Tiff::parse(strip_exif_header(x)).ok());
+    let Some(packet) = tiff.as_ref().and_then(|t| t.ifds.first()).and_then(|ifd| ifd.bytes(lightcraft_tiff::tags::XMP)) else {
+        return Ok(());
+    };
+    strict_xmp(std::str::from_utf8(packet).map_err(|_| ExtractError::MalformedXmp)?)?;
+    Ok(())
+}
+
+/// `tiff` is the file's own parse when the file is TIFF-based ([`exif_metadata`]); otherwise the Exif is `e.exif`.
+fn extract_embedded(e: &Embedded, tiff: Option<&lightcraft_tiff::Tiff>, mut m: Metadata, xmp: Option<XmpData>) -> Metadata {
+    // the orientation the Exif states: the photo is displayed by that alone, so an orientation only the XMP states
+    // ([`Metadata::fill_missing`] reports it below) can't tell how the photo is stored
+    let exif_orientation = match tiff {
+        Some(t) => exif::ifd0_orientation(t),
+        None => e.exif.as_deref().and_then(|x| lightcraft_tiff::Tiff::parse(strip_exif_header(x)).ok()).as_ref().and_then(exif::ifd0_orientation),
+    };
+    // and the size the Exif states: a size only the XMP states may be the upright one, so it can't tell that either
+    let stored = m.width.zip(m.height);
     if let Some(i) = e.iptc.as_deref() {
         m.fill_missing(&parse_iptc(i));
     }
     if let Some(xmp) = xmp {
-        m.overlay_user_fields(&xmp);
-        m.fill_missing(&xmp);
+        m.overlay_user_fields(&xmp.metadata);
+        m.fill_missing(&xmp.metadata);
+        // boxes another app drew on the photo as stored go where the upright photo has them
+        if let (Some(drawn_on), Some(orientation), Some(stored)) = (xmp.regions_drawn_on(), exif_orientation, stored) {
+            upright_regions(&mut m.regions, drawn_on, orientation, stored);
+        }
     }
     m.fill_dji_gps();
     m
+}
+
+/// Turn regions drawn on a photo as it is stored onto the upright photo. MWG gives each box as a fraction of
+/// `AppliedToDimensions` (`drawn_on`); for a photo whose Exif `orientation` turns it a quarter turn, some apps give the
+/// stored, sideways size there and boxes on the stored pixels to match (Lightroom says so per box with
+/// `mwg-rs:Rotation` instead, which [`parse_xmp`] reads). When `drawn_on` has the shape of the photo as stored
+/// (`stored`, before `orientation`) rather than the upright one, every box is turned with `orientation`. A square
+/// photo or `drawn_on` looks the same both ways, and a half turn or a mirror doesn't change the shape: their boxes are
+/// left as they are.
+pub fn upright_regions(regions: &mut [Region], drawn_on: (f64, f64), orientation: Orientation, stored: (u32, u32)) {
+    let ((dw, dh), (sw, sh)) = (drawn_on, stored);
+    if regions.is_empty() || !orientation.swaps_axes() || sw == sh || dw == dh || (dw > dh) != (sw > sh) {
+        return;
+    }
+    for r in regions.iter_mut() {
+        r.rect = orientation.map_norm_rect(r.rect);
+    }
 }
 
 /// A container-level error reported by [`try_extract`].
@@ -390,17 +455,35 @@ fn extract_embedded(e: &Embedded, mut m: Metadata, xmp: Option<Metadata>) -> Met
 pub enum ExtractError {
     /// The PSD/PSB header, resource section, or embedded EXIF/XMP is malformed.
     MalformedPsd,
+    /// An XMP packet is past the parser's hard limits, so none of it was read.
+    XmpTooComplex,
+    /// An XMP packet is not well-formed, so a best-effort read of it can miss what it holds.
+    MalformedXmp,
+    /// A metadata block has no reader, as named by [`Embedded::unread`].
+    UnreadBlock(&'static str),
 }
 
 impl std::fmt::Display for ExtractError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MalformedPsd => f.write_str("malformed PSD/PSB header, image-resource section, or embedded EXIF/XMP structure"),
+            Self::XmpTooComplex => write!(f, "{}", XmpError::TooComplex),
+            Self::MalformedXmp => f.write_str("its XMP packet is malformed"),
+            Self::UnreadBlock(block) => write!(f, "it holds {block}, which this check can't read"),
         }
     }
 }
 
 impl std::error::Error for ExtractError {}
+
+impl From<XmpError> for ExtractError {
+    fn from(error: XmpError) -> Self {
+        match error {
+            XmpError::TooComplex => Self::XmpTooComplex,
+            XmpError::Xml(_) => Self::MalformedXmp,
+        }
+    }
+}
 
 /// Lenient number parsing used by XMP/IPTC: `"28/10"`, `"2.8"`, `"+0.7"`.
 pub(crate) fn parse_number(s: &str) -> Option<f64> {
@@ -424,6 +507,52 @@ mod tests {
         jpeg.extend_from_slice(payload);
         jpeg.extend_from_slice(&[0xff, 0xd9]);
         assert_eq!(try_extract(&jpeg).unwrap(), Metadata::default());
+    }
+
+    /// An Exif block holding `packet` in its own XMP tag, which no container walk looks at.
+    pub(crate) fn exif_with_xmp(packet: &str) -> Vec<u8> {
+        let mut ifd = lightcraft_tiff::IfdBuilder::new();
+        ifd.set(lightcraft_tiff::tags::XMP, lightcraft_tiff::Value::Byte(packet.as_bytes().to_vec()));
+        lightcraft_tiff::TiffWriter::default().write(&[ifd]).unwrap()
+    }
+
+    #[test]
+    fn try_extract_reports_a_packet_too_complex_to_read_inside_an_exif_block() {
+        let exif = exif_with_xmp(&"<a>".repeat(70));
+        let mut webp = b"RIFF\0\0\0\0WEBPEXIF".to_vec();
+        webp.extend_from_slice(&u32::try_from(exif.len()).unwrap().to_le_bytes());
+        webp.extend_from_slice(&exif);
+        assert_eq!(try_extract(&webp), Err(ExtractError::XmpTooComplex));
+    }
+
+    #[test]
+    fn try_extract_reports_a_broken_packet_inside_an_exif_block() {
+        let broken = b"<rdf:RDF><rdf:Description exif:GPSLatitude=45,0N/></rdf:RDF>";
+        let mut not_utf8 = lightcraft_tiff::IfdBuilder::new();
+        not_utf8.set(lightcraft_tiff::tags::XMP, lightcraft_tiff::Value::Byte(b"<a b=\"\xff\"/>".to_vec()));
+        let exifs = [exif_with_xmp(std::str::from_utf8(broken).unwrap()), lightcraft_tiff::TiffWriter::default().write(&[not_utf8]).unwrap()];
+        for exif in exifs {
+            let mut webp = b"RIFF\0\0\0\0WEBPEXIF".to_vec();
+            webp.extend_from_slice(&u32::try_from(exif.len()).unwrap().to_le_bytes());
+            webp.extend_from_slice(&exif);
+            assert_eq!(try_extract(&webp), Err(ExtractError::MalformedXmp));
+        }
+    }
+
+    /// Catalogs, sidecars and exports all take their fields from these readers.
+    #[test]
+    fn file_readers_see_fields_past_the_xmp_retention_budget() {
+        let foreign: String = (0..130_000).rev().map(|i| format!("<crs:a{i}>v</crs:a{i}>")).collect();
+        let packet = format!(
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:crs='{CRS_NS}'>{foreign}</r:Description>\
+             <r:Description xmlns:p='http://ns.adobe.com/photoshop/1.0/' p:City='Boston'/></r:RDF>"
+        );
+        assert_eq!(parse_xmp(&packet).unwrap().metadata.city, None);
+        assert_eq!(read_exif(&exif_with_xmp(&packet)).city.as_deref(), Some("Boston"));
+        let mut webp = b"RIFF\0\0\0\0WEBPXMP ".to_vec();
+        webp.extend_from_slice(&u32::try_from(packet.len()).unwrap().to_le_bytes());
+        webp.extend_from_slice(packet.as_bytes());
+        assert_eq!(extract(&webp).city.as_deref(), Some("Boston"));
     }
 
     /// A TIFF-based file is read in place (not copied into an Exif block): EXIF facts, then XMP
@@ -498,6 +627,102 @@ mod tests {
         let m = Metadata { metering_mode: Some(5), exposure_program: Some(3), ..Default::default() };
         assert_eq!(m.metering_name(), Some("Pattern"));
         assert_eq!(m.exposure_program_name(), Some("Aperture-priority AE"));
+    }
+
+    /// An MWG regions packet with one face, its box centred at (0.25, 0.4) and 0.1 × 0.15 of `AppliedToDimensions`
+    /// `w` × `h`; `extra` goes on the region (e.g. Lightroom's `mwg-rs:Rotation`).
+    fn regions_packet(w: u32, h: u32, extra: &str) -> String {
+        format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description rdf:about="" xmlns:mwg-rs="http://www.metadataworkinggroup.com/schemas/regions/"
+                xmlns:stArea="http://ns.adobe.com/xmp/sType/Area#" xmlns:stDim="http://ns.adobe.com/xap/1.0/sType/Dimensions#">
+              <mwg-rs:Regions rdf:parseType="Resource">
+                <mwg-rs:AppliedToDimensions rdf:parseType="Resource" stDim:w="{w}" stDim:h="{h}" stDim:unit="pixel"/>
+                <mwg-rs:RegionList><rdf:Bag>
+                  <rdf:li rdf:parseType="Resource" mwg-rs:Name="Hannah" mwg-rs:Type="Face"{extra}>
+                    <mwg-rs:Area rdf:parseType="Resource" stArea:x="0.25" stArea:y="0.4" stArea:w="0.1" stArea:h="0.15" stArea:unit="normalized"/>
+                  </rdf:li>
+                </rdf:Bag></mwg-rs:RegionList>
+              </mwg-rs:Regions>
+            </rdf:Description></rdf:RDF></x:xmpmeta>"#
+        )
+    }
+
+    /// A JPEG holding `exif` (a TIFF stream) in an APP1 Exif segment and `packet` in an APP1 XMP segment.
+    fn jpeg_with(exif: &[u8], packet: &str) -> Vec<u8> {
+        let mut j = vec![0xff, 0xd8];
+        let mut seg = |payload: Vec<u8>| {
+            j.extend([0xff, 0xe1]);
+            j.extend(u16::try_from(payload.len() + 2).unwrap().to_be_bytes());
+            j.extend(payload);
+        };
+        seg([b"Exif\0\0".as_slice(), exif].concat());
+        seg([b"http://ns.adobe.com/xap/1.0/\0".as_slice(), packet.as_bytes()].concat());
+        j.extend([0xff, 0xd9]);
+        j
+    }
+
+    fn near(r: Rect, b: [f64; 4]) -> bool {
+        [r.x0 - b[0], r.y0 - b[1], r.x1 - b[2], r.y1 - b[3]].iter().all(|d| d.abs() < 1e-9)
+    }
+
+    /// The face's box of [`regions_packet`] as drawn, left as written.
+    const DRAWN: [f64; 4] = [0.2, 0.325, 0.3, 0.475];
+
+    /// A photo whose Exif has a size but no orientation, and whose XMP says `tiff:Orientation=6`: it is displayed by
+    /// the Exif alone, so it stays as stored, and boxes drawn on that stored frame are right as written. Turning them
+    /// by an orientation only the XMP states puts them where the photo isn't.
+    #[test]
+    fn an_orientation_only_the_xmp_states_turns_no_regions() {
+        // 6000 × 4000 in the Exif, and no orientation
+        let size_ifd = || {
+            let mut sub = lightcraft_tiff::IfdBuilder::new();
+            sub.set(lightcraft_tiff::tags::PIXEL_X_DIMENSION, lightcraft_tiff::Value::Long(vec![6000]));
+            sub.set(lightcraft_tiff::tags::PIXEL_Y_DIMENSION, lightcraft_tiff::Value::Long(vec![4000]));
+            sub
+        };
+        let mut exif_ifd0 = lightcraft_tiff::IfdBuilder::new();
+        exif_ifd0.set_child(lightcraft_tiff::tags::EXIF_IFD, size_ifd());
+        let exif = lightcraft_tiff::TiffWriter::new(lightcraft_tiff::ByteOrder::Little, false).write(&[exif_ifd0]).unwrap();
+        let packet = regions_packet(6000, 4000, "")
+            .replace(r#"rdf:about="""#, r#"rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Orientation="6""#);
+        let j = jpeg_with(&exif, &packet);
+        let m = extract(&j);
+        assert_eq!((m.width, m.height), (Some(6000), Some(4000)));
+        assert_eq!(m.orientation, Some(Orientation::Rotate90), "the XMP's orientation is still reported");
+        assert_eq!(m.regions.len(), 1);
+        assert!(near(m.regions[0].rect, DRAWN), "turned by an orientation the Exif doesn't state: {:?}", m.regions[0].rect);
+        assert_eq!(try_extract(&j).unwrap().regions, m.regions);
+        // a TIFF-based file: the first IFD has no orientation, its XMP (tag 700) has
+        let mut ifd0 = lightcraft_tiff::IfdBuilder::new();
+        ifd0.set(lightcraft_tiff::tags::XMP, lightcraft_tiff::Value::Byte(packet.into_bytes()));
+        ifd0.set_child(lightcraft_tiff::tags::EXIF_IFD, size_ifd());
+        let m = extract(&lightcraft_tiff::TiffWriter::default().write(&[ifd0]).unwrap());
+        assert_eq!(m.orientation, Some(Orientation::Rotate90));
+        assert!(near(m.regions[0].rect, DRAWN), "TIFF: {:?}", m.regions[0].rect);
+    }
+
+    /// A size only the XMP states can't tell how the photo is stored: `tiff:ImageWidth` and `tiff:ImageLength` of the
+    /// upright photo have the shape of boxes drawn on it upright, and those must not be turned.
+    #[test]
+    fn a_size_only_the_xmp_states_turns_no_regions() {
+        // orientation 6, no pixel size
+        let exif = write_exif(&Metadata { orientation: Some(Orientation::Rotate90), ..Default::default() });
+        let packet = regions_packet(4000, 6000, "")
+            .replace(r#"rdf:about="""#, r#"rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:ImageWidth="4000" tiff:ImageLength="6000""#);
+        let j = jpeg_with(&exif, &packet);
+        let m = extract(&j);
+        assert_eq!((m.orientation, m.width, m.height), (Some(Orientation::Rotate90), Some(4000), Some(6000)));
+        assert_eq!(m.regions.len(), 1);
+        assert!(near(m.regions[0].rect, DRAWN), "{:?}", m.regions[0].rect);
+        assert_eq!(try_extract(&j).unwrap().regions, m.regions);
+        // a TIFF-based file: the whole file is the Exif block, with the XMP in its first IFD
+        let mut ifd0 = lightcraft_tiff::IfdBuilder::new();
+        ifd0.set(lightcraft_tiff::tags::ORIENTATION, lightcraft_tiff::Value::Short(vec![6]));
+        ifd0.set(lightcraft_tiff::tags::XMP, lightcraft_tiff::Value::Byte(packet.into_bytes()));
+        let m = extract(&lightcraft_tiff::TiffWriter::default().write(&[ifd0]).unwrap());
+        assert_eq!((m.orientation, m.width, m.height), (Some(Orientation::Rotate90), Some(4000), Some(6000)));
+        assert!(near(m.regions[0].rect, DRAWN), "TIFF: {:?}", m.regions[0].rect);
     }
 }
 

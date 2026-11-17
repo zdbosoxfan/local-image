@@ -76,7 +76,10 @@ pub fn save_bytes(doc: &Document, name: &str, format_override: Option<&str>, opt
     if ext == photocraft_format::EXTENSION {
         return Ok((photocraft_format::save_to_bytes(doc, &previews(doc))?, Vec::new()));
     }
-    let result = photocraft_io::export(doc, &ext, opts)?;
+    // A linked path inside the document is document data, not a grant: it is never read and
+    // embedded, so PSD export writes that layer as pixels.
+    let opts = ExportOptions { read_linked_files: false, ..opts.clone() };
+    let result = photocraft_io::export(doc, &ext, &opts)?;
     Ok((result.bytes, result.warnings))
 }
 

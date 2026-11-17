@@ -11,9 +11,9 @@ Move a cutoff with `cargo xtask upstream-reviewed <repo> <sha>`.
 
 | Upstream | Reviewed up to |
 |---|---|
-| PhotoCraft | `2fec95b0d91bcd45a1a17c93196761880af47322` |
-| LightCraft | `6b2b7e6d1117e683a1701568e56f979d061e4699` |
-| VectorCraft | `895e9493d2dada35bca88044e06b6f63883b2405` |
+| PhotoCraft | `eea5859589de077826c7b50f9ad02e4bc47e93fe` |
+| LightCraft | `d7191e78df943a64d1741f09fa5df92cb9f3ffc4` |
+| VectorCraft | `5bd8acfce98e784a37618e8c6c082fc13e2e0165` |
 
 ## Ported files
 
@@ -33,7 +33,6 @@ the end of this file.
 | `crates/lc-merge/src/pixelshift.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/pixelshift.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-14 | Independent Rust noise-aware repeated-green motion comparison; measured/profiled variance and first-shot fallback. |
 | `crates/lc-merge/src/pixelshift.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/denoiseprofile.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-14 | Documented normalized sensor variance a×signal+b for motion thresholds. |
 | `crates/lc-merge/src/pixelshift.rs` | [make_arq](https://github.com/agriggio/make_arq) | `make_arq.py` | `912069a8e6d3c6738cd76ba0fe6c62ed4d314fe3` | GPL-3.0-or-later | 2026-10-14 | Sony source shot displacement and half-pixel phase ordering (independent Rust reconstruction/motion implementation). |
-| `crates/li-ai/src/builders.rs`, `crates/li-ai/examples/zimage_variety_check.rs` | [SplitMix64](https://github.com/svaarala/duktape) | `misc/splitmix64.c` | `84131700dfd32d9d1063f99b5b0a900f5935a613` | CC0-1.0 | 2026-10-10 | Stable seed-derived alternate conditioning for Z-Image Turbo Variety. |
 
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date |
 |---|---|---|---|---|---|
@@ -1015,6 +1014,7 @@ preflight has its own bounded reader) and `830cefca` (we don't read XMP from PDF
 | [`ea826b11cc5b`](https://github.com/storytold/lightcraft/commit/ea826b11cc5bec456c2b71e6bc6ea59a4f91af45) | engine: refuse negative indices instead of targeting element 0 | `crates/lc-engine/src/cmd/color.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/masks.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`de44200a8ddd`](https://github.com/storytold/lightcraft/commit/de44200a8dddfa2677f71a48ef978d1c8a616266) | Issue #2097: reject fractional command indices | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`1162c2a01832`](https://github.com/storytold/lightcraft/commit/1162c2a01832cd424704f17aa9405fd48ffed445) | crop.set refuses a crop smaller than the crop tool allows, instead of exporting 1×1 (part of #1952) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-geom/src/crop.rs`<br>`crates/lc-geom/src/lib.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
+| [`be34283943e0`](https://github.com/storytold/lightcraft/commit/be34283943e0170fdf508b693b09fc5f38e45e6c) | crop.set checks the minimum on the crop it stores, so an oversized rect can't come out a sliver (part of #1952) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
 | [`9ef40b98866c`](https://github.com/storytold/lightcraft/commit/9ef40b98866ca7270fa4621c83028357c7ed79b8) | Commands: Refuse malformed photo ids instead of using the selection (#1506) | `crates/lc-engine/src/cmd/browse.rs`<br>`crates/lc-engine/src/cmd/convert.rs`<br>`crates/lc-engine/src/cmd/cull.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/keywords.rs`<br>`crates/lc-engine/src/cmd/library.rs`<br>`crates/lc-engine/src/cmd/manage.rs`<br>`crates/lc-engine/src/cmd/merge.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/cmd/organize.rs`<br>`crates/lc-engine/src/cmd/previews.rs`<br>`crates/lc-engine/src/cmd/xmp.rs`<br>`crates/lc-engine/src/lib.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/lc-ui-egui/src/merge.rs`<br>`crates/lc-ui-egui/src/panels/dialogs.rs`<br>`crates/lc-ui-egui/src/panels/grid.rs`<br>`crates/lc-ui-egui/src/tasks.rs` | MIT OR Apache-2.0 |
 
 Adapted ports: `436ca356` applies the clamp in `li_gpu::device_limits`, where both editors take
@@ -1023,7 +1023,10 @@ its unit test; its GPU sweep test needs the upstream mip readback harness. `502d
 `li_fs::same_file`; its Windows file-identity change does not apply. `8b61a8b1` checks `zoom`,
 `center` and `dockWidth` (our `ui.set` has no `rotation`) before anything changes. `de44200a` also
 moves our `history.restore` onto the checked index. `1162c2a0` adds `MIN_CROP_FRACTION` to
-`lc-geom`, shared by `crop.set` and the crop tool's drag.
+`lc-geom`, shared by `crop.set` and the crop tool's drag. `be342839` follows `1162c2a0`: the second check
+follows our single `constrained` call (no `with_angle` branch here) and keeps our NaN-refusing
+form, so a rect whose fit overflows (`1e308`) is refused rather than stored; its oversized-rect
+cases are a new test, and upstream's `crop_set_huge_rect_stays_finite` edit has no counterpart.
 
 Not applicable or deferred: `e14db894` (our export options fall back to the format's own depth by
 design and have no strict parameter validator), VectorCraft `025ce255` and `32dbc4b6` (our PDF
@@ -1063,3 +1066,1100 @@ The literal/pattern-only method-field adaptations in dc209948 are local: `crates
 `crates/pc-ui-egui/src/vector_packages/appearance.rs`, `crates/pc-ui-egui/tests/gpu/vector_integration.rs`
 and `crates/pc-vector/src/profile_tests.rs`.
 The Smooth measurements retain upstream's black-to-white and red-to-blue rows and two-level tolerance.
+
+## PhotoCraft PSD export safety (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad`](https://github.com/storytold/photocraft/commit/a8e5cb3e8e79bad623f9177ee21614f4dca7a4ad) | PSD: drop a kept merged-transparency marker when the composite is opaque | `crates/pc-io/src/psd_export.rs`<br>`crates/pc-io/src/psd_export/tests.rs` | MIT OR Apache-2.0 |
+
+The opaque-composite export drops preserved `MTrn`, `Mtrn`, `Mt16` and `Mt32` markers, while alpha-bearing composites retain them. The layer-info block placement follows any retained marker.
+
+## PhotoCraft Affinity importer bounds (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b278ff72459cbf9754863365edd822ba2248aa07`](https://github.com/storytold/photocraft/commit/b278ff72459cbf9754863365edd822ba2248aa07) | security(affinity): charge archive names, failed reads, corner arrays, attachments, pages and font names (#9257) | `crates/pc-affinity/src/container.rs`<br>`crates/pc-affinity/src/geometry.rs`<br>`crates/pc-affinity/src/model.rs`<br>`crates/pc-affinity/src/paint.rs`<br>`crates/pc-affinity/src/raster.rs`<br>`crates/pc-affinity/src/tests.rs`<br>`crates/pc-affinity/src/text.rs`<br>`crates/pc-affinity/tests/scene/af5.rs`<br>`crates/pc-affinity/tests/support/text_fixture.rs` | MIT OR Apache-2.0 |
+
+Already covered here: failed archive reads spend the extraction allowance before decoding, attached-mask arrays use `Reader::charge_slots`, and that slot-budget method is already crate-visible. The port adds aggregate archive-name and page limits, a document-wide font-name budget, and accounting for curve-corner, gradient and pixel-state scans. The 16 MiB font-name budget covers every name the model keeps, including each table cell's copy; the imported scene has the same cap on its own copies, which covers repeated master pages. Names past either cap are left empty with a warning. Curve-corner work uses the existing `OutlineBudget`. The existing 16 KiB per-name font limit remains: reducing it to 256 bytes conflicts with existing text tests, so that upstream reduction is flagged for human decision.
+
+## PhotoCraft Vanishing Point canvas clamp (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`248972cfa343ef46cee8f06ea16173310b2abba2`](https://github.com/storytold/photocraft/commit/248972cfa343ef46cee8f06ea16173310b2abba2) | Integration: clip VP clone copy-back to the canvas, paste in the stamp preview (#3281) | `crates/pc-engine/src/vp_cmds.rs` | MIT OR Apache-2.0 |
+| [`0f8521851eda61b05f9c5a1201e313e2cbb3a199`](https://github.com/storytold/photocraft/commit/0f8521851eda61b05f9c5a1201e313e2cbb3a199) | Integration: Vanishing Point clone dabs stay on the canvas | `crates/pc-algo/src/vanishing.rs`<br>`crates/pc-algo/tests/coverage/vanishing_coverage.rs`<br>`crates/pc-engine/src/vp_cmds.rs` | MIT OR Apache-2.0 |
+
+Only canvas clamping is ported: dab rectangles are clipped before surface access, and command copy-back is clipped to the document bounds. The stamp-preview and paste changes are not included.
+
+## PhotoCraft package links (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`1e5b5f76170e7fdfc5cdc8aaa1a9ecfc6e2ca81f`](https://github.com/storytold/photocraft/commit/1e5b5f76170e7fdfc5cdc8aaa1a9ecfc6e2ca81f) | Package: never overwrite one link's copy with another, list a missing link once (#9185) | `crates/pc-engine/src/print_cmds.rs`<br>`crates/pc-engine/src/print_cmds/tests.rs` | MIT OR Apache-2.0 |
+
+Package link names are unique case-insensitively across both the current run and files already in `Links`; repeated missing paths are reported once. Contributor metadata was not part of this code port.
+
+## PhotoCraft native manifest input bound (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`92a15591381b0967d6276ff2e8b65a8bbd968a18`](https://github.com/storytold/photocraft/commit/92a15591381b0967d6276ff2e8b65a8bbd968a18) | Refuse .pcraft manifests with too many JSON values before parsing (#8893) | `crates/pc-format/src/store.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
+
+The existing linear manifest scan now caps the counts of opened arrays/objects and comma-separated values at 4,194,304 before deserializing the JSON tree. The same scanner protects serialized manifests on save.
+
+## PhotoCraft data-set export filenames (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`2c4982f2d2981c1685212dd951d7466e4b39fe49`](https://github.com/storytold/photocraft/commit/2c4982f2d2981c1685212dd951d7466e4b39fe49) | Export Data Sets as Files keeps outputs in the chosen folder (#9420) | `crates/pc-engine/src/variables_cmds.rs`<br>`crates/pc-engine/src/variables_cmds/tests.rs`<br>`crates/pc-engine/src/web_cmds.rs` | MIT OR Apache-2.0 |
+
+Document-derived stems replace path separators, controls and reserved filename characters; empty, `.` and `..` stems become `_`. Each template path component also uses the existing Windows device-name handling from the web asset exporter, preserving file extensions.
+
+## PhotoCraft parser hardening (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`1121b7979bc6`](https://github.com/storytold/photocraft/commit/1121b7979bc61f398619c2951c9ece1fb8c8fc08) | fix(format): bound ZIP expansion by declared size | `crates/pc-format/src/zip.rs` | MIT OR Apache-2.0 |
+| [`8f782cab1cf9`](https://github.com/storytold/photocraft/commit/8f782cab1cf98fecca7af994ea574cc547e07b8c) | fix(codecs): bound complete JPEGs by their scan data too | `crates/pc-codecs/src/codecs/jpeg.rs` | MIT OR Apache-2.0 |
+| [`68c0f034d507`](https://github.com/storytold/photocraft/commit/68c0f034d507d104a3aff2ed46f01bd800a0af6a) | Plug-ins: refuse a code section with no functions but many bytes instead of panicking (#9679) | `crates/pc-plugins/src/runtime.rs`, `crates/pc-plugins/tests/abi.rs` | MIT OR Apache-2.0 |
+
+Local adaptations: 8f782cab1 edits a JPEG frame-size guard from c9892c8f8 and 07f91c6d3, which are not
+ported. Local Image adds only the guard on files whose walk reached an EOI, so a truncated JPEG still
+opens with its warning. Where upstream counts the unread tail of a walk stopped by an odd layout, Local
+Image leaves that file unmeasured (`DataEnd::Unread`), so it opens as before the port, whether or not an
+EOI follows. A stray EOI inside a scan counts as the end, so a damaged file can fail the guard, as upstream.
+Scan bytes are counted in the existing `scan_metadata` walker instead of upstream's `data_end`, and that
+walker keeps skipping stray bytes before the first scan, so header padding never counts. The ZIP reader
+keeps `flate2::read::DeflateDecoder`; upstream's `bufread` decoder comes from 51788e665, which is not ported.
+
+## LightCraft HEIF hardening (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b88f72b9df68`](https://github.com/storytold/lightcraft/commit/b88f72b9df68f07a080772d7fb16a92d6f7db837) | sec: bound heic-rs 0.1.4 work around hostile HEIF containers | `crates/pc-heif/src/census.rs`, `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`178eef790bd8`](https://github.com/storytold/lightcraft/commit/178eef790bd8872a6f60f7b1a0fb7b67499acc59) | heif: bound iloc item-extent visits before reconstructing in probe | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`269495cd3867`](https://github.com/storytold/lightcraft/commit/269495cd3867e9feee1876ac641627ba23c7dabb) | security(heif): budget every reconstruction before it runs | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+| [`0c71f75325b5`](https://github.com/storytold/lightcraft/commit/0c71f75325b5f707bbe8e7ef6324e6e14a8f51e6) | security(heif): scan the primary item before heic_rs::probe, the alpha plane, and each thumbnail candidate | `crates/pc-heif/src/lib.rs`, `crates/pc-heif/src/tests_hardening.rs` | MIT OR Apache-2.0 |
+
+Partial port into the pinned `heic-rs = 0.1.4` wrapper: `ipma` payloads are capped at 64 KiB in
+aggregate, `iloc` item and extent records at 65,536 each, item extent visits at 4096, coded-item
+reconstruction at the file size, transform properties at 12, and output samples at 2³⁰ even when a
+caller raises `max_pixels`.
+The wrapper has no thumbnail API, so thumbnail-candidate changes do not apply. `heic-rs` already
+checks a grid's actual canvas against the decode limit before allocating the output image.
+
+Local extension: alpha-grid tile extent chains share the 4096-read budget with primary reconstruction.
+Local extension: `iloc` record counts replace upstream's 64 KiB `iloc` payload cap, which is not
+ported: zero-width extents cost no bytes, so payload size did not price the allocation. The census
+walks every `iloc` box as `heic-rs` 0.1.4 parses it and totals the records across all of them, so a
+list cut short or using unknown field widths still pays for every record `heic-rs` builds from it.
+`Context::open` therefore builds at most 65,536 item records and 65,536 extent records; a file
+holding more is refused first. Re-check the census against `heic-rs`'s `iloc` parser when the pin
+moves.
+
+## Path operation budgets (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`cd80d1d859cd`](https://github.com/storytold/vectorcraft/commit/cd80d1d859cdefb4f095c362c52c9cae63f41f62) | Security: planar map budgets for booleans, Live Paint, Offset Path and 3D effects | `crates/pc-pathops/src/budget.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/lib.rs` (error variant)<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+| [`0eebd533c58c`](https://github.com/storytold/vectorcraft/commit/0eebd533c58c357a1b5b09769b6890066b05d80e) | security(pathops): signed zeros, reported budget rejections, and a fill-only fallback | `crates/pc-pathops/src/budget.rs` (signed-zero bounds)<br>`crates/pc-engine/src/pathops_cmds.rs` (command-boundary regression) | MIT OR Apache-2.0 |
+| [`caf10cc5816d`](https://github.com/storytold/vectorcraft/commit/caf10cc5816d5f26bee02837650ce6952b69b878) | security(pathops): count the sweep budget on the snapped geometry | `crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `cd80d1d8` counts overlapping segment bounds before every arrangement sweep and
+the Live Paint map sweep, and stores Live Paint crossing counts sparsely. In Local Image the
+arrangement already snaps horizontals before sweeping, so the shared preflight runs after that
+snap and also covers snap-round and flatten retries (`caf10cc5`). `0eebd533` canonicalizes signed
+zero in bounds; existing fallible APIs and `pathops_cmds` error propagation surface the refusal
+before editing, verified by the command regression. Its `try_boolean_n` and `try_area` additions
+are unnecessary here: no workspace caller uses the infallible N-ary helper, and the document
+adapter already returns errors for boolean and area operations. The fill-only Shape Builder
+fallback is not used because Local Image's checked builder contract reports incomplete geometry
+instead of silently dropping cutting lines.
+The gap grouping (`gap_from`) and 3D-effect hunks of `cd80d1d8` are not ported: neither piece of
+code exists in this tree.
+Local addition: `WorkBudget` caps the pairs of all sweeps in one path operation at four sweep
+limits (16,777,216). Upstream limits each sweep only, which leaves a many-component path to run
+every sweep up to the limit. `check_sweep_size` in `planar.rs` is also local: a trial sweep that
+stops a planar map or any arrangement once it would add too many edges or winding values, so it
+covers booleans, normalize, offset, `finish_compound` and Pathfinder Unite as well. Art with too
+few segments close together to reach those limits skips it. `RefusalWatch` is local too: it lets
+the canvas skip a refused effect and lets output fail naming the layer, without sharing a budget.
+The trial sweep counts only edges a sweep adds, so art that nothing cuts passes it. The pair limit
+and the operation budget count overlapping bounds instead, so they do refuse art that never
+crosses: 730 concentric circles in one component, or 2,400 circles held as separate components.
+
+## RAW and metadata memory bounds (2026-10-30)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/lightcraft@`d00df6319cd382b67c25f2d4bd540b87261318eb`](https://github.com/storytold/lightcraft/commit/d00df6319cd382b67c25f2d4bd540b87261318eb) | security/raw: bound hostile-memory paths in raw decoders | `crates/lc-raw/src/dngwrite.rs`<br>`crates/lc-raw/src/opcodes.rs`<br>`crates/lc-raw/src/preview.rs`<br>`crates/lc-raw/src/tiffraw.rs`<br>`crates/lc-raw/tests/it/dng.rs`<br>`crates/lc-tiff/src/image.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`d8ceb3a6af2b5bd86fdcb947eb8a4f5b1c372125`](https://github.com/storytold/lightcraft/commit/d8ceb3a6af2b5bd86fdcb947eb8a4f5b1c372125) | security/meta,merge,raw,tiff,denoise: bound memory sized by attacker-shaped inputs | `crates/lc-meta/src/xmp.rs`<br>`crates/lc-tiff/src/makernote.rs`<br>`crates/lc-merge/src/lib.rs`<br>`crates/lc-merge/src/pano/camera.rs`<br>`crates/lc-merge/src/pano/mod.rs`<br>`crates/lc-merge/tests/it/pano_coverage.rs`<br>`crates/lc-engine/src/merge.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/preset_import.rs`<br>`crates/lc-engine/src/crs.rs`<br>`crates/lc-meta/src/xmp_merge.rs`<br>`crates/lc-meta/src/file_info.rs`<br>`crates/lc-meta/src/exif.rs`<br>`crates/lc-meta/src/lib.rs`<br>`crates/lc-tiff/src/reader.rs`<br>`crates/pc-engine/src/vector_packages/pdf_export.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`3022baa8615a2956e239b7febf3fe4ff98289885`](https://github.com/storytold/lightcraft/commit/3022baa8615a2956e239b7febf3fe4ff98289885) | security(raw,meta): follow-ups from review | `crates/lc-raw/src/preview.rs`<br>`crates/lc-raw/src/tiffraw.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`ca69e74b62c819e4dee07fb50eb674ef39b8557a`](https://github.com/storytold/lightcraft/commit/ca69e74b62c819e4dee07fb50eb674ef39b8557a) | fix(raw): check opcode byte counts without overflow | `crates/lc-raw/src/opcodes.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`dcf5c61a64716bec507ee79735ef18ce0837fbce`](https://github.com/storytold/photocraft/commit/dcf5c61a64716bec507ee79735ef18ce0837fbce) | Integration: cap MapPolynomial opcodes, finite WhiteLevel, RGB-only JPEG XL preview (#8402) | `crates/lc-raw/src/dng.rs`<br>`crates/lc-raw/src/opcodes.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `d00df631` uses `ImageInfo::single_chunk` for TIFF previews, which builds its one chunk itself rather than calling `chunks()` so a long offset table is not cloned, retains the chunk-scoped decoder budget already used by raw imports, checks Deflate plausibility against the in-image span while keeping inflation bounded by the nominal tile, and charges `WarpFisheye`, `FixVignetteRadial` and the binned `GainMap` to the `OpcodeList3` pass cap, each being a full-image pass here; `d8ceb3a6` reports omissions from the 1 MiB flattened-key retention budget through `XmpData::property_keys_truncated`, which preset imports log, while retaining the existing 64 MiB `TooComplex` ceiling, keeps that budget only on `parse_xmp`, whose remaining callers (presets, `photo.allMetadata` and the validation passes in `xmp_merge`, which discard the result) decide nothing a catalog, sidecar, save or export keeps, parses everything else with `parse_whole_xmp`, which stops only at that ceiling, so `extract`, `try_extract`, `from_tiff`, `parse_sidecar`, `merge_xmp`'s read-back, `copyright_xmp`, File Info, PDF File Info and a DNG's Exif capture time lose nothing to the retention budget, has `try_extract` report a packet past that ceiling so Remove Location Info refuses what it cannot read, and lc-engine asks `pano::check_frame_count` before it loads panorama frames; `3022baa8` skips a CR3 candidate that exceeds the remaining scan budget so a later smaller box can still be checked, and its tile-grid check lives in `check_image` in `crates/lc-raw/src/tiffraw.rs` rather than `read_image`, so header-only reads and Sony's `read_quad_tiles` and `read_ycbcr_tiles` refuse the same grids. `dcf5c61a` keeps a `MapPolynomial` past the cap as `Opcode::Unknown` with empty parameters, as `OpcodeLists` has no `skipped` record: it is not applied, and DNG export writes it back with its flags and no coefficients. The `log` dependency in `crates/lc-tiff` and `crates/lc-raw` carries one warning per read for each cap that drops data: `warn_capped` for polynomials and `OpcodeList3` passes, `parse_makernote` for maker-note entries, and `cr3_preview_boxes` for skipped candidates. `is_new_block` keeps one read that parses a maker note several times to one line. The `dcf5c61a` JPEG XL preview filter is out of scope.
+
+Already covered: `d00df631`'s lossy-JPEG size ceiling by the tile-bounded JPEG header (`crates/lc-raw/src/tiffraw.rs:491`), and `d8ceb3a6`'s rows-sized lossy buffer by `chunk_working_bytes` (`tiffraw.rs:206`). `d8ceb3a6`'s chunk grouping and `3022baa8`'s saturating grouping by `chunk_batches` (`tiffraw.rs:227`, its overflow-free comparison at `tiffraw.rs:236`), which bounds live memory; total decode work is bounded by the tile-grid check (`tiffraw.rs:97`). `3022baa8`'s document-wide flattened-key budget by the parse-wide budget (`crates/lc-meta/src/xmp.rs:539`). `d8ceb3a6`'s test-only `crates/tiff/src/reader.rs` hunk by `maker_note_values_stay_within_a_fixed_budget` in `crates/lc-tiff/src/makernote.rs`.
+
+Not applicable, the upstream file having no counterpart here as of `6f6d8ed8`: `d00df631`'s and `3022baa8`'s `crates/raw/src/sparse.rs` (no sparse reader), `d00df631`'s `crates/raw/src/vendor/mef.rs` (no MEF decoder) and `crates/raw/src/wb_estimate.rs`, and `d8ceb3a6`'s `crates/meta/src/focus_read.rs` (no focus reader), `crates/denoise/src/reference.rs` and `crates/denoise-core/src/product.rs`. `d8ceb3a6`'s `try_read_exif_with` in `crates/meta/src/exif.rs` exists upstream for that focus reader and has no caller here.
+
+Local limit on a ported guard: the refusal of an Original export under Remove Location Info from `db7e3784` (`crates/lc-engine/src/export/prepared.rs`) only trusts the containers `reads_container` allows (`crates/lc-meta/src/container.rs`). Everything else is refused, including JPEG XL, which has no metadata reader here yet, and HEIC, HEIF and HIF, whose Exif and XMP items are read best-effort for import (`6c2ff558`, `crates/lc-meta/src/heif.rs`) and not trusted by this check. Within those containers `try_extract` refuses a malformed XMP packet in any of them, and any block `Embedded::unread` names: compressed or `zTXt`/`tEXt` PNG XMP, a raw metadata profile, a second Exif block or XMP packet, a cut-off block, and XMP that is not UTF-8. JPEG extended XMP is read, and `Metadata::other_location` adds the location fields `Metadata` has no field for. A local adaptation with no upstream match. This is best-effort, not a guarantee that a copied file holds no location: corrupt Exif outside PSD/PSB reads as no Exif (`try_extract_keeps_non_psd_exif_best_effort`), so a location inside it goes unseen, and nothing looks at JPEG data past the first scan, IPTC past the first APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside TIFF IFD0, CR3 preview boxes, or PNG text chunks under other keywords.
+
+## Giant-file imports (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4001a3092a5be314e2aeda2ff9bc4dc84e2115fb`](https://github.com/storytold/photocraft/commit/4001a3092a5be314e2aeda2ff9bc4dc84e2115fb) | TIFF: open images over 2^30 px, decoded a group of rows at a time into the layer (#8169) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-codecs/src/options.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs`<br>`crates/pc-io/src/flat.rs`<br>`crates/pc-raster/src/lib.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`98bcbfab9005b4915b3143b4daed91df365db107`](https://github.com/storytold/photocraft/commit/98bcbfab9005b4915b3143b4daed91df365db107) | perf(io): build JPEG/PNG tiles straight from the decoded rows, in parallel (#10259) (#10281) | `crates/pc-codecs/src/image.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`dde01384d2ab39995c28d4dbc68ce5c4b297a217`](https://github.com/storytold/photocraft/commit/dde01384d2ab39995c28d4dbc68ce5c4b297a217) | perf(io): stream large PNGs row by row into the layer's tiles (#10259) (#10305) | `crates/pc-codecs/src/codecs/png.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-codecs/tests/it/png_jpeg.rs`<br>`crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
+
+Adapted port of `4001a309`: `Limits::banded` raises the size to 300,000 px a side on top of
+`Limits::desktop_photo` (whose 2 GiB `max_alloc` bounds each group of bands), the banded decode is
+guarded against decoder panics like the whole-image decoders, a cut-off page keeps the warning order
+of `decode_page`, and `Surface::try_write_interleaved` writes serially (`pc-raster` has no rayon).
+`image_to_document` keeps the locked Background layer, container colour hints and text-metadata warning,
+and now shares the fallible tile writes with the banded TIFF path.
+Partial port of `98bcbfab`: `codecs::convert_samples` and the per-tile conversion from the decoded
+rows (on all cores, through `Surface::try_take_tiles`) are ported; a decode that already has the
+document's layout keeps the serial `try_write_interleaved` copy. Not ported: upstream's
+`Surface::try_write_rows_with` (`pc-raster` has no rayon), the RGB8 to RGBA8 inline loop, the scratch
+pool and the cancellation checks of `import_flat_with` (no `Interrupt` here). Its F16-target alpha fix
+is already covered: `document_format` stores 16-bit float as 32-bit float (`crates/pc-io/src/flat.rs`).
+Partial port of `dde01384`: `codecs::decode_png_rows` (with the PNG decoder split into open, finish
+and extras, which here also carry the container colour hint and source bit depth) and the streamed
+PNG import from 32 MiB decoded. Not ported: the free-memory checks before the tiles exist (no
+`crate::memory` probe here), cancellation and progress (no `Interrupt`), `ImportOptions` decode
+limits (the streamed path uses `Limits::desktop_photo`, as the whole-image path does), and the
+resolution-from-EXIF fallback, which the whole-image PNG path here does not apply either.
+
+## LightCraft render ports, lc-render (2026-11)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`646566f1f389`](https://github.com/storytold/lightcraft/commit/646566f1f389ed016b15515e13b4da4460da64fb) | LR-CROP-RECT: sidecar settings kept in range; a turned crop bounded to the photo (#2555) | `crates/lc-develop/src/lib.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/tests_xmp.rs`<br>`crates/lc-geom/src/crop.rs`<br>`crates/lc-pipeline/src/geometry.rs` | MIT OR Apache-2.0 |
+| [`fdc979035847`](https://github.com/storytold/lightcraft/commit/fdc97903584742fc6c06b62245cd44f1ead3b4c3) | LR-CROP-RECT: a reversed crop rect read from a file is the whole frame (#2555) | `crates/lc-geom/src/crop.rs` | MIT OR Apache-2.0 |
+| [`f2d36c59e64b`](https://github.com/storytold/lightcraft/commit/f2d36c59e64b0b159f2e4ad1969922df2297734a) | Never crash: the work gate's byte count saturates instead of overflowing (#2576) | `crates/lc-engine/src/memory.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
+| [`be252030745d`](https://github.com/storytold/lightcraft/commit/be252030745d81de58bb50fa2a80cabdd8f2000b) | Never crash: the work gate counts held bytes exactly past usize::MAX (#2576) | `crates/lc-engine/src/memory.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
+| [`2e5c1dd41d7a`](https://github.com/storytold/lightcraft/commit/2e5c1dd41d7a91602b765370d387d50629dcefdd) | Never crash: tone curves take NaN input and lookup tables shorter than two entries (#2579) | `crates/li-color/src/spline.rs` | MIT OR Apache-2.0 |
+| [`2f622737c4dc`](https://github.com/storytold/lightcraft/commit/2f622737c4dc23a4155f62df9a3569cac7ff5de6) | Never crash: an empty lookup table clamps its input to 0..1 like any other (#2579) | `crates/li-color/src/spline.rs` | MIT OR Apache-2.0 |
+| [`4d42507bbcc1`](https://github.com/storytold/lightcraft/commit/4d42507bbcc180df831435c8ef2c29740b5216aa) | security(raster, segment): resample tall narrow images columns first (#3678) | `crates/lc-segment/src/mask.rs` | MIT OR Apache-2.0 |
+| [`0b3810192497`](https://github.com/storytold/lightcraft/commit/0b3810192497cda493af37475149fedcfbfc2679) | Never crash: an oversize export size is an error, not a multiply overflow | `crates/lc-engine/src/media.rs`<br>`crates/lc-engine/src/tests_export.rs`<br>`crates/lc-pipeline/src/lib.rs` | MIT OR Apache-2.0 |
+| [`5725dccb1db9`](https://github.com/storytold/lightcraft/commit/5725dccb1db905b1ff644420fa9c467f46437671) | Never crash: render_now refuses an oversize output size too | `crates/lc-engine/src/media.rs`<br>`crates/lc-engine/src/tests_export.rs`<br>`crates/lc-pipeline/src/lib.rs` | MIT OR Apache-2.0 |
+| [`a3dbe2ab914d`](https://github.com/storytold/lightcraft/commit/a3dbe2ab914dc818f79d22fd6faf0a998144c2c5) | Brush dabs: build only as far as the caller will look (#1520) | `crates/lc-gpu/src/render.rs`<br>`crates/lc-pipeline/src/masks.rs` | MIT OR Apache-2.0 |
+| [`9563f22969b3`](https://github.com/storytold/lightcraft/commit/9563f22969b3cb158d57a45a1e63a9166ed0b10c) | security(pipeline): one dab budget per brush mask; linear-time defringe min/max | `crates/lc-engine/src/media.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-pipeline/src/masks.rs`<br>`crates/lc-pipeline/src/optics.rs`<br>`crates/li-matte/src/matting.rs` | MIT OR Apache-2.0 |
+| [`bc12ec8e4061`](https://github.com/storytold/lightcraft/commit/bc12ec8e40617928b44764030ddb90347d25e89e) | Never crash: a mask id at the u32 limit doesn't overflow the next mask's id | `crates/lc-develop/src/lib.rs`<br>`crates/lc-develop/src/presets.rs` | MIT OR Apache-2.0 |
+| [`8f638b33bd3b`](https://github.com/storytold/lightcraft/commit/8f638b33bd3bc3f31ae4d66c9fdd003df783aba1) | Treat a first intersect mask component as its base selection (#3854) | `crates/lc-gpu/src/render.rs`<br>`crates/lc-pipeline/src/masks.rs`<br>`crates/lc-ui-egui/src/panels/layer_bar.rs` | MIT OR Apache-2.0 |
+| [`c1a4fddca472`](https://github.com/storytold/lightcraft/commit/c1a4fddca4729da895dd93efc9f5628d1137b7ce) | security: O(width) box-blur priming, case-insensitive download names, stats walk skips directory links (#3729) | `crates/li-raster/src/blur.rs` | MIT OR Apache-2.0 |
+| [`06e2ec43bac5`](https://github.com/storytold/lightcraft/commit/06e2ec43bac52effdf1c90abb97f87425476dc34) | LR-MASK-COLORRANGE: a colour-range mask keeps at most 64 samples however it is loaded (#2556) | `crates/lc-develop/src/lib.rs`<br>`crates/lc-develop/src/settings.rs`<br>`crates/lc-pipeline/src/masks.rs` | MIT OR Apache-2.0 |
+| [`be6e462db430`](https://github.com/storytold/lightcraft/commit/be6e462db430c67f10053535fa07fb51724e8bc4) | Cap red eye corrections at 64 per photo (#2556) | `crates/lc-develop/src/settings.rs`<br>`crates/lc-engine/src/cmd/masks.rs`<br>`crates/lc-engine/src/tests_color.rs`<br>`crates/lc-pipeline/src/redeye.rs` | MIT OR Apache-2.0 |
+| [`f621d24753b7`](https://github.com/storytold/lightcraft/commit/f621d24753b71048835c7a18c4d67f9bfb6c564c) | LR-EDIT-EFFECTS-GRAIN: skip grain on a degenerate frame instead of producing NaN pixels | `crates/lc-pipeline/src/finish.rs`<br>`crates/lc-pipeline/src/tests.rs` | MIT OR Apache-2.0 |
+| [`556c95c7309f`](https://github.com/storytold/lightcraft/commit/556c95c7309f86338d46353118d64929f34b4c23) | LR-IMP-FORMATS: AHD blends its candidates where noise alone would pick one, no maze in noisy raws (#2094) | `crates/lc-engine/src/media.rs`<br>`crates/lc-raw/src/demosaic/ahd.rs`<br>`crates/lc-raw/src/demosaic/mod.rs` | MIT OR Apache-2.0 |
+| [`89424084b222`](https://github.com/storytold/lightcraft/commit/89424084b222e7f9260f7a348314d0428d0fedb4) | LR-IMP-FORMATS: AHD's blend leaves out a candidate that isn't finite (#2698 review) | `crates/lc-raw/src/demosaic/ahd.rs`<br>`crates/lc-raw/src/demosaic/mod.rs` | MIT OR Apache-2.0 |
+| [`2b4f2c588680`](https://github.com/storytold/lightcraft/commit/2b4f2c588680e093f6e3f293bbdae7136ff92390) | Never crash: History is bounded on load and by every op that sets it, not only by a new edit (#2579) | `crates/lc-catalog/src/journal.rs`<br>`crates/lc-catalog/src/lib.rs`<br>`crates/lc-catalog/src/model.rs`<br>`crates/lc-catalog/src/tests_journal.rs` | MIT OR Apache-2.0 |
+| [`99d4de32c7e9`](https://github.com/storytold/lightcraft/commit/99d4de32c7e98db86a172dd67dc06f6bda10d80a) | Issue #1764: running out of device memory falls back without stopping the GPU | `crates/lc-gpu/src/ctx.rs` | MIT OR Apache-2.0 |
+| [`cc59c765ee0d`](https://github.com/storytold/lightcraft/commit/cc59c765ee0d9720f9e544473ddcb50cd46e8b6a) | #2361: lens corrections crop inside the corrected photo | `crates/lc-pipeline/src/geometry.rs`<br>`crates/lc-pipeline/src/tests_geometry.rs` | MIT OR Apache-2.0 |
+| [`c9e459d670a4`](https://github.com/storytold/lightcraft/commit/c9e459d670a4af3faf9e1d476a9c56a1ba837dab) | #2361: keep the crop inside the photo after the automatic lateral CA estimate | `crates/lc-pipeline/src/geometry.rs`<br>`crates/lc-pipeline/src/lib.rs` | MIT OR Apache-2.0 |
+| [`f14d166fdfb0`](https://github.com/storytold/lightcraft/commit/f14d166fdfb09ce810c590ed1f7c294de4e35412) | Issue #3272: AI masks are enlarged along the photo's edges, no outline under a raised Exposure | `crates/lc-pipeline/src/masks.rs` | MIT OR Apache-2.0 |
+| [`84a6f5674c9b`](https://github.com/storytold/lightcraft/commit/84a6f5674c9ba937fdc89b891e34b45ee652d726) | Give the pipeline one exact output size instead of re-fitting (#3749) | `crates/lc-engine/src/export/prepared.rs`<br>`crates/lc-pipeline/src/lib.rs` | MIT OR Apache-2.0 |
+
+Local divergence from `cc59c765ee0d` and `c9e459d670a4`: with Constrain Crop off, lens corrections crop inside the corrected photo only when the photo is uncropped; a drawn crop stays where it was drawn (`Frame::lens_may_move_crop`, `crates/lc-pipeline/src/geometry.rs`, asked before each fit, including the refit for the estimated lateral CA). Region segmentation (`crates/lc-engine/src/segment/mod.rs`) renders its region as such a crop with Constrain Crop off and places the model's output on that region, so upstream's shrink would shift the mask near the photo's edge. Upstream still has the same caller unguarded (`crates/engine/src/segment/mod.rs`, as of 2026-11-15). Tests: `geometry::tests::region_crop_without_constrain_stays_put_under_distortion`, `tests_geometry::remove_ca_keeps_every_colour_plane_inside_the_corrected_photo`.
+
+## PhotoCraft compositor and GPU fixes (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`9f606d83d19a9dc3409909822a51f8c4e217f490`](https://github.com/storytold/photocraft/commit/9f606d83d19a9dc3409909822a51f8c4e217f490) | fix(compose): bisect gradient stops, evict oversized effect maps, skip empty distance transforms (#11056) | `crates/pc-compose/src/effects.rs`<br>`crates/pc-compose/src/lib.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`b5dbf608b3ff38f6cd9b20d43c3c9c22a03b9d0d`](https://github.com/storytold/photocraft/commit/b5dbf608b3ff38f6cd9b20d43c3c9c22a03b9d0d) | Treat Dissolve as a per-pixel choice for adjustments, clipped fills, and effects. | `crates/pc-compose/src/effects.rs`<br>`crates/pc-compose/src/lib.rs`<br>`crates/pc-compose/src/tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`b157affd9e323f159ed2f2ec31a5f313c5a6ac60`](https://github.com/storytold/photocraft/commit/b157affd9e323f159ed2f2ec31a5f313c5a6ac60) | Match Dissolve on the GPU compositor for effects, adjustments, and clipped fills. | `crates/pc-gpu/src/compose.wgsl` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`c728d013cbb9ebbf82bfc69ecbd0316fa48babe8`](https://github.com/storytold/photocraft/commit/c728d013cbb9ebbf82bfc69ecbd0316fa48babe8) | fix(compose): honor Dissolve coverage on clipped layers (#4921) | `crates/pc-compose/src/lib.rs`<br>`crates/pc-compose/src/tests.rs`<br>`crates/pc-gpu/src/compose.wgsl` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`d821e548dec7e53254a9d906c24498a1e7d705e3`](https://github.com/storytold/photocraft/commit/d821e548dec7e53254a9d906c24498a1e7d705e3) | fix(compose): use the same linear Dissolve mix as unclipped layers | `crates/pc-compose/src/lib.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`d78d7493d3f0b6e760c88de969ac810e9bc5d910`](https://github.com/storytold/photocraft/commit/d78d7493d3f0b6e760c88de969ac810e9bc5d910) | fix: an edit at full coverage keeps its result over huge 32-bit values (#9483) | `crates/pc-compose/src/lib.rs`<br>`crates/pc-compose/src/tests.rs`<br>`crates/pc-engine/src/adjust_cmds.rs`<br>`crates/pc-engine/src/pixels.rs`<br>`crates/pc-plugins/src/apply.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`da157945077190e550b53a5e14b0536f62761292`](https://github.com/storytold/photocraft/commit/da157945077190e550b53a5e14b0536f62761292) | fix(compose, gpu): an adjustment layer's This Layer range judges its result before Opacity (#9542) | `crates/pc-compose/src/lib.rs`<br>`crates/pc-compose/src/tests.rs`<br>`crates/pc-gpu/src/compose.wgsl`<br>`crates/pc-gpu/src/plan.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`75fa71a4f55a098061b12d91508b514565ab8dcf`](https://github.com/storytold/photocraft/commit/75fa71a4f55a098061b12d91508b514565ab8dcf) | fix(compose, gpu): a Pass Through group with Blend If renders isolated (#9554) | `crates/pc-compose/src/lib.rs`<br>`crates/pc-compose/src/tests.rs`<br>`crates/pc-gpu/src/plan.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`ed0b2a726b617f8f17d57e34ecbd62d6c9f63034`](https://github.com/storytold/photocraft/commit/ed0b2a726b617f8f17d57e34ecbd62d6c9f63034) | Address CodeRabbit review: draw pattern scales below 0.1 % (#9256) | `crates/pc-compose/src/pattern.rs`<br>`crates/pc-gpu/src/plan.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`b4ad74fda84edc41979b589aefaca13260b0d530`](https://github.com/storytold/photocraft/commit/b4ad74fda84edc41979b589aefaca13260b0d530) | fix(gpu): cap plan accumulator slots and gradient lookup tables (#11061) | `crates/pc-gpu/src/plan.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`93f8669eb47e44b9ad8cf28c794688e64ce6f8a2`](https://github.com/storytold/photocraft/commit/93f8669eb47e44b9ad8cf28c794688e64ce6f8a2) | fix(compose): cap a custom-contour outer glow at its reach (#11361) | `crates/pc-compose/src/effects.rs`<br>`crates/pc-gpu/src/fx.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`bb347d5ffdd7035681daa31fcd28c1bd56544fc8`](https://github.com/storytold/photocraft/commit/bb347d5ffdd7035681daa31fcd28c1bd56544fc8) | fix(review): linear reach edge for custom-contour glows; bound the Softer narrow-feature case (#11361) | `crates/pc-compose/src/effects.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `9f606d83`'s Gradient Fill stop bisection was already present (`crates/pc-vector/src/gradient_method.rs` `sample_color`, `crates/pc-vector/src/lib.rs` `sample_opacity`), so only the layer-effect gradient is changed; dropping an effect-map entry that alone exceeds the cache budget has no test, because the cache and its budget are process-wide. `b5dbf608`, `b157affd`, `c728d013` and `d821e548` are ported as one fix set in upstream's settled form, with no new GPU parity case. `da157945` is adapted to our Blend If kernel (`Kernel::BlendIf` / `fs_blend_if`) rather than upstream's Lerp flag; its GPU parity edits, and those of `75fa71a4`, are not ported. `ed0b2a72` is the review follow-up to a minification filter (#9256) this sampler does not have: the placement change is ported, the filter and the test's stripe-average check are not, so a pattern scale below 0.1 % samples the tile without averaging. `d78d7493` also changes `process_surface` in `crates/pc-engine/src/adjust_cmds.rs`, which has no upstream file, and `adjusted()` in `crates/pc-engine/src/pixels.rs`, whose serial-reference test was rebuilt with the new blend as upstream rebuilt its counterpart. `b4ad74fd` keeps its caps in our single-file planner (`crates/pc-gpu/src/plan.rs`), and its test nests 48 groups rather than 200 to stay inside a test thread's stack. `93f8669e` and `bb347d5f` are adapted to our Precise glow ramp, which ends at Size.
+
+## Smart objects and Color Lookup (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`788c8956c068`](https://github.com/storytold/photocraft/commit/788c8956c0686abcd8db708ef62214cb85d69277) | Color Lookup: honour the .3dl Mesh header's cube edge and output depth (#9078, #9073) | `crates/li-color/src/lutfile.rs` | MIT OR Apache-2.0 |
+| [`8929175c0834`](https://github.com/storytold/photocraft/commit/8929175c083486b41ae44ecb030930812a024807) | fix(cms): reject malformed Mesh declarations and honour the declared range (#9078) | `crates/li-color/src/lutfile.rs` | MIT OR Apache-2.0 |
+| [`0baeea93b08a`](https://github.com/storytold/photocraft/commit/0baeea93b08a4a9356271eca1aa3cc2c2f6e91f5) | Color Lookup: apply a .3dl's shaper before the table (#8982) | `crates/li-color/src/lutfile.rs`<br>`crates/li-color/README.md` | MIT OR Apache-2.0 |
+| [`ee57fdb90e45`](https://github.com/storytold/photocraft/commit/ee57fdb90e455b9fd1131cfa2ec7a9c6071f722a) | Smart object sources decode through the strip compositor | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`0eaf976088d8`](https://github.com/storytold/photocraft/commit/0eaf976088d8fd388502e20d69a9e3b91c286298) | Keep smart object source strips within their pixel budget | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`e2cd2a335a9d`](https://github.com/storytold/photocraft/commit/e2cd2a335a9d6d7e6cd17b2e7c729a043d94e0f9) | Composite smart object sources in tile-aligned blocks | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`e96386fe47bc`](https://github.com/storytold/photocraft/commit/e96386fe47bc6381cfa3b91a66af089b657d58b2) | Bound and purge the decoded smart object source cache | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs`<br>`crates/pc-engine/src/edit_menu_cmds.rs` | MIT OR Apache-2.0 |
+| [`805d238a9780`](https://github.com/storytold/photocraft/commit/805d238a9780721eae435d7cea75caaf000d1808) | Keep an adjustment smart filter's settings when its dialog opens | `crates/pc-ui-egui/src/adjust_dialog.rs`<br>`crates/pc-ui-egui/src/smart_ui.rs` | MIT OR Apache-2.0 |
+| [`2e13ec280b3f`](https://github.com/storytold/photocraft/commit/2e13ec280b3f89b658e8335b9cea73dd20e9aebf) | Replace an adjustment smart filter's params when its dialog edits them | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs`<br>`crates/pc-ui-egui/src/smart_ui.rs` | MIT OR Apache-2.0 |
+
+Local adaptations: `788c8956`'s first-row-length shaper detection is covered by our existing row-count heuristic, and `0baeea93` reads a shaper over 0 to its last value rather than an inferred 10-bit-or-wider range, so a linear arbitrary-range shaper stays an identity. `ee57fdb9`/`0eaf9760`/`e2cd2a33` keep our RGBA compositor and profile-aware conversion, so upstream's CMYK/Lab buffer fallback and its peak-memory test are not ported. `e96386fe`'s smaller wasm limits and its smart-filter stage cache budget are not ported (one budget on every target; no stage cache here). `805d238a` keeps no `target` key (our dialog has none).
+
+Not applicable: `390b3b38` (replace params for every adjustment dialog and Shape Blur). Our schema dialog copies only the keys it shows, so replacing from it would erase recorded json params (Selective Color's other ranges); replace stays keyed on the adjustment editors, `2e13ec28`'s form. Its Shape Blur half has no counterpart (no `edited_shape_params`).
+
+## PhotoCraft actions and export, part 1 (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/vectorcraft@`9a05e8ad36c96d4dadef03e0122803920251ce38`](https://github.com/storytold/vectorcraft/commit/9a05e8ad36c96d4dadef03e0122803920251ce38) | Batch: do not save over another source file in the destination folder | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`5d8cb2a39ad70e31260f1f3fc2010ca132daff65`](https://github.com/storytold/photocraft/commit/5d8cb2a39ad70e31260f1f3fc2010ca132daff65) | fix(actions): resolve recorded visibility targets by layer name | `crates/pc-engine/src/actions_cmds.rs`<br>`crates/pc-engine/src/jobs.rs`<br>`crates/pc-engine/src/file_cmds/batch_actions.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`a8845f37cac9a4ad1209a971641251912c38a934`](https://github.com/storytold/photocraft/commit/a8845f37cac9a4ad1209a971641251912c38a934) | Actions: a recorded Save As or Save for Web with the suggested name saves each document under its own (#5305) | `crates/pc-engine/src/web_cmds.rs`<br>`crates/pc-engine/src/web_cmds/tests.rs`<br>`crates/pc-ui-egui/src/file_ui.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`6f1164e034fc4f04214ce7f9014a4fe46a4b50ba`](https://github.com/storytold/photocraft/commit/6f1164e034fc4f04214ce7f9014a4fe46a4b50ba) | fix(io, engine): Embed Color Profile writes sRGB for an untagged document (#9325) | `crates/pc-engine/src/web_cmds.rs`<br>`crates/pc-engine/src/web_cmds/tests.rs`<br>`crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`c46a74621d36adae9707ab8f3eb39cf6b4c302b9`](https://github.com/storytold/photocraft/commit/c46a74621d36adae9707ab8f3eb39cf6b4c302b9) | Export: tag an untagged gray image with the working gray, not sGray | `crates/pc-io/src/flat.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`856c6e9398810f8c2b5ef2b3841c9e88bd56f588`](https://github.com/storytold/photocraft/commit/856c6e9398810f8c2b5ef2b3841c9e88bd56f588) | Actions: typed text records as one step; Batch says which files failed (#10113, #10682) | `crates/pc-engine/src/type_cmds.rs`<br>`crates/pc-engine/src/jobs.rs` | MIT OR Apache-2.0 |
+
+Adapted `9a05e8ad`: upstream numbers the output (`a-2`); our batch already reports output-name collisions instead of renaming (#422), so `process_files` reports an input whose output would replace another input in the output folder, and that input saves over itself.
+
+Adapted `5d8cb2a3`: our Actions panel plays through `actions.play`, so there is no shell playback to change; Batch steps resolve the recorded target too, as upstream does later. Upstream's `names_existing_layer` relaxation has no counterpart here (`layer.setProps` still needs an active layer).
+
+Partial `a8845f37`: the Save for Web half only. Our Actions do not record Save As (no `save_as_step`/`replay_save` in `crates/pc-ui-egui/src/lib.rs`; Batch has its own save point in `file_cmds/batch_actions.rs`), and the .atn hunks have no counterpart.
+
+Adapted `6f1164e0`: the Save for Web half came first; the `crates/pc-io/src/flat.rs` half and its follow-up `c46a7462` came later, as one commit, after the owner decision of 2026-11-15 on the untagged TIFF golden in `parity_tests::psd_tiff_export_byte_goldens`, whose expected size and hash were regenerated from the new output. Upstream's changes to tests that relied on untagged exports carrying no profile have no counterpart here (no such EXIF round trip, Affinity preview fixture, WebP lossy check or Export As proxy-estimate test).
+
+Partial `856c6e93`: the typing half only. Its Batch failed-files notice (`crates/ui-egui/src/dialogs.rs`) is new visible UI and waits for the design process.
+
+## Upstream commit ports
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`e4efca36aa01`](https://github.com/storytold/photocraft/commit/e4efca36aa0134b9fa0fd5a08e0fb36fbd015b1f) | fix(engine): apply the metadata choice to WebP Quick Export (#11058) | `crates/pc-engine/src/web_cmds.rs`<br>`crates/pc-engine/src/web_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`b49c6c97c574`](https://github.com/storytold/photocraft/commit/b49c6c97c5742f6747658ebf9656fc5d03b21f8c) | fix(export): preserve high-quality JPEG colour detail in Export As (#7985) | `crates/pc-ui-egui/src/export_dialog.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`apps/local-image/src/services.rs` | MIT OR Apache-2.0 |
+| [`d49ebf4a41fe`](https://github.com/storytold/photocraft/commit/d49ebf4a41fe3b754295ea0898522a69461d47df) | Camera Raw: read each source row once when building the preview proxy (#11064) | `crates/pc-ui-egui/src/camera_raw_ui.rs` | MIT OR Apache-2.0 |
+| [`2e10342cdb96`](https://github.com/storytold/photocraft/commit/2e10342cdb96882d4ce715e3c14ae281d528fe1a) | fix(engine): authorization for nested scratch sessions and preset calls, CSV and PostScript text escaping (#11188) | `crates/pc-engine/src/analysis_cmds.rs`<br>`crates/pc-engine/src/analysis_cmds/tests.rs`<br>`crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/batch_actions.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs`<br>`crates/pc-engine/src/jobs.rs`<br>`crates/pc-engine/src/presets/mod.rs`<br>`crates/pc-engine/src/presets/tests.rs`<br>`crates/pc-engine/src/print_cmds.rs`<br>`crates/pc-engine/src/print_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`479f8e643e38`](https://github.com/storytold/photocraft/commit/479f8e643e38a75abc9c454675e3ca78e532b2f2) | Actions: charge skipped steps to the playback budget, bound batch nesting, clip the set override (#10969) | `crates/pc-engine/src/actions_cmds.rs` | MIT OR Apache-2.0 |
+| [`dff16c1ad15f`](https://github.com/storytold/photocraft/commit/dff16c1ad15fe5e161d616f1ad8910bfd64c9435) | fix(export): PNG-24 embeds the profile only with Embed Color Profile on (#13798) | `crates/pc-engine/src/web_cmds.rs`<br>`crates/pc-engine/src/web_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`9e79faf62199`](https://github.com/storytold/photocraft/commit/9e79faf621996b588dc6f7cf473052f246d5bab3) | Artboards to PDF: pages go bottom artboard first (#13643) | `crates/pc-engine/src/artboard_cmds.rs`<br>`crates/pc-engine/src/artboard_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`d38ffb3e3a86`](https://github.com/storytold/photocraft/commit/d38ffb3e3a8632c5d3d76480888ed9045a3825b8) | Droplet: a dropped file that is not an image is skipped, not reported as failed (#13717) | `crates/pc-engine/src/automate_cmds.rs`<br>`crates/pc-engine/src/automate_cmds/tests.rs`<br>`crates/pc-engine/src/file_cmds.rs` | MIT OR Apache-2.0 |
+| [`b056a3ee5da3`](https://github.com/storytold/photocraft/commit/b056a3ee5da39bfa455e834034fb0951cdca9ddb) | Record data set imports in document history | `crates/pc-engine/src/variables_cmds.rs`<br>`crates/pc-engine/src/variables_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`7d21778f8ed1`](https://github.com/storytold/photocraft/commit/7d21778f8ed1f6b0c5c3e08df2d325a841147a39) | fix(export): preserve an explicitly empty Layers to Files prefix | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`83c09d8ef832`](https://github.com/storytold/photocraft/commit/83c09d8ef83225237b7268f763b3c4053fafa0c0) | Layer Comps to Files: the document ends on the last exported comp, one Apply Layer Comp state each (#13955) | `crates/pc-engine/src/comps_cmds.rs`<br>`crates/pc-engine/src/comps_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`6d0430e01488`](https://github.com/storytold/photocraft/commit/6d0430e0148829edb14f6348ec82f29159d905ba) | fix(color): Convert to Profile into the document's own profile changes nothing (#14261) | `crates/pc-engine/src/color_cmds.rs` | MIT OR Apache-2.0 |
+| [`6c7a85571713`](https://github.com/storytold/photocraft/commit/6c7a8557171334341902bad14c9af22d0e4fa055) | fix(color): the same-profile shortcut is only for the modes measured and a readable embedded profile (#14261) | `crates/pc-engine/src/color_cmds.rs` | MIT OR Apache-2.0 |
+| [`86d27993eec9`](https://github.com/storytold/photocraft/commit/86d27993eec989186d827a683438a5baf9338468) | Assign Profile: greyed for Lab, Bitmap and Multichannel documents (#14238) | `crates/pc-engine/src/color_cmds.rs` | MIT OR Apache-2.0 |
+| [`5477d3e03d2c`](https://github.com/storytold/photocraft/commit/5477d3e03d2ce64a3edea286238ef7d8bb1110eb) | fix(engine): stop Find and Replace Change from advancing without a match (#14669) | `crates/pc-engine/src/edit_menu_cmds.rs`<br>`crates/pc-engine/src/edit_menu_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`8e293ebcb0b6`](https://github.com/storytold/photocraft/commit/8e293ebcb0b6da111c501d17a263334d6fc1b291) | Export As: one layer's suggested file name turns characters a file name can't hold into _ (#14810) | `crates/pc-ui-egui/src/export_dialog.rs` | MIT OR Apache-2.0 |
+| [`047afaaa3b75`](https://github.com/storytold/photocraft/commit/047afaaa3b75073f928bb08e3559d4dbb603add1) | Contact Sheet II: end a flattened sheet as a normal layer named Contact Sheet II | `crates/pc-engine/src/automate_cmds.rs`<br>`crates/pc-engine/src/automate_cmds/tests.rs`<br>`crates/pc-engine/src/extra_cmds.rs` | MIT OR Apache-2.0 |
+| [`a2420f1e8e76`](https://github.com/storytold/photocraft/commit/a2420f1e8e767a10760faa7f828bb473bddd1b9a) | Artboards to Files: name files <prefix><artboard name>, as the reference application does (#13633) | `crates/pc-engine/src/artboard_cmds.rs`<br>`crates/pc-engine/src/artboard_cmds/file_names_tests.rs`<br>`crates/pc-engine/src/artboard_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`ac7c119f6fff`](https://github.com/storytold/photocraft/commit/ac7c119f6fff6c6462dca59f27d0a1c8b1ca38f3) | Layers to Files: a layer skipped by Visible Layers Only keeps its number (#13959) | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs` | MIT OR Apache-2.0 |
+
+Adapted: `e4efca36` builds the WebP settings from the Export Preferences metadata choice as upstream does; `web_exif` does not exist here (`optimize` takes no EXIF), so the WebP arm of `quick_export` drops the EXIF block itself unless the choice is "all". `b49c6c97`: `ExportSettings` has no `io_options` here, so the new `jpeg_chroma_subsampling` field is passed to the codec by the two places `apps/local-image/src/services.rs` builds `ExportOptions`; upstream's encode-and-decode tests are not ported, the cutoff is tested on `settings`. `d49ebf4a`: `box_average` sits beside `open_pixels` in `camera_raw_ui.rs` (there is no `convert.rs` here), and its two upstream tests are one test against an f64 clamped reference. `2e10342c`: `process_files` has no session argument, so its scratch sessions take the gate installed on the thread (`jobs::installed_authorization`), which covers Image Processor and the Lens Correction batch as well as Batch; the CSV guard already covered `=`, `+`, `-`, `@`, tab and CR and gains leading spaces, LF and the full-width signs. `479f8e64`: actions here have no disabled steps, no nested `actions.play` and no playback counter of their own, so the steps a call skips (those before `from`) are charged to the script and batch budget (`ActionState::script_steps`) when the call runs inside one, and a call whose skipped steps no longer fit is refused before the action is copied, while the steps that run are charged as they run; a top-level call is not charged. `a2420f1e`: the board names are read from the board layers, so one board's document is built at a time as before, and the file-name tests make their own folders instead of using `tempfile`. `ac7c119f`: there is no skipped-layer report here, so its two tests are one test in `file_cmds/tests.rs` that checks the written names through `file.export.layersToFiles`.
+
+Already covered: `2e10342c`'s Export Contents hunk, which stops reading linked files for a gated session (`crates/pc-engine/src/smart_cmds.rs`, `export_contents`). `479f8e64`'s batch nesting bound by `run_bounded` (`crates/pc-engine/src/automate_cmds.rs`), which stops scripts, batches and droplets nested more than 16 deep and keeps one step count across their scratch sessions, with each batch charged for its inputs and steps before it reads a file (`crates/pc-engine/src/file_cmds/batch_actions.rs`); and its rule that a limit reached in a nested batch or played action fails the enclosing step, by `nested_failure`. `dbde10cf`: Camera Raw here is always drawn over the main window (the `camera-raw-dialog` area in `show`, `crates/pc-ui-egui/src/camera_raw_ui.rs`) and never in a window of its own, so a full-screen or Wayland-maximized main window cannot starve it of frames.
+
+Not applicable: `479f8e64`'s `actions.load` set-name clip (there is no `.atn` importer here). `556382ba`: Camera Raw here never re-reads a RAW file by path (RAW opens through `lc-raw` and the engine's bounded `jobs::read_path`), and Export As has no batch naming (`batch_paths`), so neither hunk has a counterpart.
+
+## LightCraft library parity, parts 1-2 (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/lightcraft@`55e7c335fd9170302e89f86bdccbe84884aec9a7`](https://github.com/storytold/lightcraft/commit/55e7c335fd9170302e89f86bdccbe84884aec9a7) | Do not read a sibling's shared stem sidecar for a non-owner photo (#1523) | `crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/cmd/query.rs`<br>`crates/lc-engine/src/tests_xmp.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`5bf0d45ba87be9e99cfaaf14dd1a1b41d04e14da`](https://github.com/storytold/lightcraft/commit/5bf0d45ba87be9e99cfaaf14dd1a1b41d04e14da) | Do not read a sibling's shared stem sidecar on import (#1905) | `crates/lc-engine/src/import.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/tests_import.rs`<br>`docs/upstream/lightcraft/xmp-interop.md` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`87af6eb9db71b6f25dcb787cbfa720f96f70d35d`](https://github.com/storytold/lightcraft/commit/87af6eb9db71b6f25dcb787cbfa720f96f70d35d) | LR-CROP-RECT: a free crop corner on a straightened photo grows both sides (#2308) | `crates/lc-geom/src/crop_drag.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`15434d87acbed5ee4c3c85a7f335c0d19e728f6f`](https://github.com/storytold/lightcraft/commit/15434d87acbed5ee4c3c85a7f335c0d19e728f6f) | LR-CROP-RECT: a too-small crop's corner drag reaches the minimum size (#2308) | `crates/lc-geom/src/crop_drag.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`4f94e0c5928a0d76d0d77d9cf3606504658419e3`](https://github.com/storytold/lightcraft/commit/4f94e0c5928a0d76d0d77d9cf3606504658419e3) | LR-META-LOCATION: validate typed GPS coordinates | `crates/lc-engine/src/cmd/library.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`64712276bcf5edb2b154cddce3be8866a4cfcb4c`](https://github.com/storytold/lightcraft/commit/64712276bcf5edb2b154cddce3be8866a4cfcb4c) | LR-META-LOCATION: reject ambiguous whitespace GPS | `crates/lc-engine/src/cmd/library.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`96d7a38b1ffb203fea69d4f44dccd2195ef8f59d`](https://github.com/storytold/lightcraft/commit/96d7a38b1ffb203fea69d4f44dccd2195ef8f59d) | LR-META-LOCATION: check prefix GPS split ambiguity | `crates/lc-engine/src/cmd/library.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`647ed93df259822ed4884146f2aee41e627ae0af`](https://github.com/storytold/lightcraft/commit/647ed93df259822ed4884146f2aee41e627ae0af) | LR-META-LOCATION: clarify GPS split handling | `crates/lc-engine/src/cmd/library.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`6ea7906109b263906ffc385ddd5fba42a6a2adc3`](https://github.com/storytold/lightcraft/commit/6ea7906109b263906ffc385ddd5fba42a6a2adc3) | LR-META-LOCATION: fall back to whitespace GPS split | `crates/lc-engine/src/cmd/library.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`3a145eef4e6f3ade630369e95f950dbe7b43236f`](https://github.com/storytold/lightcraft/commit/3a145eef4e6f3ade630369e95f950dbe7b43236f) | LRC-LIB-KEYWORDS: keywords from files keep their hierarchy | `crates/lc-catalog/src/keywords.rs`<br>`crates/lc-engine/src/files.rs`<br>`crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`f6c5cab0210a22a13b3d3a42c35da020a0ef4ef8`](https://github.com/storytold/lightcraft/commit/f6c5cab0210a22a13b3d3a42c35da020a0ef4ef8) | LR-META-XMP: write sidecar keywords as names in dc:subject and paths in lr:hierarchicalSubject | `crates/lc-catalog/src/keywords.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`docs/upstream/lightcraft/xmp-interop.md` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`30780eb9a89b2e3aafec4de59803b5157f40201d`](https://github.com/storytold/lightcraft/commit/30780eb9a89b2e3aafec4de59803b5157f40201d) | LR-LIB-PEOPLE: face boxes drawn on a photo as stored land on the upright photo (#2674) | `crates/lc-meta/src/lib.rs`<br>`crates/lc-meta/src/xmp.rs`<br>`crates/lc-engine/src/files.rs`<br>`crates/lc-engine/src/import.rs`<br>`crates/lc-engine/src/media.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/tests_xmp.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`e69f8b160dbede254f66d6e0062cc4b4ba59af77`](https://github.com/storytold/lightcraft/commit/e69f8b160dbede254f66d6e0062cc4b4ba59af77) | LR-LIB-PEOPLE: the image's own size decides, and its orientation is found past the first MiB (#2674) | `crates/lc-engine/src/files.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/tests_xmp.rs`<br>`docs/upstream/lightcraft/xmp-interop.md` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`4eecf8b8a053b53fc419309306af75c5892d08d1`](https://github.com/storytold/lightcraft/commit/4eecf8b8a053b53fc419309306af75c5892d08d1) | LR-LIB-PEOPLE: find a late orientation by the file's structure, not by reading it whole (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`26f73e49781c577cad109fc48c76bd8e01a1706d`](https://github.com/storytold/lightcraft/commit/26f73e49781c577cad109fc48c76bd8e01a1706d) | LR-LIB-PEOPLE: a late TIFF orientation is one SHORT; a late WebP one may be in its XMP (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`72a074b9bc844566999a790727f502056c7135d9`](https://github.com/storytold/lightcraft/commit/72a074b9bc844566999a790727f502056c7135d9) | LR-LIB-PEOPLE: a size only the XMP states doesn't turn face boxes (#2674) | `crates/lc-meta/src/exif.rs`<br>`crates/lc-meta/src/lib.rs`<br>`docs/upstream/lightcraft/xmp-interop.md` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`85c1265da7653f2c231ca0d33e99a97985ab9f93`](https://github.com/storytold/lightcraft/commit/85c1265da7653f2c231ca0d33e99a97985ab9f93) | LR-LIB-PEOPLE: face boxes turn only by an orientation the Exif states (#2674, review) | `crates/lc-meta/src/exif.rs`<br>`crates/lc-meta/src/lib.rs`<br>`crates/lc-engine/src/tests_xmp.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`a763c3c180241ab85b6e706cff610e22da9da4ca`](https://github.com/storytold/lightcraft/commit/a763c3c180241ab85b6e706cff610e22da9da4ca) | LR-LIB-PEOPLE: a re-read finds a PNG's or PSD's orientation past the first MiB (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `55e7c335`'s Synchronize Folder hunks (`sync.rs`) have no counterpart here, and `find_sidecar` and `read_packet` keep reading a stem sidecar for callers outside the catalog. `4f94e0c5`, `64712276`, `96d7a38b` and `647ed93d` are ported together as one parser, and `6ea79061` is adapted onto that parser. `30780eb9` has no Synchronize Folder hunks here, and Read Metadata from File opens the original through `li_fs::read`, as do `e69f8b16`, `4eecf8b8` and `26f73e49`, ported together. The JPEG walk is written for the orientation alone (no upstream `read_jpeg_xmp` to generalise), and the WebP walk stops at the first chunk that states an orientation, as upstream did at `26f73e49`. `85c1265d` follows `30780eb9`: a TIFF-based file is not copied into `Embedded::exif` here, so the Exif orientation is taken from the file's own parse (`ifd0_orientation` takes a parsed TIFF, and `from_tiff` uses it too), and its engine test checks the import only, since Read Metadata from File here reads no JPEG's embedded XMP. `72a074b9` also follows `30780eb9` and is ported after `85c1265d`, onto it; its lightcraft-meta test is ported, and its engine test is not: it builds a preview-only raw that our `lightcraft_raw::probe` does not take for a raw (no preview-container check here), so the same behaviour is checked in lightcraft-meta alone. `a763c3c1` follows `4eecf8b8` and `26f73e49`: the file stays opened through `li_fs::read`, and a PNG's XMP is parsed with `parse_whole_xmp`, as the import and the other walks here parse it. `5bf0d45b` follows `55e7c335`: the job takes the library's files (`ImportStems::library_files`) when it is set up, since it keeps no catalog snapshot, ranks each batch's arrivals against them and adds each batch's arrivals to them, so a file prepared in a later batch than its raw (the app prepares 8 files at a time) still yields the stem sidecar to it; this goes beyond upstream, whose import ranks a later batch without the earlier ones; a non-owner reads through `find_sidecar_in` without the stem name (no `sidecar_candidates` or `.Xmp` case here), and a file with no ending reads none. Not ported: its Synchronize Folder hunk (no `sync.rs`), its `StemOwners::among` test edits (no `among` here), and its parity checklist line; its stem-owner test uses a shorter list of paths.
+
+## LightCraft library parity, part 3 (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/lightcraft@`8fe7198dbdac3d90ee0f6bd15f6150e5b4649611`](https://github.com/storytold/lightcraft/commit/8fe7198dbdac3d90ee0f6bd15f6150e5b4649611) | LR-FILT-SEARCH-META: >= and <= in fielded search tokens | `crates/lc-catalog/src/query.rs`<br>`crates/lc-catalog/src/tests.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`e4da1d1db74a24030b09902af3efefcf0dd08cfa`](https://github.com/storytold/lightcraft/commit/e4da1d1db74a24030b09902af3efefcf0dd08cfa) | Update crates/catalog/src/query.rs | `crates/lc-catalog/src/query.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`de0556f4af3f3c05d2a032bcd06f890f153198de`](https://github.com/storytold/lightcraft/commit/de0556f4af3f3c05d2a032bcd06f890f153198de) | LR-BEHAV-MULTISELECT: library.select replace keeps each photo once | `crates/lc-engine/src/cmd/library.rs`<br>`crates/lc-engine/src/cmd/tests_ids_params.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`b90679da15385f6cbea7416ceb97d7f6fe1acf82`](https://github.com/storytold/lightcraft/commit/b90679da15385f6cbea7416ceb97d7f6fe1acf82) | LR-LIB-ALBUM: album commands skip photos the library lacks and record nothing when they add nothing | `crates/lc-engine/src/cmd/library.rs`<br>`crates/lc-engine/src/tests_library.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `b90679da` has no Local-photo skipping here, so `album_targets` only drops ids the catalog lacks and the results keep their existing fields (no `skipped` or `toggled`).
+
+## LightCraft library parity, part 4 (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/lightcraft@`5260206fd41b800ec6e51744ea152c017cfd2baa`](https://github.com/storytold/lightcraft/commit/5260206fd41b800ec6e51744ea152c017cfd2baa) | Issue #3405: Auto Import waits for an import that starts during its listing | `crates/lc-ui-egui/src/import.rs`<br>`crates/lc-ui-egui/src/lib.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`1c1bb4f6328341a44506f24ef301295771bfe35f`](https://github.com/storytold/lightcraft/commit/1c1bb4f6328341a44506f24ef301295771bfe35f) | Issue #3405: Auto Import also waits for a scan, and its race tests apply the listing on cue | `crates/lc-ui-egui/src/import.rs`<br>`crates/lc-ui-egui/src/lib.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`fe632e05f9f9d90dd9f30054296662c71d4d1f41`](https://github.com/storytold/lightcraft/commit/fe632e05f9f9d90dd9f30054296662c71d4d1f41) | Keep a stitched panorama at the photos' own resolution (#3806) | `crates/lc-merge/src/pano/mod.rs`<br>`crates/lc-merge/tests/it/pano.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`a856df5f422bc07044a6beaf5bfdb920292bb1c7`](https://github.com/storytold/lightcraft/commit/a856df5f422bc07044a6beaf5bfdb920292bb1c7) | Write camera make and lens make to EXIF on export (#3828) | `crates/lc-catalog/src/model.rs`<br>`crates/lc-engine/src/cmd/convert.rs`<br>`crates/lc-engine/src/export.rs`<br>`crates/lc-engine/src/files.rs`<br>`crates/lc-engine/src/tests_export.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`3335fffb872a51cf9072c20f9208b39685798b1d`](https://github.com/storytold/lightcraft/commit/3335fffb872a51cf9072c20f9208b39685798b1d) | Limit tone-curve steps between pixel populations in the camera look fit (#1904) | `crates/lc-engine/src/camera_preview.rs`<br>`crates/lc-engine/src/media.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`67782d8f659a958552bff5cc8180d3a470bb85eb`](https://github.com/storytold/lightcraft/commit/67782d8f659a958552bff5cc8180d3a470bb85eb) | Auto Sync: As Shot, Auto and Temp apply to each selected photo's own white balance (#3571) | `crates/lc-engine/src/auto_wb.rs`<br>`crates/lc-engine/src/lib.rs`<br>`crates/lc-engine/src/tests_per_photo.rs` | MIT OR Apache-2.0 |
+| [storytold/lightcraft@`7b99ed3903f9f305f0e5fd6fb12f705aec0c1adb`](https://github.com/storytold/lightcraft/commit/7b99ed3903f9f305f0e5fd6fb12f705aec0c1adb) | Presets change only the settings they name (fixes #2159) (#2207) | `crates/lc-develop/src/presets.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/presets.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `fe632e05` adds no `PanoResult::native_megapixels`; its test checks the canvas width against the field of view at the lens's focal length. `3335fffb` limits the steps in our single `fit_tone`, after its pooling (no `fit_tone_conditional` or `LOOK_VERSION` here), and bumps `RENDER_CACHE_VERSION` to 25. `67782d8f` ports only the Custom branch, as `auto_wb::sync_custom_wb`; the other modes were already resolved per photo, and `WbScale::Legacy` has no counterpart. `7b99ed39` folds `compose_named` and `interpolate_leaf` into a scaling base for `scale_patch`, and adds no `Session::preset_applied` or white balance scale preparation. `1c1bb4f6` follows `5260206f`: both Auto Import guards also wait for `app.scan` (no `import::running` helper and no pending-review state here), and its test calls `auto_listed` directly with a browse scan set, as the `5260206f` test does, instead of upstream's headless `tasks::wait_for` rewrite of the race tests.
+
+## PhotoCraft document files, text and importer budgets (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`bf162c2215e84f7f96f4894bc7fa2008c45ef4d8`](https://github.com/storytold/photocraft/commit/bf162c2215e84f7f96f4894bc7fa2008c45ef4d8) | automation: save_bytes never reads linked files (#11233) | `crates/pc-automation/src/files.rs`<br>`crates/pc-automation/src/headless.rs`<br>`crates/pc-automation/tests/it/linked_save_bytes.rs`<br>`crates/pc-automation/tests/it/main.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`7426cb9858315123eaedb702d2c20d5b645be348`](https://github.com/storytold/photocraft/commit/7426cb9858315123eaedb702d2c20d5b645be348) | fix(format): a .pcraft load's decode budget follows the machine (#8595) | `crates/pc-format/Cargo.toml`<br>`crates/pc-format/src/lib.rs`<br>`crates/pc-format/src/store.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`a1d656a0f0061cbe3fd6e094aadd54da933054b4`](https://github.com/storytold/photocraft/commit/a1d656a0f0061cbe3fd6e094aadd54da933054b4) | fix(text): write raw EngineData strings back as the same bytes | `crates/pc-text/src/engine_data.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`d51e4bce94d89f4e208f669223cf5050a5d70660`](https://github.com/storytold/photocraft/commit/d51e4bce94d89f4e208f669223cf5050a5d70660) | text: charge the rasterizer's output tiles, not only its pixels (#11047) | `crates/pc-text/src/render.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`209bce8d4671708364842ff0ff5cda76d3153fc3`](https://github.com/storytold/photocraft/commit/209bce8d4671708364842ff0ff5cda76d3153fc3) | Budget PSD pattern expansion and bound multichannel conversion (#10541) | `crates/pc-io/src/multichannel_map.rs`<br>`crates/pc-io/src/psd_import.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`9779daf3577eb1d831fa078e3094a7c70b7b23cf`](https://github.com/storytold/photocraft/commit/9779daf3577eb1d831fa078e3094a7c70b7b23cf) | security(affinity): charge allocation records, empty subpaths, paint lists, tile indexes and shape lookups (#10966) | `crates/pc-affinity/src/container.rs`<br>`crates/pc-affinity/src/paint.rs`<br>`crates/pc-affinity/src/shapes.rs` | MIT OR Apache-2.0 |
+
+## Upstream commit ports (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`4bbeaaa560c4`](https://github.com/storytold/lightcraft/commit/4bbeaaa560c4f880b3f8b5a60cccd0ef68c52f1b) | LR-EXP-LOCATION: an export subfolder never leaves the destination folder (#2571) | `crates/lc-engine/src/export.rs`<br>`crates/lc-engine/src/export/options.rs`<br>`crates/lc-engine/src/tests_export.rs` | MIT OR Apache-2.0 |
+| [`a93172c2f7c6`](https://github.com/storytold/lightcraft/commit/a93172c2f7c6b570669281c6b106208463cf46f2) | security(engine): Find Missing Photos hashes only regular files, no further than their size (#3704) | `crates/lc-engine/src/cmd/missing.rs` | MIT OR Apache-2.0 |
+| [`081190c92f4f`](https://github.com/storytold/lightcraft/commit/081190c92f4f74340a7fc4125fce1fe6d2b60ed9) | Match renamed missing files by content when size is unknown (#3852) | `crates/lc-engine/src/cmd/missing.rs`<br>`crates/lc-engine/src/tests_import.rs` | MIT OR Apache-2.0 |
+| [`9eb7b25e317b`](https://github.com/storytold/lightcraft/commit/9eb7b25e317b6e66beb6b9c8f862da73f3de0aae) | security(engine): sidecar copies, backups and version checks read regular files only (#3677) | `crates/lc-engine/src/rename.rs`<br>`crates/lc-engine/src/import_move.rs`<br>`crates/lc-engine/src/import_move/tests.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/tests_xmp.rs` | MIT OR Apache-2.0 |
+| [`7e409a3706ec`](https://github.com/storytold/lightcraft/commit/7e409a3706eca1007eb774213d91f42b8ba0e1ed) | security(engine): one unpack budget across a preset zip's packs; linear comment skipping; small zip errors (#3675) | `crates/lc-engine/src/preset_import.rs`<br>`crates/lc-engine/src/preset_luminar.rs` | MIT OR Apache-2.0 |
+| [`0d2dd9a97413`](https://github.com/storytold/lightcraft/commit/0d2dd9a974134877f3930c2efc61e58ca99bde89) | A library's files were written by path, so a path that came to lead somewhere else (a share mounted over the folder, the folder moved away and another put in its place) made the session write into that other folder: its catalog.snap and catalog.log were replaced, and dropping the lock removed the owner note of the program that had the library open. | `crates/lc-catalog/src/opened_folder.rs`<br>`crates/lc-catalog/src/lock.rs`<br>`crates/lc-catalog/src/store.rs`<br>`crates/lc-catalog/src/lib.rs`<br>`crates/lc-catalog/src/tests_opened_folder.rs`<br>`crates/lc-engine/src/library.rs`<br>`crates/lc-engine/src/tests_library.rs`<br>`crates/lc-preview/src/disk.rs`<br>`crates/lc-preview/src/lib.rs`<br>`crates/lc-preview/src/tests.rs` | MIT OR Apache-2.0 |
+| [`690f6cfb5857`](https://github.com/storytold/lightcraft/commit/690f6cfb5857c90719a0898dc102998558bfaef9) | fix(catalog): verify staging identity after streamed writes | `crates/lc-catalog/src/store.rs`<br>`crates/lc-catalog/src/tests_opened_folder.rs` | MIT OR Apache-2.0 |
+| [`19985a3f19ad`](https://github.com/storytold/lightcraft/commit/19985a3f19adc3a91eb5cf51e61e9f03a4fe51e8) | fix(catalog): reopen fallback appends in the accepted folder | `crates/lc-catalog/src/store.rs`<br>`crates/lc-catalog/src/tests_opened_folder.rs` | MIT OR Apache-2.0 |
+| [`e689453e578a`](https://github.com/storytold/lightcraft/commit/e689453e578a9f3dd4cb3cbec69cb83957f4a4b0) | fix(catalog): refuse gaps in synchronous fallback logs | `crates/lc-catalog/src/store.rs`<br>`crates/lc-catalog/src/tests_opened_folder.rs` | MIT OR Apache-2.0 |
+| [`5c5981898c57`](https://github.com/storytold/lightcraft/commit/5c5981898c57114fd48c95b6df5a437da91a26f2) | fix(catalog): bind log recovery to observed files | `crates/lc-catalog/src/store.rs`<br>`crates/lc-catalog/src/tests_opened_folder.rs` | MIT OR Apache-2.0 |
+| [`d7372407bb5a`](https://github.com/storytold/lightcraft/commit/d7372407bb5a335ad97575f2ab8b7105fda8cdf4) | fix(catalog): make held caller logs writable for rollback | `crates/lc-catalog/src/store.rs`<br>`crates/lc-catalog/src/tests_opened_folder.rs` | MIT OR Apache-2.0 |
+| [`1aea62dde04c`](https://github.com/storytold/lightcraft/commit/1aea62dde04c96912b690f6ed481e166870f81b6) | LC-SAFETY: Refuse to create a library photo's XMP sidecar | `crates/lc-engine/src/originals.rs` | MIT OR Apache-2.0 |
+| [`d39550486e93`](https://github.com/storytold/lightcraft/commit/d39550486e93f8880f1ed8edb47767344434dd3a) | LRC-LIB-FOLDERS: folder.rename and folder.move refuse the home folder and its standard places | `crates/lc-engine/src/cmd/browse.rs` | MIT OR Apache-2.0 |
+| [`9b4c38fd7fa0`](https://github.com/storytold/lightcraft/commit/9b4c38fd7fa0581248f3b31d7b477c6df55a7f7c) | LRC-LIB-FOLDERS: the protected-places check reads relative paths, linked parents and volume case | `crates/lc-engine/src/cmd/browse.rs` | MIT OR Apache-2.0 |
+| [`d0a64f8e3043`](https://github.com/storytold/lightcraft/commit/d0a64f8e3043531ee82fe13dc56a4ad6564379ca) | LRC-LIB-FOLDERS: the protected-places check also compares the folder itself | `crates/lc-engine/src/cmd/browse.rs` | MIT OR Apache-2.0 |
+| [`1c5cbce83520`](https://github.com/storytold/lightcraft/commit/1c5cbce83520d36cf77003f8bc1f70e718689645) | security(engine): the library folder is protected from folder.move however its path is spelled (#3676) | `crates/lc-engine/src/cmd/browse.rs`<br>`crates/lc-engine/src/tests_import.rs` | MIT OR Apache-2.0 |
+| [`f618fc06a755`](https://github.com/storytold/lightcraft/commit/f618fc06a7551156d7c249eda5ab4dae20c99e26) | security: staging and probe files are created new, never written through an existing entry (#3673) | `crates/lc-engine/src/smart.rs`<br>`crates/lc-engine/src/cmd/lut_profiles.rs` | MIT OR Apache-2.0 |
+| [`d6ae2e9e7e77`](https://github.com/storytold/lightcraft/commit/d6ae2e9e7e7717a58dad8b160d19e81945d26486) | security(engine): read user-named files through the opened regular file under a byte cap (#3703) | `crates/lc-engine/src/cmd/manage.rs`<br>`crates/lc-engine/src/export/watermark.rs`<br>`crates/lc-engine/src/tests_libops.rs` | MIT OR Apache-2.0 |
+| [`49c9d4e0ca54`](https://github.com/storytold/lightcraft/commit/49c9d4e0ca545bb4c5df6a36d66b80791a776f55) | security: bound token expansion, sanitize the name fallback, regular-file sidecar reads, recased sidecar guard | `crates/lc-engine/src/export/options.rs`<br>`crates/lc-engine/src/export/tests.rs`<br>`crates/lc-engine/src/rename.rs`<br>`crates/lc-engine/src/sidecar.rs`<br>`crates/lc-engine/src/originals.rs` | MIT OR Apache-2.0 |
+| [`0d88706ec551`](https://github.com/storytold/lightcraft/commit/0d88706ec55147cb7a7e481bc706ba31e29003ca) | security(meta): bound namespace declarations in scope while parsing XMP | `crates/lc-meta/src/xmp.rs`<br>`crates/lc-meta/src/xmp_merge.rs`<br>`crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+| [`be7d68167357`](https://github.com/storytold/photocraft/commit/be7d68167357624421baf3add3153914ba23510d) | Free Transform: lift a pixel's coverage up to all of it, as Move does | `crates/pc-engine/src/transform_cmds.rs` | MIT OR Apache-2.0 |
+| [`dce32b66d87a`](https://github.com/storytold/photocraft/commit/dce32b66d87a7bda667c502e55802bd9877eb710) | engine: Free Transform takes soft edges whole after a move (#10461) | `crates/pc-engine/src/transform_cmds.rs` | MIT OR Apache-2.0 |
+| [`baf8e654e886`](https://github.com/storytold/photocraft/commit/baf8e654e8860862d44c8471a52077d0f84317aa) | Keep a layer's place on its board when dragged to another artboard (#10489) | `crates/pc-engine/src/commands.rs`<br>`crates/pc-engine/src/artboard_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`b800c40cfdf1`](https://github.com/storytold/photocraft/commit/b800c40cfdf115ac831f2f4db5c291fa12e2e4e2) | Don't auto-select off-canvas layers from the pasteboard (#10665) | `crates/pc-engine/src/pick_cmds.rs` | MIT OR Apache-2.0 |
+| [`c2acddae8c7b`](https://github.com/storytold/photocraft/commit/c2acddae8c7b72c4fa8eef5bd37d665521eee948) | Transform: Distort side handles move their edge, Perspective's skew (#10085) | `crates/pc-ui-egui/src/transform_tool.rs` | MIT OR Apache-2.0 |
+| [`0125925ee397`](https://github.com/storytold/photocraft/commit/0125925ee39723c6d61a54e67db961161982623e) | Crop: no frame around the cropped image until the next press | `crates/pc-ui-egui/src/crop_ui.rs`<br>`crates/pc-ui-egui/src/canvas/tools.rs` | MIT OR Apache-2.0 |
+| [`bed677b3aa9a`](https://github.com/storytold/photocraft/commit/bed677b3aa9a81c3608c0b16a5ce1422e0bd0ead) | fix(ui): make the Histogram panel follow the selection | `crates/pc-ui-egui/src/tone.rs`<br>`crates/pc-ui-egui/src/lib.rs` | MIT OR Apache-2.0 |
+| [`abb855881523`](https://github.com/storytold/photocraft/commit/abb8558815232b0acdee419809d3695e13904869) | Transform: Perspective side-handle slides stop before the box folds | `crates/pc-ui-egui/src/transform_tool.rs` | MIT OR Apache-2.0 |
+| [`9891eaeb2efc`](https://github.com/storytold/photocraft/commit/9891eaeb2efcae43002d7829438ba092c0c15711) | Crop: History jumps wait for a pending crop (#9285) | `crates/pc-ui-egui/src/crop_ui.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-ui-egui/src/panels/docks.rs` | MIT OR Apache-2.0 |
+| [`1b810052bc3a`](https://github.com/storytold/photocraft/commit/1b810052bc3a876c1eaf1a8766870ffdba9f8a80) | fix(engine): guard trim and duplicate merged against documents exceeding render limits (#7223) | `crates/pc-engine/src/image_cmds.rs` | MIT OR Apache-2.0 |
+| [`f4adb8fb9b9a`](https://github.com/storytold/photocraft/commit/f4adb8fb9b9a0608dae983338467b3a0c66658e2) | Render Video: cap the total an animated GIF keeps staged (#6103) | `crates/pc-engine/src/video_cmds.rs` | MIT OR Apache-2.0 |
+| [`c6a71929efd1`](https://github.com/storytold/photocraft/commit/c6a71929efd1163418a287d21749aa9444b6e916) | fix(cms): charge decoded CLUT values against a per-profile budget (#11055) | `crates/pc-cms/src/profile.rs` | MIT OR Apache-2.0 |
+| [`7f5e103ff1e9`](https://github.com/storytold/photocraft/commit/7f5e103ff1e9fd02fe700f3c04a6df4a90152129) | fix(algo): Filter Gallery reach no longer overflows on out-of-range stored effect values | `crates/pc-algo/src/artistic.rs`<br>`crates/pc-algo/src/artistic_fx.rs` | MIT OR Apache-2.0 |
+| [`4777b390c9bb`](https://github.com/storytold/photocraft/commit/4777b390c9bbfb8cc8f882b8f2343f11930cfdc8) | fix(algo): Filter Gallery draws pixels from the same clamped values as its reach | `crates/pc-algo/src/artistic_fx.rs` | MIT OR Apache-2.0 |
+| [`3b43cb451a66`](https://github.com/storytold/photocraft/commit/3b43cb451a667a17cfcb14870abeeefa676df01c) | fix(algo): hold raw filter parameters to their ranges (Water Paper, Box Blur, Lanczos, Camera Raw noise) (#11199) | `crates/pc-algo/src/blur.rs`<br>`crates/li-raster/src/resample.rs`<br>`crates/pc-algo/src/artistic_fx.rs` | MIT OR Apache-2.0 |
+| [`648d742a508c`](https://github.com/storytold/photocraft/commit/648d742a508c77b935952c90ce42c26802a87205) | fix(algo): bound EXIF text decoding, warp scans, gallery windows, inpaint sizes, pyramid depth (#11161) | `crates/pc-algo/src/inpaint.rs`<br>`crates/pc-algo/src/warp.rs` | MIT OR Apache-2.0 |
+| [`ce304774e070`](https://github.com/storytold/photocraft/commit/ce304774e0701019495f224ab574fb26b0d46ce0) | fix(blur): Gaussian Blur radii below 1 blur by the radius asked for | `crates/pc-algo/src/blur.rs`<br>`crates/pc-algo/src/lib.rs` | MIT OR Apache-2.0 |
+| [`eb1c6d291fd3`](https://github.com/storytold/photocraft/commit/eb1c6d291fd3dc3929d646cf20c3caacdcde9489) | fix(blur): exact variance right up to radius 1 | `crates/pc-algo/src/blur.rs`<br>`crates/pc-algo/src/lib.rs` | MIT OR Apache-2.0 |
+| [`9a570c5ed5c9`](https://github.com/storytold/photocraft/commit/9a570c5ed5c98748f210c515386abc1b92087d83) | fix(blur): one kernel width for every Gaussian radius below 1 | `crates/pc-algo/src/blur.rs`<br>`crates/pc-algo/src/lib.rs` | MIT OR Apache-2.0 |
+| [`e01fa8ba4e20`](https://github.com/storytold/photocraft/commit/e01fa8ba4e208c20212c1758d298477bcf1483ae) | Image: Trim (Transparent Pixels) ignores alpha that rounds to 0 at the document's depth (#9299) | `crates/pc-engine/src/image_cmds.rs` | MIT OR Apache-2.0 |
+| [`b2b402939a8c`](https://github.com/storytold/photocraft/commit/b2b402939a8cfe3fd2969ab42918a04f8ac27d12) | Crop W x H budgets the hidden pixels it resamples (#9212) | `crates/pc-engine/src/image_cmds.rs` | MIT OR Apache-2.0 |
+| [`945cf2218d67`](https://github.com/storytold/photocraft/commit/945cf2218d67b6c748329bd463c352c0c00198f4) | Crop with Delete Cropped Pixels off turns the Background into Layer 0 (#10867) | `crates/pc-engine/src/image_cmds.rs`<br>`crates/pc-engine/src/extra_cmds.rs`<br>`crates/pc-engine/src/eraser_cmds.rs` | MIT OR Apache-2.0 |
+| [`316e00a97eab`](https://github.com/storytold/photocraft/commit/316e00a97eab730e60584df578c295b5c2539d95) | Bound Photomerge memory and safely reject out-of-budget jobs (#7851) (#10463) | `crates/pc-engine/src/photo_cmds.rs` | MIT OR Apache-2.0 |
+| [`ab033734d22d`](https://github.com/storytold/photocraft/commit/ab033734d22dbb7730e263dc4849441b4f6222ed) | Photomerge: merging the open documents no longer scans the dialog's folder (#13580) | `crates/pc-engine/src/photo_cmds.rs` | MIT OR Apache-2.0 |
+| [`6f5e9e9d3433`](https://github.com/storytold/photocraft/commit/6f5e9e9d343374615e74f592b9e9002cd7547c62) | Photomerge: the first source is the top layer (#14092) | `crates/pc-engine/src/photo_cmds.rs` | MIT OR Apache-2.0 |
+| [`bf5c479d29df`](https://github.com/storytold/photocraft/commit/bf5c479d29dfb35f706e9a84e5b41eeb1274e148) | fix(layers): refuse to ungroup the sole empty layer group (#11118) (#11163) | `crates/pc-engine/src/extra_cmds.rs` | MIT OR Apache-2.0 |
+| [`5a935b2830c2`](https://github.com/storytold/photocraft/commit/5a935b2830c2eb48842e8bfa999c19dea817eba4) | Place: refuse a scale that makes the placed image exceed the render pixel limit (#11229) | `crates/pc-engine/src/file_cmds.rs` | MIT OR Apache-2.0 |
+| [`b6bb43bc1975`](https://github.com/storytold/photocraft/commit/b6bb43bc1975848efea4e63252b2625de0f7c91c) | Handle edited Stack Modes and cap video frame growth | `crates/pc-engine/src/video_cmds.rs` | MIT OR Apache-2.0 |
+| [`d3cd28f14bff`](https://github.com/storytold/photocraft/commit/d3cd28f14bffaf49d41c9cf9d984ce05c17aaf6e) | Rotate Canvas: the selection is dropped, one undo brings it back (#14507) | `crates/pc-engine/src/mode_cmds.rs` | MIT OR Apache-2.0 |
+| [`d1fcc176fa4e`](https://github.com/storytold/photocraft/commit/d1fcc176fa4e167dab68a377d36900ba7aea1b87) | Canvas Size: the selection is dropped, one undo brings it back (#14539) | `crates/pc-engine/src/image_cmds.rs` | MIT OR Apache-2.0 |
+| [`bfd9a2f0c5c5`](https://github.com/storytold/photocraft/commit/bfd9a2f0c5c5e2247e727ab968a48cdee91ca41f) | Image > Duplicate: the copy starts without a selection (#14593) | `crates/pc-engine/src/image_cmds.rs` | MIT OR Apache-2.0 |
+| [`1c606fddfd92`](https://github.com/storytold/photocraft/commit/1c606fddfd92e14ed4a9860caea6230ac774e2c9) | lens: Auto Scale keeps the border pixels clear of the Edge fill | `crates/pc-algo/src/lens.rs` | MIT OR Apache-2.0 |
+| [`0efeadc1ee04`](https://github.com/storytold/photocraft/commit/0efeadc1ee0408ec8f88f463e975d65291beff14) | perf(gpu): NVIDIA's own memory on Linux, so many-layer documents stay off the CPU budget penalty | `crates/li-gpu/src/memory.rs` | MIT OR Apache-2.0 |
+| [`ffd4d480bb7c`](https://github.com/storytold/photocraft/commit/ffd4d480bb7ca1a411debdebae3f9be59537dc7c) | Integration: bound the nvidia-smi query, smallest of same-id cards (#9042) | `crates/li-gpu/src/memory.rs` | MIT OR Apache-2.0 |
+| [`57a8691fb3a1`](https://github.com/storytold/photocraft/commit/57a8691fb3a15450a941fd747d4d0975077f47c8) | Respect mask targets in Fill and Stroke dialogs | `crates/pc-engine/src/extra_cmds.rs` | MIT OR Apache-2.0 |
+| [`78b69911243e`](https://github.com/storytold/photocraft/commit/78b69911243ef6c7e38f512e7e1543bb25bef842) | fix(engine): keep missing-font type pixels through Image Size (#8860) | `crates/pc-engine/src/canvas_geom.rs`<br>`crates/pc-engine/src/mode_cmds.rs`<br>`crates/pc-engine/src/type_extra_cmds.rs`<br>`crates/pc-engine/src/image_cmds.rs` | MIT OR Apache-2.0 |
+| [`dd19c295d1e5`](https://github.com/storytold/photocraft/commit/dd19c295d1e58fba692445bdf1ff8568d60e29d5) | fix(engine): bound sparse remap, scaled clone sources, path reads, export format, name lookups (#11181) | `crates/pc-engine/src/pixels.rs`<br>`crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/adjust_cmds.rs` | MIT OR Apache-2.0 |
+| [`f7771c8545a5`](https://github.com/storytold/photocraft/commit/f7771c8545a5a3a8e9694e3af42b4ad8082731b6) | Engine: check dense working buffers against a budget before expanding sparse content (#10964) | `crates/pc-engine/src/allocation.rs`<br>`crates/pc-engine/src/adjust_cmds.rs`<br>`crates/pc-engine/src/align_cmds.rs`<br>`crates/pc-engine/src/channel_cmds.rs`<br>`crates/pc-engine/src/distort_cmds.rs`<br>`crates/pc-engine/src/float_cmds.rs`<br>`crates/pc-engine/src/layer_menu_cmds.rs`<br>`crates/pc-engine/src/multichannel_cmds.rs`<br>`crates/pc-engine/src/filters.rs`<br>`crates/pc-engine/src/image_cmds.rs`<br>`crates/pc-engine/src/dense_budget_tests.rs` | MIT OR Apache-2.0 |
+| [`f373ec181c48`](https://github.com/storytold/photocraft/commit/f373ec181c482b2a88b2f375fd4b20bda8194f3c) | fix(format,engine): limit zstd windows, set bundle modes via the handle, refuse symlinked presets (#11145) | `crates/pc-format/src/store.rs`<br>`crates/li-fs/src/lib.rs`<br>`crates/li-fs/src/tests.rs`<br>`crates/pc-engine/src/preset_store.rs`<br>`crates/pc-engine/src/preset_store/tests.rs` | MIT OR Apache-2.0 |
+| [`87da091f220e`](https://github.com/storytold/photocraft/commit/87da091f220e089fe096f67c6cb69e9d9878e637) | fix(format): reject duplicate native layer identities | `crates/pc-format/src/convert.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
+| [`6e2e02fa2663`](https://github.com/storytold/photocraft/commit/6e2e02fa2663ebd062ad1409f39e04d60655d1d7) | Read layer-record blend keys in PSD layer effects | `crates/pc-io/src/effects_map.rs` | MIT OR Apache-2.0 |
+| [`e614f7d39b3e`](https://github.com/storytold/photocraft/commit/e614f7d39b3e8273df14cca3d5f6c28fa008fc47) | fix(io): PSD layer-effect contours keep at most 16 points (#9556) | `crates/pc-io/src/effects_map.rs` | MIT OR Apache-2.0 |
+| [`a9744ed44dc7`](https://github.com/storytold/photocraft/commit/a9744ed44dc782613b19a97b8c159a091f73e669) | PSD contours: inputs a few ulps apart still span a segment | `crates/pc-io/src/effects_map.rs` | MIT OR Apache-2.0 |
+| [`3fd5304dfe5b`](https://github.com/storytold/photocraft/commit/3fd5304dfe5bc84c317fc50021d9cf30d34f1ae9) | text: find paragraphs and trailing blanks without rescanning (#11045) | `crates/pc-text/src/layout.rs`<br>`crates/pc-text/src/tests.rs` | MIT OR Apache-2.0 |
+| [`37a01ca8746c`](https://github.com/storytold/photocraft/commit/37a01ca8746c121170644a07968d11263ef64407) | format: bound blob inflation by the load's remaining budget; browser budgets (#10984) | `crates/pc-format/src/store.rs` | MIT OR Apache-2.0 |
+| [`9a390661b5e2`](https://github.com/storytold/photocraft/commit/9a390661b5e265d756233a59c5c20c9f7e9dfbcd) | PSD: flat files keep their spot and alpha channels (#10260) | `crates/pc-psd/src/file.rs` | MIT OR Apache-2.0 |
+| [`fc94ac59e263`](https://github.com/storytold/photocraft/commit/fc94ac59e2639130908ef6fc6e7839ae1b88750a) | Saving: the temporary file is no longer a dot file (#11624) | `crates/li-fs/src/lib.rs`<br>`crates/li-fs/src/tests.rs`<br>`crates/pc-format/src/autosave.rs`<br>`crates/lc-preview/src/disk.rs`<br>`crates/lc-engine/src/smart_sort/faces_store.rs` | MIT OR Apache-2.0 |
+| [`8ef148ace961`](https://github.com/storytold/photocraft/commit/8ef148ace961d2589dde13df55c8be4ded9917d2) | Recovery: replace a symlinked sidecar and do not sweep through symlinked bundle folders (#11230) | `crates/pc-format/src/autosave.rs` | MIT OR Apache-2.0 |
+| [`7348e060b4be`](https://github.com/storytold/photocraft/commit/7348e060b4be7204fb69b59079c3b9d808e9aad3) | fix(paint): scale blur sigma with brush size (#5892) | `crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`b4487ee59998`](https://github.com/storytold/photocraft/commit/b4487ee599980917b0407a165c484fd003bba9db) | fix(paint): a bucket fill clicked on transparency fills the transparency in full (#11311) | `crates/pc-algo/src/paint.rs` | MIT OR Apache-2.0 |
+| [`66f1e8b8aa91`](https://github.com/storytold/photocraft/commit/66f1e8b8aa918547b8551543190cd48fcdb8b912) | Selection: Grow and Similar match only selected colours, Grow starts from the frontier (#9673) | `crates/pc-algo/src/selection.rs`<br>`crates/pc-engine/src/selection_cmds.rs` | MIT OR Apache-2.0 |
+| [`0350b5de16e3`](https://github.com/storytold/photocraft/commit/0350b5de16e37c1ff3765220ebd910affceca177) | Select sky beneath an obstructed top border (#9693) | `crates/pc-algo/src/segment/sky.rs` | MIT OR Apache-2.0 |
+| [`a3c0b7258c16`](https://github.com/storytold/photocraft/commit/a3c0b7258c16b312b51bca82904be413bbafda8f) | Select Subject: keep parts that run off the image edge and detached parts near the subject (#10160) | `crates/pc-algo/src/segment/subject.rs` | MIT OR Apache-2.0 |
+| [`9b8536f5e6ac`](https://github.com/storytold/photocraft/commit/9b8536f5e6ac585d4adcd4c6feac7b03f4007195) | Fix Clone Stamp sources across layers and documents | `crates/pc-engine/src/lib.rs`<br>`crates/pc-engine/src/presets/clone_source.rs`<br>`crates/pc-engine/src/retouch_cmds/clone_sampling.rs`<br>`crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs`<br>`crates/pc-ui-egui/src/preset_panels.rs`<br>`crates/pc-ui-egui/src/retouch_ui.rs` | MIT OR Apache-2.0 |
+| [`b71433249790`](https://github.com/storytold/photocraft/commit/b714332497905a4485bbd9e29f4727aa0b526670) | Keep Clone Source offsets consistent with preview and painting | `crates/pc-engine/src/presets/clone_source.rs`<br>`crates/pc-engine/src/retouch_cmds/clone_sampling.rs`<br>`crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`35e45defd785`](https://github.com/storytold/photocraft/commit/35e45defd785bb6197b85c97202a20a1c280d192) | Avoid overflow in off-canvas clone resampling | `crates/pc-engine/src/presets/clone_source.rs` | MIT OR Apache-2.0 |
+| [`967e987edde4`](https://github.com/storytold/photocraft/commit/967e987edde4bd683077b1e0f3273d32dfa2090f) | Preserve clone canvas coverage for sources without alpha | `crates/pc-engine/src/retouch_cmds/clone_sampling.rs`<br>`crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`0f205f030bc5`](https://github.com/storytold/photocraft/commit/0f205f030bc52fb484c5bc06b83cc66d7740a830) | Sharpen tool: Protect Detail sharpens gently instead of doing nothing (#12938) | `crates/pc-algo/src/retouch.rs`<br>`crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`d0b24e1abdad`](https://github.com/storytold/photocraft/commit/d0b24e1abdad2e04eef2d7fe7ad413e9a70bccb8) | Round the Magic Wand's Tolerance field to whole numbers | `crates/pc-ui-egui/src/panels/options_bar.rs`<br>`crates/pc-ui-egui/src/widgets.rs` | MIT OR Apache-2.0 |
+| [`20f92ee405dc`](https://github.com/storytold/photocraft/commit/20f92ee405dc1c195a7a10ed54d2af9ca2ecef06) | codecs: leave Extended XMP fragments out of zune-jpeg's header parse (#10981) | `crates/pc-codecs/src/codecs/jpeg.rs` | MIT OR Apache-2.0 |
+| [`42929264805c`](https://github.com/storytold/photocraft/commit/42929264805c70be29813fabd738c905c5b07460) | Codecs: a PNG's iCCP profile inflates to at most 16.7 MB (#8599) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`acd57a36af62`](https://github.com/storytold/photocraft/commit/acd57a36af62ccba3c21004052113716605bb937) | Codecs: a PNG's iCCP profile also keeps to the caller's allocation limit (#8599) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`d82e166494f9`](https://github.com/storytold/photocraft/commit/d82e166494f95f9805af18d02e2121f29edd5ef5) | codecs: charge dropped PNG text against the metadata budget (#10980) | `crates/pc-codecs/src/codecs/png.rs` | MIT OR Apache-2.0 |
+| [`4a65ae3fb0b8`](https://github.com/storytold/photocraft/commit/4a65ae3fb0b8a1518f2e1da7051a6285f82af4e5) | codecs: refuse EXR preview attributes larger than their value (#10982) | `crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/src/lib.rs` | MIT OR Apache-2.0 |
+| [`81ce14c1b4ac`](https://github.com/storytold/photocraft/commit/81ce14c1b4ac178efa328f23d88b5a6e18cfc691) | codecs: count TIFF strip/tile scratch against max_alloc | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/options.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`2d3f6dc91a92`](https://github.com/storytold/photocraft/commit/2d3f6dc91a92a6b0b9f9374c968256dfc85fc495) | TIFF: reserve a strip's scratch buffer fallibly in decode_band | `crates/pc-codecs/src/codecs/tiff.rs` | MIT OR Apache-2.0 |
+| [`f4d4524161b2`](https://github.com/storytold/photocraft/commit/f4d4524161b25b432b32537c7a9ea9be2a875349) | codecs: refuse TIFF chunk tables over max_alloc before the decoder opens | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`eef1638eff87`](https://github.com/storytold/photocraft/commit/eef1638eff87d9fef5a6a28ee01acdaf706ee55b) | codecs: bound the TIFF JPEG header walk by the file length | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`f45711c74937`](https://github.com/storytold/photocraft/commit/f45711c74937cb5d723758a81f2cd9e069f4c67f) | codecs: check TIFF structural tags, predicted rows and JPEG chunk frames (#10983) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_regressions.rs` | MIT OR Apache-2.0 |
+| [`129e6aec9000`](https://github.com/storytold/photocraft/commit/129e6aec9000bad90c935ae4b3da62c4708a3040) | Integration: blank Group 4 fax pages pass the TIFF bomb guard (#8536) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`fb04b02893c5`](https://github.com/storytold/photocraft/commit/fb04b02893c55e359ab86f4d0fdcc6165e8b0b47) | fix(codecs): check header dimensions against the file size before allocating | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`c65b7d93d650`](https://github.com/storytold/photocraft/commit/c65b7d93d65027e14a608f3407b9fd99f5cef5b1) | Integration: file-size bound fits DWA EXR, RLE BMP and GIF screens (#8704) | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/src/codecs/exr.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`3225307e5780`](https://github.com/storytold/photocraft/commit/3225307e57802c76b540ee7a8691b5d635e447d8) | codecs: admit animated GIF screens, sparse RLE BMPs and icon PNG profiles (#10979) | `crates/pc-codecs/src/codecs/via_image.rs`<br>`crates/pc-codecs/tests/it/limits.rs` | MIT OR Apache-2.0 |
+| [`ddae31bad466`](https://github.com/storytold/vectorcraft/commit/ddae31bad4662005d2b04a6d85db4217b6173d1e) | TIFF: alpha after another extra sample places and opens as transparency | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/tests/it/tiff_pages.rs` | MIT OR Apache-2.0 |
+| [`ab4ba9f37cf2`](https://github.com/storytold/photocraft/commit/ab4ba9f37cf2428cba5b28426fde228e5c4d1b04) | fix(codecs): checked sizes in encoders, EXR name lookup, FITS float limit, VP8 plane copies, EXIF thumbnail bytes (#11164) | `crates/pc-codecs/src/codecs/vp8/mod.rs` | MIT OR Apache-2.0 |
+| [`9034223c4b6d`](https://github.com/storytold/photocraft/commit/9034223c4b6d80fe15a12b9e0d173786ac5f7a4c) | TIFF: open YCbCr images as RGB (#10316) (#10319) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/codecs/tiff_ycbcr.rs`<br>`crates/pc-codecs/src/codecs/mod.rs`<br>`crates/pc-codecs/tests/it/main.rs`<br>`crates/pc-codecs/tests/it/tiff_ycbcr.rs` | MIT OR Apache-2.0 |
+| [`cf07f076b502`](https://github.com/storytold/photocraft/commit/cf07f076b502cd167fde951d7bd384edf1ab42d1) | Move tool: a huge layer isn't copied for every frame of a live drag (#6114, #6163) | `crates/pc-ui-egui/src/move_ui.rs` | MIT OR Apache-2.0 |
+| [`f09757e4b6d6`](https://github.com/storytold/photocraft/commit/f09757e4b6d6e6c24d399400cece5e1c164e27a5) | Move: bound the live-drag estimate by the worst case of four written tiles per stored tile; test the limit through preview initialization | `crates/pc-ui-egui/src/move_ui.rs` | MIT OR Apache-2.0 |
+| [`ff0f1ba0c551`](https://github.com/storytold/photocraft/commit/ff0f1ba0c55136b73e96f2fef17c1eece80da79c) | fix(algo): Liquify replays a stroke with an absurd brush size or position without overflowing | `crates/pc-algo/src/liquify.rs`<br>`crates/pc-algo/tests/coverage/liquify_coverage.rs` | MIT OR Apache-2.0 |
+| [`200f38f7b606`](https://github.com/storytold/photocraft/commit/200f38f7b60600096627762f1d6c5f320ad1274a) | Liquify: a huge far-off dab writes no NaN and reports the area it changed | `crates/pc-algo/src/liquify.rs`<br>`crates/pc-algo/tests/coverage/liquify_coverage.rs` | MIT OR Apache-2.0 |
+| [`c2cc5eee54a6`](https://github.com/storytold/photocraft/commit/c2cc5eee54a6cf3cc020cf04da4a92e0752d337a) | fix(ui): the Liquify preview shows the effect only inside the selection (#9541) | `crates/pc-ui-egui/src/liquify_ui.rs` | MIT OR Apache-2.0 |
+| [`d98b9ea17be9`](https://github.com/storytold/photocraft/commit/d98b9ea17be9b1b96aa3e052fb33e981b36928b9) | paint: stop a stroke past a dab-area budget and skip dabs outside the paintable area | `crates/pc-paint/src/render.rs`<br>`crates/pc-paint/src/render/budget_tests.rs` | MIT OR Apache-2.0 |
+| [`efd725cc89aa`](https://github.com/storytold/photocraft/commit/efd725cc89aa0cea7844319d8a6561d914ec92cf) | paint: charge the dual brush apart, skip (not end on) a dab that does not fit the budget | `crates/pc-paint/src/render.rs`<br>`crates/pc-paint/src/render/budget_tests.rs` | MIT OR Apache-2.0 |
+| [`f5e92a6b3d03`](https://github.com/storytold/photocraft/commit/f5e92a6b3d0350a0beb0a99faec87c48a229d8cc) | paint: stream the dab generator's steps and keep non-finite brush values and points out | `crates/pc-paint/src/dynamics.rs`<br>`crates/pc-paint/src/brush.rs` | MIT OR Apache-2.0 |
+| [`af025e18d514`](https://github.com/storytold/photocraft/commit/af025e18d51418ad5569111eddb0a782151368d2) | paint: replace only NaN brush values, test a long pixel-grid segment | `crates/pc-paint/src/dynamics.rs`<br>`crates/pc-paint/src/brush.rs` | MIT OR Apache-2.0 |
+| [`0ff76d6f0c08`](https://github.com/storytold/photocraft/commit/0ff76d6f0c089157ddf9c380abd6381a92946311) | fix(paint): cap the total steps one stroke emits (#11195) | `crates/pc-paint/src/dynamics.rs` | MIT OR Apache-2.0 |
+| [`abeb16c96bb6`](https://github.com/storytold/photocraft/commit/abeb16c96bb6c55c70f11a50f57138d17d546db1) | paint: refuse a sequential-dab stroke whose working copy is too large (#11070) | `crates/pc-paint/src/retouch.rs`<br>`crates/pc-paint/src/mixer.rs`<br>`crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/replace.rs`<br>`crates/pc-engine/src/brush_cmds.rs`<br>`crates/pc-engine/src/eraser_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds.rs` | MIT OR Apache-2.0 |
+| [`acd35e12027d`](https://github.com/storytold/photocraft/commit/acd35e12027dffe870fc04100c70ed8127ebd430) | Guard zero-channel regions and saturate the pick-up bounds in Smudge | `crates/pc-paint/src/retouch.rs` | MIT OR Apache-2.0 |
+| [`22882f690c17`](https://github.com/storytold/photocraft/commit/22882f690c1775a9447715e524a7849da17bea67) | Background Eraser: alpha falls off over the whole Tolerance (#11901) | `crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/bg_erase/graded_alpha_tests.rs` | MIT OR Apache-2.0 |
+| [`6bd3773e0743`](https://github.com/storytold/photocraft/commit/6bd3773e0743d21bb28d76ca7026298462f967ea) | Address CodeRabbit review: match the foreground at the document's precision, pin the protect-off row | `crates/pc-paint/src/bg_erase.rs` | MIT OR Apache-2.0 |
+| [`23f63c685eb3`](https://github.com/storytold/photocraft/commit/23f63c685eb3053f6434cdacc4b27afeb32e39c8) | Background Eraser: Find Edges erases soft edges graded instead of cutting them hard (#11904) | `crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/bg_erase/find_edges_tests.rs` | MIT OR Apache-2.0 |
+| [`6d3fe6f96f4e`](https://github.com/storytold/photocraft/commit/6d3fe6f96f4ee9bb670bf3903a44fc22de0c64d2) | Background Eraser: partly erased pixels lose the sampled colour's tint (#11902) | `crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/bg_erase/decontamination_tests.rs` | MIT OR Apache-2.0 |
+| [`7efd224081a1`](https://github.com/storytold/photocraft/commit/7efd224081a190521f6634e766df02d75de77ab7) | Color Replacement: in Lab, Color keeps L and takes the foreground's a and b (#11922) | `crates/pc-paint/src/replace.rs`<br>`crates/pc-paint/src/replace/lab_tests.rs` | MIT OR Apache-2.0 |
+| [`1cf1e15da568`](https://github.com/storytold/photocraft/commit/1cf1e15da5684388e43a17ecbca5fe179f248c20) | Keep Lab/16 Color Replacement on the RGB blend (CodeRabbit review on crates/paint/src/replace.rs:101) | `crates/pc-paint/src/replace.rs`<br>`crates/pc-paint/src/replace/lab_tests.rs` | MIT OR Apache-2.0 |
+| [`cfd894aad3ba`](https://github.com/storytold/photocraft/commit/cfd894aad3bab1d257238812f944daf359934f74) | security(paint): cap spaced steps and procedural primitives (#8957) | `crates/pc-paint/src/dynamics.rs` | MIT OR Apache-2.0 |
+| [`08ff029ac228`](https://github.com/storytold/vectorcraft/commit/08ff029ac22860f47cf0e0b427a932f7d675003e) | fix(pathops): bound offset path complexity and handle arrangement failure safely (#4145) | `crates/pc-pathops/src/offset.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/budget.rs`<br>`crates/pc-pathops/src/planar.rs` | MIT OR Apache-2.0 |
+| [`825620eb6cd1`](https://github.com/storytold/vectorcraft/commit/825620eb6cd17a4298b4fa9041013abe3d35190c) | Clipboard: Linux and BSD reads wait 2 s at most for the app that copied | `apps/local-image/src/services.rs`<br>`apps/local-image/src/services/clipboard.rs` | MIT OR Apache-2.0 |
+| [`29a98b750ac9`](https://github.com/storytold/vectorcraft/commit/29a98b750ac90e530d6bd03b45ea56b8cae2ca72) | Respect quotes and parentheses when splitting SVG CSS declarations | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`2b37302fe5f7`](https://github.com/storytold/vectorcraft/commit/2b37302fe5f7570238836d2aee943843673bf815) | Preserve comment markers inside CSS strings | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`194364304bec`](https://github.com/storytold/vectorcraft/commit/194364304bec7b677a8d8a7118ecaaf6a865fb71) | Strip CSS comments from style attributes and rule declarations | `crates/pc-svg/src/import/css.rs` | MIT OR Apache-2.0 |
+| [`89f20c45c45c`](https://github.com/storytold/vectorcraft/commit/89f20c45c45c6b6eb2127d1dbb1ec7f53bb29488) | SVG import: bound selector matching and share the limits with linked and embedded SVGs | `crates/pc-svg/src/import/preflight.rs` | MIT OR Apache-2.0 |
+| [`60267727656f`](https://github.com/storytold/vectorcraft/commit/60267727656f64fc138d66b592c1bc1d0e7d0e76) | Fix #3773: Offset Path offsets a path whose ends meet as a closed shape | `crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`1574dfe7293c`](https://github.com/storytold/vectorcraft/commit/1574dfe7293c3acf0f5d66b47a628e6483a96260) | fix: anchor positions and Simplify measure curves through the guarded arc length | `crates/pc-pathops/src/geom/path.rs`<br>`crates/pc-pathops/src/edit.rs` | MIT OR Apache-2.0 |
+| [`e9510956172c`](https://github.com/storytold/vectorcraft/commit/e9510956172c5e48f555db7a93e2d139d757830f) | Path booleans: refuse out-of-range input, guard the contour pass, cuts report refusals (#5465) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`0a2935cf8f98`](https://github.com/storytold/vectorcraft/commit/0a2935cf8f984ddbfcb1959f4ff44166dd9efcc9) | Booleans: limit of one unit, crop outside shortcut, tests (#5465) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`0e64aca55746`](https://github.com/storytold/vectorcraft/commit/0e64aca557462bb6507f6a2e8e2a50a86122f8db) | Bound work: flattening of huge curves, print layout past the page limit, script-check file names | `crates/pc-pathops/src/geom/bez.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs`<br>`crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`9cd997b9aac0`](https://github.com/storytold/vectorcraft/commit/9cd997b9aac07c8dad19c2f830407a346922d027) | address review: draw a line for curves with far-out start or control points in flatten | `crates/pc-pathops/src/geom/bez.rs`<br>`crates/pc-pathops/src/boolean.rs`<br>`crates/pc-pathops/src/planar.rs`<br>`crates/pc-pathops/src/offset.rs` | MIT OR Apache-2.0 |
+| [`bc19dd64db45`](https://github.com/storytold/vectorcraft/commit/bc19dd64db458f9b6d6a57c029b73d4ac965fcdc) | Simplify: Convert to Straight Lines keeps the tip of a path that turns back past its end | `crates/pc-pathops/src/edit.rs` | MIT OR Apache-2.0 |
+| [`e6add18663a0`](https://github.com/storytold/vectorcraft/commit/e6add18663a01ce563f19e2698e6084eff6840b4) | Fix #6634: Pen closing drag no longer gives the first anchor symmetric handles | `crates/pc-engine/src/vector_packages/pen/gesture.rs` | MIT OR Apache-2.0 |
+| [`85e0d59bfa88`](https://github.com/storytold/vectorcraft/commit/85e0d59bfa88b145f38658037e96d2a4884e4f9a) | Brushes: Scale Proportionately art grows with the stroke weight | `crates/pc-vecfx/src/brush/warp.rs` | MIT OR Apache-2.0 |
+| [`1ce6431a99fb`](https://github.com/storytold/vectorcraft/commit/1ce6431a99fb188e92d3992c45204a6f59125d2e) | SVG import: raster images follow their EXIF or TIFF orientation | `crates/pc-svg/src/import.rs` | MIT OR Apache-2.0 |
+| [`6725f24a80c6`](https://github.com/storytold/vectorcraft/commit/6725f24a80c697c803b40685510bdc6d4a38d7b0) | Path booleans: check the windings against the operands' areas and resolve the operands when they don't add up (#5478) | `crates/pc-pathops/src/boolean.rs` | MIT OR Apache-2.0 |
+| [`f4a30c1a94d9`](https://github.com/storytold/vectorcraft/commit/f4a30c1a94d9124236f0c7afd2b5b1e2d29ce0ef) | Audit: geometry length measurement refuses coordinates the integrator cannot handle | `crates/pc-pathops/src/geom/path.rs` | MIT OR Apache-2.0 |
+| [`e2a870e60202`](https://github.com/storytold/vectorcraft/commit/e2a870e60202abd5216375de76b5f07e9df41d6c) | Security: bounded flattening, plug-in budgets and caches, loaded textures, Revolve paint copies, color book names and ICC names | `crates/pc-pathops/src/geom/bez.rs` | MIT OR Apache-2.0 |
+
+PhotoCraft document files (2026-11-15). `f373ec18`: the no-follow writer is `li_fs::atomic_write_no_follow`, an `AtomicFs` adapter over `RealFs`, where upstream adds a flag to its own `atomic.rs`. Not ported: its `write_bundle_file` hunk, which has no counterpart here; directory bundles are written through `li_fs::atomic_write`, whose `RealFs::preserve_permissions` sets the mode through a handle, though one it reopens on the staging path. `87da091f` runs after the symbol preflight, which keeps its own duplicate-id error for documents with symbols, and leaves our `max_id` reservation as it is. `e614f7d3` and `a9744ed4` are one port: the point selection is added with the second commit's span test already in it, and without upstream's corner flags, which our `Contour::Custom` does not carry.
+
+LightCraft file safety (2026-11-15). `0d2dd9a9` and its catalog follow-ups: ours has no log thread, so upstream's `log_writer.rs` and the Move-import flush have no counterpart. `690f6cfb` is ported only in part: after a streamed snapshot is staged the folder is asked again, but the staging file's own identity is not compared, as `li-fs` holds that file. The log-length check applies only in a folder accepted by its note, where upstream applies it always.
+
+## PhotoCraft Magic Wand and Magic Eraser parity (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`0e0d99d0b2b31cdc7809d2ffaf50927f09b6b853`](https://github.com/storytold/photocraft/commit/0e0d99d0b2b31cdc7809d2ffaf50927f09b6b853) | fix(engine): Magic Wand Subtract and Intersect grow from the seed through the selection (#11779) | `crates/pc-algo/src/selection.rs`<br>`crates/pc-engine/src/selection_cmds.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`ca005139f201c50c0dcfdacb406aadc983e35981`](https://github.com/storytold/photocraft/commit/ca005139f201c50c0dcfdacb406aadc983e35981) | Shift-click lines aren't smoothed, so they end at the click (#11887) | `crates/pc-ui-egui/src/canvas.rs`<br>`crates/pc-ui-egui/src/canvas/stroke.rs`<br>`crates/pc-ui-egui/src/canvas/tools.rs`<br>`crates/pc-ui-egui/src/stroke_constraint.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`66cbb2a11792283a17f7599bed2cfa6e923428fb`](https://github.com/storytold/photocraft/commit/66cbb2a11792283a17f7599bed2cfa6e923428fb) | Retouching tools: a Shift-click line isn't smoothed either (#11887) | `crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs`<br>`crates/pc-ui-egui/src/canvas/stroke.rs`<br>`crates/pc-ui-egui/src/canvas/tools.rs`<br>`crates/pc-ui-egui/src/eraser_ui.rs`<br>`crates/pc-ui-egui/src/retouch_ui.rs`<br>`crates/pc-ui-egui/src/stroke_constraint.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`e0ca582b97ff5ecfeea81421e60f2642502b00ae`](https://github.com/storytold/photocraft/commit/e0ca582b97ff5ecfeea81421e60f2642502b00ae) | fix(engine): the Magic Eraser measures Tolerance by colour spread (#11995) | `crates/pc-algo/src/selection.rs`<br>`crates/pc-engine/src/eraser_cmds.rs`<br>`crates/pc-engine/src/eraser_cmds/tests.rs`<br>`crates/pc-engine/src/selection_cmds.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`25d6041ab52d849fca1f3dd12cf2eb63c1cff45f`](https://github.com/storytold/photocraft/commit/25d6041ab52d849fca1f3dd12cf2eb63c1cff45f) | fix(algo): partly transparent colours keep the per-channel limit (#11995) | `crates/pc-algo/src/selection.rs`<br>`crates/pc-engine/src/eraser_cmds/tests.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `0e0d99d0` adds the `within` mask to our Sample Size wand (`wand_region_within`, which `wand_region_sampled` calls). `e0ca582b` and `25d6041a` add `ColorDistance` as a parameter of that same function instead of a further wrapper; upstream's colour-distance fringe hunk landed with the `e25be5e7` port (see Adopted PhotoCraft behaviour changes), which measures the fringe with `distance.rgb`. `ca005139` and `66cbb2a1` mark a Shift-click press as `Drag::line` and add `smoothing: 0` through `canvas::unsmoothed_line`; retouch `parse_brush` reads `smoothing` as 0..100. Our UI has no live retouch previews, so `66cbb2a1`'s preview hunks do not apply.
+
+Codec hostile-input bounds (2026-11-15). Adapted ports: `81ce14c1` charges band-worker scratch,
+the JPEG copy and the chunk tables next to the output, without upstream's extra-sample accounting,
+which this decoder does not have. `eef1638e` takes only the step budget, in our `jpeg_dimensions`
+walk; its working-memory and float-predictor charges extend accounting this decoder does not have.
+`f45711c7` keeps our existing refusal of JPEG chunks larger than their strip or tile, or without
+SOI, and adds the repeated-tag, predictor-row and decoded-frame checks. `129e6aec` sets the Group 4
+ratio on our file-length bound. `fb04b028`, `c65b7d93` and `3225307e` port the image-crate and EXR
+plausibility checks and the ICO profile check; `dimensions` runs the ICO check too. `ddae31ba`
+(VectorCraft) is ported as the TIFF codec reading an alpha that follows an unspecified extra sample,
+where VectorCraft fixed its CMYK document loader. `9034223c` reads its float tags in
+`tiff_ycbcr.rs`, as our directory type comes from `lightcraft-tiff`. Not ported: `fb04b028`'s JPEG
+hunk and `07f91c6d`, whose truncated-file guard was declined in the October parser ports;
+`fb04b028`'s PCX and XPM, `3225307e`'s animated-GIF, `4a65ae3f`'s Cryptomatte and `ab4ba9f3`'s
+FITS, EXR channel-lookup and EXIF-thumbnail hunks, which have no counterpart here; `ab4ba9f3`'s
+checked multiplications in the PNG and web encoders, which cannot overflow on 64-bit targets.
+`d03c23e1` and `f98983ff` are already covered before the first scan, where our walker skips stray
+bytes without counting them; after a scan our walker stops (`DataEnd::Unread`) by design.
+
+## Partial PhotoCraft paint ports (2026-11-15)
+
+For the paint rows of the table above: `d98b9ea1` brings only the dab-area budget; its clip (skip dabs outside the canvas plus the layer's pixels) is not ported, because it makes `out_of_range_scatter_is_rejected_and_the_maximum_still_paints` fail (a 1000 % scattered dab lands off the 32 px canvas and reports empty damage) and upstream relaxed that test, which needs a human decision. Until then the budget bounds time but not, in practice, memory: coverage tiles are dense `f32`, so dabs that land off the canvas can still allocate up to about 8 GiB of coverage (2^31 px), and as much again under the Dual Brush's separate budget, before the budget refuses; the clip exists to stop those never-read tiles. Under continuous coverage (a local adaptation) the budget is charged per segment and an undrawn segment owes no end cap. `f5e92a6b`/`0ff76d6f` also bring the per-segment step cap of `cfd894aa` (its procedural-primitive caps are not ported); `af025e18`'s pixel-grid test does not apply (we have no pixel-grid walk). `c2cc5eee` ports the proxy half only: our Liquify dialog has no source-resolution crop or smart-filter editing. `6bd3773e` ports the foreground-precision half; the test it re-pins belongs to upstream's distance-faded protection (`a11204c6`), which we do not have. `acd35e12` is adapted to our Smudge pick-up loop, saturating the square positions. `abeb16c9` also builds `apply_dab_stroke`'s halo rectangle (`crates/pc-paint/src/retouch.rs`) with saturating arithmetic, a local hardening upstream does not have.
+
+Partial ports: `89f20c45` brings only the estimate that holds for every `<use>` copy; its per-test
+weighting by attributes scanned and value bytes compared (our `class_work` covers class lists only),
+its counting of `:not()` alternatives and of kept declarations toward the 64 MB, its linked-file
+sharing and its embedded-SVG budget are not ported. `1ce6431a` turns embedded PNG, JPEG and WebP
+only, within one decode allowance shared by every use; its linked files, TIFF data URLs and CMYK
+handling have no counterpart. `e6add186` brings the closing drag; its closing click that retracts
+the incoming handle and makes a corner is not ported (a click still keeps the first anchor's
+handles), and its script `path.close` parameters have no counterpart. `0e64aca5` brings only the
+flatten length cap and `9cd997b9` the far-point checks; the 4 pathops call sites that use the
+wrapper have no upstream hunk, and upstream's brush `track.rs` and `warp.rs`, metafile `wmf.rs`,
+print-layout and script-check hunks are not ported.
+
+Local deviation: `e9510956` and `0a2935cf` refuse a sweep whose tolerance passes one unit; here
+only the coordinate rounding term is capped, so a drawing more than about 1e8 units across still
+sweeps with a tolerance wider than one unit.
+
+Transform and Crop partial ports: `be7d6816`/`dce32b66` change Free Transform's split only; upstream's
+matching Move change (`cut_piece`, #7655) is not ported, so Move still lifts `a * k` where Free
+Transform now lifts `min(a, k)`. `c2acddae` brings the Perspective side-handle slide; its Distort
+side-handle half (it would change `distort_mode_moves_one_corner_and_ignores_rotate_and_edges`) and
+its handle-cursor hunk are not ported. `b800c40c`'s layer-marquee half has no counterpart here.
+`bed677b3` counts the Pixels statistic on the UI thread, not on a histogram worker. `abb85588` does
+not carry the pivot. `9891eaeb` holds History restore and delete only; its selectState, Step
+Forward/Backward and menu greying have no counterpart. `ea8ba0b3` (re-showing the frame) was
+reviewed and nothing from it applies: its press change, `show_frame`, is not here.
+
+## RAW, HEIF and metadata hardening (2026-11-15)
+
+Not ported from `b0c4aa8c`: the distinct-byte allocation bound in `check_image`, because the batch test
+`hundred_megapixel_rgb_hdr_has_bounded_tile_batches` (`crates/lc-raw/src/tiffraw.rs`) plans its image from tiles
+all pointing at one 4096-byte payload, which that bound refuses (whether to keep the test or take the bound is left to the owner); and the sparse planner (no
+sparse reader here). Already covered: `a4a797e2`'s tile-sized lossy JPEG budget by `lossy_jpeg`'s tile-bounded
+header and its Deflate padding bound by `check_image`'s tile-grid bound; `a42ee704`'s alpha-grid tiles by the
+shared extent-read budget; `f786b875`'s XMP path building by `property_key`'s key budget. Not applicable:
+`1c906ea3`'s PEF and SRW halves (PEF never sums strip counts here, no SRW decoder) and `cb86952c`'s CR3 half
+(CR3 goes through rawler) and `f786b875`'s lensdb XML half (lens profiles come from the `lensfun` crate's
+bundled database; we have no lens XML reader). `5d4b68f0`'s craft-heif git dependency is not taken, nor its HEIC colour changes (VUI range and matrix, Apple
+chroma upsampling, VUI-based CICP tagging) or its HDR conversion peak: decoding goes through the heic-rs 0.1.4
+wrapper, and there is no HDR conversion path here. `a4a797e2`'s second budget in `bound_candidates`, on the total
+length of validated ranges, is not ported: candidates stay borrowed slices and only the largest is copied. Not ported
+here: `0352b420`'s decode side (the lone or incoherent ICC chunk refusal in `crates/pc-codecs/src/codecs/jpeg.rs`
+and the IccUnsupported origin for an invalid profile), left to the package that owns pc-codecs. `0133e139` opens the preview only when
+the raw decoder itself reports `RawError::Corrupt`, narrower than upstream's `Malformed`: a raw cut short inside its
+TIFF structure (`RawError::Tiff`) still fails, and an editor load that fails while the raw decodes stays an error.
+Local extension of
+`17248a20`: the Library's embedded-preview paths (`lc-engine` `load_embedded_preview`, `embedded_preview_srgb`) take
+the same EXIF colour-space tag, and a preview with EXIF of its own is read by that EXIF, not the raw's.
+
+Adapted port of `6c2ff558`: the reader feeds `extract` and `embedded` only. `reads_container` still refuses HEIF, so
+the Remove Location Info refusal of HEIC, HEIF and HIF originals stands. The reader looks up the two metadata items
+in `iloc` instead of listing every item, and refuses an item longer than its source. It takes the first `Exif` item
+and the first XMP item in `iinf`; upstream takes the first of each it can locate and read, so a file whose first
+Exif item is unreadable yields no Exif here. Not ported: the `lightcraft-heif` test-data dependency and the engine
+import test built on it (no synthetic HEIC writer here; `crates/pc-heif` only decodes), so the reader is tested on
+its own container builder.
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b0c4aa8cc8ac`](https://github.com/storytold/lightcraft/commit/b0c4aa8cc8acac043af6d767b3bfec30d0ab0c0a) | security(raw): linear sparse planning, distinct-byte allocation bound, opcode list budget, ORF strip length (#3679) | `crates/lc-raw/src/opcodes.rs`<br>`crates/lc-raw/src/vendor/orf.rs` | MIT OR Apache-2.0 |
+| [`a42ee7042fee`](https://github.com/storytold/lightcraft/commit/a42ee7042fee0f18e929b0f54e3c9d7a6369cf43) | security(heif): count alpha-grid tiles and bound hvcC parameter sets before heic-rs (#3645) | `crates/pc-heif/src/lib.rs`<br>`crates/pc-heif/src/pps.rs` | MIT OR Apache-2.0 |
+| [`f786b87533e5`](https://github.com/storytold/lightcraft/commit/f786b87533e58c6d31c7f9f2897814904448f39a) | security(meta): linear entity decoding, indexed keyword de-duplication, bounded XMP path building (#3672) | `crates/lc-meta/src/xmp.rs`<br>`crates/lc-meta/src/iptc.rs`<br>`crates/lc-engine/src/preset_luminar.rs` | MIT OR Apache-2.0 |
+| [`a4a797e2f2e3`](https://github.com/storytold/lightcraft/commit/a4a797e2f2e381fcb425d78394c0c4dd4f1ab6a8) | security(raw): shared header-scan budget for tagged previews, tile-sized lossy JPEG budget, bound deflate tile padding (#3695) | `crates/lc-raw/src/preview.rs` | MIT OR Apache-2.0 |
+| [`8b3ce31b665c`](https://github.com/storytold/lightcraft/commit/8b3ce31b665c16983129649ebcab298e8b893ba7) | Never crash: a UTC offset of i16::MIN formats and validates without overflow (#2579) | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`07d1f0ad5d1e`](https://github.com/storytold/lightcraft/commit/07d1f0ad5d1e2ce71ff5d22749e92893f958c994) | LR-META-XMP: reject incomplete ISO timestamps | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`a1e1b4cc0e37`](https://github.com/storytold/lightcraft/commit/a1e1b4cc0e37a8016b933eba099460ed99b00b4c) | LR-META-EXIF-FULL: reject malformed EXIF clocks | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`84951ff57967`](https://github.com/storytold/lightcraft/commit/84951ff57967f3778a6095663892ac59fb010bee) | Never crash: rational tag lists show 16 values like every other list (#2579) | `crates/lc-meta/src/tags.rs` | MIT OR Apache-2.0 |
+| [`1c906ea3db25`](https://github.com/storytold/lightcraft/commit/1c906ea3db250369860ba1357ed1dc50935bbf27) | Never crash: strip byte counts near u64::MAX don't overflow their sum in ORF, SRW, ARW and PEF | `crates/lc-raw/src/vendor/arw.rs`<br>`crates/lc-raw/src/vendor/orf.rs`<br>`crates/lc-raw/src/vendor/mod.rs` | MIT OR Apache-2.0 |
+| [`cb86952cbf24`](https://github.com/storytold/lightcraft/commit/cb86952cbf246b5994f5f1116e94e65db63f05c8) | security(raw): CR3 timed maker notes are parsed once per distinct range under a shared budget; Sony quad tiles' frames may not exceed the tile (#3700) | `crates/lc-raw/src/vendor/arw.rs` | MIT OR Apache-2.0 |
+| [`0352b420a7df`](https://github.com/storytold/lightcraft/commit/0352b420a7dfbaeea5ea67aaaae7808527b25075) | fix(codecs): validate JPEG ICC APP2 chunk sequences | `crates/lc-meta/src/container.rs` | MIT OR Apache-2.0 |
+| [`0133e139bb68`](https://github.com/storytold/photocraft/commit/0133e139bb6857af2d4a2749ffe0ba99a7697e8d) | A raw with damaged sensor data opens its camera JPEG instead of failing | `crates/pc-io/src/raw.rs` | MIT OR Apache-2.0 |
+| [`17248a205dd7`](https://github.com/storytold/photocraft/commit/17248a205dd71c6ae12931b53028e4ac0eb918df) | A preview fallback keeps the colour space the raw's EXIF states | `crates/lc-codecs/src/jpeg.rs`<br>`crates/lc-codecs/src/lib.rs`<br>`crates/lc-engine/src/files.rs` | MIT OR Apache-2.0 |
+| [`5d4b68f04cfe`](https://github.com/storytold/photocraft/commit/5d4b68f04cfefada1404fb709eb9ca2d3575f303) | Use craft-heif from craft-libs for HEIC/HEIF (#13076) | `crates/pc-codecs/src/codecs/heif.rs` | MIT OR Apache-2.0 |
+| [`6c2ff558d90a`](https://github.com/storytold/lightcraft/commit/6c2ff558d90a9ab6e314f9ce4f19bd1d542fee6b) | #2284: read the Exif and XMP items of HEIF files | `crates/lc-meta/src/heif.rs`<br>`crates/lc-meta/src/container.rs`<br>`crates/lc-meta/src/cr3.rs`<br>`crates/lc-meta/src/lib.rs`<br>`crates/lc-meta/tests/robust.rs` | MIT OR Apache-2.0 |
+
+## Adopted PhotoCraft behaviour changes (2026-11-16)
+
+Each of these changes an existing test exactly as upstream changed its counterpart (owner decision 2026-11-15).
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`54515f94b347`](https://github.com/storytold/photocraft/commit/54515f94b34786dc4c3d04a57cb8d66f838ea59f) | fix(ui-egui): the rasterize prompt no longer replays the click that opened it (#8806) | `crates/pc-ui-egui/src/rasterize_prompt.rs`<br>`crates/pc-ui-egui/src/rasterize_prompt_tests.rs`<br>`crates/pc-ui-egui/src/vector_packages/persona.rs`<br>`docs/control-protocol.md` | MIT OR Apache-2.0 |
+| [`70e6b0e7b15c`](https://github.com/storytold/photocraft/commit/70e6b0e7b15c8c3bac05c14fa821c57011cc1b3c) | Magnetic Lasso: the edge comes from the visible composite, not the active layer (#11686) | `crates/pc-engine/src/magnetic_cmds.rs`<br>`crates/pc-engine/src/magnetic_cmds/tests.rs`<br>`crates/pc-ui-egui/src/magnetic_lasso_ui.rs` | MIT OR Apache-2.0 |
+| [`e25be5e77bfc`](https://github.com/storytold/photocraft/commit/e25be5e77bfc440cd21e7c8577a2a0a264d54b2a) | Magic Wand: Anti-alias keeps the region whole and softens only near-matching neighbours (#11776) | `crates/pc-algo/src/selection.rs` | MIT OR Apache-2.0 |
+| [`375d4894a119`](https://github.com/storytold/photocraft/commit/375d4894a119b6cd5933d53e8fe7f506d2783392) | Selecting subject now automatically applies to selected layer, and uses sampleAllLayers only when no layer is selected | `crates/pc-engine/src/smartselect_cmds.rs` | MIT OR Apache-2.0 |
+| [`bf80e2d2fa6a`](https://github.com/storytold/photocraft/commit/bf80e2d2fa6a565f9d5d4bc53271fb9597adaa39) | Select and Mask: Shift Edge is a curve on coverage, so hard edges stay put | `crates/li-matte/src/matting.rs`<br>`crates/pc-algo/src/matting.rs`<br>`crates/pc-algo/tests/coverage/matting_coverage.rs`<br>`crates/pc-engine/src/smartselect_cmds.rs` | MIT OR Apache-2.0 |
+| [`1e076433dce7`](https://github.com/storytold/photocraft/commit/1e076433dce771aad46d10f4530745acfb5547a7) | PSD save: choose PSB by the encoded size, not the raw estimate (#5285) | `crates/pc-psd/src/compression.rs`<br>`crates/pc-psd/src/file.rs`<br>`crates/pc-psd/src/resources.rs`<br>`crates/pc-io/src/psd_export.rs`<br>`crates/pc-io/src/psd_export/tests.rs`<br>`crates/pc-io/src/multichannel_map.rs` | MIT OR Apache-2.0 |
+
+`54515f94`: our `confirm()` keeps its local `persona::validate_rasterize_prompt` check before rasterizing; upstream's `confirm_filter` branch and scorecard rows have no counterpart here.
+
+`e25be5e7`: the 8-bit fill is our `wand_region_within`, so its fringe measures the colour with `distance.rgb(p, target)` (upstream's follow-up hunk from `e0ca582b`) and the Magic Eraser's Spread distance applies to the fringe too. Upstream's `wand_antialias_tests.rs` sits in the `tests` module of `selection.rs`.
+
+`375d4894`: our `select.subject` is a background job with the learned-model `engine` option; the default changes in that job's `all` flag and in its spec string, which keeps the `engine` field.
+
+`bf80e2d2`: our Shift Edge was the pre-#5176 whole-pixel morphology in `li-matte`, so the curve replaces `shift_px` there and #5176 is not ported. `morph` stays for Closed-form matting's trimap. Not ported: upstream's `morphology/tests.rs` deletions (we have no shift-morphology tests) and `docs/octagonal-mask-performance.md`. Local: the module docs of both `matting.rs` files now name the coverage curve; `matting_coverage.rs` halo/spread drop by the old 2 px shift (50 to 48, 26 from 28); the third `editor_buffer_goldens` hash needs regenerating.
+
+`1e076433`: a too-large document is still saved as PSB automatically (`fit_psd_size` promotes it when the exact encoded length plus 1 MB headroom is over 2 GB, or cannot be computed); a failed promotion warns and the writer's 32-bit length check refuses the PSD. Local: our writer pads every tagged block, the layer block included, to even, so `encoded_len` uses the existing `TaggedBlock::encoded_len` and the `tagged.rs` hunk (`encoded_len_aligned`) is not ported. Our export stores the layer block's 4-byte padding explicitly, so that step moved into `pad_layer_info`, which `fit_psd_size` reruns for PSB on both placements (upstream re-pads only the section). `document_to_psd_sized` keeps our `memory_budget` argument (upstream has an `Interrupt`). The `pc-psd` tests sit in the existing `tests` module of `file.rs`. The estimator tests are replaced by upstream's four encoded-size tests (owner decision 2026-11-15).
+
+## LightCraft Develop ports (2026-11-16)
+
+Local adaptations: `47e2c0d2` takes the analysis image from our `analysis_plane`, which keeps the
+small-source resampling of `analyze_lines`; upstream's unused `level_plane` is not ported.
+`9ac38222` adds only what was missing: Masking's preview, its GPU kernel and `SharpK` existed. The
+detail band is our sharpening's (`detail::detail_band`, from the Radius planes `prep.sharp`, with a
+GPU twin `sharp_detail_preview`), not upstream's texture blur; `sharpen_mask_weight` and
+`texture_sigma` have no counterpart. The UI keeps our per-slider Alt flag (`alt_preview`) instead
+of a global Alt state, so an Alt-drag on the histogram shows no preview. Not ported: `per_pixel`
+(our loupe has no window render to gate) and the unrelated `spots.rs` cleanup.
+`abf0caf2` dispatches through our `take_pressed` loop, which drops each key event it takes, so the
+once-per-press check reads the frame's fresh Space press before the loop. Its tests use Clone in
+Remove (our Remove and Heal make shared patches, not `develop.spots`), set the zoom directly (we
+have no `view.navigate`) and check `app.gesture` for the stroke in progress (we have no
+`brush_live`). Space takes no hand over the Edit panel's mask tools or the Skin Tone and film base
+pickers, which upstream does not have or list. Not ported: the `ui.key` row of upstream's control
+protocol (ours documents the PhotoCraft side) and the parity checklists.
+`c9c3870a`: our primary binding (no params) for Toggle Zoom on Space takes the alias's path in the
+same loop, slideshow pause included; the test sets `shortcut_overrides` (we have no
+`shortcuts::assign`).
+`63b7d076`: the pin code sits in our `panels/detail.rs` (upstream `panels/detail/masks.rs`); its test
+drops upstream's `view.toolOverlay` step, since our pins show whenever Show Pins is on. Our pin drag
+on a shape `moved_shape` cannot move ends in `end_interaction`, which records no step when the
+settings are unchanged. Not ported: upstream's what's-new and parity checklist lines.
+`71748919` follows `63b7d076`: the pin check sits in the Object tool branch of our `mask_overlay` (upstream has a separate `object_tool`), selecting with `app.run`; its test sets Show Pins instead of `view.toolOverlay`. Not ported: upstream's what's-new line.
+`aa52251d`: our shortcut stays Cmd+U (upstream Shift+A) and the engine command documents `{ids?}`. The
+app hook is a `develop.auto` arm in our `menus.rs` `run_ui_command` (upstream `menus/run.rs`); the task
+runs on `tasks::spawn_job` with its `JobCtl` (upstream `spawn_tracked` with a cancel flag), wrapped
+in `guard::catch` like the Auto white balance task, and a cancelled run is discarded by the runner
+instead of returning an error. Toasts go through `li_i18n::library` and the new strings are listed
+in `PENDING_DEVELOP_TRANSLATIONS`. Our demo's Auto gives vibrance 12 and a contrast measured per
+photo, so the engine test compares each photo with `auto_tone` on its own source instead of
+upstream's fixed 68 and 30; the UI test waits with `tasks::wait` (we have no `wait_for`).
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`47e2c0d248ad`](https://github.com/storytold/lightcraft/commit/47e2c0d248adf7f555163c0efde8d0f4b2d5485f) | LR-CROP-AUTO: Auto straighten reads the vertical vanishing point and the horizon | `crates/lc-pipeline/src/straighten.rs`<br>`crates/lc-pipeline/src/upright.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-pipeline/src/tests_geometry.rs` | MIT OR Apache-2.0 |
+| [`9ac38222e12e`](https://github.com/storytold/lightcraft/commit/9ac38222e12e9bec2bb171d2a30aa8b69aeb4b9a) | Alt/Option-drag previews for clipping and sharpening | `crates/lc-pipeline/src/visualize.rs`<br>`crates/lc-pipeline/src/detail.rs`<br>`crates/lc-pipeline/src/lib.rs`<br>`crates/lc-gpu/src/render.rs`<br>`crates/lc-gpu/src/ctx.rs`<br>`crates/lc-gpu/src/wgsl/detail.wgsl`<br>`crates/lc-gpu/tests/it/equivalence.rs`<br>`crates/lc-ui-egui/src/state.rs`<br>`crates/lc-ui-egui/src/panels/edit.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_panels.rs` | MIT OR Apache-2.0 |
+| [`abf0caf2017e`](https://github.com/storytold/lightcraft/commit/abf0caf2017e79108fa9a7d67efabad27232b269) | KEY-TOGGLEZOOM: hold Space over a tool to pan and click-zoom | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs`<br>`crates/lc-ui-egui/src/control.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
+| [`9e305d642e3e`](https://github.com/storytold/lightcraft/commit/9e305d642e3e091235e8a651079f6dafd798c224) | KEY-TOGGLEZOOM: a click down and up within one frame keeps its zoom on Space's release | `crates/lc-ui-egui/src/space_hand.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
+| [`c9c3870ab387`](https://github.com/storytold/lightcraft/commit/c9c3870ab38718a63c5faaa7b677b39cbbc002eb) | KEY-TOGGLEZOOM: Toggle Zoom bound to Space in the keymap takes the hand and toggles once | `crates/lc-ui-egui/src/shortcuts.rs`<br>`crates/lc-ui-egui/src/tests_space_hand.rs` | MIT OR Apache-2.0 |
+| [`63b7d0766e18`](https://github.com/storytold/lightcraft/commit/63b7d0766e18726ba35a2f4be645280acd478984) | LR-MASK-PINS: Object and Describe masks show a pin that selects them | `crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_masking.rs` | MIT OR Apache-2.0 |
+| [`71748919396d`](https://github.com/storytold/lightcraft/commit/71748919396d7fb0adb8b96d02eb31dd6fc6bcad) | LR-MASK-PINS: with the Object tool on, a click on another mask's pin selects it (#3049) | `crates/lc-ui-egui/src/panels/detail.rs`<br>`crates/lc-ui-egui/src/tests_masking.rs` | MIT OR Apache-2.0 |
+| [`aa52251d2ef3`](https://github.com/storytold/lightcraft/commit/aa52251d2ef3bb2e4014f20943c4c4c83ce0d931) | Apply Auto settings to every selected photo (#3808) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/auto_settings.rs`<br>`crates/lc-ui-egui/src/lib.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/li-i18n/src/pending_library.rs` | MIT OR Apache-2.0 |
+
+## Content-Aware Fill geometric options (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4875f94ebbd13b3f9f3c244ba28a13c8785008c9`](https://github.com/storytold/photocraft/commit/4875f94ebbd13b3f9f3c244ba28a13c8785008c9) | Expose Content-Aware Fill scale and mirror options | `crates/pc-engine/src/fill_cmds.rs`<br>`crates/pc-engine/src/commands.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`d3392e6124780864a4a28cfd9505327c9141103b`](https://github.com/storytold/photocraft/commit/d3392e6124780864a4a28cfd9505327c9141103b) | Honor fill rotation and style paste group eligibility | `crates/pc-engine/src/fill_cmds.rs`<br>`crates/pc-engine/src/commands.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `edit.fill` takes `scaleAdaptation`, `mirror` and `rotationAdaptation` (quarter turns, `rotation_level("full")`) for `contentAware`; the Fill dialog (`crates/pc-ui-egui/src/fill_ui.rs`) is unchanged. Not applicable: `d3392e61`'s Paste Layer Style `allowGroups`, which filters the multi-layer targets of upstream's `style_targets` and its action (ATN) mapping; our command pastes onto one layer and has no ATN mapper. Both commits' ATN hunks have no counterpart.
+
+## Upstream commit ports
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`3e81a3bcc406`](https://github.com/storytold/photocraft/commit/3e81a3bcc4060ff60fe385210f10127215c76995) | fix(engine): a free Perspective Crop takes the quad's perspective size (#11798) | `crates/pc-algo/src/transform.rs`<br>`crates/pc-engine/src/perspective_crop_cmds.rs`<br>`crates/pc-ui-egui/src/perspective_crop_ui.rs` | MIT OR Apache-2.0 |
+| [`0a8eb9d6c826`](https://github.com/storytold/photocraft/commit/0a8eb9d6c82685418c1b02abca8a1c37e658d790) | fix(algo): keep the edges when a pixel of click error swings a free Perspective Crop (#11798) | `crates/pc-algo/src/transform.rs` | MIT OR Apache-2.0 |
+| [`ab0b26a9c693`](https://github.com/storytold/photocraft/commit/ab0b26a9c6938fe338bb6829711f65444895dae6) | Wire profile action options and dither 8-bit conversions | `crates/pc-engine/src/color_cmds.rs`<br>`crates/pc-engine/src/color_cmds/profile_dither.rs`<br>`crates/pc-engine/tests/it/convert_profile_dither.rs` | MIT OR Apache-2.0 |
+| [`e24efcf762f7`](https://github.com/storytold/photocraft/commit/e24efcf762f75d20e3adbd80b60f7123067e4da3) | feat(engine): reset a smart object's transform | `crates/pc-engine/src/smart_cmds.rs`<br>`crates/pc-engine/src/smart_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`4083eee2c574`](https://github.com/storytold/photocraft/commit/4083eee2c5740eaf9905738c9dd94dbd017c937e) | Filter > Other > Frequency Separation (#1714) | `crates/pc-engine/src/frequency_separation_cmds.rs`<br>`crates/pc-engine/src/commands.rs`<br>`crates/pc-engine/src/lib.rs`<br>`crates/pc-ui-egui/src/filter_dialog.rs`<br>`crates/pc-ui-egui/src/menu_catalog.rs`<br>`crates/pc-ui-egui/src/menus.rs` | MIT OR Apache-2.0 |
+| [`26d790212ea9`](https://github.com/storytold/photocraft/commit/26d790212ea96c435ce9e90e58448f8a02b60067) | Match Color: expose source-layer selection | `crates/pc-ui-egui/src/filter_dialog.rs`<br>`crates/li-i18n/catalogs/editor/*.tsv` | MIT OR Apache-2.0 |
+| [`69147701adb4`](https://github.com/storytold/photocraft/commit/69147701adb485e0aa3654fa7dc56e38421aa13d) | Levels: Alt-drag clipping display on the Input sliders (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs`<br>`crates/pc-ui-egui/src/adjust_dialog.rs`<br>`crates/pc-ui-egui/src/adjust_editors.rs`<br>`crates/pc-ui-egui/src/adjust_preview.rs`<br>`crates/pc-ui-egui/src/canvas.rs`<br>`crates/pc-ui-egui/src/canvas/display.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`docs/control-protocol.md` | MIT OR Apache-2.0 |
+| [`0a209116e657`](https://github.com/storytold/photocraft/commit/0a209116e6576b3ec831d37b8725e4216b6f29e8) | Levels clipping: no display for Smart Filter dialogs (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs` | MIT OR Apache-2.0 |
+| [`aec857900024`](https://github.com/storytold/photocraft/commit/aec8579000247716d4600804525f9b9a295288f8) | feat(ui): drag the zones of a Hue/Saturation colour range (#9252) | `crates/pc-ui-egui/src/adjust_editors.rs`<br>`crates/pc-ui-egui/src/adjust_editors_tests.rs` | MIT OR Apache-2.0 |
+| [`7e15585d92b0`](https://github.com/storytold/photocraft/commit/7e15585d92b04d57164b78e452052a8b9c292497) | feat: Black & White Auto (#9269) | `crates/pc-engine/src/adjust_cmds.rs`<br>`crates/pc-engine/src/adjust_cmds/tests.rs`<br>`crates/pc-ui-egui/src/adjust_editors.rs`<br>`crates/pc-ui-egui/src/adjust_editors_tests.rs`<br>`crates/pc-ui-egui/src/adjust_dialog.rs`<br>`crates/li-i18n/catalogs/editor/*.tsv` | MIT OR Apache-2.0 |
+
+Adapted port of `ab0b26a9`: `edit.convertToProfile` takes only `dither` (upstream's `flatten` and `rasterizePlaced` options are not here). The dither path converts the symbol masters too and starts from the same strictly checked source profile as our `convert_document` (`conversion_source`, split out of it); `Rect::tile_count` is not in our `pc-geom`, so `profile_dither.rs` counts canvas tiles locally. Unported, no counterpart: the ATN hunks (`atn_cmds/steps_doc.rs`, `atn_cmds/tests.rs`, `tests/convert_profile_atn.rs`).
+
+Adapted port of `e24efcf7`: `layer.smartObjects.resetTransform` applies its map through our `transform_layer` with the group locks and then `refresh_text`, as `edit.transform` does, so upstream's `transform_by_map` split of `transform_cmds.rs` is not ported; the exact reset map is pinned with `set_placement` before the re-render rather than after. Upstream's `source_box` is a local helper over `source_image`, split out of `render` so both decode the source the same way. Tests: Free Transform here has no `scaleX`/`rotate`, so the first test passes the same 200 % and 30 degrees as a matrix about the contents' centre; the `"layer": "nope"` refusal is dropped because our `layer_param` reads a non-numeric layer as the active one. The id is added to `commands_are_registered_with_catalog_ids`, as upstream did.
+
+Adapted port of `4083eee2`: it replaces our earlier local Frequency Separation (`freqsep_cmds.rs`, id `filter.frequencySeparation`, two loose layers), which is deleted with its two tests; the catalogue row in Filter > Other keeps its place after High Pass under the new id. Our Channels panel has no layer-mask target, so a mask counts as targeted only while it is shown in mask view (`mask_view_cmds::current`), and the mask test toggles that view instead of `channel.target "mask"`. The params string is the plain notation (`{"radius":0.1..1000=4}`) without upstream's `→` result note, which our `parse_spec` would read into the radius default. Our `LayerContent` has no `article`, so the non-pixel refusal says "a {kind} layer" as our other refusals do; Low comes from `apply_filter_to_surface_in` (the session-gated path, no profile); `note_insert` (canvas damage) has no counterpart here; the Background check uses `extra_cmds::is_background`. Not applied: the `PLACE_AFTER` row and menu test against Color to Alpha (no such command here; an adapted test checks the place after High Pass), the i18n rows (every editor catalogue already has `Frequency Separation…`; el, nl, pl, uk and vi have no catalogue here) and the `docs/architecture.md` hunk (no such file here).
+
+Adapted port of `26d79021`: the engine already took `sourceLayer`, so only the dialog is ported. Our `widgets::dropdown` has no label argument (upstream's `dropdown_literal`), so the tests find each menu by the choice it shows; the reopen check publishes through our `snapshot`, which keeps no Match Color values, in place of upstream's `remember`; the preview test calls `preview_document_with_sources` (no channel target or colour settings arguments here) and compares the reference with the session's own copy. "Merged" had no translation upstream; each editor catalogue gets one, from its existing "Copy Merged" wording. Not applied: the hunk adding layer cases to the existing `match_color_preview_uses_the_source_document` test, which this port leaves as it is; the new preview test covers a selected layer.
+
+Adapted bundle port of `69147701` + `0a209116`: our adjust dialog has no `dialog_mem`, so `levels_clipping::sync` takes the editor id the dialog already builds (`egui::Id::new(("adjust-dialog", kind))`); `visible_doc_rect` lives in `canvas/display.rs` and becomes `pub(crate)` there, reaching `crate::canvas` through its glob re-export; the canvas paints the display after the Channels overlay, as upstream does, on the CPU and GPU paths alike. `targets_channel` keeps upstream's three arguments from `69147701` (a later upstream change that adds params is not in this bundle). Tests: our `ViewXform` has no `aspect`, so the test view drops it; our Levels math already has gamma's toe at black, so `gamma_and_output_levels_do_not_hide_clipping` is taken as upstream's follow-up `953db673` rewrote it (the "soft toe stays under white" precondition would not hold here). The control-protocol row leaves out its Alt+Cancel reset sentence (no such reset in our Levels dialog). Not in this bundle: `91e86c5f` (draw only on the main canvas, so an extra document window neither draws the display nor replaces its cache) and `c907fe59` (doc comments).
+
+Adapted port of `aec85790`: our editors are one flat `adjust_editors.rs`, so `hue_range_zone` and `move_hue_range_zone` sit beside `move_hue_range_handle` there (private, no `pub(super)` re-export) and the zone drag joins the handle drag in `hue_saturation`. The UI test builds the Properties editor id as `egui::Id::new(("adjust-layer", id.0))`, since we have no `layer_mem`. Not applied: the `docs/ui-parity.md` hunk (no such file here).
+
+Adapted port of `7e15585d`: our compose `Buffer` has no `into_px`, so the adjustment-layer path takes the rendered buffer's `px`. Our editors are one flat file: `apply_auto` sits beside `black_white` in `adjust_editors.rs` (upstream `basic.rs`), and the Properties call goes into our `layer_editor` there (upstream `session.rs`); our `black_white` takes no `EditorCx`, and our `Edit` has no `import_gradients`, so only `auto` is added. "Auto" already has a translation in every editor catalogue; the button's tooltip had none upstream; each editor catalogue gets one (ours, not upstream's).
+
+## PhotoCraft Image Processor per-format output (2026-11-15)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`7b7dde38c1d5375fd8ba1d2f72efc811b3432b11`](https://github.com/storytold/photocraft/commit/7b7dde38c1d5375fd8ba1d2f72efc811b3432b11) | Add per-format Image Processor output settings | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/image_processor_formats.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`11c77d26858cc76309822851d7fdbf8ef0ced810`](https://github.com/storytold/photocraft/commit/11c77d26858cc76309822851d7fdbf8ef0ced810) | Add Image Processor format controls and output regressions | `crates/pc-ui-egui/src/image_processor_ui.rs`<br>`crates/pc-ui-egui/src/image_processor_ui/tests.rs`<br>`crates/pc-ui-egui/src/dialogs.rs`<br>`crates/pc-ui-egui/src/view_cmds.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs`<br>`crates/li-i18n/catalogs/editor/*.tsv` | MIT OR Apache-2.0 |
+
+Adapted port: `7b7dde38` runs over our `process_files`, so the sections apply to the folder or file list `input` names (upstream's `source` for open documents is not here). The JPEG section's `convertToSrgb` does what the single-format mode does. `psd.maximizeCompatibility` is left out because PSD export has no such switch here. `tiff.lzw` sets the new `SaveOpts::tiff_compression`. An output that would replace one of the inputs is reported as that format's error. `11c77d26` adds the dialog's File Type section (Save as JPEG, PSD, TIFF, each with its own settings and Resize to Fit) and its Run button. Adapted: the dialog keeps our input and output folder fields and has no Source choice or Include All Subfolders field; PSD has no Maximize Compatibility checkbox (see above); the alerts open as our Error dialog from the section itself (no `range_alert` or `field_tab` here), and the number fields are labelled with `labelled_by` (egui 0.36 has no `accessible_name`). Its engine tests become two tests over an input list, as Image Processor here has no open-documents source; the one-run, folder-error and legacy-format cases are already in `image_processor_writes_each_format_with_its_own_settings` and `load_files_into_stack_and_image_processor_and_batch`. Not ported: the spec-text and `IMAGE_PROCESSOR` constant changes (already in the `7b7dde38` port or naming only) and the environment-gated GPU snapshot test. The new strings are translated in the complete editor catalogs.
+
+## PhotoCraft Batch engine: subfolders, open documents, naming, errors, job (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`bc08629d292e1383a41e0db254a00a907f42c9e2`](https://github.com/storytold/photocraft/commit/bc08629d292e1383a41e0db254a00a907f42c9e2) | Batch: subfolders, open documents, file naming, stop on error, error log, progress and cancel (#219) | `crates/pc-engine/src/batch.rs`<br>`crates/pc-engine/src/batch/tests.rs`<br>`crates/pc-engine/src/lib.rs`<br>`crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/batch_actions.rs`<br>`crates/pc-engine/src/file_cmds/image_processor_formats.rs`<br>`crates/pc-engine/src/lens_cmds.rs`<br>`crates/pc-engine/Cargo.toml` | MIT OR Apache-2.0 |
+
+Adapted port, engine part only: the Batch dialog (`ui-egui/src/view_cmds.rs`, its `__order` form hint and the `batch_export_options` test helpers), the CLI's `batch` flags and upstream's docs and scorecard are not ported here. Our `process_files` keeps its callback that gets the output path and may save the result itself, so the recorded-save flow of the batch action still decides what is written; the steps loop is shared with the new open-documents source, where a recorded save likewise picks the saved state. The script and batch step budget is charged for open documents as for files. The `{date:…}` tokens use today's UTC date from `li_i18n::calendar::civil_from_days` instead of chrono's local date (no new dependency). No `ensure_dir`: our crash-safe `write_file` already creates the output folder. The error log's first line says "Local Image Batch". Image Processor's per-format mode (`7b7dde38`) takes subfolders but keeps the plain `<name>.<ext>` naming and every-file error handling, because its formats share one result.
+
+## PhotoCraft Batch CLI flags and grouped form order (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`bc08629d292e1383a41e0db254a00a907f42c9e2`](https://github.com/storytold/photocraft/commit/bc08629d292e1383a41e0db254a00a907f42c9e2) | Batch: subfolders, open documents, file naming, stop on error, error log, progress and cancel (#219) | `apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs`<br>`crates/pc-ui-egui/src/view_cmds.rs`<br>`crates/pc-ui-egui/src/view_cmds/tests.rs` | MIT OR Apache-2.0 |
+
+Adapted port, the rest of `bc08629d` after the engine part above: upstream's `apps/photocraft-cli` flags (`--recursive`, `--naming`, `--start-serial`, `--stop-on-error`, `--error-log`) go into `local-image-cli batch`, and the generic form's `__order` hint and the grouped Batch dialog into `pc-ui-egui`. Our CLI keeps its own listing: unsupported files are still reported as skipped (in subfolders too), RAW inputs still default to `.pcraft`, and the naming and serial flags are checked before any folder is read or written. The error log's first line says "Local Image Batch". Our Batch dialog keeps its own format list and has no quality field, so `quality` is not in its order. The CLI test is in `apps/local-image-cli/tests/cli.rs` (upstream's sat in the CLI's `lib.rs`) and makes its images with the test file's `write_png`; the form-order test is in `view_cmds/tests.rs`. Not ported: `crates/ui-egui/tests/batch_export_options.rs` (we have no such test file) and upstream's docs and scorecard.
+
+## PhotoCraft TIFF Options: compression, image pyramid and Save Transparency (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b`](https://github.com/storytold/photocraft/commit/e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b) | TIFF Options: compression, image pyramid and Save Transparency (#10932) | `crates/pc-codecs/src/codecs/tiff.rs`<br>`crates/pc-codecs/src/options.rs`<br>`crates/pc-codecs/src/lib.rs`<br>`crates/pc-codecs/tests/it/tiff_pyramid.rs`<br>`crates/pc-codecs/tests/it/main.rs`<br>`crates/pc-codecs/tests/it/tiff_bench.rs` | MIT OR Apache-2.0 |
+
+Adapted port, ported in three parts. Part 1, the codec: `EncodeOptions::tiff_pyramid` and `TIFF_PYRAMID_MIN`, and the reduced-resolution levels (`NewSubfileType` 1, from `tiff_ifd::TAG_NEW_SUBFILE_TYPE`) written after the full image. Upstream's `codecs/tiff/encode.rs` is our single `codecs/tiff.rs`: the levels reuse its `zeroed` buffer and its `alpha` tag flag (our encoder writes no extra samples, so a level's tags are the profile and the alpha mark), and the pyramid only adds to the BigTIFF size estimate (our encoder does not preallocate the output). In `tiff_pyramid.rs` the layered-data test keeps its layers and profile checks (the profile from `common::sample_icc`) and drops the extra-samples half, as our `Metadata` has no extra samples. Parts 2 and 3 (save path, CLI, automation and the TIFF Options dialog) follow.
+
+## PhotoCraft TIFF Options part 2: compression, transparency and pyramid parameters (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b`](https://github.com/storytold/photocraft/commit/e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b) | TIFF Options: compression, image pyramid and Save Transparency (#10932) | `crates/pc-io/src/lib.rs`<br>`crates/pc-io/src/flat.rs`<br>`crates/pc-io/src/tiff_layers.rs`<br>`crates/pc-io/tests/it/tiff_save_options.rs`<br>`crates/pc-io/tests/it/main.rs`<br>`crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/batch_actions.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs`<br>`crates/pc-engine/src/artboard_cmds.rs`<br>`crates/pc-engine/src/comps_cmds.rs`<br>`crates/pc-engine/src/lens_cmds.rs`<br>`crates/pc-automation/src/rpc.rs`<br>`crates/pc-automation/src/server.rs`<br>`crates/pc-automation/tests/it/mcp.rs`<br>`apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs` | MIT OR Apache-2.0 |
+
+Adapted port, part 2 of 3: `ExportOptions::tiff_transparency` and the `tiffCompression`, `tiffTransparency` and `tiffPyramid` parameters of the engine's saves, the JSON-lines `doc.save`, the MCP `doc_save`/`doc_export` and `local-image-cli` (`--tiff-compression`, `--tiff-transparency on|off`, `--tiff-pyramid` on convert, run and batch). Upstream's earlier TIFF work is not here, so: `tiff_compression_param` and `tiff_bool_param` are new in `file_cmds.rs`, and `SaveOpts::from_params` now takes the command id and fails on a bad value (its seven callers pass theirs); unset compression keeps our encoder's ZIP (upstream: none); our TIFF writes no alpha or spot channels, so `flat_transparency_and_channels` and the `stamp_flat_channels`/`channel_resources` changes have no counterpart and unset Save Transparency simply keeps the transparency. Off, the flat path mattes in `export_flat` (with no warning, as the user chose it) and the layered path asks the PSD export for a matted composite, leaves the transparency plane out of the IFD and clears the merged-alpha flag and marker in the layer data. `matte_over_white` now mattes Lab on L* 100 with a* and b* at their midpoint, which the new path reaches. Our CLI reports a bad value with exit status 1, as its `--quality` does. Upstream's `tiff_save_options.rs` is trimmed to the transparency, colour mode and pyramid cases (no spot, Quick Mask, 16-channel or interop sample cases); its `layered_save_dirty.rs` case is `rpc_doc_save_takes_tiff_options` in `mcp.rs`. Not ported: the bridge forwarding of the TIFF Options to the app's `app.save` (ours takes only a path), `matte_and_drop_alpha`'s out-of-memory change (we have no such function) and the TIFF Options dialog (part 3).
+
+## PhotoCraft TIFF Options part 3: the dialog (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b`](https://github.com/storytold/photocraft/commit/e3a84b628dc7bb6b9cd821ee089fa3775f9ad67b) | TIFF Options: compression, image pyramid and Save Transparency (#10932) | `crates/pc-ui-egui/src/tiff_options_ui.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-ui-egui/src/view_cmds.rs`<br>`crates/pc-ui-egui/src/bugfix_save_tests.rs`<br>`apps/local-image/src/services.rs`<br>`crates/li-i18n/catalogs/editor/*.tsv` | MIT OR Apache-2.0 |
+
+Adapted port, part 3 of 3: the TIFF Options dialog asks on every TIFF Save As and Save a Copy (Image Compression None/LZW/ZIP, Save Image Pyramid, Save Transparency when there is no Background layer, Discard Layers when the TIFF would keep layers, the layered-file note and "Don't show again" only with "Ask Before Saving Layered TIFF Files" on), and remembers compression and pyramid for the session (`tiff_remembered`). `ExportSettings` gains `tiff_compression`, `tiff_transparency` and `tiff_pyramid`, which both of our save paths in `apps/local-image/src/services.rs` (the export service and `prepare_document_save`) pass to `ExportOptions`; upstream's `ExportSettings::io_options` has no counterpart. Local differences: the dialog and `ExportSettings` start at ZIP, our encoder's default (upstream: none); Save Transparency starts on, as our TIFF writes no alpha or spot channels; our `park` keeps its filmstrip and Library-return fields and takes the Save a Copy snapshot (`Prompt::copy`) instead of a `copy` flag and journal record, and Save a Copy's write moves into `view_cmds::write_copy` so the prompt can call it. Not ported, as our app has no counterpart: `TiffChoice::record`, `choice_param`, `compression_name` and the `FormatChoices`/`journal_as_plain_save` changes (our Save As takes no format params and records no action step), the `SAVE_OPTIONS_OPEN` guard in `park`, and the `save_automation_with` case. Upstream's `tiff_options_tests.rs` is the `tiff_options` module in `bugfix_save_tests.rs`, trimmed of its recording, playback, scripted-params and alpha-channel cases; `apply_sets_the_export_settings` drops its `io_options` half; `services/tests.rs`'s `tiff_options_reach_the_written_file` is in `save_worker_native_tests` and also covers the background save. New strings are in the editor catalogs.
+
+## PhotoCraft File > Open as Smart Object (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`5e583a3f9fb2aa164f3a76f68be3b573ad7bd598`](https://github.com/storytold/photocraft/commit/5e583a3f9fb2aa164f3a76f68be3b573ad7bd598) | File: Open as Smart Object... opens a file as a new document holding one embedded smart object (#11678) | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/open_as_smart_object.rs`<br>`crates/pc-engine/src/file_cmds/open_as_smart_object_tests.rs`<br>`crates/pc-ui-egui/src/menu_catalog.rs`<br>`crates/li-i18n/catalogs/editor/*.tsv` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`c1f630791a89a06cf7ac801073074fae72d3acbd`](https://github.com/storytold/photocraft/commit/c1f630791a89a06cf7ac801073074fae72d3acbd) | Open as Smart Object: tests (#11678) | `crates/pc-engine/src/file_cmds/open_as_smart_object_tests.rs`<br>`crates/pc-engine/src/file_cmds.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`e2471998de0d283f7bfb8d905e254d60a63da7ec`](https://github.com/storytold/photocraft/commit/e2471998de0d283f7bfb8d905e254d60a63da7ec) | File: Open as Smart Object... opens the same file dialog as Open and takes several files (#11678) | `crates/pc-ui-egui/src/file_dialog.rs`<br>`crates/pc-ui-egui/src/view_cmds.rs`<br>`crates/pc-ui-egui/src/file_open/tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`b29fdc5a295f2a63245d6cb2523b38e93e4f7f09`](https://github.com/storytold/photocraft/commit/b29fdc5a295f2a63245d6cb2523b38e93e4f7f09) | Open as Smart Object: the opening snapshot shows the placed smart object (#11678) | `crates/pc-engine/src/file_cmds/open_as_smart_object.rs`<br>`crates/pc-engine/src/file_cmds/open_as_smart_object_tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`2341642056e63f2ded1b42ee20ab554249e57a84`](https://github.com/storytold/photocraft/commit/2341642056e63f2ded1b42ee20ab554249e57a84) | Open as Smart Object: import on a worker and complete through File > Open's colour policy and prompts (#11678) | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/open_as_smart_object.rs`<br>`crates/pc-engine/src/file_cmds/open_as_smart_object_tests.rs`<br>`crates/pc-ui-egui/src/jobs_ui.rs`<br>`crates/pc-ui-egui/src/file_dialog.rs`<br>`crates/pc-ui-egui/src/file_open.rs`<br>`crates/pc-ui-egui/src/file_open/tests.rs` | MIT OR Apache-2.0 |
+
+Adapted port, part 1 of 4. Upstream's tests commit (`c1f63079`, which lands just before the command) is ported with the command. Our engine has no `import_opened` or `Prepared`: the file is read by `read_file` and decoded by `file_cmds::import`, and the smart object layer is inserted by one `Session::edit` step named "Open As Smart Object" on the new untitled document (upstream: its `apply_place`), which is closed again when that step fails. Our documents have no opening History snapshot, so upstream's renaming of snapshot 0 after the layer, and the test line that checks it, have no counterpart; the history test is `history_is_the_opening_state_then_open_as_smart_object`. The menu label is in the editor catalogs. Automation refuses the command, as it refuses every `file.*` command that reads a path.
+
+Part 2 of 4. Our File › Open dialog request has no initial folder or extension filter, so the item asks with our `FileDialogRequest::Open { multiple: true }`, as File › Open does; the name order is the engine's `batch_io::natural_cmp`. Upstream's `menus/view_cmds/dialogs.rs` and `dispatch.rs` are our single `view_cmds.rs`. Our test service answers the dialog at once, so the test drops upstream's check that the dialog is open before it is answered.
+
+Part 3 of 4. The layer goes into the document before it is admitted (with `Document::insert_above`, as our engine has no `layer_place::insert_new`), so opening is the single History state "Open As Smart Object". As our documents have no opening snapshot, upstream's `the_opening_snapshot_shows_the_placed_smart_object` is `the_opening_state_holds_the_placed_smart_object` (no undo step, the layer is active and selected), and `admit_as_smart_object` stays private: our app has no held-document queue that needs it.
+
+Part 4 of 4. The command is a job through our `jobs::run` (inline under `execute`): the read, decode (`photocraft_io::import_with`, cancellable) and flatten run on the worker, and its reply has the shape of our File › Open job (`documentId`, not upstream's `docId`). Our engine has no held-document queue: the Color Settings handling is our File › Open's, `Session::open_document_deferred`, so with Ask When Opening the document is admitted with its profile untouched and the reply's `color` asks (`ask`, `deferred`) for `color.profileMismatch`; upstream's `ask_when_opening_holds_the_document_like_file_open` is `ask_when_opening_leaves_the_profile_for_the_answer_like_file_open`, and `the_import_runs_as_a_job_when_started` checks `documentId`. Our open path has no `tag_exr_colorspace`, `raw_defaults` or raw open dialog, so those steps of upstream's apply are not ported. In the app, `jobs_ui::start_open_as_smart_object` tracks the job as an `OpenTab` (sharing the new `track_open` with `start_open`) and `finish_open` completes it; `ends_open` makes the job events of tracked tabs go the open path. Our app has no `OpenOrder` batch, so background documents land in the order their jobs finish, as File › Open's do, and the background test compares the names sorted; upstream's `Held.smart_object` field, `open_prompt.rs`, `app/files.rs` and `psd_open_tests.rs` changes have no counterpart. `file_open::absolute` is now `pub(crate)`.
+
+## PhotoCraft export dialogs start in the last exported folder (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`13f84218e3cdcc2ca39159d32bf51bd34becc8e4`](https://github.com/storytold/photocraft/commit/13f84218e3cdcc2ca39159d32bf51bd34becc8e4) | feat(ui-egui): export dialogs start in the last exported folder (#10192) | `crates/pc-engine/src/prefs.rs`<br>`crates/pc-ui-egui/src/file_dialog.rs`<br>`crates/pc-ui-egui/src/file_dialog/tests.rs`<br>`crates/pc-ui-egui/src/export_dialog.rs`<br>`crates/pc-ui-egui/src/file_ui.rs` | MIT OR Apache-2.0 |
+
+Adapted port. Export As (`export_dialog::confirm`), Quick Export (`quick_export_png`) and Save for Web (`file_ui::web_confirm`) ask with the new `pick_export`, which starts a bare file name in the `export.lastFolder` preference while that folder exists and remembers the folder after a successful export. Our `pick_save` has no per-document start folder (upstream's `save_dirs` and document-folder start are not here), so `pick_export` wraps `pick_save` instead of sharing a `pick_save_in` with a bool, `export_start_dir` has no `document_dir` fallback (with nothing remembered the system dialog chooses, as before), and the web needs no separate `folder_exists`: `Path::is_dir` finds no folders there. Upstream's `quick_export_selected_layers_png` and `confirm_layers` are not here (their port, `7b7274b8`, is skipped). The tests use a folder under the system temp directory (no `tempfile` in our dev-dependencies) and expect the bare name where upstream expects the document's folder.
+
+Not ported: storytold/photocraft@`d8891fe31c` (Export As: Scale All, #13734). Its rows sit above File Settings and push Export and Cancel out of a 760x480 window, which the existing test `unified_export_actual_format_switch_escape_discards_draft_and_preserves_prefs` checks; by the owner's decision of 2026-11-16 that test stays as it is and the port was reverted.
+
+## PhotoCraft selected pixels between documents (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`386a6804220ddb971867467eca2c00b9cdec7a06`](https://github.com/storytold/photocraft/commit/386a6804220ddb971867467eca2c00b9cdec7a06) | Transfer selected pixels between tabs and tiled documents | `crates/pc-engine/src/float_cmds.rs`<br>`crates/pc-engine/src/layer_copy_cmds.rs`<br>`crates/pc-engine/src/layer_copy_cmds/tests.rs`<br>`crates/pc-ui-egui/src/canvas.rs`<br>`crates/pc-ui-egui/src/layer_transfer.rs`<br>`crates/pc-ui-egui/src/layer_transfer/tests.rs` | MIT OR Apache-2.0 |
+
+Adapted port. The selected pixels are cut with our 3-argument `CutParts::with_copy(doc, layer, true)` (upstream: a 5-argument `CutParts::new` with the background colour). Our Move-tool drag of a selection does not float the pixels into the session (`move_ui::begin_pixels` keeps them in `move_preview` and commits `select.movePixels` on release), so there is nothing to put back when the drag becomes a transfer: upstream's `Drag::transfer_floating_before` and its `tool_input.rs` hunk are not ported, `move_drag` keeps `sel_move.is_none()` and accepts a drag with a selection. `prepare` is called from our `canvas::document_area` before `documents` (upstream `canvas/tabs.rs`), only when the restoration dialog does not block the canvas, as `finish` is. A tile's view mapping in `target_at` follows our `canvas_view`: the rulers' `content_rect` only for the active tile, `zoom` without the `ppp` division and no `aspect` field (our `ViewXform` has neither), and without `pixel_aligned` (private to `canvas`; it moves the mapping by less than a pixel, and the drop offset is rounded). The tiled test builds its view mapping the same way. `prepare` arms the transfer but does not activate the tile it is over, as upstream does: our `arranged_cells` puts the active document in the first tile (upstream keeps tiles stable with `arrange_start`), so activating would swap the tiles under the pointer and the release would land on the source; `layer.copyToDocument` activates the destination.
+
+## PhotoCraft Ruler and Info panel (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`498c310ec13ac0b936ab3804fae7d07dac4d77f6`](https://github.com/storytold/photocraft/commit/498c310ec13ac0b936ab3804fae7d07dac4d77f6) | Ruler: a drag on the line or a protractor's vertex moves the whole ruler; ±8 px end zones (#11981) | `crates/pc-ui-egui/src/analysis_ui.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`bcb886f473f89e0309202828b7d40e4cd92981ed`](https://github.com/storytold/photocraft/commit/bcb886f473f89e0309202828b7d40e4cd92981ed) | Info panel: the Ruler's A and L (A, L1, L2 for a protractor), its point and size (#11991) | `crates/pc-ui-egui/src/panels/docks.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `498c310e` keeps our payload-free `Drag::RulerNew` and reads the zoom from `current_zoom`. We have no `near_end` or `ruler_end_at` (the ⌥ pointer of #12037 is not ported), so the ±8 px square test replaces the end checks inline in the Ruler press arm; upstream's `analysis_ruler_move_tests.rs` lives in `analysis_ui.rs`'s `mod tests`. `bcb886f4` lands in our Info panel, which has no Crop tool W/H (`crop_ui::info_size`) or guide-drag X/Y: W/H fall back to the selection's size and X/Y to the hovered pixel; `RulerRows` and `ruler_rows` stay private to `docks.rs` and upstream's `info_ruler_tests.rs` lives in its `mod tests`.
+
+Design approval: faithful upstream port built from existing widgets (`widgets::hairline` and the Info panel's own rows), under owner decision 5 of 2026-10-25 (choosing an upstream feature approves a faithful port of its UI). "Ruler readout and drag" was chosen under his delegation of 2026-11-15 ("You decide on all those idc"); he can overrule it.
+
+## PhotoCraft Object Selection Hard Edge (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`b8b7129ca7512d19910ca54f9aa6de35e43b7cab`](https://github.com/storytold/photocraft/commit/b8b7129ca7512d19910ca54f9aa6de35e43b7cab) | Object Selection: the Hard Edge option; off, a 1-2-1 tent gives a softer rim one pixel wider on each side (#12855) | `crates/pc-engine/src/smartselect_cmds.rs`<br>`crates/pc-ui-egui/src/state.rs`<br>`crates/pc-ui-egui/src/retouch_ui.rs` | MIT OR Apache-2.0 |
+
+Adapted port: our click mode runs the learned model as a background job and has no Object Finder cache, so the rim is applied in the job's apply step (and around `grabcut::object_select` in rect mode) instead of through upstream's `object_edge`; the model's probability map is what stays as found. `object_hard_edge` sits in our flat `ToolOptions` beside `sample_all_layers`. Not ported: the Reset Tool part (`tool_reset.rs`, we have no Reset Tool), its test, and the Object Finder cache and "finding nothing changes nothing" tests (our Replace with nothing found clears the selection). Upstream's `object_hard_edge_tests.rs` lives in `smartselect_cmds.rs`'s `mod tests`, on a dragged rectangle plus one click test with the mock model. "Hard Edge" has no catalog translations yet and shows in English.
+
+Design approval: faithful upstream port built from an existing widget (`widgets::checkbox`), under owner decision 5 of 2026-10-25 (choosing an upstream feature approves a faithful port of its UI). "Object Selection Hard Edge" was chosen under his delegation of 2026-11-15 ("You decide on all those idc"); he can overrule it.
+
+## PhotoCraft Image Size Resample shortcuts (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4c5f49d9ff100880b8981c140949671f55552602`](https://github.com/storytold/photocraft/commit/4c5f49d9ff100880b8981c140949671f55552602) | Image Size: Alt+1 to Alt+8 pick the Resample method (#14789) | `crates/pc-ui-egui/src/sizing.rs` | MIT OR Apache-2.0 |
+
+Adapted port: Alt+1 picks our `bicubicAutomatic` (upstream's key is `automatic`). We have no Indexed Color filter on the Resample list (#6019 is not ported), so `resample_offered` is left out and every keyed method is offered while Resample is on. Upstream's `image_size_resample_shortcuts_tests.rs` is in `sizing.rs`'s `mod tests` without its Indexed Color case; our dialog opens with no field focused, so the focused-field test clicks into Width first.
+
+## PhotoCraft Free Transform of several selected layers (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`24326695786cd0f63811618a51f9c97e182ec135`](https://github.com/storytold/photocraft/commit/24326695786cd0f63811618a51f9c97e182ec135) | Free Transform moves every selected layer (#6501, #3384, #6096) | `crates/pc-engine/src/transform_cmds.rs`<br>`crates/pc-engine/src/edit_cmds.rs`<br>`crates/pc-ui-egui/src/transform_tool.rs` | MIT OR Apache-2.0 |
+
+Adapted port. We already framed and moved several selected layers with no pixel selection (our `layers` param and the box's composite preview), so only the remaining paths are ported: `edit.transform` given neither `layer` nor `layers` moves the selected layers but the Background (`selection_targets`, built on our `move_targets`, so linked layers come along as they do for `layers`), and returns the moved `layers`; Transform Again repeats on the selected layers and frames them together, while Transform Again on a Copy keeps the active layer; Ctrl/Cmd+T with a pixel selection lifts the selected pixels of every selected pixel layer (type, shapes, smart objects, symbols and groups move whole, through the new `moves_whole`, which `transform_layer_map` now shares). Not ported: upstream's `layers` validation (the 10000 cap, refusing `layers` with `layer` or a mask or channel target: our box commit sends both `layer` and `layers`), pricing every layer before any is built (our `s.edit` already rolls back a refused layer), `begin_several`'s style-reach preview and its rebuild while the box is open (that needs Follow, upstream 2caa58884, not ported), handles on the Move tool's shared frame, and greying Distort and Perspective while type is among the layers (our enable rules do not grey them for a single type layer either; the engine refuses the distort). Upstream's `transform_multi_tests.rs` and `transform_several_tests.rs` become four tests in `transform_cmds.rs`'s `mod tests` and one in `transform_tool.rs`'s; the type layer is checked by its transform matrix rather than its rendered bounds. Side effects of the engine change: Straighten Layer, which calls `edit.transform` with only a matrix, now turns every selected layer but the Background; with several layers selected, a folded Distort quad (also through Transform Again) and the box's Warp refuse with their existing one-layer-or-group message instead of moving only the active layer, where upstream greys Warp and the split-warp items for several layers (not ported); and an active Adjustment layer with no mask among several selected still refuses Free Transform, where upstream's box moves the other layers.
+
+## LightCraft re-read orientation, Exif before XMP (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/lightcraft@`4e350dc756e4d8d121d16dec62832621fe88b39f`](https://github.com/storytold/lightcraft/commit/4e350dc756e4d8d121d16dec62832621fe88b39f) | LR-LIB-PEOPLE: a re-read takes the file's orientation in the import's order, Exif before XMP (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+
+Adapted port. Upstream makes `read_jpeg_app1`'s closure `FnMut`; we have no `read_jpeg_app1`, so our own JPEG walk becomes `jpeg_app1`, taking the same `FnMut` pick, and `jpeg_orientation` keeps the first XMP orientation while only an Exif one ends the walk. `file_orientation` keeps opening the original through `li_fs::read`. The TIFF walk's tag-700 packet is read with `parse_whole_xmp`, the parser our whole-file `extract` uses, where upstream calls `parse_xmp`. The test is upstream's, extended in place in `the_file_orientation_is_found_after_the_image_data`; the nine earlier cases keep their expected values.
+
+## PhotoCraft PSD smart-filter staging in whole tiles (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`e6c9ce340bf71f1ea1d0582713ba84de8b25f542`](https://github.com/storytold/photocraft/commit/e6c9ce340bf71f1ea1d0582713ba84de8b25f542) | fix(io): charge importers for the whole tiles surfaces keep (#11144) | `crates/pc-io/src/psd_import.rs` | MIT OR Apache-2.0 |
+
+Partial port, the `psd_import.rs` hunk only (owner-delegated decision 2026-11-16). The unfiltered copy a PSD import stages for a smart object with a masked filter is charged every whole tile its surface keeps, on top of the padded scratch our shared conversion budget already charged for the mix; tiles are counted inline (no `tile_storage_bytes` in `pc-raster`). As upstream, a copy past the budget is skipped and the layer keeps its stored pixels, where ours ended the import; upstream adds no warning for it, so neither do we. Unlike upstream's separate pool, ours is the shared budget, so the tile bytes go back to it once the mixed copy is dropped and later layers see the budget they had before. Our Affinity and SVG importers already charge whole tiles, and we have no ORA, PDN or XCF importer. Tests: `file_input_regressions::unfiltered_smart_copy_is_charged_the_whole_tiles_it_keeps`, `file_input_regressions::unfiltered_smart_copy_over_the_budget_keeps_the_stored_pixels`, `file_input_regressions::unfiltered_smart_copy_gives_its_tiles_back_to_later_layers`.
+
+## LightCraft re-read orientation, a WebP's last EXIF chunk by its IFD (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/lightcraft@`64998a1acf2328caa6b3c4a56989a480b6cf4e38`](https://github.com/storytold/lightcraft/commit/64998a1acf2328caa6b3c4a56989a480b6cf4e38) | LR-LIB-PEOPLE: a WebP's EXIF chunk of any size is read by its IFD, and the last one counts, as at import (#2674) | `crates/lc-engine/src/sidecar.rs` | MIT OR Apache-2.0 |
+
+Adapted port (owner-delegated decision 2026-11-16). Upstream's walk changes are taken whole: a file under the first MiB is read as the import reads it, a WebP's chunks are always walked and its last EXIF and last XMP chunk count, the EXIF chunk's first IFD is read whatever the chunk's size (`tiff_orientation` takes the stream's start and end), and a JPEG takes its first Exif segment, else its first XMP segment. Upstream's change to `read_jpeg_app1`'s pick lands in our `jpeg_orientation` on `jpeg_app1`, and the XMP packets are read with `parse_whole_xmp`, as in `4e350dc756`. In `the_file_orientation_is_found_after_the_image_data` the `huge.webp` expectation changes from Rotate270 to Rotate90, as upstream changed it, and upstream's new cases are added (`late-ifd.webp`, `outside.webp`, `last-exif.webp`, `span-xmp.webp`, `two-exif.jpg`, and the over-span `over-xmp.webp` check). Not ported: upstream's extra check of every existing case against `lightcraft_meta::extract`, which would change what the existing cases check.
+
+## PhotoCraft follow-up ports (2026-11-16)
+
+Upstream commits that came after a port already on this branch and that the port needs to work as intended.
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`3a23cf3e6b10283637e927e4c6923eb3804d3a56`](https://github.com/storytold/photocraft/commit/3a23cf3e6b10283637e927e4c6923eb3804d3a56) | fix(paint): raise only the ring next to a transparent flood, at coverage 1 - alpha (#11354) | `crates/pc-algo/src/paint.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`bf550d8fcb0f33a57d800974f7a37cd3eb5a2c84`](https://github.com/storytold/photocraft/commit/bf550d8fcb0f33a57d800974f7a37cd3eb5a2c84) | perf(paint): only build the rim ring when an unlocked Blend fill can read it (#11354) | `crates/pc-algo/src/paint.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`cbdce347f07518c9ce2eb16576f55243cffef9fb`](https://github.com/storytold/photocraft/commit/cbdce347f07518c9ce2eb16576f55243cffef9fb) | Background Eraser: Protect Foreground keeps the per-channel distance; tolerance doc | `crates/pc-paint/src/bg_erase.rs`<br>`crates/pc-paint/src/bg_erase/graded_alpha_tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`a4cdc63d88eebf3debf73da572830244f8ad8f3e`](https://github.com/storytold/photocraft/commit/a4cdc63d88eebf3debf73da572830244f8ad8f3e) | Retouch: admit the rendered stroke extent, not an estimate (#4961, #6110) | `crates/pc-paint/src/retouch.rs`<br>`crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`d9355e1ec2185711d1f2556732e8c9a189446335`](https://github.com/storytold/photocraft/commit/d9355e1ec2185711d1f2556732e8c9a189446335) | Actions: fold typing only into its own document's new layer, keep styled edits apart (#10113, #10682) | `crates/pc-engine/src/type_cmds.rs`<br>`crates/pc-engine/src/actions_cmds.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`5225b592fe98e1243906b5ae896826a4157cf725`](https://github.com/storytold/photocraft/commit/5225b592fe98e1243906b5ae896826a4157cf725) | Perspective Crop: draw the crop quad's side of the horizon (#7557) (#7558) | `crates/pc-algo/src/transform.rs`<br>`crates/pc-engine/src/perspective_crop_cmds.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`667a14d9452786c566125060a32546c348ac5570`](https://github.com/storytold/photocraft/commit/667a14d9452786c566125060a32546c348ac5570) | PSD Multichannel: alpha channels are stored as-is, not as ink (#5790) | `crates/pc-io/src/multichannel_map.rs`<br>`crates/pc-compose/src/multichannel.rs`<br>`crates/pc-io/tests/it/multichannel_resources.rs` | MIT OR Apache-2.0 |
+
+`3a23cf3e` and `bf550d8f` follow the `b4487ee5` port, which the `e25be5e7` wand fringe had left without effect. Adapted port: our bucket has no Fill Mode, CMYK inks or locked-transparency path and no `fill_region`, so the ring is built in `bucket_fill_src` and `bf550d8f`'s guard reduces to "the region leaves a pixel uncovered" (our bucket always fills unlocked, in Normal). Not ported: the CMYK inks hunk and upstream's edit of `bucket_after_clearing_an_antialiased_selection_fills_the_hole_and_raises_the_rim_partly` (neither exists here), and the removed `opacity * 0.97` assertion (no counterpart). Tests: `paint::tests::bucket_on_transparency_blends_into_the_edge_at_its_transparency`, `paint::tests::bucket_on_transparency_raises_only_the_ring_next_to_the_flood`.
+
+`cbdce347` follows the `22882f69` port. Our foreground check is one `protected` closure used for both the pre-stroke and the working colours, so the one change covers both. Upstream's test sits in `bg_erase/graded_alpha_tests.rs`: `protect_foreground_keeps_todays_distance_to_the_foreground`.
+
+`a4cdc63d` follows the `205c9c17` port, which only estimated a stroke from its points. The clone stamp (both paths), healing, history and spot healing brushes now take their coverage through `coverage`, which refuses before the dense buffer; `spot_heal_surface` returns `Result<Rect>`. Our port never had upstream's `reject_bounds`, so there was nothing to remove. Local difference: upstream's early-out pads by `size × jitter` for Scattering and half the Dual Brush size; ours pads by what our renderer reaches (`size / 2 × jitter`, jitter at most 10) and nothing for the Dual Brush, whose dabs only mask the main tip, so no stroke that rendered before is refused (test `the_early_estimate_admits_what_renders_within_the_allowance`). Not ported: the `pattern_stamp.rs` and `remove.rs` hunks (no counterpart here) and upstream's edit of `every_retouch_stroke_refuses_a_box_it_cannot_render` (we have no such test). Test: `retouch_cmds::tests::the_budget_is_applied_to_the_rendered_extent_not_the_input_points`.
+
+`d9355e1e` follows the `856c6e93` port. Our tests sit in the `type_cmds.rs` test module, with upstream's `type_in` helper added there. Not ported: the #10682 half (`dialogs.rs`, `notices.rs`, `view_cmds/tests.rs`), since the Batch failed-files notice it changes was never ported. Tests: `type_cmds::tests::typing_in_another_document_is_not_folded_into_the_layer_made_in_the_first`, `type_cmds::tests::typing_in_styled_text_keeps_a_step_per_edit`.
+
+`5225b592` follows the `96c0241b` port, which kept only the front-side test and had no clipped warp. Adapted port: `warp_surface_clipped` is added, sharing the body with `warp_surface` (unchanged) through an `Option<Rect>` clip, with the two pieces of upstream's clip machinery the fix needs: the pre-reduce scale is taken at the clip's centre, and the warped corners bound a clipped result only while the whole source is on one side of the horizon. Only the Background layer's pixels use it: other layers (through `transform_layer`) and the Background's mask, alpha channels and the Quick Mask (through `transform_cmds::warp_gray`) stay unclipped, so with such a quad they still come out blank. Upstream clips all of them in its own `warp_layers`; ours differs in shape (budget checks and non-raster content in `transform_layer`), so that part is left for a later port. Tests: `transform::tests::a_clip_wholly_on_one_side_draws_that_side`, `perspective_crop_cmds::tests::a_quad_below_a_horizon_across_the_canvas_keeps_its_content` (our command takes `quad`).
+
+`667a14d9` follows the `6547ca0b` port. The io and compose hunks are one commit: only together do they keep a Multichannel composite unchanged. Local adaptation: our import flips the alpha-type planes back one tile band at a time with a fallible reservation, like the rest of `multichannel_map::import`, instead of upstream's whole-plane read. Existing test changed, as upstream changed its counterpart (owner-delegated decision 2026-11-16, recorded in the project log): `multichannel::tests::inks_multiply_over_paper` writes its alpha channel in the as-is polarity and checks the black ink where it is unselected. Not ported: upstream's edit of the #4031 `as_ink` composite check in `alpha_type_channels_import_as_alpha_and_round_trip` (that test was not ported here). Tests: `multichannel_resources::alpha_type_channels_are_stored_as_is_not_as_ink`, `multichannel_resources::a_full_alpha_channel_exports_as_a_full_plane`.
+
+## PhotoCraft Levels clipping display bounds (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`216a4260b04a998fae79a6a5c38f9889943053bd`](https://github.com/storytold/photocraft/commit/216a4260b04a998fae79a6a5c38f9889943053bd) | Levels clipping: snapped area stays within the texture limit (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`8878ff335fdb00d7eb8e34b91d0db9619c04ea43`](https://github.com/storytold/photocraft/commit/8878ff335fdb00d7eb8e34b91d0db9619c04ea43) | Levels clipping: cap the display at 2048 x 2048 blocks (#3328) | `crates/pc-ui-egui/src/levels_clipping.rs`<br>`crates/pc-ui-egui/src/levels_clipping_tests.rs` | MIT OR Apache-2.0 |
+
+Follow-up to the `69147701` + `0a209116` bundle. Taken as upstream wrote it; the test's `xf_over` view drops `aspect`, which our `ViewXform` does not have (as the bundle's `view` helper does), and relies on the same 2 px margin our `visible_doc_rect` keeps. `8878ff33` builds on `216a4260`'s loop and is taken as upstream wrote it.
+
+## PhotoCraft type edit commits when its layer or document is left (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`3c91200d88feef46129c90d60ca15b3f1e261c47`](https://github.com/storytold/photocraft/commit/3c91200d88feef46129c90d60ca15b3f1e261c47) | fix(type): commit a type edit when another layer or document becomes active (#6483) | `crates/pc-ui-egui/src/type_tool.rs`<br>`crates/pc-ui-egui/src/type_commit_tests.rs`<br>`crates/pc-ui-egui/src/state.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-ui-egui/src/hotfix_critical_tests.rs`<br>`crates/pc-ui-egui/src/panels/tests.rs`<br>`crates/pc-ui-egui/src/type_tool_tests.rs` | MIT OR Apache-2.0 |
+
+Adapted port, a follow-up to `be32a7c6` (#5612, which committed only on Layers-panel row clicks). Our type tool has no `commit_with`, Type Mask session or `type_transform`, so the home-document wrapper is our `commit` around the old body (`commit_here`), and a closed document's edit is simply dropped (no transform to reset, no return tool to clear). The existing tests' `TextEdit` literals gain `document: None` only. Not ported: upstream's `a_type_mask_session_goes_on_while_its_layer_is_active` test (we have no Type Mask tool) and the literal updates in test files we do not have (`hold_keys`, `input_tests`, `spring_tools`, `swatches_ui`, `type_font_picker_tests`).
+
+## PhotoCraft CLI refuses to write over its input (2026-11-16)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`4f0876958db142b61c790f1a23139e2cd5bd1854`](https://github.com/storytold/photocraft/commit/4f0876958db142b61c790f1a23139e2cd5bd1854) | CLI convert: refuse to write over the input file unless --in-place (#7437) | `apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs`<br>`apps/local-image-cli/Cargo.toml` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c`](https://github.com/storytold/photocraft/commit/cc574bcf17fc5a55afe6c9f4aea516dd4b133c0c) | photocraft-cli run: refuse an --out that is the input file unless --in-place (#7437) | `apps/local-image-cli/src/lib.rs`<br>`apps/local-image-cli/tests/cli.rs` | MIT OR Apache-2.0 |
+
+Adapted port by hand (upstream's `apps/photocraft-cli` is unmapped), the CLI half of #7437 after `502d055c`. `refuse_overwriting_input` compares the files with `li_fs::same_file`, as our `502d055c` port does, in place of upstream's `file_cmds::same_file`, so `local-image-cli` now depends on the workspace's `li-fs`. The usage text keeps our TIFF Options flags. `cc574bcf` reuses that helper in `run`, where our `Headless::save` with an explicit path never reaches `file.saveACopy`'s own guard; `--new` runs are unaffected.
+
+## Upstream rows reviewed and not ported (2026-11-16)
+
+Upstream commits triaged as fixes (MUST or SHOULD) or offered as features in the 2026-11 pass and left out, with the reason. Apart from the two marked "Ported" below, which have their own sections, none of them is ported, so none has a row in a commit table. A row marked "owner decision" waits for the owner; the others wait for the base named.
+
+### Fixes
+
+Not ported: storytold/vectorcraft@`c7dc443ee1` (SVG import: a feConvolveMatrix order that overflows usvg's multiply is refused). Owner decision: our pinned usvg 0.45.1 has the same overflow, but in release builds such a file opens today with only the filter left out, so upstream's refusal would stop files that open now; the choice is that refusal in `crates/pc-svg/src/preflight.rs` or neutralizing the order in the source handed to usvg. Port it before `2e7b2b7f96` if that one is reopened.
+
+Not ported: storytold/vectorcraft@`2e7b2b7f96` (SVG import: an embedded SVG image gets the feConvolveMatrix order check too). We do not parse nested SVG images: our `image_href_resolver` in `crates/pc-svg/src/import.rs` resolves only PNG, JPEG and WebP data. If nested SVG images are ever resolved, the check from `c7dc443ee1` must run on them too.
+
+Not ported: storytold/vectorcraft@`b814fcf689` (Pathfinder: holes that touch at a point stay holes of their region). Our `regions_of` in `crates/pc-pathops/src/pathfinder.rs` follows the sweep's parent chain and ignores the outer flag, so the bug, which came with upstream `39daf465f` (not ported), is not here. If `39daf465f` is ported, this commit comes with it.
+
+Not ported: storytold/photocraft@`ec6a4c1a50` (Save: stop doubling the encoded file in memory, #6607). Our saves still buffer the whole file, but the upstream hunks edit pc-psd code from six earlier upstream commits we lack (`cf83e0582`, `7893a6e04`, `fc0a579a4`, `4446ec6d6`, `cd75fa78e`, `c06eca9b6`). Port those first, then this one in two parts (pc-psd streaming; then the codecs, pc-io and app save paths on `li_fs::stage_stream` with a running size cap).
+
+Not ported: storytold/photocraft@`df73ed78f0` (fix(affinity): charge shared text traversal and retained text against a document budget). Already covered: `crates/pc-affinity/src/text.rs` charges traversal slots and retained characters against document-wide budgets (`MAX_CHILD_SLOTS`, `MAX_DOCUMENT_CHARS` in `model.rs`).
+
+Ported: storytold/photocraft@`e6c9ce340b` (fix(io): charge importers for the whole tiles surfaces keep, #11144) is recorded under "PhotoCraft PSD smart-filter staging in whole tiles (2026-11-16)".
+
+Not ported: storytold/photocraft@`b01e6c0270` (Save: a replacement in another group does not widen group access, #11232). Already covered: `preserve_access` in `crates/li-fs/src/lib.rs` keeps the replaced file's group and ACL, and when it cannot it clears mode bits 0o077, stricter than upstream.
+
+Not ported: storytold/photocraft@`4dd1ccc2a3` (fix(text): write a style-only type edit into the PSD's Txt2 style runs). We have no Txt2 writer: the Txt2 block is passed through unchanged on PSD export. Port upstream's writer (`20c910314` and the #6968 edited-object path) first; whether to schedule it is the owner's call.
+
+Not ported: storytold/photocraft@`b6d0f34500` (Carry #9104 with #8888 and keep the raw strings of a rewritten Txt2). Its #9104 part is already here (`359ce1c3`, `Value::RawString`), its tests need the Txt2 writer we lack, and its pattern-warning hunk has no counterpart in `crates/pc-compose/src/pattern.rs`.
+
+Not ported: storytold/photocraft@`26d151d061` (Jobs: a save past its commit point can't be reported as cancelled). Already covered: our save worker only writes a temporary file, and the replace runs in the apply step on the session thread, which a cancel removes first, so a cancel cannot be reported after the file was replaced.
+
+Not ported: storytold/photocraft@`8f5c0cf92b` (Clear a smart filter's stored smooth count when its dialog folds it). Our Curves have no smooth count, because Curves pencil mode and Smooth (`aba9b2b4e`, #3088) are not ported; port this with that feature.
+
+Not ported: storytold/photocraft@`77bde347a8` (fix(ui): Burn and Dodge's Exposure alerts and has a slider, #12669). Owner decision: the fix builds on the eraser tolerance range alert (#12268), the number field's `typed_text_parses` and the Camera Raw amount slider, none of which we have, and it adds a slider and an alert dialog to the options bar.
+
+Not ported: storytold/photocraft@`cd39cdc75c` (fix(compose, gpu): adjustment layers apply Fill inside the special eight blend modes, #9501). Owner decision: it needs upstream `4760f75b4` (#2552) first, which changes how pixel layers render at Fill below 100% in eight blend modes and may change existing compose and GPU parity expectations.
+
+Not ported: storytold/photocraft@`1b7b56d9f5` (GPU canvas: the open documents share one texture budget). Owner decision: upstream lets a document over its share draw from GPU viewport pages, which we lack (`3ba7052474`, deferred below); without them a large arranged document would fall back to the CPU canvas.
+
+Not ported: storytold/photocraft@`a8c8036f49` (Record actions in a document-independent form, #219). Owner decision: upstream records layers by name, which needs the .atn base (`3204231d7`, #4434) and its name-accepting layer parameter; porting it would replace our own `_actionLayer` visibility scheme and change its existing test.
+
+Not ported: storytold/photocraft@`80325c005d` (Free Transform: a proportional corner drag follows the pointer along the diagonal). Owner decision: it needs upstream `96cdff74` (#1873) first, and that changes two existing tests in `crates/pc-ui-egui/src/transform_tool.rs` (`alt_scales_about_reference_point_and_edges_scale_one_axis`, `corner_drag_scales_proportionally_about_opposite_corner`).
+
+Not ported: storytold/photocraft@`9d9bf1e3a2` (Fix Move Auto-Select toggling and locked-layer clicks). Our `pick_cmds.rs` has no `auto_select_target`, no locked-layer click-through (#1641) and no Move layer marquee (#4058); port those first, then revisit.
+
+Not ported: storytold/photocraft@`ffd9ec70c5` (fix(selection): ignore off-canvas remnants when deselecting). Already covered: our `select.rect` combines only over the canvas into a fresh surface, so an emptied canvas deselects; the sparse combine this fixes is not here.
+
+Not ported: storytold/photocraft@`60eb1e80be` (Free Transform: redraw only what the box changes; prepare large layers as a job). Owner decision: it is built on Above (`ac279f626`, #2439) and Follow (`2caa58884`, #1384), which we lack; the choice is to port those first or adapt it locally, which changes when the box appears.
+
+Not ported: storytold/photocraft@`ff683eb601` (Free Transform: keep the placed/copied-layer marker through preparation; stop on cancel; check the layer selection). It fixes the preparation job state that `60eb1e80be` adds; port it right after that one.
+
+Not ported: storytold/photocraft@`ec7ca9161d` (Place: wait for a preparing Free Transform before placing the next dropped file). Our box opens synchronously, so there is no preparing state to wait for; it becomes a one-line guard in `crates/pc-ui-egui/src/file_open.rs` after `60eb1e80be` and `ff683eb601`.
+
+Not ported: storytold/photocraft@`ec55bed7b0` (algo, engine, ui: Perspective Crop commits a quad mirrored on one axis, #12489). Already covered: our own Perspective Crop in `crates/pc-engine/src/perspective_crop_cmds.rs` accepts a convex quad of either winding and maps each corner onto its own, so a mirrored quad crops mirrored.
+
+Ported since: storytold/lightcraft@`64998a1acf` has its row in "LightCraft re-read orientation, a WebP's last EXIF chunk by its IFD (2026-11-16)" above.
+
+Not ported: storytold/lightcraft@`86f2ba81eb` (Originals: refuse a screenshot target when an original cannot be queried). Our screenshot check uses the lenient `li_fs::same_file` like an ordinary export; the strict hard-link identity scan this fixes (`check_identity`, `same_file_strict` from `545ed92d`) is not here and would be a new feature.
+
+### Features
+
+Not ported: storytold/photocraft@`0456bc3f22` (Add guarded scratch storage with owned memory supervision). Too large for one job (about 2,700 changed lines), and it changes the scratch-disk preferences, which needs design approval.
+
+Not ported: storytold/photocraft@`89ed4cb284` (Stream native PSD and EXR imports through bounded seekable bands). Too large (about 2,650 changed lines), and it builds on `0456bc3f22`.
+
+Not ported: storytold/photocraft@`4915f0970e` (PSD/PSB open without reading the whole file, #5106). Too large for one job (about 1,770 changed lines across 30 files).
+
+Not ported: storytold/photocraft@`5d9c57e60d` (Linux: return memory of closed documents to the system, #8743). It depends on upstream's scratch pool (`86ddfb72f7`), which is too large for this pass.
+
+Not ported: storytold/photocraft@`bcc060180f` (adaptive PSD/PSB memory budget and interactive confirmation). It edits upstream files we do not have (`io/memory.rs` from `43a6b3035`, `io/psd_budget.rs` from `97a83f074`), and its confirmation dialog needs design approval.
+
+Not ported: storytold/photocraft@`3ba7052474` (Draw over-budget canvases from viewport pages on the GPU canvas). Deferred while GPU tests cannot run on the build machine.
+
+Not ported: storytold/photocraft@`dbcee2ba47` (io: stage encoded PSD/PSB channels on the scratch disk for large saves). It needs `4915f0970e`, `0456bc3f22` and upstream's `stage_file` (`4b27da939`), none of which is here.
+
+Not ported: storytold/photocraft@`f3b21c363c` (Free Transform several selected layers together, #3592). Already present as our own implementation; the later upstream rewrite `2432669578` is recorded under "PhotoCraft Free Transform of several selected layers".
+
+Not ported: storytold/photocraft@`4e816dc0ca` (Select and Mask workspace). Not chosen for this round under the owner's delegation; it is also too large for one job.
+
+Not ported: storytold/photocraft@`e0cc12d403` (Color Lookup: list the LUT folder in Image > Adjustments, #9754). It needs upstream's LUT Folder preference and folder scan (#6558), which we lack.
+
+Not ported: storytold/photocraft@`224dcdc936` (Fix content-aware crop targets and history labels). It fixes the content-aware crop fill (`5cb5ab52f`, #3823), which is not here.
+
+Not ported: storytold/photocraft@`0e421d6a33` (Replace Color: Add to Sample and Subtract from Sample, #6280). Our Replace Color has no sample points, Localized Color Clusters (#4477), dialog eyedropper (#6279) or shared Color Range matcher.
+
+Not ported: storytold/photocraft@`51b9454b71` (encode lossless JPEG XL using pure Rust). Its new dependency, zune-jpegxl 0.5.2 (MIT OR Apache-2.0 OR Zlib, pure Rust, depends only on zune-core), passes `cargo deny --locked check`, `cargo xtask deps-pure` and `cargo xtask attributions` unchanged. The port waits for the owner because it makes `jxl` writable, which `registry_keeps_open_and_export_capabilities_separate` asserts it is not (`assert!(!write.contains(&"jxl"))`, `crates/pc-codecs/src/format.rs:459`).
+
+Not ported: storytold/photocraft@`aee67e8194` (expose JPEG XL Save As and Export As). The second half of `51b9454b71`; waits with it.
+
+Not ported: storytold/photocraft@`c3f825eed5` (native file drag and drop on Wayland). It relies on upstream's own winit fork; the winit 0.30.13 we use delivers no file drops on Wayland.
+
+Not ported: storytold/photocraft@`6a676ee1be` (Save over a flat JPEG: JPEG Options, then in place, #2223). It builds on the in-place flat save, the JPEG Options dialog and the Targa/DDS options prompts, none of which is here.
+
+Not ported: storytold/photocraft@`82845589f5` (Multi-layer export skips empty and adjustment layers, #14806). It changes the several-layer Export As from upstream `83f4452b` (#3629), which is not here; our layer export takes one layer.
+
+Not ported: storytold/photocraft@`74c57dba81` (Count tool group names and rename, #11766). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`07cdcca77a` (Save a New Document preset, #14043). It needs saved New Document presets (`1bc25d363`, #1516), which we lack.
+
+Not ported: storytold/photocraft@`5c1719e94c` (New Document Pixel Aspect Ratio, #14034). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`1f01437852` (New Document 1-bit Bitmap mode, #14030). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`5697cdfc48` (Web and Mobile presets turn Artboards on, #14042). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`5e746adc9f` (Line tool right-click menu in Shape mode, #13249). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`157d1b3db3` (Alt-drag a segment to duplicate a subpath). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/photocraft@`8112948602` (Editable toolbar grouping, #14459). Not chosen for this round under the owner's delegation.
+
+Not ported: storytold/lightcraft@`399b55eb61` (import Lightroom catalog backup zips directly, #2592). It plugs into upstream's Lightroom Classic catalog import (`4a427894` and its follow-ups), which is not here, and adds a dependency (sqlite-core) the task did not name.
+
+Not ported: storytold/lightcraft@`d2d78f1ab0` (harden the backup extraction, #2592). Same bundle as `399b55eb61`; the files it edits do not exist here.
+
+Not ported: storytold/lightcraft@`db93f24899` (a backup finds collections keyed on the live catalog's path, #2606). Same bundle as `399b55eb61`.
+
+Not ported: storytold/lightcraft@`fab829da27` (collection keys match in both orders, #2606). Same bundle as `399b55eb61`.
+
+Not ported: storytold/lightcraft@`24a265724c` (a backup zip names the new library after its catalog, #2592). Same bundle as `399b55eb61`; its destination dialog would also need design approval.
+
+Not ported: storytold/lightcraft@`2ec4add0d6` (lensfun database downloaded on first run). A network fetch that is not approved; waits for the owner, and the bundled database stays.
+
+Not ported: storytold/lightcraft@`2ad7207127` (masks stay on the photo under lens corrections, Upright, Transform and Rotate). Owner decision: it adds a saved mask field, which needs a catalog version bump, and our catalog has no upgrade-on-open since the decision of 2026-10-14, so every existing library would be refused.
+
+Not ported: storytold/lightcraft@`432fbed3d5` (mask geometry review fixes 1). Same bundle as `2ad7207127`.
+
+Not ported: storytold/lightcraft@`749a63ba58` (mask geometry review fixes 2). Same bundle as `2ad7207127`.
+
+Not ported: storytold/lightcraft@`d729c80a5a` (Detail: Remove Hot Pixels, on for newly imported raws, #1345). Owner decision: we already remove hot and dead photosites on every raw (`crates/lc-raw/src/hotpixels.rs`); ported as written it would switch that off for existing edits and add a saved field that needs a catalog version bump.
+
+Not ported: storytold/vectorcraft@`63dab14ee7` (Image Trace seam fills for Abutting traces). It conflicts with our design: Abutting traces are drawn as a seamless mosaic, which a seam-fill group would break or hide; seams at export would be a new design for the owner to approve.
+
+## Upstream follow-ups left for the next round (2026-11-16)
+
+These upstream commits follow commits we already ported and were judged improvements, not defects, so they wait for the next round; none is ported, so none has a row in a commit table.
+
+Not ported: storytold/photocraft@`cc51a09f81` (Image Size: a key that does nothing keeps an earlier pick). Several Alt-digit events in one frame can drop typing (`sizing.rs:285-308`); rare. Port it without `resample_offered`.
+
+Not ported: storytold/photocraft@`325229e4e1` (Export As: decide a layer export from the parsed layer id). Consistency cleanup only; all our writers insert an integer id (`export_dialog.rs:500-503`).
+
+Not ported: storytold/photocraft@`46c8e1e9b1` (Object Selection Hard Edge off: add the reference's line of 1s). Our 1-2-1 tent rim (`smartselect_cmds.rs:192-228`) works but is not reference-exact. Port it as the final 4-tap state.
+
+Not ported: storytold/photocraft@`d4b296a8e6` (Object Selection Hard Edge off: fit the re-measured rim). Intermediate step; take it only as part of the `46c8e1e9b1` final state.
+
+Not ported: storytold/photocraft@`bf550d8fc` (Only build the rim ring when an unlocked Blend fill can read it). Performance guard for `rim_ring`; it rides with `3a23cf3e6b` (condition: not `lock_transparency` and the mask has a 0).
+
+Not ported: storytold/photocraft@`901286fef3` (Pen: Enter deselects the Work Path it finished). New parity behaviour; our Delete port is correct without it.
+
+Not ported: storytold/photocraft@`109a5aa405` (A broken iCCP CRC skips that chunk instead of ending the walk). Malformed PNGs open untagged (`png.rs:266`). The fix is one `continue` plus a test.
+
+Not ported: storytold/photocraft@`080d10c500` (Brush: Catch-up on Stroke End starts unchecked). Parity default flip (`brush.rs:355`); it needs the `3a21e14f06` test opt-ins.
+
+Not ported: storytold/photocraft@`f1427bba65` (Save for Web: refuse slice numbers with a whole-image path). API validation; `numbers` is silently ignored with a path or folder (`web_cmds.rs:764-788`).
+
+Not ported: storytold/photocraft@`dfdb3a7827` (Typing in another document is a step of its own). Mostly covered by `d9355e1ec2`; the remaining scripted case that names no layer is rare (`type_cmds.rs:536`).
+
+Not ported: storytold/photocraft@`c0b08120a6` (Reveal All's crop passes the session gate). The gate call is missing (`extra_cmds.rs:686-687`), but no installed gate would refuse numeric parameters.
+
+Not ported: storytold/photocraft@`0b779b4fec` (Report a failed directory flush after a save). Durability improvement in li-fs (`lib.rs:539`, `:671`); a hand port of about 120 lines.
+
+Not ported: storytold/photocraft@`2cd1bd8664` (Cap text fields and oversized text events). A new bound for plain text and paste events (`lib.rs:1604`); the numeric-field port is fine.
+
+Not ported: storytold/photocraft@`abd3755d41` (RecoveryStore::flush keeps each entry's key). After a lost-device flush a stale recovery entry can remain (`autosave.rs:403-418`); a 5-line fix.
+
+Not ported: storytold/photocraft@`01cbd41e2b` (Levels clipping: drop the cache when the last document closes). A small allocation is kept after all documents close (`lib.rs:1147`).
+
+Not ported: storytold/photocraft@`fadef65cc8` (Levels clipping: draw nothing while a background job runs). A possible UI stall during jobs (`levels_clipping.rs:337-345`); no correctness issue.
+
+Not ported: storytold/photocraft@`a78e9f05fc` (Save: ask before replacing a file that an added extension names). Only the rfd fallback lacks the prompt (`services.rs:203`); it needs a dialog plus 20 catalogs.
+
+Not ported: storytold/photocraft@`0ce7e00fee` (Brush: the Dual Brush tip keeps its proportion at tiny main sizes). The 0.5 px floor loses the dual-tip ratio (`brush.rs:500`); precision only.
+
+Not ported: storytold/photocraft@`4e131ecf2d` (Pen: an unclosed path stays with its document). A real bug in the Pen, a sibling of the ported lasso fix; there is no `pen_doc` (`lib.rs:1538`).
+
+Not ported: storytold/photocraft@`a62ef68ca2` (CMYK: Hue/Saturation and Color Balance keep the black ink). It needs the unported CMYK ink stack first.
+
+Not ported: storytold/photocraft@`1e6f565a7b` (CMYK: adjustment layers composite on the document's own inks). A new ink-native compositor; feature work of about 330 lines.
+
+Not ported: storytold/photocraft@`92c7922230` (CMYK: Brightness/Contrast curves each ink). It depends on the unported `cmyk_channel_adjustment`.
+
+Not ported: storytold/photocraft@`4c450b3879` (Lab: adjustment layers composite on the stored L, a and b). A new `native_lab` compositor; a Lab parity feature.
+
+Not ported: storytold/photocraft@`e6238ad399` (PSD save: widen RLE row counts while writing a promoted PSB). Our in-place promotion is correct; this is only a memory and speed gain over 2 GB.
+
+Not ported: storytold/photocraft@`3a307a757e` (TrueGrit .atn mappings and fixes). We have no .atn importer; the side fixes (Crystallize at `pixelate.rs:98`, clipboard resolution, Spatter) can be taken separately.
+
+Not ported: storytold/photocraft@`2006c72e98` (Warp, transform a copy, flip/rotate and live preview for several layers). A multi-layer capability (`extra_cmds.rs:263-282`); the preview needs the unported Follow.
+
+Not ported: storytold/lightcraft@`419373a84a` (Re-read uses a raw's decoder orientation). Not needed now: our decoders use IFD0, so only a raw with no IFD0 orientation plus XMP is left. Do it after `a763c3c180`.
+
+Not ported: storytold/lightcraft@`cb841a3fe1` (A click on the selected mask's own pin adds no Object click). A wasted click on its own pin (`detail.rs:1437-1446`); it depends on `7174891939`.
+
+Not ported: storytold/lightcraft@`b84d9a8cff` (view.maskOverlayColor refuses signed hex digits). `parse_rgb` accepts "#+f+f+f" (`menus.rs:306-313`); one condition, colour only.
+
+Not ported: storytold/lightcraft@`43a47e5a3b` (Clip non-finite float image samples safely). NaN and Inf pass through (`convert.rs:48`, `:183`, `:359`); robustness for float TIFFs only.
+
+Not ported: storytold/lightcraft@`38973dba3a` (Imported LUTs leave no copy in the temp folder). Temp-file clutter only (`lut_profiles.rs:146-150`); the writes are already atomic and symlink-safe.

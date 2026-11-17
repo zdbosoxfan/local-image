@@ -1,6 +1,9 @@
 //! Library/Develop Preferences pages (⌘,), hosted in the editor shell; standalone fallback: General, Import, Performance, Interface, Attributions.
 //!
-//! Changes apply immediately (no OK/Cancel). Where they are stored:
+//! In the standalone dialog every change applies at once. Hosted, application settings are a
+//! draft the Preferences shell commits on OK or Apply, while catalog settings and actions (Open
+//! Library, Clear face data, import defaults, cache maintenance) still apply at once, as each
+//! page's hint says. Where they are stored:
 //! - **app settings** ([`crate::state::AppSettings`]: startup view, delete confirmation, GPU,
 //!   preview size, filmstrip/grid badges, last library) and Auto Advance live in the UI state,
 //!   saved by the host in the shared application Preferences store;
@@ -73,10 +76,45 @@ pub fn shared_page(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &str, draft:
             performance_tab(app, ui, &t);
         }
         "interface" => interface_tab(app, ui, &t),
-        _ => general_tab(app, ui, &t),
+        _ => {
+            hint(ui, &t, "Catalog settings and maintenance actions apply immediately.");
+            general_tab(app, ui, &t);
+        }
     }
     *draft = serde_json::to_value(PreferencesDraft::from_ui(&app.ui)).unwrap_or_default();
     original.install(&mut app.ui);
+}
+
+/// `draft` with the application settings a hosted page shows back at their defaults, or `None`
+/// when the page has none (Import holds only catalog settings, which apply at once).
+pub fn reset_page(tab: &str, draft: &Value) -> Option<Value> {
+    let mut values = serde_json::from_value::<PreferencesDraft>(draft.clone()).ok()?;
+    let defaults = PreferencesDraft::default();
+    let (s, d) = (&mut values.settings, &defaults.settings);
+    match tab {
+        "general" => {
+            s.startup_view = d.startup_view;
+            s.confirm_save_over = d.confirm_save_over;
+            s.external_editor = d.external_editor.clone();
+            values.auto_advance = defaults.auto_advance;
+        }
+        "performance" => {
+            s.gpu = d.gpu;
+            s.preview_edge = d.preview_edge;
+            s.memory_mb = d.memory_mb;
+        }
+        "interface" => {
+            s.tool_tips = d.tool_tips;
+            s.film_names = d.film_names;
+            s.film_badges = d.film_badges;
+            s.grid_badges = d.grid_badges;
+            values.show_filenames = defaults.show_filenames;
+            values.navigator = defaults.navigator;
+            values.info_overlay = defaults.info_overlay;
+        }
+        _ => return None,
+    }
+    serde_json::to_value(values).ok()
 }
 
 /// (id, label) of the tabs, in order.
@@ -99,7 +137,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
             }
         }
         if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
-            app.open_shared_ai = true;
+            app.open_shared_ai = Some("ai.connection".into());
         }
     });
     ui.separator();
@@ -192,7 +230,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
     });
     if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
-        app.open_shared_ai = true;
+        app.open_shared_ai = Some("ai.connection".into());
     }
     crate::library_safety_ui::settings(app, ui);
     heading(ui, t, "Face recognition");
@@ -231,7 +269,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         choices(
             ui,
             "settingsStartup",
-            &[(StartupView::Last, "Last view"), (StartupView::Grid, "Photo Grid"), (StartupView::Detail, "Loupe")],
+            &[(StartupView::Last, "Last workspace and view"), (StartupView::Grid, "Photo Grid"), (StartupView::Detail, "Loupe")],
             &mut app.ui.settings.startup_view,
         );
     });
@@ -243,7 +281,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     row(ui, t, li_i18n::library::t("Application"), |ui| {
         let r = ui.add(
             egui::TextEdit::singleline(&mut app.ui.settings.external_editor)
-                .hint_text(li_i18n::library::t("System default"))
+                .hint_text(li_i18n::library::t("Compositing"))
                 .desired_width(220.0_f32.min(ui.available_width())),
         );
         register(ui.ctx(), "field:externalEditor", r.rect);
@@ -252,7 +290,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         ui,
         t,
         li_i18n::library::t(
-            "Photo ▸ Edit in External Editor (⇧⌘E) renders a 16-bit TIFF copy, stacks it with the original and opens it here (an app name on macOS, a program path elsewhere).",
+            "Photo ▸ Edit In… (⌘E) opens the photo in Compositing, linked to Develop. Name another application here (an app name on macOS, a program path elsewhere) to render a 16-bit TIFF copy, stack it with the original and open it there.",
         ),
     );
 }
@@ -522,7 +560,10 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     use lightcraft_engine::gpu;
     heading(ui, t, li_i18n::library::t("Rendering"));
-    check(ui, "settings.gpu", &mut app.ui.settings.gpu, "Use the GPU for rendering");
+    // Hosted, the shared Performance page's Rendering Mode sets the Library's GPU use.
+    if !app.hosted_menus {
+        check(ui, "settings.gpu", &mut app.ui.settings.gpu, "Use the GPU for rendering");
+    }
     let status = if !gpu::available() {
         match gpu::unavailable_reason() {
             Some(why) => li_i18n::tr_format!("Rendering on the CPU: {why}", why = why),
@@ -677,21 +718,22 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 // Interface
 
 fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
-    heading(ui, t, li_i18n::library::t("Tools"));
-    row(ui, t, li_i18n::library::t("Tool tips"), |ui| {
-        use crate::panels::tool_tips::ToolTipMode as M;
-        choices(
-            ui,
-            "settingsToolTips",
-            &[
-                (M::Rich, li_i18n::library::t("Rich")),
-                (M::Simple, li_i18n::library::t("Simple (name and shortcut)")),
-                (M::Off, li_i18n::library::t("Off")),
-            ],
-            &mut app.ui.settings.tool_tips,
-        );
-    });
+    // Hosted, the shared Interface page's Tool tips setting drives the Library's too.
     if !app.hosted_menus {
+        heading(ui, t, li_i18n::library::t("Tools"));
+        row(ui, t, li_i18n::library::t("Tool tips"), |ui| {
+            use crate::panels::tool_tips::ToolTipMode as M;
+            choices(
+                ui,
+                "settingsToolTips",
+                &[
+                    (M::Rich, li_i18n::library::t("Rich")),
+                    (M::Simple, li_i18n::library::t("Simple (name and shortcut)")),
+                    (M::Off, li_i18n::library::t("Off")),
+                ],
+                &mut app.ui.settings.tool_tips,
+            );
+        });
         row(ui, t, "Tool icons", |ui| {
             choices(ui, "settingsToolIcons", &[(false, "Monochrome (default)"), (true, "Colour")], &mut app.ui.settings.color_tool_icons);
         });

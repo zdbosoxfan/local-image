@@ -203,8 +203,8 @@ pub fn family_for_label(reg: &Registry, label: &str) -> Option<String> {
             return Some(f.id.clone());
         }
     }
-    // A generation no profile lists ("HiDream O1", "Flux.3") is not its older namesake.
-    if matches!(crate::detect::generation(l), crate::detect::Gen::Unknown(_)) {
+    // A generation no profile lists ("HiDream O1", "Flux.3", "Qwen 2.1") is not its older namesake.
+    if matches!(crate::detect::generation(l), crate::detect::Gen::Unknown(_)) || low.starts_with("qwen 2") {
         return None;
     }
     // ComfyUI-Manager's `base` spellings and common Civitai variants.
@@ -214,20 +214,13 @@ pub fn family_for_label(reg: &Registry, label: &str) -> Option<String> {
         ("sd 1.5", "sd15"),
         ("sdxl", "sdxl"),
         ("pony", "pony"),
-        ("illustrious", "illustrious"),
-        ("noobai", "illustrious"),
         ("sd3.5", "sd35"),
         ("sd3", "sd35"),
-        ("flux.1 kontext", "flux1-kontext"),
-        ("flux.1", "flux1"),
         ("flux.2 klein", "flux2-klein"),
         ("flux.2", "flux2"),
         ("qwen-image-edit", "qwen-edit"),
         ("qwen-image", "qwen-image"),
-        ("qwen 2", "qwen-image-21"),
         ("qwen", "qwen-image"),
-        ("zimage", "z-image"),
-        ("z-image", "z-image"),
         ("hidream", "hidream"),
         ("ernie", "ernie"),
     ];

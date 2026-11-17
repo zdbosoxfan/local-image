@@ -98,19 +98,18 @@ pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
     Err(EngineError::Other(format!("cannot write {path}: no file system on the web")))
 }
 
+/// Whether `path` is named like an image we can open: a native `.pcraft` document or a format
+/// this build reads.
+pub(crate) fn image_name(path: &std::path::Path) -> bool {
+    path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
+}
+
 /// Files of a folder that look like images we can open, sorted by name.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     let rd = std::fs::read_dir(dir).map_err(|e| EngineError::Other(format!("{dir}: {e}")))?;
-    let mut out: Vec<String> = rd
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.is_file()
-                && p.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
-        })
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
+    let mut out: Vec<String> =
+        rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_file() && image_name(p)).map(|p| p.to_string_lossy().into_owned()).collect();
     out.sort();
     Ok(out)
 }
@@ -180,19 +179,34 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
     photocraft_io::import(name, bytes).map(|r| r.document).map_err(|e| EngineError::Other(format!("{name}: {e}")))
 }
 
-/// What a headless save writes beyond the format: JPEG quality and TIFF layers.
+/// What a headless save writes beyond the format: JPEG quality and the TIFF Options.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SaveOpts {
     /// Photoshop's 0–12 JPEG scale.
     pub quality: Option<f64>,
     /// TIFF: keep the layers. Off unless a command's params ask (`"tiffLayers": true`).
     pub tiff_layers: bool,
+    /// TIFF: the compression (`"tiffCompression": "none" | "lzw" | "zip"`); unset keeps the
+    /// encoder's default, ZIP.
+    pub tiff_compression: Option<photocraft_codecs::TiffCompression>,
+    /// TIFF: Save Transparency (`"tiffTransparency": bool`); unset, the transparency is kept
+    /// ([`photocraft_io::ExportOptions::tiff_transparency`]).
+    pub tiff_transparency: Option<bool>,
+    /// TIFF: Save Image Pyramid (`"tiffPyramid": bool`); unset, off.
+    pub tiff_pyramid: bool,
 }
 
 impl SaveOpts {
-    /// `quality` and `tiffLayers` from a command's params.
-    pub(crate) fn from_params(p: &Value) -> Self {
-        SaveOpts { quality: f64_param(p, "quality"), tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false) }
+    /// `quality`, `tiffLayers` and the TIFF Options from command `cmd`'s params; a TIFF Option
+    /// of the wrong kind is a bad parameter.
+    pub(crate) fn from_params(p: &Value, cmd: &str) -> Result<Self> {
+        Ok(SaveOpts {
+            quality: f64_param(p, "quality"),
+            tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false),
+            tiff_compression: tiff_compression_param(p, cmd)?,
+            tiff_transparency: tiff_bool_param(p, "tiffTransparency", cmd)?,
+            tiff_pyramid: tiff_bool_param(p, "tiffPyramid", cmd)?.unwrap_or(false),
+        })
     }
 
     pub(crate) fn or_quality(mut self, q: f64) -> Self {
@@ -207,11 +221,42 @@ impl From<Option<f64>> for SaveOpts {
     }
 }
 
+/// The TIFF compression in `p` (`"tiffCompression": "none" | "lzw" | "zip"`, Photoshop's TIFF
+/// Options; absent or null: unset). Anything else is a bad parameter of command `cmd`. Shared by
+/// every save that takes it (the engine's commands, the JSON-lines server and the MCP server).
+pub fn tiff_compression_param(p: &Value, cmd: &str) -> Result<Option<photocraft_codecs::TiffCompression>> {
+    use photocraft_codecs::TiffCompression;
+    match p.get("tiffCompression") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => match v.as_str() {
+            Some("none") => Ok(Some(TiffCompression::None)),
+            Some("lzw") => Ok(Some(TiffCompression::Lzw)),
+            Some("zip") => Ok(Some(TiffCompression::Deflate)),
+            _ => Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("`tiffCompression` must be \"none\", \"lzw\" or \"zip\", got {v}") }),
+        },
+    }
+}
+
+/// A TIFF Options checkbox in `p`: `"tiffTransparency"` (Save Transparency) or `"tiffPyramid"`
+/// (Save Image Pyramid), `true` or `false`; absent or null: unset. Anything else is a bad
+/// parameter of command `cmd`.
+pub fn tiff_bool_param(p: &Value, key: &str, cmd: &str) -> Result<Option<bool>> {
+    match p.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
+        Some(v) => Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("`{key}` must be true or false, got {v}") }),
+    }
+}
+
 /// Encodes `doc` for `path`'s extension.
 pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> Result<(Vec<u8>, Vec<String>)> {
     let save = save.into();
-    let mut opts =
-        photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, read_linked_files: !crate::jobs::authorization_installed(), ..Default::default() };
+    let mut opts = photocraft_io::ExportOptions {
+        tiff_layers: save.tiff_layers,
+        tiff_transparency: save.tiff_transparency,
+        read_linked_files: !crate::jobs::authorization_installed(),
+        ..Default::default()
+    };
     if let Some(q) = save.quality {
         let q = (q.clamp(0.0, 12.0) / 12.0 * 99.0 + 1.0).round() as u8;
         opts.encode.jpeg_quality = q;
@@ -219,6 +264,10 @@ pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> R
         opts.encode.webp_quality = q;
         opts.encode.webp_lossless = false;
     }
+    if let Some(compression) = save.tiff_compression {
+        opts.encode.tiff_compression = compression;
+    }
+    opts.encode.tiff_pyramid = save.tiff_pyramid;
     crate::vector_integration::export_document(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| EngineError::Other(format!("{path}: {e}")))
 }
 
@@ -260,7 +309,7 @@ pub(crate) fn buffer_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat)
 
 /// The flattened image of `doc` as a surface in `fmt`, placed at the origin.
 pub(crate) fn flattened(doc: &Document, fmt: PixelFormat) -> Result<Surface> {
-    Ok(photocraft_compose::flatten_to_surface(&crate::vector_integration::project_document(doc)?, fmt, None))
+    Ok(photocraft_compose::flatten_to_surface(&crate::vector_integration::project_for_output(doc)?, fmt, None))
 }
 
 /// Refuse file-declared canvases larger than the compositor can render before flattening.
@@ -348,7 +397,7 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
         let px = flattened_checked(&doc, fmt, "file.saveACopy")?;
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(px))];
     }
-    let warnings = save_doc(&doc, &path, SaveOpts::from_params(p))?;
+    let warnings = save_doc(&doc, &path, SaveOpts::from_params(p, "file.saveACopy")?)?;
     Ok(json!({"path": path, "warnings": warnings}))
 }
 
@@ -522,6 +571,16 @@ fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Optio
         Some(c) if c.len() == 2 => (c[0].as_f64().unwrap_or(cw / 2.0), c[1].as_f64().unwrap_or(ch / 2.0)),
         _ => (cw / 2.0, ch / 2.0),
     };
+    // `scale` is the caller's: bound the resampled size before allocating it. Resampling rounds the
+    // far edges outward; an unresampled placement keeps its size.
+    let (ow, oh) = if (scale - 1.0).abs() > 1e-9 { ((w * scale).ceil(), (h * scale).ceil()) } else { (w, h) };
+    let scaled = ow * oh;
+    if scaled.is_nan() || scaled > photocraft_compose::MAX_RENDER_PIXELS as f64 {
+        return Err(EngineError::BadParams {
+            cmd: "file.place".into(),
+            msg: format!("scaling {w}×{h} to {} % makes an image too large to place", scale * 100.0),
+        });
+    }
     let (dx, dy) = ((center.0 - w * scale / 2.0).round(), (center.1 - h * scale / 2.0).round());
     let mut px = flattened_checked(&src, fmt, "file.place")?;
     if (scale - 1.0).abs() > 1e-9 {
@@ -646,36 +705,59 @@ fn parse_steps(v: &Value) -> Result<Vec<(String, Value)>> {
         .collect()
 }
 
-/// Inputs of a batch command: `"input"` is a folder or an array of files.
-pub(crate) fn batch_inputs(p: &Value, cmd: &str) -> Result<Vec<String>> {
-    match p.get("input").or_else(|| p.get("files")) {
-        Some(Value::Array(a)) => Ok(a.iter().filter_map(Value::as_str).map(str::to_string).collect()),
-        Some(Value::String(dir)) => list_images(dir),
-        _ => Err(EngineError::BadParams { cmd: cmd.into(), msg: "missing \"input\" (folder or array of files)".into() }),
-    }
+/// Inputs of a batch command: `"input"` is a folder (with `"includeSubfolders"`, its subfolders
+/// too) or an array of files. See [`crate::batch::inputs`].
+pub(crate) fn batch_inputs(p: &Value, cmd: &str) -> Result<Vec<crate::batch::Input>> {
+    crate::batch::inputs(p, cmd)
 }
 
-/// Opens each input in a scratch session, runs `f` on it and saves it to `output` as `format`
-/// (`"same"` keeps the input's extension). Errors per file are collected, not fatal.
+/// Opens each input in a scratch session, runs `f` on it and saves it to `output` (in the
+/// input's subfolder, mirrored) as `format` (`"same"` keeps the input's extension), named by
+/// `options.naming`. `f` gets the output path and returns `true` when it saved the result
+/// itself. Errors per file are collected, not fatal, unless `options.stop_on_error`; they also
+/// go to `options.error_log` when set. With a job handle, progress is reported per file and a
+/// cancel stops after the current file (`Err(Cancelled)`; the files written so far stay, the
+/// log is still written).
 pub(crate) fn process_files(
-    inputs: &[String],
+    inputs: &[crate::batch::Input],
     output: &str,
     format: &str,
     save: SaveOpts,
-    suffix: &str,
+    options: &crate::batch::Options,
+    ctx: Option<&lightcraft_sysmem::JobCtl>,
     f: &dyn Fn(&mut Session, &str) -> Result<bool>,
-) -> Value {
+) -> Result<Value> {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
-    for path in inputs {
+    let date = crate::batch::Date::today();
+    let total = inputs.len();
+    let mut stopped = None;
+    let mut cancelled = false;
+    let mut done = 0;
+    let sources = sources_by_folder(inputs);
+    for (i, input) in inputs.iter().enumerate() {
+        if let Some(ctx) = ctx {
+            if ctx.is_cancelled() {
+                cancelled = true;
+                break;
+            }
+            ctx.report(i as f32 / total.max(1) as f32, &format!("{} of {total}: {}", i + 1, file_name(&input.path)));
+        }
+        let path = &input.path;
         let ext =
             if format == "same" { path.rsplit('.').next().unwrap_or("png").to_ascii_lowercase() } else { format.trim_start_matches('.').to_ascii_lowercase() };
-        let out = join(output, &format!("{}{suffix}.{ext}", stem(path)));
+        let dir = if input.subdir.is_empty() { output.to_string() } else { join(output, &input.subdir) };
+        let out = join(&dir, &options.naming.file_name(&stem(path), &ext, i as u64, date));
         let r = (|| -> Result<()> {
             written.check(&out).map_err(EngineError::Other)?;
+            if let Some(source) = source_at(&sources, &dir, &out).filter(|source| *source != path.as_str()) {
+                return Err(EngineError::Other(format!("not written: {out} would replace the source file {source} of this run")));
+            }
             let bytes = read_file(path)?;
             let mut scratch = Session::new();
+            // Nested commands answer to the gate of the request that started this run.
+            scratch.authorize = crate::jobs::installed_authorization();
             let doc = import(&file_name(path), &bytes)?;
             scratch.add_document(doc, Some(path.clone()));
             if !f(&mut scratch, &out)? {
@@ -684,15 +766,57 @@ pub(crate) fn process_files(
             }
             Ok(())
         })();
+        done = i + 1;
         match r {
             Ok(()) => {
                 written.record(&out, path);
                 files.push(out);
             }
-            Err(e) => errors.push(json!({"file": path, "error": e.to_string()})),
+            Err(e) => {
+                errors.push(json!({"file": path, "error": e.to_string()}));
+                if options.stop_on_error {
+                    stopped = Some(path.clone());
+                    break;
+                }
+            }
         }
     }
-    json!({"files": files, "errors": errors})
+    if let Some(log) = &options.error_log
+        && !errors.is_empty()
+    {
+        crate::batch::write_error_log(log, &errors, date)?;
+    }
+    if cancelled {
+        return Err(EngineError::Cancelled);
+    }
+    if let Some(ctx) = ctx {
+        ctx.report(1.0, "");
+    }
+    let skipped = || inputs.iter().skip(done).map(|i| i.path.clone()).collect();
+    Ok(crate::batch::outcome(files, errors, stopped.map(|at| (at, skipped())), options.error_log.as_deref()))
+}
+
+/// The inputs by resolved folder and lower-case file name. A run saving into a source folder
+/// must not replace another input before reading it: `a.ARW` saved as JPEG would write over
+/// the source `a.jpg` (upstream VectorCraft 9a05e8ad). With subfolders, any output folder can
+/// be a source folder.
+type Sources<'a> = std::collections::HashMap<(std::path::PathBuf, String), &'a str>;
+
+fn sources_by_folder(inputs: &[crate::batch::Input]) -> Sources<'_> {
+    inputs
+        .iter()
+        .filter_map(|input| {
+            let path = input.path.as_str();
+            let parent = std::path::Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+            Some(((std::fs::canonicalize(parent).ok()?, file_name(path).to_lowercase()), path))
+        })
+        .collect()
+}
+
+/// The input that `out`, written into `dir`, would replace.
+fn source_at<'a>(sources: &Sources<'a>, dir: &str, out: &str) -> Option<&'a str> {
+    let folder = std::fs::canonicalize(if dir.is_empty() { "." } else { dir }).ok()?;
+    sources.get(&(folder, file_name(out).to_lowercase())).copied()
 }
 
 /// The output paths a batch run has written, so a later input whose output name matches an
@@ -717,30 +841,42 @@ impl OutputClaims {
 }
 
 mod batch_actions;
+mod image_processor_formats;
+mod open_as_smart_object;
 
 use batch_actions::batch;
 pub(crate) use batch_actions::batch_save_point;
+use open_as_smart_object::open_as_smart_object;
+
+/// Image Processor's edits to one scratch document before it is saved.
+fn process_image(scratch: &mut Session, to_srgb: bool, fit: Option<&Value>) -> Result<()> {
+    if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
+        scratch.execute("image.mode.rgb", json!({}))?;
+    }
+    if let Some(fit) = fit {
+        fit_image(scratch, fit)?;
+    }
+    Ok(())
+}
 
 fn image_processor(_s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.scripts.imageProcessor";
     let inputs = batch_inputs(p, cmd)?;
     let output = str_param(p, "output", cmd)?.to_string();
+    if p.get("format").is_none() && ["jpeg", "psd", "tiff"].iter().any(|key| p.get(key).is_some()) {
+        return image_processor_formats::run(p, &inputs, &output);
+    }
     let format = p.get("format").and_then(Value::as_str).unwrap_or("jpg").to_string();
     let fit = match (size_param(p, "width"), size_param(p, "height")) {
         (None, None) => None,
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(p).or_quality(8.0), "", &|scratch, _| {
-        if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
-            scratch.execute("image.mode.rgb", json!({}))?;
-        }
-        if let Some(fp) = &fit {
-            fit_image(scratch, fp)?;
-        }
+    let options = crate::batch::Options::from_params(p, cmd)?;
+    process_files(&inputs, &output, &format, SaveOpts::from_params(p, cmd)?.or_quality(8.0), &options, None, &|scratch, _| {
+        process_image(scratch, to_srgb, fit.as_ref())?;
         Ok(false)
-    });
-    Ok(r)
+    })
 }
 
 fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
@@ -880,24 +1016,31 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.layersToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
     let format = p.get("format").and_then(Value::as_str).unwrap_or("png").trim_start_matches('.').to_ascii_lowercase();
+    // The format becomes the file extension inside one file name: never a path.
+    if format.is_empty() || !format.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(EngineError::BadParams { cmd: cmd.into(), msg: "`format` must be a file extension such as png".into() });
+    }
     let visible_only = p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(true);
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
+    // An explicitly empty prefix stays empty; only the layer name needs sanitize's fallback.
+    let prefix = if prefix.is_empty() { String::new() } else { sanitize(&prefix) };
     let doc = d.doc.clone();
     let mut files = Vec::new();
-    // Top-level layers (groups export merged), top to bottom like Photoshop's numbering.
-    let layers: Vec<&Layer> = doc.layers.iter().rev().filter(|l| l.visible || !visible_only).collect();
-    for (i, l) in layers.iter().enumerate() {
-        if matches!(l.content, LayerContent::Adjustment(_)) {
+    // Top-level layers (groups export merged), top to bottom like Photoshop's numbering. Every
+    // layer takes its panel-order number, even one skipped as hidden or as an adjustment, so a
+    // file keeps the same number whether Visible Layers Only is on or off.
+    for (i, l) in doc.layers.iter().rev().enumerate() {
+        if (!l.visible && visible_only) || matches!(l.content, LayerContent::Adjustment(_)) {
             continue;
         }
         let mut one = (*doc).clone();
-        let mut only = (*l).clone();
+        let mut only = l.clone();
         only.visible = true;
         only.clipped = false;
         one.layers = vec![only];
-        let path = join(&dir, &format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&l.name)));
-        save_doc(&one, &path, SaveOpts::from_params(p))?;
+        let path = join(&dir, &format!("{prefix}_{i:04}_{}.{format}", sanitize(&l.name)));
+        save_doc(&one, &path, SaveOpts::from_params(p, cmd)?)?;
         files.push(path);
     }
     Ok(json!({"files": files}))
@@ -1106,7 +1249,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save a Copy…",
             &["File"],
             Some("Cmd+Alt+S"),
-            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"overwrite":bool=false (replace the document's own file),"tiffLayers":bool=false (TIFF: keep the layers; flat by default)}"##,
+            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"overwrite":bool=false (replace the document's own file),"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tiffCompression":"none|lzw|zip"? (TIFF: image compression; unset, zip),"tiffTransparency":bool? (TIFF: Save Transparency; off composites over white; unset, kept),"tiffPyramid":bool=false (TIFF: Save Image Pyramid, half-size copies after the image)}"##,
             native_doc,
             save_a_copy
         ),
@@ -1118,6 +1261,15 @@ pub fn specs() -> Vec<CommandSpec> {
             r##"{"path":str,"as":"psd|png|jpg|tiff|…"? (decode as this format)}"##,
             native,
             open_as
+        ),
+        spec!(
+            "file.openAsSmartObject",
+            "Open as Smart Object…",
+            &["File"],
+            None,
+            r##"{"path":str} (opens the file as a new untitled document named "<file name without its last extension>-N" with the file's size, resolution, colour mode, bit depth and profile, holding one embedded smart object layer named after the file; Color Settings apply as on File › Open) → {document, documentId, name, layer, warnings, color}"##,
+            native,
+            open_as_smart_object
         ),
         spec!(
             "file.placeEmbedded",
@@ -1163,7 +1315,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action; Save, Save As and Save a Copy mark the output document; recorded save paths are ignored),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"tiffLayers":bool=false} → {files, errors} (up to 16 nested scripts/batches and 100000 input/step units per run, including nested actions; each input and action step counts once; an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action; Save, Save As and Save a Copy mark the output document; recorded save paths are ignored),"source":"folder|open"="folder" (open: the steps run on every open document; "input" is ignored, "output" optional: a copy of each is saved there, else they just stay changed),"input":folder|[paths],"includeSubfolders":bool=false (the output mirrors the subfolders),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","naming":"{name}.{ext}"? (template: {name} {NAME} {Name} {serial} {serial:2..4} {letter} {LETTER} {date:mmddyy|mmdd|yyyymmdd|yymmdd|yyddmm|ddmmyy} (UTC) {ext} {EXT}, other text literal),"startSerial":int=1,"stopOnError":bool=false (else every file is tried),"errorLog":path? (the errors, one per line),"quality":0..12?,"tiffLayers":bool=false,"tiffCompression":"none|lzw|zip"?,"tiffTransparency":bool?,"tiffPyramid":bool=false} → {files, errors, stopped?, skipped?, errorLog?, documents? (source open)} (runs as a job: progress per file, Cancel stops after the current one; up to 16 nested scripts/batches and 100000 input/step units per run, including nested actions; each input and action step counts once; an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),
@@ -1172,7 +1324,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Image Processor…",
             &["File", "Scripts"],
             None,
-            r##"{"input":folder|[paths],"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"input":folder|[paths],"includeSubfolders":bool=false,"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","naming":"{name}.{ext}"? (as file.automate.batch),"startSerial":int=1,"stopOnError":bool=false,"errorLog":path? (naming to errorLog: with format only),"quality":0..12=8,"tiffLayers":bool=false,"tiffCompression":"none|lzw|zip"?,"tiffTransparency":bool?,"tiffPyramid":bool=false,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false,"jpeg":{enabled?:bool=true,quality?:1..12=5,convertToSrgb?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"psd":{enabled?:bool=true,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?,"tiff":{enabled?:bool=true,lzw?:bool=false,resize?:bool=false,width?:1..30000=1,height?:1..30000=1}|false?} → {files, errors, stopped?, skipped?, errorLog?} (an input whose output name was already written in the run goes to errors; without format, supplying jpeg/psd/tiff writes each enabled one from every input with its own settings, the TIFF with layers; at least one must be enabled, and each error then names its format)"##,
             native,
             image_processor
         ),
@@ -1200,7 +1352,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Layers to Files…",
             &["File", "Export"],
             None,
-            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name,"visibleOnly":bool=true,"quality":0..12?,"tiffLayers":bool=false} → {files}"##,
+            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name,"visibleOnly":bool=true,"quality":0..12?,"tiffLayers":bool=false,"tiffCompression":"none|lzw|zip"?,"tiffTransparency":bool?,"tiffPyramid":bool=false} → {files}"##,
             native_doc,
             layers_to_files
         ),
@@ -1230,6 +1382,10 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "file_cmds/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "file_cmds/open_as_smart_object_tests.rs"]
+mod open_as_smart_object_tests;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

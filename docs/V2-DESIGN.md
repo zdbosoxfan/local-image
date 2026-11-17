@@ -86,7 +86,7 @@ browser UI in a WebView and a Python server. V2 is a single editor in which the 
 ### AI Remove brush (J, healing group)
 * Paint over a distraction; on release it is removed. The stroke preview is the usual healing-brush
   trail.
-* Options bar: brush chip (size, hardness), **Engine** (FLUX.2 Klein · Qwen Compact · Qwen Full),
+* Options bar: brush chip (size, hardness), **Engine** (Automatic · On-device LaMa · FLUX.2 Klein),
   **Output** (New layer / Current layer), *Sample All Layers* (on).
 * The repair is computed from the visible composite around the stroke (context crop, red-outline
   input, Poisson blend — the 0.7 pipeline) and arrives as a layer "AI Remove 1" above the active
@@ -95,16 +95,14 @@ browser UI in a WebView and a Python server. V2 is a single editor in which the 
 
 ### AI Cutout tool (W, object-selection group)
 * **Remove Background** button on the options bar (also Layer › Remove Background, and the Layers
-  context menu). Engine: **Qwen AI · Compact / Full** (a real alpha matte, best edges) or
-  **Standard (CPU)** (the editor's own Remove Background: Select Subject plus edge refinement;
-  works without a GPU). Properties › Quick Actions offers both, as *Remove Background* and
-  *Remove Background (AI)*.
+  context menu). Model: **Fast** or **Better Quality**, the editor's own on-device Remove
+  Background (subject matte plus edge refinement; works without a GPU).
 * The result is a **layer mask** on the active layer: the original pixels stay; the mask hides the
-  background. Optional hint field ("the red car") is passed to the model.
+  background.
 * Refine: drag on the canvas with the Cutout tool to paint the mask — **Erase** (hide) or
   **Restore** (reveal), toggled with X or the options-bar switch; size with `[` `]`.
 * **Add background ▾** on the options bar: Solid colour (fill layer), Image… (place below),
-  Generate… (Qwen empty background plate from a description). The new layer goes *below* the
+  Generate… (FLUX.2 Klein 4B empty background plate from a description). The new layer goes *below* the
   cutout layer.
 * Shadow: Layer › Layer Style › Drop Shadow (PhotoCraft's live effect) — no separate shadow model.
 
@@ -124,15 +122,14 @@ File › New from Prompt…) folds Properties away so the prompt has room.
   bottom. Fields follow the model's capabilities: negative prompt only where the family uses one,
   steps and guidance only where they aren't fixed, references only up to what the model takes.
 * Prompt (Enter generates, ⇧Enter for a new line), negative prompt where used, then one **Size**
-  row (aspect menu, width × height snapped to the model's grid), Transparent where supported.
+  row (aspect menu, width × height snapped to the model's grid).
 * *Strength* (Edit-by-inpaint, Fill with non-instruction models, Refine, Upscale), *Enlarge*
-  (Upscale), *References* (current image or a file; native multi-image, else IP-Adapter/Redux).
+  (Upscale), *References* (current image or a file; native multi-image, else IP-Adapter).
 * *Styles (LoRA)*: installed LoRAs that fit the family (≤ the family's maximum, strength −2…2);
   **Find LoRAs…** opens the Model Browser on that family's LoRAs.
 * *Refine with*: Draft → Refine — a fast model drafts, a second model resamples it at a strength,
   optionally enlarged first.
-* *Advanced* (collapsed): steps, guidance, variation strength, sampler and scheduler, seed (keep or
-  new each time).
+* *Advanced* (collapsed): steps, guidance, sampler and scheduler, seed (keep or new each time).
 * The **Generate** button sits directly under the inputs with the image count (1–4) beside it, so
   the primary action never scrolls away; its label follows the mode (Apply Edit, Fill Selection,
   Upscale 2×). When something is missing the reason shows above it with the button that fixes it.
@@ -144,8 +141,7 @@ File › New from Prompt…) folds Properties away so the prompt has room.
 Laid out like SwarmUI's and InvokeAI's model managers, with Civitai/Hugging Face-style cards, in
 the PhotoCraft Pro theme (one dark window, no extra chrome).
 * Left column: **Models | LoRAs**, then *New*, *Trending*, *Installed*, *Works on my GPU* (the
-  detected GPU memory), then every family grouped (Stable Diffusion, FLUX, Qwen, Z-Image, ERNIE,
-  HiDream).
+  detected GPU memory), then every family grouped (Stable Diffusion, FLUX, Qwen, ERNIE, HiDream).
 * Top row: search, source filters (Hugging Face, Civitai, Templates, Community), refresh.
 * Cards: preview, source and licence-gate badges, title, author and downloads, family and
   capability tags, download size, rough GPU memory (amber when above the detected GPU), licence,
@@ -169,16 +165,16 @@ the PhotoCraft Pro theme (one dark window, no extra chrome).
 * Nothing goes online until the window is open; every catalogue is cached so it works offline.
 
 ### The open model system
-* **Families as data** (`crates/li-ai/families/*.json`): SD 1.5, SDXL, Pony, Illustrious/NoobAI,
-  SD 3.5, FLUX.1 (+ Kontext, Fill), FLUX.2, FLUX.2 Klein, Qwen Image, Qwen Image Edit, Qwen Image
-  2.1, Z-Image, ERNIE-Image, HiDream, SeedVR2. A profile states the loaders, text encoders, sampling
+* **Families as data** (`crates/li-ai/families/*.json`): SD 1.5, SDXL, Pony,
+  SD 3.5, FLUX.2, FLUX.2 Klein, Qwen Image, Qwen Image Edit, ERNIE-Image,
+  HiDream, SeedVR2. A profile states the loaders, text encoders, sampling
   defaults, capabilities, LoRA rules, prompt conventions, component files and the Civitai/Hugging
   Face names that mean it; derived families inherit (`base`). 0.7's curated models live in the
   profiles unchanged (same files and hashes).
 * **Detection** (`identify.rs`, `detect.rs`, `arch.rs`): installed files are classified from
   `/object_info` plus their safetensors/GGUF headers (tensor names and logical shapes, ModelSpec
   metadata), with profile `detect` rules first; the file name decides only what weights can't
-  tell apart (Pony vs Illustrious, Kontext vs Krea), and never maps a generation nothing
+  tell apart (Pony vs SDXL), and never maps a generation nothing
   describes to an older family.
 * **Workflow builders** (`builders.rs`): one generic builder for every family and task (create,
   refine, inpaint, edit, references, LoRAs), Draft → Refine and tiled upscale-refine (`ops.rs`).
@@ -209,7 +205,6 @@ the PhotoCraft Pro theme (one dark window, no extra chrome).
 ### Other AI commands
 | Command | Where |
 | --- | --- |
-| Select › Subject (AI) | Qwen matte → selection |
 | Edit › AI Remove | removes the current selection (same as the brush) |
 | Edit › Generative Fill… | opens Generate in Fill mode for the selection |
 | Image › AI Enhance (SeedVR2)… | 2× / 4K long edge / custom, keeps alpha, new document |

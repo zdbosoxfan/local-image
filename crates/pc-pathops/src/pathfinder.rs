@@ -79,8 +79,7 @@ impl Region {
 }
 
 fn arrangement(shapes: &[Shape]) -> Result<Arrangement, PathOpsError> {
-    let bps: Vec<(BezPath, FillRule)> = shapes.iter().map(|s| (fill_bezpath(&s.path), s.rule)).collect();
-    Arrangement::new(bps)
+    Arrangement::new(shapes.iter().map(|s| (fill_bezpath(&s.path), s.rule)).collect())
 }
 
 fn topmost(m: &[bool]) -> Option<usize> {

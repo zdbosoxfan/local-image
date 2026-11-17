@@ -219,14 +219,31 @@ pub fn sync_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, s
 }
 
 pub fn open_photo_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, settings: &Value, name: &str) -> Result<(), String> {
-    let result = app.run("develop.openPhoto", json!({"library": library, "photo": photo, "path": path, "settings": settings, "name": name}))?;
+    open_library_photo(app, library, photo, path, settings, name, &Value::Null)
+}
+
+/// [`open_photo_in`] with the Library's `metadata` for the photo (`lightcraft_meta::Metadata`
+/// JSON, or null), which the new document carries in its XMP.
+pub fn open_library_photo(
+    app: &mut PhotocraftApp,
+    library: &str,
+    photo: u64,
+    path: &str,
+    settings: &Value,
+    name: &str,
+    metadata: &Value,
+) -> Result<(), String> {
+    let result =
+        app.run("develop.openPhoto", json!({"library": library, "photo": photo, "path": path, "settings": settings, "name": name, "metadata": metadata}))?;
     admit_photo_result(app, &result);
     app.sync_views();
     Ok(())
 }
 
+/// A newly opened photo starts in Pixel/Move; a document that was already open (the way back
+/// from Develop) keeps the persona and tool in use.
 fn admit_photo_result(app: &mut PhotocraftApp, result: &Value) {
-    if result["pending"].as_bool() == Some(true) {
+    if result["pending"].as_bool() == Some(true) || result["existing"].as_bool() == Some(true) {
         return;
     }
     if let Some(document) = result["documentId"].as_u64().map(photocraft_doc::DocId) {
@@ -246,6 +263,19 @@ pub fn sync(app: &mut PhotocraftApp, photo: u64, settings: &Value) {
 }
 
 pub(crate) fn finish_sync(app: &mut PhotocraftApp, r: &Value) {
+    for kept in r["geometryChanged"].as_array().into_iter().flatten() {
+        let name = kept["name"].as_str().unwrap_or_default();
+        let msg = li_i18n::fmt(tl!("The photo's crop or size changed in Develop, so {name} was not updated"), &[("name", name)]);
+        crate::notices::post(
+            app,
+            msg.clone(),
+            vec![tl!("Its layers would no longer line up with the new photo, so it keeps the photo as it was.").into()],
+            false,
+            None,
+        );
+        app.ui.status = msg;
+        app.ui.status_error = false;
+    }
     if let Some(added) = r["added"].as_array().filter(|a| !a.is_empty()) {
         for a in added {
             let name = a["name"].as_str().unwrap_or("Develop");
@@ -368,6 +398,15 @@ mod tests {
         assert!(develop(&mut app).is_ok());
         assert_eq!(app.develop_request, active_origin(&app));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// The document carries the Library's place names, so embedding them stays a choice.
+    #[test]
+    fn export_as_starts_without_metadata_for_a_develop_layer_document() {
+        let (dir, _, mut app) = photo_app("export-metadata");
+        let id = crate::export_dialog::open(&mut app).unwrap();
+        assert_eq!(app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["metadata"], "none");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn photo_app(tag: &str) -> (std::path::PathBuf, String, PhotocraftApp) {

@@ -5,8 +5,20 @@
 //! follow the public descriptions in the ExifTool tag documentation (`MakerNotes` table) and the
 //! vendors' own published notes; no third-party code was consulted.
 
-use crate::{ByteOrder, Ifd, ParseOptions, parse_ifd_at};
+use crate::reader::parse_ifd_counted;
+use crate::{ByteOrder, Ifd, ParseOptions};
 use serde::{Deserialize, Serialize};
+use std::hash::{DefaultHasher, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Whether `block` differs from the last one `last` saw. One read of a file parses the same block several times, so a
+/// warning about its contents passes through this to appear once.
+fn is_new_block(last: &AtomicU64, block: &[u8]) -> bool {
+    let mut hasher = DefaultHasher::new();
+    hasher.write(block);
+    let hash = hasher.finish();
+    last.swap(hash, Ordering::Relaxed) != hash
+}
 
 /// Maker-note dialects we know how to locate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,10 +67,20 @@ pub fn parse_makernote(data: &[u8], offset: u64, len: u64, order: ByteOrder, mak
         Some(b"MM") => Some(ByteOrder::Big),
         _ => None,
     };
-    let opts = ParseOptions { max_ifds: 64, max_depth: 3, ..Default::default() };
+    // A fixed value budget: a maker note is at most tens of kilobytes of values in any honest file, and a budget
+    // computed from the buffer's length would let one hostile entry decode allocations in proportion to the file.
+    const VALUE_BUDGET: u64 = 1 << 20;
+    let opts = ParseOptions { max_ifds: 64, max_depth: 3, value_budget: Some(VALUE_BUDGET), ..Default::default() };
     let try_parse = |kind: MakerNoteKind, ifd_at: u64, base: u64, ord: ByteOrder| -> Option<MakerNote> {
-        let (ifd, _) = parse_ifd_at(data, ifd_at, ord, base, false, &opts).ok()?;
-        (!ifd.entries.is_empty()).then_some(MakerNote { kind, order: ord, base, ifd })
+        let (ifd, _, over_budget) = parse_ifd_counted(data, ifd_at, ord, base, false, &opts).ok()?;
+        if ifd.entries.is_empty() {
+            return None;
+        }
+        static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
+        if over_budget > 0 && is_new_block(&LAST_WARNED, note) {
+            log::warn!("{kind:?} maker note: entries dropped past the {VALUE_BUDGET}-byte value budget: {over_budget}");
+        }
+        Some(MakerNote { kind, order: ord, base, ifd })
     };
     if note.starts_with(b"Nikon\0") {
         if note.get(6) == Some(&1) {
@@ -105,6 +127,15 @@ pub fn parse_makernote(data: &[u8], offset: u64, len: u64, order: ByteOrder, mak
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_block_counts_as_new_until_it_repeats() {
+        let last = std::sync::atomic::AtomicU64::new(0);
+        assert!(super::is_new_block(&last, b"first file"));
+        assert!(!super::is_new_block(&last, b"first file"));
+        assert!(super::is_new_block(&last, b"second file"));
+        assert!(super::is_new_block(&last, b"first file"));
+    }
+
     use super::*;
     use crate::{IfdBuilder, TiffWriter, Value, tags};
 
@@ -198,5 +229,26 @@ mod tests {
         assert!(parse_makernote(&bytes, off, len, ByteOrder::Little, "X").is_none());
         assert!(parse_makernote(&bytes, 1 << 40, 10, ByteOrder::Little, "X").is_none());
         assert!(parse_makernote(&bytes, off, u64::MAX, ByteOrder::Little, "X").is_none());
+    }
+
+    #[test]
+    fn maker_note_values_stay_within_a_fixed_budget() {
+        let order = ByteOrder::Little;
+        let mut note = b"SONY DSC \0\0\0".to_vec();
+        order.put_u16(&mut note, 2);
+        order.put_u16(&mut note, 0x201b);
+        order.put_u16(&mut note, 1);
+        order.put_u32(&mut note, 1);
+        note.extend([3, 0, 0, 0]);
+        order.put_u16(&mut note, 0x9900);
+        order.put_u16(&mut note, 1);
+        order.put_u32(&mut note, 2 << 20);
+        order.put_u32(&mut note, 200);
+        order.put_u32(&mut note, 0);
+        let mut bytes = note.clone();
+        bytes.resize(200 + (2 << 20), 0);
+        let maker_note = parse_makernote(&bytes, 0, note.len() as u64, order, "SONY").unwrap();
+        assert!(maker_note.ifd.get(0x201b).is_some());
+        assert!(maker_note.ifd.get(0x9900).is_none());
     }
 }

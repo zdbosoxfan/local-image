@@ -34,6 +34,11 @@ pub struct CutParts {
 }
 
 impl CutParts {
+    /// Selected pixels in source-document coordinates, including soft coverage.
+    pub(crate) fn selected_pixels(&self) -> &Surface {
+        &self.piece
+    }
+
     /// Split `layer` of `doc` by its selection. Errors without a selection or pixels.
     pub fn new(doc: &Document, layer: LayerId) -> Result<Self> {
         Self::with_copy(doc, layer, false)
@@ -97,8 +102,22 @@ fn cut_piece(base: &Surface, sel: &Surface, b: photocraft_geom::Rect, with_alpha
     let alpha_off = dst_bpp - sb;
     let src_empty_default = same_fmt && base.default_bytes().iter().all(|&v| v == 0);
     let oom = |error: photocraft_raster::AllocationError| crate::allocation::error("floating selection", &error.to_string());
-    let mut coords = crate::allocation::capacity(b.tiles().count(), "floating selection")?;
-    coords.extend(b.tiles());
+    // Only tiles that can hold a piece of the result are visited: the source's stored tiles when
+    // its default is empty, else the selection's when its default is. Two distant tiles make `b`
+    // a grid of millions of tiles that hold nothing, so the full grid is walked only when neither
+    // default is empty, after checking what it could produce.
+    let sel_default_empty = sel.default_pixel().first().is_none_or(|v| *v <= 0.0);
+    let stored = |s: &Surface| s.tiles().map(|(c, _)| *c).filter(|c| !c.rect().intersect(&b).is_empty()).collect::<Vec<TileCoord>>();
+    let coords: Vec<TileCoord> = if src_empty_default {
+        stored(base)
+    } else if sel_default_empty {
+        stored(sel)
+    } else {
+        crate::allocation::check_dense(b, dst_bpp as u64, "floating selection")?;
+        let mut coords = crate::allocation::capacity(b.tiles().count(), "floating selection")?;
+        coords.extend(b.tiles());
+        coords
+    };
     let mut results = crate::allocation::capacity(coords.len(), "floating selection")?;
     coords
         .into_par_iter()

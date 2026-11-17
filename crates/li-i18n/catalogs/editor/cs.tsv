@@ -86,7 +86,7 @@
 	File Info…	Informace o souboru…
 	Print…	Tisk…
 	Print One Copy	Vytisknout jednu kopii
-	Exit	Ukončit
+	Quit Local Image	Ukončit Local Image
 	Undo	Zpět
 	Redo	Znovu
 	Toggle Last State	Přepnout poslední stav
@@ -2157,7 +2157,6 @@ cameraRaw	Color	Barvy
 	Remove Background (AI)	Odstranit pozadí (AI)
 	Remove Backgrounds (AI)…	Odstranit pozadí (AI) hromadně…
 	Set Up AI…	Nastavit AI…
-	Subject (AI)	Objekt (AI)
 	The AI engine isn't running.	Modul AI není spuštěn.
 	Contextual task bar	Kontextový panel úloh
 	Tool presets	Přednastavení nástroje
@@ -2267,7 +2266,6 @@ cameraRaw	Color	Barvy
 	Could not save settings: {error}	Nastavení nelze uložit: {error}
 	Couldn't save: {error}	Uložení se nezdařilo: {error}
 	Couldn't update profiles: {error}	Profily nelze aktualizovat: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Vyřízne objekt z každého obrázku pomocí Qwen Image 2.1 a uloží soubory PNG. Originály se nikdy nemění.
 	Delete from Library	Odstranit z knihovny
 	Describe details to add (optional)…	Popište detaily, které přidat (volitelné)…
 	Describe the change, e.g. “make it golden hour”…	Popište změnu, např. „ať je zlatá hodina“…
@@ -2328,7 +2326,6 @@ cameraRaw	Color	Barvy
 	Installation:	Instalace:
 	Installed	Nainstalováno
 	Keep	Zachovat
-	Keep… (optional)	Zachovat… (volitelné)
 	Licence	Licence
 	Licence gate	Vyžaduje licenci
 	Licence: see its page	Licence: viz jeho stránku
@@ -2373,8 +2370,6 @@ cameraRaw	Color	Barvy
 	Precision	Přesnost
 	Preset name	Název přednastavení
 	Previous image ({key})	Předchozí obrázek ({key})
-	Qwen Compact	Qwen kompaktní
-	Qwen Full	Qwen plná
 	RESULTS	VÝSLEDKY
 	Read the licence	Přečíst licenci
 	Ready	Připraveno
@@ -2421,7 +2416,6 @@ cameraRaw	Color	Barvy
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Nejprve spusťte modul AI: Local Image zkontroluje, co už ComfyUI má. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Spusťte modul AI, abyste viděli paměť své GPU; zobrazuje se, co se vejde do 8 GB.
 	Starting ComfyUI… (the first start can take a minute)	Spouští se ComfyUI… (první spuštění může trvat minutu)
-	Starting image · {n}/{max}	Výchozí obrázek · {n}/{max}
 	Starting {name}…	Spouští se {name}…
 	Steps	Kroky
 	Stopped	Zastaveno
@@ -2439,7 +2433,6 @@ cameraRaw	Color	Barvy
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Pracovní postup nemá žádné uzly s názvem li:prompt, li:image, li:mask, li:seed ani li:output, takže jej Local Image nemůže vyplnit. Přejmenujte uzly v ComfyUI a exportujte znovu.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Tokeny umožňují Prohlížeči modelů stahovat modely s omezeným přístupem nebo vyžadující přihlášení. Odesílají se jen na jejich vlastní web.
 	Transparent PNG	Průhledný PNG
-	Transparent background	Průhledné pozadí
 	Trending	Populární
 	Trending this week	Populární tento týden
 	Unknown family	Neznámá rodina
@@ -2450,7 +2443,6 @@ cameraRaw	Color	Barvy
 	Upscale {scale}×	Zvětšit {scale}×
 	Use	Použít
 	Use as Reference	Použít jako referenci
-	Variation strength	Síla variace
 	Waiting	Čeká
 	What should appear in the selection…	Co se má objevit ve výběru…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	S vlastním klíčem API může generování používat i cloudové modely (zobrazí se v sekci Cloud ve výběru modelu). Vaše zadání a obrázky pak putují z tohoto počítače k danému poskytovateli a účtují se na váš účet; nic jiného se nikam neodesílá.
@@ -2484,14 +2476,11 @@ cameraRaw	Color	Barvy
 	{size} · runs on the CPU · {licence}	{size} · běží na CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: offline, zobrazují se výsledky z doby {when}
 	{source}: the catalogue couldn't be read	{source}: katalog nelze přečíst
-	{why} Qwen Image 2.1 runs these.	{why} Tyto funkce používají Qwen Image 2.1.
 	Choose…	Vybrat…
 	Stop	Zastavit
 	Seed	Semeno
 	Solid Color	Plná barva
 	Strength	Síla
-	Qwen AI · Compact	Qwen AI · kompaktní
-	Qwen AI · Full	Qwen AI · plná
 	Standard (CPU)	Standardní (CPU)
 	Templates	Šablony
 	Community	Komunita
@@ -2620,6 +2609,8 @@ ai	New	Nové
 	Float Panel Group	Uvolnit skupinu panelů
 	Save and Return to Library	Uložit a vrátit se do Knihovny
 	Added your new Develop edits as layer {name}	Vaše nové úpravy z modulu Vyvolat byly přidány jako vrstva {name}
+	The photo's crop or size changed in Develop, so {name} was not updated	Ořez nebo velikost fotografie se v modulu Vyvolat změnily, proto {name} nebyl aktualizován
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Jeho vrstvy by už nelícovaly s novou fotografií, proto si ponechává fotografii v původní podobě.
 	Open the Library to save into it	Pro uložení do Knihovny ji nejprve otevřete
 	The layers below are unchanged; hide or delete the new layer to go back.	Spodní vrstvy zůstaly beze změny; chcete-li se vrátit, novou vrstvu skryjte nebo smažte.
 # Attributions page (li-attributions)
@@ -3920,7 +3911,10 @@ ai	New	Nové
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	Všechny klávesové zkratky v tomto profilu byly obnoveny na výchozí hodnoty.
 	Editor	Editor
-	Library + Develop	Knihovna + Vyvolání
+	Library & Develop	Knihovna & Vyvolání
+	Library General	Knihovna: obecné
+	Library Performance	Knihovna: výkon
+	Library Interface	Knihovna: rozhraní
 	Scope	Rozsah
 	Colour	Barevné
 	Monochrome (default)	Monochromatický (výchozí)
@@ -3937,3 +3931,29 @@ ai	New	Nové
 	GPU Memory (MB, 0 = Automatic)	Paměť GPU (MB, 0 = Automaticky)
 	{path} was saved over	Soubor {path} byl přepsán
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	„{doc}“ už není spojen se souborem a je označen jako neuložený. Chcete-li jej zachovat, uložte jej pod novým názvem.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Sloučené
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Šedá směs, která rozprostře tóny obrazu
+	File Type	Typ souboru
+	Save as JPEG	Uložit jako JPEG
+	Save as PSD	Uložit jako PSD
+	Save as TIFF	Uložit jako TIFF
+	Convert Profile to sRGB	Převést profil na sRGB
+	LZW Compression	Komprese LZW
+	Resize to Fit	Přizpůsobit velikost
+	Run	Spustit
+	You must save to at least one file type.	Musíte uložit alespoň do jednoho typu souboru.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Neplatná číselná hodnota. Je vyžadována hodnota od 1 do 12. Byla vrácena předchozí hodnota.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Neplatná číselná hodnota. Je vyžadována hodnota od 1 do 30000. Byla vrácena předchozí hodnota.
+	A value between 1 and 12 is required. Closest value inserted.	Je vyžadována hodnota od 1 do 12. Byla vložena nejbližší hodnota.
+	A value between 1 and 30000 is required. Closest value inserted.	Je vyžadována hodnota od 1 do 30000. Byla vložena nejbližší hodnota.
+	Image Compression	Komprese obrazu
+	Save Image Pyramid	Uložit pyramidu obrazu
+	Save Transparency	Uložit průhlednost
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Otevřít jako chytrý objekt…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	Ostrý okraj
+	Last folder	Poslední složka

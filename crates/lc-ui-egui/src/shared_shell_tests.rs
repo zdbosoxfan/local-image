@@ -79,6 +79,14 @@ fn shared_shell_library_aliases_grid_and_modal_share_binding_authority() {
 }
 
 #[test]
+fn shared_shell_library_opens_shortcuts_with_the_compositing_chord() {
+    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services::default());
+    let ctx = egui::Context::default();
+    press(&mut app, &ctx, egui::Key::K, egui::Modifiers { alt: true, shift: true, ..egui::Modifiers::COMMAND });
+    assert!(matches!(app.ui.dialog, Some(state::Dialog::Shortcuts)));
+}
+
+#[test]
 fn shared_shell_platform_equivalent_legacy_chord_dispatches_once() {
     let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services::default());
     let ctx = egui::Context::default();

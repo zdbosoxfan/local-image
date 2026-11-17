@@ -165,9 +165,9 @@ fn vanishing_point(s: &mut Session, p: &Value) -> Result<Value> {
                 None => surf.clone(),
             };
             let before = work.clone();
-            dabs += clone_stroke(&sc, &mut work, source, &points, size, hardness, opacity);
+            dabs += clone_stroke(&sc, &mut work, source, &points, size, hardness, opacity, Some(canvas));
             // Copy back only what the stroke changed.
-            let b = work.content_bounds().union(&before.content_bounds());
+            let b = work.content_bounds().union(&before.content_bounds()).intersect(&canvas);
             if !b.is_empty() {
                 let (nw, ow) = (work.read_region(b), before.read_region(b));
                 let n = surf.format().channels();
@@ -256,5 +256,32 @@ mod tests {
         assert!(s.execute(VP, json!({"planes": [{"corners": [[0, 0], [1, 1]]}]})).is_err());
         let r = s.execute(VP, json!({"planes": planes, "newLayer": true})).unwrap();
         assert_ne!(r["layer"].as_u64().unwrap(), floor.0);
+    }
+
+    #[test]
+    fn clone_stroke_stays_on_the_canvas_with_or_without_a_new_layer() {
+        let canvas = Rect::new(0, 0, 200, 200);
+        let planes = json!([{"corners": [[0, 0], [200, 0], [200, 200], [0, 200]]}]);
+        for new_layer in [false, true] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 200, "height": 200})).unwrap();
+            s.execute("layer.new.layer", json!({})).unwrap();
+            s.execute("edit.fill", json!({"color": "#40c040"})).unwrap();
+            let original = s.active().unwrap().active_layer.unwrap();
+            s.edit("source stripe", |doc, _| {
+                doc.layer_mut(original).unwrap().surface_mut().unwrap().fill_rect(Rect::new(140, 90, 160, 110), &[1.0, 0.0, 0.0, 1.0]);
+                Ok(())
+            })
+            .unwrap();
+
+            let points = json!([[100, 100], [-30, 100], [9_000_000, 9_000_000]]);
+            let result =
+                s.execute(VP, json!({"planes": planes, "newLayer": new_layer, "clone": [{"source": [150, 100], "points": points, "size": 20}]})).unwrap();
+
+            assert_eq!(result["dabs"].as_u64(), Some(1), "newLayer={new_layer}: {result}");
+            let id = if new_layer { LayerId(result["layer"].as_u64().unwrap()) } else { original };
+            let bounds = s.active().unwrap().doc.layer(id).unwrap().surface().unwrap().content_bounds();
+            assert!(!bounds.is_empty() && canvas.contains_rect(&bounds), "newLayer={new_layer}: {bounds:?}");
+        }
     }
 }

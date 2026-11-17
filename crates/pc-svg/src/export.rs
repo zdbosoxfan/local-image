@@ -12,8 +12,8 @@ use photocraft_doc::vector_design::exchange::{ExportScope, ExportedVector, Vecto
 use photocraft_doc::{BlendMode, DesignUnits, Document, Fill, FillRule, Layer, LayerContent, LayerId, Path, ShapeLayer, ShapeStroke};
 use photocraft_export_common::validate::Preflight;
 use photocraft_export_common::{
-    Clipping, clipping_base_independent, clipping_end, clipping_source_eligible, closed_isolated_group, effect_margin, mask_allocation_bytes, normalized_fill,
-    painted_shapes, partial_backdrop_dependency, soft_mask_sampling_canvas,
+    Clipping, clipping_base_independent, clipping_end, clipping_source_eligible, closed_isolated_group, effect_margin, in_clipping_chain,
+    mask_allocation_bytes, normalized_fill, painted_shapes, partial_backdrop_dependency, path_error, soft_mask_sampling_canvas,
 };
 use photocraft_geom::Rect;
 use serde::{Deserialize, Serialize};
@@ -286,7 +286,7 @@ fn layer_bounds(layers: &[Layer], doc: &Document, cx: &mut ExportContext<'_>, ra
                         let r = if shape.stroke.as_ref().is_some_and(|s| s.width > 0.0) {
                             photocraft_vector::CompiledShape::new(&shape, 0.01, doc.bounds()).bounds()
                         } else if shape.fill.is_some() {
-                            let path = normalized_fill(&shape.path, doc.bounds())?;
+                            let path = normalized_fill(l, &shape.path, doc.bounds())?;
                             photocraft_pathops::bounds(&path)
                                 .map_err(|e| invalid(e.to_string()))?
                                 .map(|r| Rect::new(r.0.floor() as i32, r.1.floor() as i32, r.2.ceil() as i32, r.3.ceil() as i32))
@@ -514,7 +514,7 @@ impl Writer<'_, '_, '_> {
             if base.visible && base.opacity > 0.0 {
                 if clipped.iter().any(|l| l.visible && l.opacity > 0.0) {
                     if let Some(source) = self.clipping_source(base, clipped)? {
-                        self.layers_plain(std::slice::from_ref(&source), depth)?;
+                        in_clipping_chain(base, || self.layers_plain(std::slice::from_ref(&source), depth))?;
                     } else {
                         self.warn("clipping chain", "This isolated clipping chain was embedded as an image; unrelated artwork remains vector.");
                         let rect = layer_bounds(std::slice::from_ref(base), self.doc, self.cx, true)?.intersect(&self.rect);
@@ -611,7 +611,7 @@ impl Writer<'_, '_, '_> {
                 let mut compound = Path::default();
                 let mut seen = BTreeSet::new();
                 for clip in clips {
-                    let mut p = normalized_fill(&clip, self.rect)?;
+                    let mut p = normalized_fill(layer, &clip, self.rect)?;
                     if p.is_empty() {
                         compound = p;
                         break;
@@ -621,13 +621,13 @@ impl Writer<'_, '_, '_> {
                         continue;
                     }
                     // Normalize each clip's fill rule before combining its geometry.
-                    p = photocraft_pathops::finish_compound(&p, None).map_err(|e| invalid(e.to_string()))?;
+                    p = photocraft_pathops::finish_compound(&p, None).map_err(|e| path_error(layer, e))?;
                     if let Some(first) = p.subpaths.first_mut() {
                         first.op = if compound.is_empty() { photocraft_doc::PathOp::Combine } else { photocraft_doc::PathOp::Intersect };
                     }
                     compound.subpaths.extend(p.subpaths);
                 }
-                let clip = self.clip(&compound)?;
+                let clip = self.clip(layer, &compound)?;
                 attrs.push_str(&format!(" clip-path=\"url(#{clip})\""));
             }
             self.line(&format!("<g id=\"{id}\" data-name=\"{}\"{attrs}><title>{}</title>", escape(&layer.name), escape(&layer.name)))?;
@@ -670,7 +670,7 @@ impl Writer<'_, '_, '_> {
                         ])],
                         ..Default::default()
                     };
-                    self.path_fill(&p, f, 1.0)?;
+                    self.path_fill(layer, &p, f, 1.0)?;
                 }
                 _ => return Err(invalid("unhandled layer content")),
             }
@@ -840,8 +840,8 @@ impl Writer<'_, '_, '_> {
         self.defs.push_str(&definition);
         Ok(id)
     }
-    fn clip(&mut self, path: &Path) -> Result<String> {
-        let p = normalized_fill(path, self.rect)?;
+    fn clip(&mut self, layer: &Layer, path: &Path) -> Result<String> {
+        let p = normalized_fill(layer, path, self.rect)?;
         let data = path_data(&p, self.opts.precision);
         let key = format!("clip:{}:{data}", rule(p.fill_rule));
         if let Some(id) = self.resources.get(&key) {
@@ -857,17 +857,17 @@ impl Writer<'_, '_, '_> {
         if let Some(a) = &layer.vector.appearance {
             for item in &a.items {
                 match item {
-                    AppearanceItem::Fill(f) if f.visible => self.path_fill(&s.path, &f.paint, f.opacity)?,
-                    AppearanceItem::Stroke(st) if st.visible => self.path_stroke(&s.path, &st.base)?,
+                    AppearanceItem::Fill(f) if f.visible => self.path_fill(layer, &s.path, &f.paint, f.opacity)?,
+                    AppearanceItem::Stroke(st) if st.visible => self.path_stroke(layer, &s.path, &st.base)?,
                     _ => {}
                 }
             }
         } else {
             if let Some(f) = &s.fill {
-                self.path_fill(&s.path, f, 1.0)?;
+                self.path_fill(layer, &s.path, f, 1.0)?;
             }
             if let Some(st) = &s.stroke {
-                self.path_stroke(&s.path, st)?;
+                self.path_stroke(layer, &s.path, st)?;
             }
         }
         Ok(())
@@ -880,17 +880,17 @@ impl Writer<'_, '_, '_> {
             self.line(&format!("<path{attrs}/>"))
         }
     }
-    fn path_fill(&mut self, path: &Path, fill: &Fill, opacity: f32) -> Result<()> {
-        let p = normalized_fill(path, self.rect)?;
+    fn path_fill(&mut self, layer: &Layer, path: &Path, fill: &Fill, opacity: f32) -> Result<()> {
+        let p = normalized_fill(layer, path, self.rect)?;
         let attrs = self.paint(fill, path, "fill", opacity)?;
         self.path_element(&format!(" d=\"{}\" fill-rule=\"{}\"{attrs}", path_data(&p, self.opts.precision), rule(p.fill_rule)))
     }
-    fn path_stroke(&mut self, path: &Path, st: &ShapeStroke) -> Result<()> {
+    fn path_stroke(&mut self, layer: &Layer, path: &Path, st: &ShapeStroke) -> Result<()> {
         if st.width == 0.0 || st.opacity == 0.0 {
             return Ok(());
         }
         if st.align != photocraft_doc::StrokeAlign::Center && path.subpaths.iter().all(|s| s.closed) {
-            let p = photocraft_pathops::outline_stroke(path, st, 0.01).map_err(|e| invalid(e.to_string()))?;
+            let p = photocraft_pathops::outline_stroke(path, st, 0.01).map_err(|e| path_error(layer, e))?;
             // Paint stays anchored to the source path's control bounds.
             let attrs = self.paint(&st.paint, path, "fill", st.opacity)?;
             return self.path_element(&format!(" d=\"{}\" fill-rule=\"{}\"{attrs}", path_data(&p, self.opts.precision), rule(p.fill_rule)));
@@ -958,7 +958,7 @@ fn prepare_caches(doc: &mut Document, cx: &mut ExportContext<'_>, opts: &ExportO
         for l in layers {
             check_cancel(cx)?;
             if let Some(clip) = l.vector.clip.take() {
-                let clip = normalized_fill(&clip, region)?;
+                let clip = normalized_fill(l, &clip, region)?;
                 let coverage = photocraft_vector::path_coverage(&clip, region);
                 let previous = photocraft_compose::masks::combined_mask(l, region);
                 let data = coverage

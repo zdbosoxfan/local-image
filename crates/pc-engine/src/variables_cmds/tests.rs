@@ -152,6 +152,64 @@ fn export_data_sets_as_files() {
 }
 
 #[test]
+fn data_set_exports_keep_document_derived_names_inside_the_folder() {
+    let root = tmp("document-derived-names");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let escaped = format!("{root}/esc");
+    std::fs::create_dir_all(&escaped).unwrap();
+
+    let (mut s, _photo, badge, _title) = session();
+    s.execute("image.variables.define", json!({"defs": [{"name": "showBadge", "layer": badge.0, "type": "visibility"}]})).unwrap();
+    s.execute(
+        "image.variables.dataSets",
+        json!({"dataSets": [
+            {"name": "nul", "values": [{"variable": "showBadge", "kind": "visibility", "value": false}]},
+            {"name": "b", "values": [{"variable": "showBadge", "kind": "visibility", "value": true}]},
+        ]}),
+    )
+    .unwrap();
+
+    let traversal_dir = format!("{root}/traversal");
+    s.execute("image.duplicate", json!({"name": "../esc/aped.psd"})).unwrap();
+    let traversal = s.execute("file.export.dataSetsAsFiles", json!({"dir": traversal_dir, "naming": "{document}_{index}"})).unwrap();
+    let traversal_safe = traversal["files"] == json!([format!("{traversal_dir}/.._esc_aped_001.png"), format!("{traversal_dir}/.._esc_aped_002.png")])
+        && !std::path::Path::new(&format!("{escaped}/aped_001.png")).exists()
+        && !std::path::Path::new(&format!("{escaped}/aped_002.png")).exists();
+
+    let backslash_dir = format!("{root}/backslash");
+    s.execute("image.duplicate", json!({"name": "..\\esc\\aped.psd"})).unwrap();
+    let backslash = s.execute("file.export.dataSetsAsFiles", json!({"dir": backslash_dir, "naming": "{document}_{index}"})).unwrap();
+    let backslash_safe = backslash["files"] == json!([format!("{backslash_dir}/.._esc_aped_001.png"), format!("{backslash_dir}/.._esc_aped_002.png")]);
+
+    let device_file_dir = format!("{root}/device-file");
+    s.execute("image.duplicate", json!({"name": "Normal.psd"})).unwrap();
+    let device_file = s.execute("file.export.dataSetsAsFiles", json!({"dir": device_file_dir, "dataSets": ["nul"]})).unwrap();
+    let device_file_safe = device_file["files"] == json!([format!("{device_file_dir}/nul_.png")]);
+
+    let dotdot_dir = format!("{root}/dotdot-folder");
+    s.execute("image.duplicate", json!({"name": "..."})).unwrap();
+    let dotdot = s.execute("file.export.dataSetsAsFiles", json!({"dir": dotdot_dir, "dataSets": ["b"], "naming": "{document}/{name}"})).unwrap();
+    let dotdot_safe = dotdot["files"] == json!([format!("{dotdot_dir}/_/b.png")]) && !std::path::Path::new(&format!("{root}/b.png")).exists();
+
+    let dot_dir = format!("{root}/dot-stem");
+    s.execute("image.duplicate", json!({"name": "."})).unwrap();
+    let dot = s.execute("file.export.dataSetsAsFiles", json!({"dir": dot_dir, "dataSets": ["b"], "naming": "{document}"})).unwrap();
+    let dot_safe = dot["files"] == json!([format!("{dot_dir}/_.png")]);
+
+    let device_folder_dir = format!("{root}/device-folder");
+    s.execute("image.duplicate", json!({"name": "nul.psd"})).unwrap();
+    let device_folder = s.execute("file.export.dataSetsAsFiles", json!({"dir": device_folder_dir, "dataSets": ["b"], "naming": "{document}/{name}"})).unwrap();
+    let device_folder_safe = device_folder["files"] == json!([format!("{device_folder_dir}/nul_/b.png")]);
+
+    assert!(
+        traversal_safe && backslash_safe && device_file_safe && dotdot_safe && dot_safe && device_folder_safe,
+        "traversal={traversal_safe}, backslash={backslash_safe}, device file={device_file_safe}, dotdot={dotdot_safe}, dot={dot_safe}, device folder={device_folder_safe}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn pixel_replacement_changes_the_layer() {
     let (mut s, photo, _b, _t) = session();
     // Make a 8x8 solid-blue PNG to drop in.
@@ -253,4 +311,25 @@ fn gated_data_set_psds_embed_no_linked_file() {
     s.authorize = Some(|_, _| Ok(()));
     assert!(!has_png(&export(&mut s)), "an untrusted export does not");
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Upstream b056a3ee: Import Data Sets is one History step; undo brings back the previous sets.
+#[test]
+fn data_set_import_is_one_undoable_history_step() {
+    let (mut s, _p, _badge, title) = session();
+    s.execute("image.variables.define", json!({"defs": [{"name": "headline", "layer": title.0, "type": "textReplacement"}]})).unwrap();
+    let before = doc(&s).clone();
+    let history = s.active().unwrap().history.past_len();
+    let dir = tmp("csv_history");
+    let csv = format!("{dir}/sets.csv");
+    std::fs::write(&csv, "DataSet,headline\nNew,Imported\n").unwrap();
+    s.execute("file.import.variableDataSets", json!({"path": csv})).unwrap();
+    let state = s.active().unwrap();
+    assert_eq!(state.history.past_len(), history + 1);
+    assert_eq!(state.history.entries().last().map(String::as_str), Some("Import Data Sets"));
+    assert_eq!(state.doc.variables.data_sets[0].name, "New");
+    assert!(s.undo());
+    assert_eq!(*doc(&s), before, "undo restores the document as it was");
+    assert!(s.redo());
+    assert_eq!(doc(&s).variables.data_sets[0].name, "New");
 }

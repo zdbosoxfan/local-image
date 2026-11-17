@@ -149,7 +149,9 @@ fn adjusted(s: &Surface, r: Rect, adj: &Adjustment, selection: Option<&Surface>,
         out.par_chunks_exact_mut(n).enumerate().for_each(|(i, dst)| {
             let (a, o) = (&buf.px[i], &orig.px[i]);
             let k = selection.map_or(1.0, |sel| sel.sample_channel(r.x0 + (i % w) as i32, r.y0 + (i / w) as i32, 0));
-            let mixed: [f32; 4] = std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k);
+            // `o*(1-k) + a*k` keeps the edit exact at full coverage, even over huge 32-bit values
+            // whose difference from it would round the edit away.
+            let mixed: [f32; 4] = std::array::from_fn(|c| o[c] * (1.0 - k) + a[c] * k);
             let mut enc = [0.0f32; 8];
             photocraft_raster::from_rgba_into(&fmt, mixed, &mut enc);
             dst.copy_from_slice(&enc[..n]);
@@ -215,12 +217,16 @@ pub fn remap_surface(s: &Surface, map: impl Fn(i32, i32) -> (i32, i32)) -> Surfa
     let r = s.content_bounds();
     let mut out = Surface::with_default(s.format(), &s.default_pixel());
     let n = s.channels();
-    let raw = s.read_region(r);
-    let w = r.width() as usize;
-    for (i, px) in raw.chunks_exact(n).enumerate() {
-        let (x, y) = (r.x0 + (i % w) as i32, r.y0 + (i / w) as i32);
-        let (nx, ny) = map(x, y);
-        out.write_pixel(nx, ny, px);
+    // Tile by tile: unstored pixels read as the default `out` already has, and the content bounds
+    // of a sparse surface can span a grid of mostly nothing.
+    for tr in s.tiles().map(|(c, _)| c.rect().intersect(&r)).filter(|t| !t.is_empty()) {
+        let raw = s.read_region(tr);
+        let w = tr.width() as usize;
+        for (i, px) in raw.chunks_exact(n).enumerate() {
+            let (x, y) = (tr.x0 + (i % w) as i32, tr.y0 + (i / w) as i32);
+            let (nx, ny) = map(x, y);
+            out.write_pixel(nx, ny, px);
+        }
     }
     out
 }
@@ -253,6 +259,22 @@ pub fn merge_down(doc: &Document, lower: &Layer, upper: &Layer) -> crate::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Remapping walks the stored tiles, not the dense rectangle around them: two pixels a million
+    /// pixels apart on both axes (a rectangle of 10^12 px) flip to their mirrored places.
+    #[test]
+    fn remap_surface_of_distant_tiles_does_not_densify_the_gap() {
+        use photocraft_color::{ColorMode, PixelFormat, SampleType};
+        let fmt = PixelFormat::new(ColorMode::Rgb, SampleType::U8, true);
+        let mut s = Surface::new(fmt);
+        let (a, b) = ([1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]);
+        s.write_pixel(-500_000, -500_000, &photocraft_raster::from_rgba(&fmt, a));
+        s.write_pixel(500_000, 500_000, &photocraft_raster::from_rgba(&fmt, b));
+        let out = remap_surface(&s, |x, y| (-x - 1, y));
+        assert_eq!(out.pixel(499_999, -500_000), photocraft_raster::from_rgba(&fmt, a));
+        assert_eq!(out.pixel(-500_001, 500_000), photocraft_raster::from_rgba(&fmt, b));
+    }
+
     #[test]
     fn destructive_adjustment_byte_identical_across_threads_and_serial_reference() {
         use photocraft_color::{ColorMode, PixelFormat, SampleType};
@@ -272,13 +294,35 @@ mod tests {
             let mut reference = Vec::new();
             for (i, (a, o)) in buf.px.iter().zip(&original).enumerate() {
                 let k = selection.sample_channel(r.x0 + (i % 73) as i32, r.y0 + (i / 73) as i32, 0);
-                reference.extend(photocraft_raster::from_rgba(&fmt, std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k)));
+                reference.extend(photocraft_raster::from_rgba(&fmt, std::array::from_fn(|c| o[c] * (1.0 - k) + a[c] * k)));
             }
             for threads in [1, 4] {
                 let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
                 let out = pool.install(|| adjusted(&surface, r, &adj, Some(&selection), ColorMode::Rgb));
                 assert_eq!(out.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), reference.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
             }
+        }
+    }
+
+    /// A destructive edit at full coverage writes its result exactly, even over huge 32-bit values
+    /// (a Color Lookup's 0.5 over 1e8 must stay 0.5).
+    #[test]
+    fn full_coverage_keeps_the_edit_over_huge_hdr_values() {
+        let fmt = PixelFormat::RGBA32F;
+        let r = Rect::from_xywh(0, 0, 1, 1);
+        let look = Adjustment::ColorLookup {
+            name: "half".into(),
+            lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+            size: 2,
+            domain: None,
+            tetrahedral: false,
+            dither: false,
+        };
+        for v in [1.0e8_f32, 1.0e6, -1.0e6] {
+            let mut s = Surface::new(fmt);
+            s.write_region(r, &[v, v, v, 1.0]);
+            let out = adjusted(&s, r, &look, None, ColorMode::Rgb);
+            assert!(out[..3].iter().all(|c| (c - 0.5).abs() < 1e-6), "over {v}: {out:?}");
         }
     }
 

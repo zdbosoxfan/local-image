@@ -67,7 +67,6 @@ fn quick_actions_fit_the_layer_kind() {
             "pixel" => {
                 assert!(all.contains(&"select.subject"));
                 assert!(!all.contains(&"layer.removeBackground"));
-                assert!(!all.contains(&"ai.removeBackground"));
             }
             _ => assert!(!all.contains(&"select.subject"), "{kind}: Select Subject is for pixel layers"),
         }
@@ -114,7 +113,7 @@ fn pixel_layer_shows_remove_background_section() {
     select(&mut h, pixel);
     let app = h.state();
     let shown: Vec<&str> = visible_quick_actions(app, &layer_of(app, pixel).content).iter().map(|(_, id)| *id).collect();
-    assert_eq!(shown, ["select.subject", "ai.selectSubject"]);
+    assert_eq!(shown, ["select.subject"]);
     assert!(crate::menus::is_live("layer.removeBackground"));
     let removal = headers(&h).into_iter().find(|(name, _)| name == "Remove Background").unwrap().1;
     assert!(

@@ -25,13 +25,13 @@ fn gated_and_text_loras() {
 
 fn hf_list() -> Value {
     json!([
-        {"id": "Comfy-Org/z_image_turbo", "author": "Comfy-Org", "likes": 900, "downloads": 45000000, "trendingScore": 80, "createdAt": "2025-11-27T00:00:00Z",
-         "tags": ["comfyui", "diffusion-single-file", "base_model:Tongyi-MAI/Z-Image-Turbo", "license:apache-2.0", "text-to-image"],
+        {"id": "Comfy-Org/flux2-klein-4B", "author": "Comfy-Org", "likes": 900, "downloads": 45000000, "trendingScore": 80, "createdAt": "2025-11-27T00:00:00Z",
+         "tags": ["comfyui", "diffusion-single-file", "base_model:black-forest-labs/FLUX.2-klein-4B", "license:apache-2.0", "text-to-image"],
          "cardData": {"license": "apache-2.0"}, "gated": false,
-         "siblings": [{"rfilename": "split_files/diffusion_models/z_image_turbo_bf16.safetensors"}, {"rfilename": "README.md"}]},
+         "siblings": [{"rfilename": "split_files/diffusion_models/flux-2-klein-4b.safetensors"}, {"rfilename": "README.md"}]},
         {"id": "someone/qwen-watercolor", "likes": 12, "tags": ["lora", "base_model:adapter:Qwen/Qwen-Image"], "siblings": [{"rfilename": "watercolor.safetensors"}]},
-        {"id": "black-forest-labs/FLUX.1-dev", "likes": 12000, "gated": "auto", "tags": ["text-to-image", "license:other"], "cardData": {"license": "other", "license_name": "flux-1-dev-non-commercial-license"},
-         "siblings": [{"rfilename": "flux1-dev.safetensors"}, {"rfilename": "ae.safetensors"}]}
+        {"id": "black-forest-labs/FLUX.2-dev", "likes": 12000, "gated": "auto", "tags": ["text-to-image", "license:other"], "cardData": {"license": "other", "license_name": "flux-dev-non-commercial-license"},
+         "siblings": [{"rfilename": "flux2-dev.safetensors"}, {"rfilename": "ae.safetensors"}]}
     ])
 }
 
@@ -41,18 +41,18 @@ fn hugging_face_cards() {
     let models = parse_hf_list(reg, "https://huggingface.co", &hf_list(), Kind::Model);
     assert_eq!(models.len(), 2);
     let z = &models[0];
-    assert_eq!(z.family.as_deref(), Some("z-image"));
+    assert_eq!(z.family.as_deref(), Some("flux2-klein"));
     assert_eq!(z.files[0].folder, "diffusion_models");
-    assert_eq!(z.files[0].url, "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors");
+    assert_eq!(z.files[0].url, "https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/main/split_files/diffusion_models/flux-2-klein-4b.safetensors");
     assert_eq!(
         z.files[0].hf_path("https://huggingface.co"),
-        Some(("Comfy-Org/z_image_turbo".into(), "split_files/diffusion_models/z_image_turbo_bf16.safetensors".into()))
+        Some(("Comfy-Org/flux2-klein-4B".into(), "split_files/diffusion_models/flux-2-klein-4b.safetensors".into()))
     );
     assert_eq!(z.license, "apache-2.0");
     let flux = &models[1];
     assert!(flux.gated);
-    assert_eq!(flux.family.as_deref(), Some("flux1"));
-    assert_eq!(flux.license, "flux-1-dev-non-commercial-license");
+    assert_eq!(flux.family.as_deref(), Some("flux2"));
+    assert_eq!(flux.license, "flux-dev-non-commercial-license");
     let loras = parse_hf_list(reg, "https://huggingface.co", &hf_list(), Kind::Lora);
     assert_eq!(loras.len(), 1);
     assert_eq!(loras[0].files[0].folder, "loras");
@@ -65,7 +65,7 @@ fn hugging_face_cards() {
 fn untagged_lora_repos_and_files_go_to_the_loras() {
     let reg = registry();
     let list = json!([
-        {"id": "XLabs-AI/flux-lora-collection", "tags": ["text-to-image"], "siblings": [{"rfilename": "realism_lora.safetensors"}, {"rfilename": "art_lora.safetensors"}]},
+        {"id": "someone/flux2-klein-lora-collection", "tags": ["text-to-image"], "siblings": [{"rfilename": "realism_lora.safetensors"}, {"rfilename": "art_lora.safetensors"}]},
         {"id": "someone/ink-styles", "tags": [], "siblings": [{"rfilename": "sdxl/ink_lora.safetensors"}, {"rfilename": "sdxl/pencil-LoRA.safetensors"}]},
         {"id": "someone/qwen-image-pack", "tags": ["text-to-image"],
          "siblings": [{"rfilename": "qwen_image_bf16.safetensors"}, {"rfilename": "Qwen-Image-Lightning-8steps-lora.safetensors"}]}
@@ -78,7 +78,7 @@ fn untagged_lora_repos_and_files_go_to_the_loras() {
     let loras = parse_hf_list(reg, "https://huggingface.co", &list, Kind::Lora);
     assert_eq!(loras.len(), 2);
     assert!(loras.iter().all(|l| l.files.iter().all(|f| f.folder == "loras")));
-    assert_eq!(loras[0].family.as_deref(), Some("flux1"));
+    assert_eq!(loras[0].family.as_deref(), Some("flux2-klein"));
 }
 
 fn civitai() -> Value {
@@ -175,17 +175,15 @@ fn plans_verify_add_components_and_refuse_unverified() {
     let info = ObjectInfo(json!({}));
     let sha = "a".repeat(64);
     let tree = json!([
-        {"type": "file", "path": "split_files/diffusion_models/z_image_turbo_bf16.safetensors", "size": 12309866400u64, "lfs": {"oid": sha, "size": 12309866400u64}},
+        {"type": "file", "path": "split_files/diffusion_models/flux-2-klein-4b.safetensors", "size": 12309866400u64, "lfs": {"oid": sha, "size": 12309866400u64}},
     ]);
     let net = FakeNet(
-        [("https://huggingface.co/api/models/Comfy-Org/z_image_turbo/tree/main?recursive=true".to_owned(), serde_json::to_vec(&tree).unwrap())].into(),
+        [("https://huggingface.co/api/models/Comfy-Org/flux2-klein-4B/tree/main?recursive=true".to_owned(), serde_json::to_vec(&tree).unwrap())].into(),
         None,
     );
     let items = parse_hf_list(reg, &cfg.hf, &hf_list(), Kind::Model);
     let z = &items[0];
-    let p = plan(z, &z.files, reg.family("z-image"), &info, &cfg, &net);
-    // Z-Image's text encoder and VAE have no pinned download or source in its profile: only
-    // the model is planned.
+    let p = plan(z, &z.files, reg.family("flux2-klein"), &info, &cfg, &net);
     let p = p.unwrap();
     assert_eq!(p.files[0].bytes, 12309866400);
     assert_eq!(p.files[0].sha256, sha);
@@ -210,10 +208,10 @@ fn plans_verify_add_components_and_refuse_unverified() {
     let have = ObjectInfo(json!({"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["juggernautXL_v9.safetensors"]]}}}}));
     let p = plan(j, &j.files, reg.family("sdxl"), &have, &cfg, &ok).unwrap();
     assert!(p.files.is_empty() && p.present == vec!["juggernautXL_v9.safetensors"]);
-    // FLUX.1 adds its text encoders and VAE from their Hugging Face sources.
-    let flux_item = Item { id: "x".into(), kind: Some(Kind::Model), family: Some("flux1".into()), ..Default::default() };
-    let e = plan(&flux_item, &[], reg.family("flux1"), &info, &cfg, &FakeNet(BTreeMap::new(), None)).unwrap_err().to_string();
-    assert!(e.contains("comfyanonymous/flux_text_encoders"), "{e}");
+    // HiDream adds its text encoders and VAE from their Hugging Face sources.
+    let hidream_item = Item { id: "x".into(), kind: Some(Kind::Model), family: Some("hidream".into()), ..Default::default() };
+    let e = plan(&hidream_item, &[], reg.family("hidream"), &info, &cfg, &FakeNet(BTreeMap::new(), None)).unwrap_err().to_string();
+    assert!(e.contains("Comfy-Org/HiDream-I1_ComfyUI"), "{e}");
 }
 
 #[test]
@@ -337,7 +335,7 @@ fn browse_and_install_against_the_mock() {
     };
     let trending = fetch(&Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: vec![] });
     let titles: Vec<&str> = trending.iter().map(|i| i.title.as_str()).collect();
-    assert!(titles.contains(&"z-image-turbo-mini") && titles.contains(&"Mockernaut XL") && titles.contains(&"Qwen-Image: Text to Image"), "{titles:?}");
+    assert!(titles.contains(&"klein-4b-mini") && titles.contains(&"Mockernaut XL") && titles.contains(&"Qwen-Image: Text to Image"), "{titles:?}");
     assert!(!titles.contains(&"Hidden"));
     let pony_loras = fetch(&Query { view: View::Family("pony".into()), kind: Kind::Lora, search: String::new(), sources: vec![] });
     assert_eq!(pony_loras.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), vec!["Ink Wash (Pony)"]);
@@ -349,11 +347,11 @@ fn browse_and_install_against_the_mock() {
         Ok(p)
     };
     // Hugging Face: size and hash from the repo tree.
-    let z = trending.iter().find(|i| i.title == "z-image-turbo-mini").unwrap();
-    let p = install_item(z, reg.family("z-image")).unwrap();
-    assert!(p.files.iter().any(|f| f.name == "z_image_turbo_mini.safetensors"));
-    assert!(models.join("diffusion_models/z_image_turbo_mini.safetensors").exists());
-    assert!(info().find_file("UNETLoader", "unet_name", "z_image_turbo_mini.safetensors").is_some());
+    let z = trending.iter().find(|i| i.title == "klein-4b-mini").unwrap();
+    let p = install_item(z, reg.family("flux2-klein")).unwrap();
+    assert!(p.files.iter().any(|f| f.name == "flux-2-klein-4b-mini.safetensors"));
+    assert!(models.join("diffusion_models/flux-2-klein-4b-mini.safetensors").exists());
+    assert!(info().find_file("UNETLoader", "unet_name", "flux-2-klein-4b-mini.safetensors").is_some());
     // Civitai: published hash, size from the download's headers, CDN redirect.
     let civ = trending.iter().find(|i| i.title == "Mockernaut XL").unwrap();
     install_item(civ, None).unwrap();

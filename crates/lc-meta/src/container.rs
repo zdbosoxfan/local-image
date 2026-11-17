@@ -11,8 +11,11 @@
 //!   IPTC (33723) from IFD0.
 //! - Canon CR3 (ISO base media file, see [`crate::cr3`]): `CMT1`/`CMT2`/`CMT4` merged into one Exif block; the
 //!   XMP `uuid` box.
+//! - HEIF/HEIC/AVIF (ISO base media file, see [`crate::heif`]): the `Exif` item's TIFF stream and the XMP
+//!   `mime` item, best-effort.
 
 use lightcraft_tiff::{Tiff, tags};
+use std::borrow::Cow;
 
 /// Metadata blocks found in a file.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -26,6 +29,9 @@ pub struct Embedded {
     pub icc: Option<Vec<u8>>,
     /// IPTC-IIM stream.
     pub iptc: Option<Vec<u8>>,
+    /// The first metadata block the walk met and could not read, named for an error message. Reads
+    /// stay best-effort about it, but nothing can be promised about what the block holds.
+    pub unread: Option<&'static str>,
 }
 
 /// Sniff the container and collect its metadata blocks. Unknown containers yield an empty result.
@@ -40,45 +46,71 @@ pub fn embedded(bytes: &[u8]) -> Embedded {
 /// [`embedded`] without copying a TIFF-based file into [`Embedded::exif`]: there the whole file is
 /// the Exif block, so `exif` stays `None` and the file's parse is returned instead.
 pub(crate) fn blocks(bytes: &[u8]) -> (Embedded, Option<Tiff>) {
+    read_blocks(bytes).unwrap_or_else(|| (crate::heif::metadata(bytes), None))
+}
+
+/// Whether the file is in a container this module has a reader for. Anything else yields no blocks
+/// whatever it holds, so "no metadata found" says nothing about it. This is only the first step of
+/// a promise about what a file does not contain: a format is refused until `read_blocks` reads it,
+/// and [`crate::try_extract`] states how far the promise goes within a format. HEIF is refused:
+/// its items are read best-effort, outside `read_blocks`.
+pub fn reads_container(bytes: &[u8]) -> bool {
+    read_blocks(bytes).is_some()
+}
+
+fn read_blocks(bytes: &[u8]) -> Option<(Embedded, Option<Tiff>)> {
     if bytes.starts_with(b"8BPS") {
-        return (crate::psd::embedded(bytes), None);
+        return Some((crate::psd::embedded(bytes), None));
     }
     if bytes.starts_with(b"FUJIFILMCCD-RAW") {
         // Fujifilm RAF: metadata lives in the embedded JPEG whose (offset, length) are big-endian u32s at byte 84
         let be = |i: usize| bytes.get(i..i + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);
-        let e = match (be(84), be(88)) {
-            (Some(o), Some(l)) if o > 0 => bytes.get(o..o.saturating_add(l).min(bytes.len())).map(jpeg_segments).unwrap_or_default(),
-            _ => Embedded::default(),
+        let jpeg = match (be(84), be(88)) {
+            (Some(o), Some(l)) if o > 0 => bytes.get(o..o.saturating_add(l).min(bytes.len())),
+            _ => None,
         };
-        return (e, None);
+        return jpeg.filter(|j| j.starts_with(&[0xff, 0xd8])).map(|j| (jpeg_segments(j), None));
     }
     if let Some(c) = crate::cr3::parse_cr3(bytes) {
-        let e = Embedded { exif: crate::cr3::merged_exif(&c), xmp: c.xmp.map(|b| String::from_utf8_lossy(b).into_owned()), ..Default::default() };
-        return (e, None);
+        let mut e = Embedded { exif: crate::cr3::merged_exif(&c), ..Default::default() };
+        e.xmp = c.xmp.map(|b| xmp_text(b, &mut e.unread));
+        return Some((e, None));
     }
     if bytes.starts_with(&[0xff, 0xd8]) {
-        (jpeg_segments(bytes), None)
+        Some((jpeg_segments(bytes), None))
     } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        (png_chunks(bytes), None)
+        Some((png_chunks(bytes), None))
     } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        (webp_chunks(bytes), None)
+        Some((webp_chunks(bytes), None))
     } else if let Ok(t) = Tiff::parse(bytes) {
         let ifd0 = &t.ifds[0];
-        let e = Embedded {
-            exif: None,
-            xmp: ifd0.bytes(tags::XMP).map(|b| String::from_utf8_lossy(b).into_owned()),
-            xmp_extended: None,
+        let mut e = Embedded {
             icc: ifd0.bytes(tags::ICC_PROFILE).map(|b| b.to_vec()),
             iptc: ifd0.value(tags::IPTC_NAA).map(|v| match v {
                 lightcraft_tiff::Value::Byte(b) | lightcraft_tiff::Value::Undefined(b) => b.clone(),
                 other => lightcraft_tiff::writer::encode(t.order, other),
             }),
+            ..Default::default()
         };
-        (e, Some(t))
+        e.xmp = ifd0.bytes(tags::XMP).map(|b| xmp_text(b, &mut e.unread));
+        Some((e, Some(t)))
     } else {
-        (Embedded::default(), None)
+        None
     }
 }
+
+/// An XMP packet as text. Replacing bytes that aren't UTF-8 can hide a value, so the packet counts as unread.
+fn xmp_text(packet: &[u8], unread: &mut Option<&'static str>) -> String {
+    let text = String::from_utf8_lossy(packet);
+    if matches!(text, Cow::Owned(_)) {
+        unread.get_or_insert("XMP that isn't UTF-8");
+    }
+    text.into_owned()
+}
+
+const SECOND_EXIF: &str = "a second Exif block";
+const SECOND_XMP: &str = "a second XMP packet";
+const CUT_OFF: &str = "a cut-off metadata block";
 
 const XMP_SIG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 const XMP_EXT_SIG: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
@@ -89,7 +121,10 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
     if !b.starts_with(&[0xff, 0xd8]) {
         return out;
     }
-    let mut icc_parts: Vec<(u8, Vec<u8>)> = Vec::new();
+    // ICC chunks by sequence number, their stated count, and whether the sequence is broken
+    let mut icc_parts: [Option<&[u8]>; 255] = [None; 255];
+    let mut icc_total = None;
+    let mut icc_invalid = false;
     let mut ext: Vec<(u32, Vec<u8>)> = Vec::new();
     let mut i = 2usize;
     while i + 4 <= b.len() {
@@ -112,12 +147,23 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
         if len < 2 {
             break;
         }
+        let complete = i + 2 + len <= b.len();
         let end = (i + 2 + len).min(b.len());
         let payload = &b[i + 4..end];
         match marker {
-            0xe1 if payload.starts_with(b"Exif\0") && out.exif.is_none() => out.exif = Some(payload.get(6..).unwrap_or(&[]).to_vec()),
-            0xe1 if payload.starts_with(XMP_SIG) && out.xmp.is_none() => {
-                out.xmp = Some(String::from_utf8_lossy(&payload[XMP_SIG.len()..]).into_owned());
+            0xe1 if payload.starts_with(b"Exif\0") => {
+                if out.exif.is_some() {
+                    out.unread.get_or_insert(SECOND_EXIF);
+                } else {
+                    out.exif = Some(payload.get(6..).unwrap_or(&[]).to_vec());
+                }
+            }
+            0xe1 if payload.starts_with(XMP_SIG) => {
+                if out.xmp.is_some() {
+                    out.unread.get_or_insert(SECOND_XMP);
+                } else {
+                    out.xmp = Some(xmp_text(&payload[XMP_SIG.len()..], &mut out.unread));
+                }
             }
             0xe1 if payload.starts_with(XMP_EXT_SIG) => {
                 // GUID (32) + full length (4) + offset (4) + data
@@ -125,21 +171,38 @@ pub fn jpeg_segments(b: &[u8]) -> Embedded {
                 if p.len() >= 40 {
                     let off = u32::from_be_bytes([p[36], p[37], p[38], p[39]]);
                     ext.push((off, p[40..].to_vec()));
+                } else {
+                    out.unread.get_or_insert(CUT_OFF);
                 }
             }
-            0xe2 if payload.starts_with(b"ICC_PROFILE\0") && payload.len() >= 14 => icc_parts.push((payload[12], payload[14..].to_vec())),
+            0xe2 if payload.starts_with(b"ICC_PROFILE\0") => match (payload.get(12), payload.get(13)) {
+                (Some(&sequence), Some(&total))
+                    if complete
+                        && (1..=total).contains(&sequence)
+                        && icc_total.is_none_or(|t| t == total)
+                        && icc_parts[usize::from(sequence - 1)].is_none() =>
+                {
+                    icc_total = Some(total);
+                    icc_parts[usize::from(sequence - 1)] = Some(&payload[14..]);
+                }
+                _ => icc_invalid = true,
+            },
             0xed if payload.starts_with(b"Photoshop 3.0\0") && out.iptc.is_none() => out.iptc = photoshop_iptc(&payload[14..]),
             _ => {}
         }
         i = end;
     }
-    if !icc_parts.is_empty() {
-        icc_parts.sort_by_key(|p| p.0);
-        out.icc = Some(icc_parts.into_iter().flat_map(|p| p.1).collect());
+    if let Some(total) = icc_total
+        && !icc_invalid
+    {
+        let parts = &icc_parts[..usize::from(total)];
+        if parts.iter().all(Option::is_some) {
+            out.icc = Some(parts.iter().flatten().flat_map(|p| p.iter().copied()).collect());
+        }
     }
     if !ext.is_empty() {
         ext.sort_by_key(|p| p.0);
-        out.xmp_extended = Some(String::from_utf8_lossy(&ext.into_iter().flat_map(|p| p.1).collect::<Vec<u8>>()).into_owned());
+        out.xmp_extended = Some(xmp_text(&ext.into_iter().flat_map(|p| p.1).collect::<Vec<u8>>(), &mut out.unread));
     }
     out
 }
@@ -162,27 +225,55 @@ fn photoshop_iptc(mut b: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// PNG chunks: `eXIf`, uncompressed `iTXt` XMP.
+const PNG_XMP_KEYWORD: &[u8] = b"XML:com.adobe.xmp\0";
+const PNG_RAW_PROFILE: &[u8] = b"Raw profile type ";
+
+/// PNG chunks: `eXIf`, uncompressed `iTXt` XMP. XMP in any other chunk and raw metadata profiles
+/// (hex-encoded `Raw profile type ...` text chunks) count as unread.
 pub fn png_chunks(b: &[u8]) -> Embedded {
     let mut out = Embedded::default();
     let mut i = 8usize;
     while i + 12 <= b.len() {
         let len = u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as usize;
         let typ = &b[i + 4..i + 8];
-        let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else { break };
+        let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else {
+            let rest = &b[i + 8..];
+            if matches!(typ, b"iTXt" | b"zTXt" | b"tEXt") && (rest.starts_with(PNG_XMP_KEYWORD) || rest.starts_with(PNG_RAW_PROFILE)) {
+                out.unread.get_or_insert(CUT_OFF);
+            }
+            break;
+        };
         match typ {
-            b"eXIf" => out.exif = Some(crate::strip_exif_header(data).to_vec()),
-            b"iTXt" if data.starts_with(b"XML:com.adobe.xmp\0") => {
+            b"eXIf" => {
+                if out.exif.is_some() {
+                    out.unread.get_or_insert(SECOND_EXIF);
+                }
+                out.exif = Some(crate::strip_exif_header(data).to_vec());
+            }
+            b"iTXt" if data.starts_with(PNG_XMP_KEYWORD) => {
                 // keyword\0 compression-flag compression-method language\0 translated\0 text
-                let rest = &data[18..];
+                let rest = &data[PNG_XMP_KEYWORD.len()..];
                 if rest.len() >= 2 && rest[0] == 0 {
                     let rest = &rest[2..];
                     let mut parts = rest.splitn(3, |&c| c == 0);
                     let (_, _, text) = (parts.next(), parts.next(), parts.next());
                     if let Some(t) = text {
-                        out.xmp = Some(String::from_utf8_lossy(t).into_owned());
+                        if out.xmp.is_some() {
+                            out.unread.get_or_insert(SECOND_XMP);
+                        }
+                        out.xmp = Some(xmp_text(t, &mut out.unread));
+                    } else {
+                        out.unread.get_or_insert(CUT_OFF);
                     }
+                } else {
+                    out.unread.get_or_insert("compressed XMP");
                 }
+            }
+            b"zTXt" | b"tEXt" if data.starts_with(PNG_XMP_KEYWORD) => {
+                out.unread.get_or_insert("XMP in a text chunk");
+            }
+            b"iTXt" | b"zTXt" | b"tEXt" if data.starts_with(PNG_RAW_PROFILE) => {
+                out.unread.get_or_insert("a raw metadata profile");
             }
             b"IEND" => break,
             _ => {}
@@ -199,10 +290,25 @@ pub fn webp_chunks(b: &[u8]) -> Embedded {
     while i + 8 <= b.len() {
         let id = &b[i..i + 4];
         let len = u32::from_le_bytes([b[i + 4], b[i + 5], b[i + 6], b[i + 7]]) as usize;
-        let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else { break };
+        let Some(data) = b.get(i + 8..(i + 8).saturating_add(len)) else {
+            if id == b"XMP " {
+                out.unread.get_or_insert(CUT_OFF);
+            }
+            break;
+        };
         match id {
-            b"EXIF" => out.exif = Some(crate::strip_exif_header(data).to_vec()),
-            b"XMP " => out.xmp = Some(String::from_utf8_lossy(data).into_owned()),
+            b"EXIF" => {
+                if out.exif.is_some() {
+                    out.unread.get_or_insert(SECOND_EXIF);
+                }
+                out.exif = Some(crate::strip_exif_header(data).to_vec());
+            }
+            b"XMP " => {
+                if out.xmp.is_some() {
+                    out.unread.get_or_insert(SECOND_XMP);
+                }
+                out.xmp = Some(xmp_text(data, &mut out.unread));
+            }
             b"ICCP" => out.icc = Some(data.to_vec()),
             _ => {}
         }
@@ -264,6 +370,38 @@ mod tests {
         assert_eq!(m.rating, Some(4)); // XMP overrides EXIF rating 3
         assert_eq!(m.keywords, vec!["alpha".to_string(), "beta".to_string()]); // from IPTC
         assert_eq!(m.caption.as_deref(), Some("A caption"));
+    }
+
+    /// An ICC profile split over APP2 segments is used only when its sequence is whole and coherent: a missing,
+    /// repeated, out-of-range or cut-off chunk would assemble a different profile and apply wrong colours. The other
+    /// metadata stays readable.
+    #[test]
+    fn jpeg_icc_rejects_incomplete_or_incoherent_chunks() {
+        let icc = |sequence: u8, total: u8, data: &[u8]| seg(0xe2, &[&b"ICC_PROFILE\0"[..], &[sequence, total], data].concat());
+        let mut truncated = icc(1, 1, b"helloworld");
+        truncated[3] += 1;
+        let cases = [
+            ("missing", vec![icc(1, 2, b"helloworld")]),
+            ("duplicate", vec![icc(1, 2, b"hello"), icc(1, 2, b"world")]),
+            ("zero sequence", vec![icc(0, 1, b"helloworld")]),
+            ("zero total", vec![icc(1, 0, b"helloworld")]),
+            ("out of range", vec![icc(2, 1, b"helloworld")]),
+            ("gap", vec![icc(1, 3, b"hello"), icc(3, 3, b"world")]),
+            ("inconsistent totals", vec![icc(1, 2, b"hello"), icc(2, 3, b"world")]),
+            ("short header", vec![seg(0xe2, b"ICC_PROFILE\0\x01")]),
+            ("cut off by the file end", vec![truncated]),
+        ];
+        let mut xmp = XMP_SIG.to_vec();
+        xmp.extend_from_slice(crate::write_xmp(&crate::Metadata { title: Some("kept".into()), ..Default::default() }, None).as_bytes());
+        for (name, parts) in cases {
+            let mut jpeg = vec![0xff, 0xd8];
+            jpeg.extend(seg(0xe1, &xmp));
+            jpeg.extend(parts.concat());
+            let e = jpeg_segments(&jpeg);
+            assert!(e.icc.is_none(), "{name}");
+            assert!(e.xmp.as_deref().is_some_and(|x| x.contains("kept")), "{name}");
+            assert_eq!(e.unread, None, "{name}");
+        }
     }
 
     #[test]
@@ -336,6 +474,32 @@ mod tests {
         assert_eq!(crate::extract(&raf).iso, Some(400));
         for n in 0..raf.len() {
             let _ = crate::extract(&raf[..n]);
+        }
+    }
+
+    #[test]
+    fn only_containers_with_a_reader_count_as_read() {
+        let mut raf = b"FUJIFILMCCD-RAW 0201FF000000TEST".to_vec();
+        raf.resize(92, 0);
+        assert!(!reads_container(&raf), "RAF without its embedded JPEG");
+        raf[84..88].copy_from_slice(&92u32.to_be_bytes());
+        raf[88..92].copy_from_slice(&2u32.to_be_bytes());
+        raf.extend_from_slice(&[0xff, 0xd8]);
+        let tiff = sample_exif(ByteOrder::Little);
+        let read: [&[u8]; 7] = [&sample_jpeg(), b"\x89PNG\r\n\x1a\n", b"RIFF\0\0\0\0WEBP", &tiff, &raf, b"\0\0\0\x18ftypcrx \0\0\0\0", b"8BPS\0\x01"];
+        for bytes in read {
+            assert!(reads_container(bytes), "{:?}", &bytes[..bytes.len().min(12)]);
+        }
+        let not_read: [&[u8]; 6] = [
+            b"\0\0\0\x18ftypheic\0\0\0\0",
+            b"\0\0\0\x0cJXL \r\n\x87\n",
+            b"\xff\x0a",
+            b"GIF89a",
+            &tiff[..4], // TIFF magic, nothing a reader can parse
+            b"not an image",
+        ];
+        for bytes in not_read {
+            assert!(!reads_container(bytes), "{bytes:?}");
         }
     }
 

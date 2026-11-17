@@ -79,8 +79,6 @@ fn role_loader_and_folder_are_correct() {
         (Role::Clip4, ("CLIPLoader", "text_encoders")),
         (Role::Vae, ("VAELoader", "vae")),
         (Role::Lora, ("LoraLoaderModelOnly", "loras")),
-        (Role::ClipVision, ("CLIPVisionLoader", "clip_vision")),
-        (Role::StyleModel, ("StyleModelLoader", "style_models")),
         (Role::Upscaler, ("UpscaleModelLoader", "upscale_models")),
     ];
     for (role, (loader, folder)) in expectations {
@@ -129,13 +127,9 @@ fn built_in_profiles_load_and_inherit() {
     assert_eq!(pony.sizes.native, sdxl.sizes.native);
     assert!(pony.prompt.prefix.contains("score_9"));
     assert!(pony.lora_fits("pony") && pony.lora_fits("sdxl"));
-    assert!(!sdxl.lora_fits("flux1"));
+    assert!(!sdxl.lora_fits("flux2"));
 
-    let kontext = reg.family("flux1-kontext").expect("kontext exists");
-    assert!(kontext.capabilities.edit);
-    assert_eq!(kontext.pipeline.clip.node, "DualCLIPLoader");
-
-    for key in ["qwen", "z-image-turbo", "flux2-klein-4b", "flux2-klein-9b", "ernie-image", "seedvr2", "klein-remove"] {
+    for key in ["flux2-klein-4b", "flux2-klein-9b", "ernie-image", "seedvr2", "klein-remove"] {
         assert!(reg.model(key).is_some(), "missing model {key}");
     }
     assert_eq!(reg.groups().first().map(|(g, _)| g.as_str()), Some("Stable Diffusion"));
@@ -299,9 +293,9 @@ fn registry_family_and_model_lookup() {
     let reg = Registry { families: build(&embedded_raw()).unwrap(), ..Default::default() };
     assert!(reg.family("sd15").is_some());
     assert!(reg.family("nonexistent").is_none());
-    let (f, m) = reg.model("qwen").expect("qwen exists");
-    assert_eq!(m.key, "qwen");
-    assert!(f.models.iter().any(|model| model.key == "qwen"));
+    let (f, m) = reg.model("flux2-klein-4b").expect("flux2-klein-4b exists");
+    assert_eq!(m.key, "flux2-klein-4b");
+    assert!(f.models.iter().any(|model| model.key == "flux2-klein-4b"));
 }
 
 #[test]

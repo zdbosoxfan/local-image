@@ -104,8 +104,21 @@ pub(crate) fn parse(data: &[u8], opts: &ParseOptions) -> Result<Tiff> {
 /// `base` (absolute position = `base + stored offset`). Returns the IFD and the absolute offset of the
 /// next IFD (0 when there is none). Used for maker notes, which often use their own offset base.
 pub fn parse_ifd_at(data: &[u8], offset: u64, order: ByteOrder, base: u64, bigtiff: bool, opts: &ParseOptions) -> Result<(Ifd, u64)> {
+    parse_ifd_counted(data, offset, order, base, bigtiff, opts).map(|(ifd, next, _)| (ifd, next))
+}
+
+/// [`parse_ifd_at`] and how many entries [`ParseOptions::value_budget`] left out.
+pub(crate) fn parse_ifd_counted(
+    data: &[u8],
+    offset: u64,
+    order: ByteOrder,
+    base: u64,
+    bigtiff: bool,
+    opts: &ParseOptions,
+) -> Result<(Ifd, u64, usize)> {
     let mut ctx = Ctx::new(data, order, bigtiff, opts);
-    ctx.ifd(offset, base, 0)
+    let (ifd, next) = ctx.ifd(offset, base, 0)?;
+    Ok((ifd, next, ctx.over_budget))
 }
 
 struct Ctx<'a> {
@@ -115,13 +128,14 @@ struct Ctx<'a> {
     opts: &'a ParseOptions,
     visited: HashSet<u64>,
     budget: u64,
+    over_budget: usize,
     entries_total: usize,
 }
 
 impl<'a> Ctx<'a> {
     fn new(data: &'a [u8], order: ByteOrder, big: bool, opts: &'a ParseOptions) -> Self {
         let budget = opts.value_budget.unwrap_or((data.len() as u64).saturating_mul(8).saturating_add(1 << 20));
-        Self { data, order, big, opts, visited: HashSet::new(), budget, entries_total: 0 }
+        Self { data, order, big, opts, visited: HashSet::new(), budget, over_budget: 0, entries_total: 0 }
     }
 
     fn read_off(&self, pos: usize) -> Option<u64> {
@@ -226,6 +240,7 @@ impl<'a> Ctx<'a> {
             return None;
         }
         if total > self.budget {
+            self.over_budget += 1;
             return None;
         }
         self.budget -= total;

@@ -784,6 +784,8 @@ pub struct ToolOptions {
     pub enhance_edge: bool,
     /// local-image: Quick Selection › Subject Assist (the installed selection model as a prior).
     pub quick_subject_assist: bool,
+    /// Object Selection › Hard Edge: off, the result gets a softer, slightly wider rim.
+    pub object_hard_edge: bool,
     /// Pen: "path" (work path) or "shape" (shape layer).
     pub vector_mode: String,
     /// Shape tools: fill with the foreground colour, stroke width (0 = none), rectangle corner
@@ -902,6 +904,7 @@ impl Default for ToolOptions {
             finger_painting: false,
             enhance_edge: false,
             quick_subject_assist: true,
+            object_hard_edge: true,
             vector_mode: "path".into(),
             shape_fill: true,
             pen_options: Default::default(),
@@ -1010,6 +1013,10 @@ pub enum MadeLayer {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextEdit {
     pub layer: u64,
+    /// Id of the document being edited (layer ids can repeat across documents, e.g. one file
+    /// opened twice). `None`: the active document.
+    #[serde(default)]
+    pub document: Option<u64>,
     pub caret: usize,
     pub anchor: usize,
     /// History coalescing key: the whole editing session is one "Edit Type Layer" step.
@@ -1422,5 +1429,13 @@ mod tests {
         assert_eq!(v["tool"], "Move");
         let back: UiState = serde_json::from_value(v).unwrap();
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn old_tool_options_load_with_hard_edge_on() {
+        let mut v = serde_json::to_value(ToolOptions::default()).unwrap();
+        v.as_object_mut().unwrap().remove("object_hard_edge").expect("the field is saved");
+        let back: ToolOptions = serde_json::from_value(v).unwrap();
+        assert!(back.object_hard_edge);
     }
 }

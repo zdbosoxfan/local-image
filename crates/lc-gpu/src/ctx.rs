@@ -3,8 +3,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use wgpu::util::DeviceExt;
-
 /// A kernel module: WGSL source, its storage bindings (name, writable, element type) after the
 /// parameter block `P` (binding 0), and its entry points.
 struct Module {
@@ -193,6 +191,7 @@ const MODULES: &[Module] = &[
             "haze_apply",
             "haze_dark",
             "sharp_preview",
+            "sharp_detail_preview",
         ],
     },
     Module {
@@ -757,12 +756,30 @@ impl Gpu {
             self.over_limit(bytes.len() as u64);
             return Buf { buf: Some(Tracked::new(self.placeholder(), self.id)), len };
         }
-        let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytes,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-        });
+        let buf = self.init_buffer(bytes, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
         Buf { buf: Some(Tracked::new(buf, self.id)), len }
+    }
+
+    /// A buffer holding `contents` (zero-padded to the copy alignment), written through the queue. Not
+    /// `create_buffer_init`: it maps the new buffer, and mapping one that couldn't be allocated (out of
+    /// device memory) panics inside wgpu instead of raising an error the render's scopes catch.
+    fn init_buffer(&self, contents: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
+        let align = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let size = contents.len().max(align).next_multiple_of(align);
+        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: size as u64,
+            usage: usage | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        if size == contents.len() {
+            self.queue.write_buffer(&buf, 0, contents);
+        } else {
+            let mut padded = contents.to_vec();
+            padded.resize(size, 0);
+            self.queue.write_buffer(&buf, 0, &padded);
+        }
+        buf
     }
 
     fn over_limit(&self, size: u64) {
@@ -808,11 +825,7 @@ impl Gpu {
             return;
         };
         assert_eq!(bufs.len(), k.nbuf, "{name}: binding count");
-        let params = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(if p.is_empty() { &[0u32] } else { p }),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let params = self.init_buffer(bytemuck::cast_slice(if p.is_empty() { &[0u32] } else { p }), wgpu::BufferUsages::STORAGE);
         let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: params.as_entire_binding() }];
         for (i, b) in bufs.iter().enumerate() {
             let buf = b.map(|b| b.raw()).unwrap_or(&self.dummy);
@@ -1040,6 +1053,40 @@ mod tests {
         assert_eq!(super::parse_limits("512MiB"), Some((512 << 20, 1024 << 20)));
         assert_eq!(super::parse_limits(""), None);
         assert_eq!(super::parse_limits("lots"), None);
+    }
+
+    /// An upload that runs out of device memory fails the render instead of panicking: it went
+    /// through `create_buffer_init`, which maps the buffer it could not allocate.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[ignore = "fills device memory; requires a real hardware GPU"]
+    fn an_upload_out_of_device_memory_is_an_error_not_a_panic() {
+        let Some(g) = crate::test_device() else { return };
+        let mut held = Vec::new();
+        let mut full = false;
+        for size in [1u64 << 28, 1 << 26] {
+            for _ in 0..256 {
+                let scope = g.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+                let usage = wgpu::BufferUsages::STORAGE;
+                let buf = g.device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage, mapped_at_creation: false });
+                if pollster::block_on(scope.pop()).is_some() {
+                    full = true;
+                    break;
+                }
+                held.push(buf);
+            }
+        }
+        if !full {
+            return; // the device memory never ran out
+        }
+        let scopes = super::ErrorScopes::push(&g);
+        let upload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| g.upload(&vec![0u32; 1 << 24])));
+        let failure = scopes.pop();
+        drop(held);
+        assert!(upload.is_ok(), "an upload out of device memory panicked");
+        if let Some(f) = failure {
+            assert_eq!(f.kind, super::FailKind::OutOfMemory, "{}", f.reason);
+        }
     }
 
     #[test]

@@ -97,8 +97,8 @@ pub fn utf8(text: &str) -> F {
 pub fn document(blocks: Vec<F>, frame: bool, dpi: f64, transform: [f64; 6]) -> Vec<u8> {
     document_with_frame(blocks, frame, dpi, transform, [10., 20., 210., 120.], 18.)
 }
-pub fn document_with_frame(blocks: Vec<F>, frame: bool, dpi: f64, transform: [f64; 6], bounds: [f64; 4], baseline: f64) -> Vec<u8> {
-    let text = F::Obj(
+pub fn text_node(blocks: Vec<F>, frame: bool, transform: [f64; 6], bounds: [f64; 4], baseline: f64) -> F {
+    F::Obj(
         tag(if frame { b"TxtF" } else { b"TxtA" }),
         vec![
             (tag(b"StSt"), F::Obj(tag(b"Stry"), vec![(tag(b"Blok"), F::Shared(blocks))])),
@@ -108,7 +108,10 @@ pub fn document_with_frame(blocks: Vec<F>, frame: bool, dpi: f64, transform: [f6
             ),
             (tag(b"Xfrm"), F::F64s(transform.to_vec())),
         ],
-    );
+    )
+}
+pub fn document_with_frame(blocks: Vec<F>, frame: bool, dpi: f64, transform: [f64; 6], bounds: [f64; 4], baseline: f64) -> Vec<u8> {
+    let text = text_node(blocks, frame, transform, bounds, baseline);
     let mut root = vec![
         (tag(b"UVCn"), F::Obj(tag(b"UVCn"), vec![(tag(b"UPPI"), F::F64(dpi))])),
         (

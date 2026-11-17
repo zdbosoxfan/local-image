@@ -42,6 +42,11 @@ pub trait HostPreferencesPages {
     /// Validate and reserve the host draft without changing live settings. Publication must be
     /// infallible: the shell calls it only after every fallible part of the transaction succeeds.
     fn prepare(&self, draft: &Value) -> Result<Box<dyn FnOnce() + '_>, String>;
+    /// `draft` with `section`'s settings back at their defaults (Reset Section), or `None` when
+    /// the page has nothing to reset.
+    fn reset(&self, _section: &str, _draft: &Value) -> Option<Value> {
+        None
+    }
 }
 
 /// Shell runtime state for preferences, autosave and snapping (not serialised).
@@ -298,6 +303,11 @@ pub fn width(fields: &Map<String, Value>) -> Option<f32> {
 
 /// Open Edit › Preferences on `section`.
 pub fn open_preferences(app: &mut PhotocraftApp, section: &str) -> u64 {
+    // Hosted, the raw defaults that apply are the Library's import settings; this page has none.
+    let section = match section {
+        "rawDefaults" if app.host_preferences_pages.iter().any(|(id, _)| *id == "library.import") => "library.import",
+        other => other,
+    };
     let known = app.host_preferences_pages.iter().any(|(id, _)| *id == section)
         || SECTIONS.iter().any(|(id, _)| *id == section)
         || section == crate::attributions::SECTION

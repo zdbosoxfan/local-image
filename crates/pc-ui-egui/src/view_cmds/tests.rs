@@ -172,3 +172,11 @@ fn engine_commands_open_their_dialogs() {
     crate::menus::invoke_unguarded(&mut app, &ctx, "file.closeAll", json!({})).unwrap();
     assert!(app.ui.views.is_empty() && app.session.documents().is_empty());
 }
+
+#[test]
+fn order_hint_puts_listed_fields_first_and_the_rest_alphabetically() {
+    let f = json!({"zeta": 1, "alpha": 2, "mid": 3, "__order": ["mid", "zeta"], "__form": true});
+    assert_eq!(form_keys(f.as_object().unwrap()), ["mid", "zeta", "alpha"]);
+    let f = json!({"b": 1, "a": 2});
+    assert_eq!(form_keys(f.as_object().unwrap()), ["a", "b"], "without a hint, alphabetical as before");
+}

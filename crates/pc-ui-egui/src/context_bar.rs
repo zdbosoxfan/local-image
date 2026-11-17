@@ -688,7 +688,7 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, what: Context, a: &str, pro
         "editContents" => crate::menus::invoke(app, ctx, "layer.smartObjects.editContents", json!({})),
         "develop" => crate::menus::invoke(app, ctx, crate::develop_layer::DEVELOP_ID, json!({})),
         "regenerate" | "variations" => regenerate(app, ctx, layer, generation, a == "variations"),
-        "selectSubject" => app.run("ai.selectSubject", json!({})),
+        "selectSubject" => app.run("select.subject", json!({})),
         "removeBackground" => crate::background_ui::run(app, layer),
         "transform" => crate::menus::invoke(app, ctx, "edit.freeTransform", json!({})),
         "hide" => {
@@ -723,10 +723,7 @@ fn path_mask(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<Value, Stri
 /// the layer's own pixels (or Generate Background again). The old result is hidden, not deleted.
 fn regenerate(app: &mut PhotocraftApp, ctx: &egui::Context, layer: Option<u64>, generation: Option<Value>, variations: bool) -> Result<Value, String> {
     let (Some(layer), Some(g)) = (layer, generation) else { return Err(tl!("This layer has no generation settings to repeat").into()) };
-    let mut p = json!({ "prompt": g["prompt"].as_str().unwrap_or(""), "replaceLayer": layer });
-    if let Some(e) = g["engine"].as_str() {
-        p["engine"] = json!(e);
-    }
+    let p = json!({ "prompt": g["prompt"].as_str().unwrap_or(""), "replaceLayer": layer });
     match g["command"].as_str() {
         Some("ai.generativeFill") => {
             app.run("select.loadSelection", json!({ "channel": "transparency", "layer": layer }))?;

@@ -1557,6 +1557,30 @@ pub fn source_summary(sources: &[String]) -> String {
     }
 }
 
+/// Auto Import: the watched folder's listing is back from its worker thread; the files that stopped
+/// growing are imported like any import.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn auto_listed(app: &mut LightcraftApp, listing: Result<Vec<(String, u64)>, String>) {
+    let listing = match listing {
+        Ok(l) => l,
+        Err(e) => return log::debug!("auto import: {e}"),
+    };
+    // an import or a scan (a finished Local browse replaces `app.import`) that started while the
+    // folder was listed: scanning now would mark the new files as tried without importing them; the
+    // next listing picks them up
+    if app.import.is_some() || app.scan.is_some() {
+        return;
+    }
+    let p = json!({"listing": listing, "start": false});
+    let Ok(r) = app.session.execute("library.autoImportScan", &p) else { return };
+    let Some(mut params) = r.get("import").cloned() else { return };
+    let paths: Vec<String> = params["paths"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
+    if let Some(o) = params.as_object_mut() {
+        o.remove("paths");
+    }
+    app.import = Some(ImportTask::new(paths, params, app.session.library_generation, false).auto());
+}
+
 /// A labelled row (fixed label column).
 fn field<R>(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let t = Tokens::get(ui.ctx());
@@ -1669,6 +1693,52 @@ mod bugfix_save_tests {
         assert_eq!(app.session.selection, selection);
         assert_eq!(app.session.interaction.as_ref().unwrap().photo, selection.active.unwrap());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An import that starts while Auto Import lists its watched folder: the new file is not marked
+    /// as tried and skipped; the listings after that import bring it in (upstream LightCraft 5260206f).
+    #[test]
+    fn auto_import_waits_for_an_import_that_starts_during_its_listing() {
+        let mut app = LightcraftApp::new(Session::new(), Default::default());
+        app.session.import_defaults.auto_folder = Some("/watch".into());
+        let listing = || -> Result<Vec<(String, u64)>, String> { Ok(vec![("/watch/new.png".to_string(), 64)]) };
+        app.import = Some(ImportTask::new(Vec::new(), json!({}), app.session.library_generation, false));
+        // two listings import a file: the first notes its size, the second finds it unchanged
+        auto_listed(&mut app, listing());
+        auto_listed(&mut app, listing());
+        app.import = None;
+        auto_listed(&mut app, listing());
+        auto_listed(&mut app, listing());
+        let task = app.import.as_ref().expect("the watched file is imported once the other import is done");
+        assert_eq!(task.queue, ["/watch/new.png"]);
+    }
+
+    /// The same with a Local folder browse: a browse that finishes replaces `app.import`, so Auto
+    /// Import doesn't start one beside it (upstream LightCraft 1c1bb4f632).
+    #[test]
+    fn auto_import_waits_for_a_browse_that_starts_during_its_listing() {
+        let mut app = LightcraftApp::new(Session::new(), Default::default());
+        app.session.import_defaults.auto_folder = Some("/watch".into());
+        let listing = || -> Result<Vec<(String, u64)>, String> { Ok(vec![("/watch/new.png".to_string(), 64)]) };
+        let (_tx, rx) = std::sync::mpsc::channel();
+        app.scan = Some(ScanTask {
+            library_generation: app.session.library_generation,
+            progress: Default::default(),
+            rx,
+            copy: false,
+            browse: true,
+            sources: vec!["/browse".into()],
+            scoped: false,
+            scoped_ready: None,
+        });
+        auto_listed(&mut app, listing());
+        auto_listed(&mut app, listing());
+        assert!(app.import.is_none(), "no Auto Import for the browse to replace");
+        app.scan = None;
+        auto_listed(&mut app, listing());
+        auto_listed(&mut app, listing());
+        let task = app.import.as_ref().expect("the watched file is imported once the browse is done");
+        assert_eq!(task.queue, ["/watch/new.png"]);
     }
 }
 

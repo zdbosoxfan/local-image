@@ -16,8 +16,13 @@ struct Mock;
 impl AiHost for Mock {
     fn remove_engines(&self) -> Vec<RemoveEngine> {
         vec![
-            RemoveEngine { key: "mock".into(), label: "Mock".into(), problem: None },
-            RemoveEngine { key: "off".into(), label: "Off".into(), problem: Some("The AI engine (ComfyUI) is not running.".into()) },
+            RemoveEngine { key: "mock".into(), label: "Mock".into(), problem: None, on_device: false },
+            RemoveEngine {
+                key: "off".into(),
+                label: "Off".into(),
+                problem: Some("The AI engine (ComfyUI) is not running.".into()),
+                on_device: false,
+            },
         ]
     }
     fn remove(&self, req: &RemoveRequest, ctl: &JobCtl) -> Result<RemoveResult, String> {

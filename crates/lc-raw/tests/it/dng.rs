@@ -140,6 +140,28 @@ fn deflate_roundtrips_integer_and_float() {
 }
 
 #[test]
+fn non_finite_white_level_uses_the_default() {
+    let (w, h) = (8usize, 8usize);
+    let mut raw = base_ifd(w, h, 16, 1, true);
+    raw.set(t::WHITE_LEVEL, Value::Double(vec![1.0e300]));
+    raw.set(t::COMPRESSION, Value::Short(vec![compression::NONE]));
+    let pixels = vec![4096u16; w * h];
+    raw.set_image(ImageData::Strips { rows_per_strip: h as u32, strips: vec![u16_bytes(&pixels, ByteOrder::Little)] });
+    let decoded = decode(&dng(raw, ByteOrder::Little)).unwrap();
+    assert_eq!(decoded.white, vec![65535.0]);
+    assert!(decoded.white_at(0).is_finite());
+}
+
+#[test]
+fn deflate_writer_caps_large_tile_edges() {
+    let raw = synthetic(16, 16, Some(Cfa::bayer("RGGB").unwrap()), 1);
+    let bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Deflate { tile: 2064, half: false }, ..Default::default() }).unwrap();
+    let tiff = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+    assert_eq!(tiff.ifds[0].u32(t::TILE_WIDTH), Some(2048));
+    assert_eq!(tiff.ifds[0].u32(t::TILE_LENGTH), Some(2048));
+}
+
+#[test]
 fn normalized_and_develop() {
     let mut raw = synthetic(40, 30, Some(Cfa::bayer("RGGB").unwrap()), 1);
     let n = raw.normalized().unwrap();

@@ -113,14 +113,36 @@ impl ImageInfo {
         }
     }
 
-    /// All chunks that have an offset. Missing byte counts are inferred as "to the next offset / end of data"
-    /// using `data_len`.
-    pub fn chunks(&self, data_len: u64) -> Vec<Chunk> {
+    fn chunk_grid(&self) -> (usize, u32, usize) {
         let (across, down) = self.grid();
         let per_plane = across as usize * down as usize;
         let planes = if self.planar == 2 { self.samples_per_pixel as usize } else { 1 };
+        (self.offsets.len().min(per_plane.saturating_mul(planes)), across, per_plane)
+    }
+
+    /// Return the sole chunk without allocating descriptors for the image's offset table.
+    pub fn single_chunk(&self, data_len: u64) -> Option<Chunk> {
+        if self.chunk_grid().0 != 1 {
+            return None;
+        }
+        let offset = *self.offsets.first()?;
+        let (width, height) = self.chunk_size();
+        let height = match self.layout {
+            Layout::Strips { .. } => height.min(self.height),
+            Layout::Tiles { .. } => height,
+        };
+        let len = match self.byte_counts.first() {
+            Some(&len) if len > 0 => len,
+            _ => self.offsets.iter().copied().filter(|&next| next > offset).min().unwrap_or(data_len).saturating_sub(offset),
+        };
+        Some(Chunk { index: 0, x: 0, y: 0, width, height, plane: 0, offset, len })
+    }
+
+    /// All chunks that have an offset. Missing byte counts are inferred as "to the next offset / end of data"
+    /// using `data_len`.
+    pub fn chunks(&self, data_len: u64) -> Vec<Chunk> {
+        let (n, across, per_plane) = self.chunk_grid();
         let (cw, ch) = self.chunk_size();
-        let n = self.offsets.len().min(per_plane.saturating_mul(planes));
         let mut sorted = if self.byte_counts.len() < n || self.byte_counts[..n].contains(&0) { self.offsets.clone() } else { Vec::new() };
         sorted.sort_unstable();
         sorted.dedup();
@@ -205,5 +227,34 @@ mod chunk_offset_regressions {
             byte_counts: vec![],
         };
         assert_eq!(info.chunks(40).iter().map(|c| c.len).collect::<Vec<_>>(), [10, 10, 10, 10]);
+    }
+
+    #[test]
+    fn single_chunk_matches_the_one_chunk_layout() {
+        let one = ImageInfo {
+            width: 4,
+            height: 4,
+            bits_per_sample: vec![8],
+            samples_per_pixel: 1,
+            compression: 1,
+            photometric: 1,
+            planar: 1,
+            predictor: 1,
+            sample_format: 1,
+            new_subfile_type: 0,
+            layout: Layout::Strips { rows_per_strip: 2 },
+            offsets: vec![10],
+            byte_counts: vec![8],
+        };
+        assert_eq!(one.single_chunk(100), one.chunks(100).first().copied());
+        let inferred = ImageInfo { offsets: vec![70], byte_counts: vec![], ..one.clone() };
+        assert_eq!(inferred.single_chunk(100).map(|chunk| chunk.len), Some(30));
+        assert_eq!(inferred.single_chunk(100), inferred.chunks(100).first().copied());
+        let empty = ImageInfo { offsets: vec![], byte_counts: vec![], ..one.clone() };
+        assert!(empty.single_chunk(100).is_none());
+        let mut multiple = one;
+        multiple.offsets.push(30);
+        multiple.byte_counts.push(8);
+        assert!(multiple.single_chunk(100).is_none());
     }
 }

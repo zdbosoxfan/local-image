@@ -82,7 +82,7 @@
 	File Info…	Dateiinformationen…
 	Print…	Drucken…
 	Print One Copy	Eine Kopie drucken
-	Exit	Beenden
+	Quit Local Image	Local Image beenden
 	Undo	Rückgängig
 	Redo	Wiederholen
 	Toggle Last State	Letzten Status umschalten
@@ -2196,7 +2196,6 @@
 	Remove Background (AI)	Hintergrund entfernen (KI)
 	Remove Backgrounds (AI)…	Hintergründe entfernen (KI)…
 	Set Up AI…	KI einrichten…
-	Subject (AI)	Motiv (KI)
 	The AI engine isn't running.	Die KI-Engine läuft nicht.
 	Contextual task bar	Kontextbezogene Taskleiste
 	Tool presets	Werkzeugvorgaben
@@ -2300,7 +2299,6 @@
 	Could not save settings: {error}	Einstellungen konnten nicht gespeichert werden: {error}
 	Couldn't save: {error}	Speichern fehlgeschlagen: {error}
 	Couldn't update profiles: {error}	Profile konnten nicht aktualisiert werden: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Stellt das Motiv jedes Bildes mit Qwen Image 2.1 frei und speichert PNGs. Die Originale werden nie verändert.
 	Delete from Library	Aus der Bibliothek löschen
 	Describe details to add (optional)…	Beschreiben Sie Details, die hinzukommen sollen (optional)…
 	Describe the change, e.g. “make it golden hour”…	Beschreiben Sie die Änderung, z. B. „Machen Sie es zur goldenen Stunde“…
@@ -2361,7 +2359,6 @@
 	Installation:	Installation:
 	Installed	Installiert
 	Keep	Behalten
-	Keep… (optional)	Behalten… (optional)
 	Licence	Lizenz
 	Licence gate	Lizenzpflichtig
 	Licence: see its page	Lizenz: siehe Seite
@@ -2406,8 +2403,6 @@
 	Precision	Genauigkeit
 	Preset name	Name der Vorgabe
 	Previous image ({key})	Vorheriges Bild ({key})
-	Qwen Compact	Qwen kompakt
-	Qwen Full	Qwen voll
 	RESULTS	ERGEBNISSE
 	Read the licence	Lizenz lesen
 	Ready	Bereit
@@ -2454,7 +2449,6 @@
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Starte zuerst die KI-Engine: Local Image prüft, was ComfyUI bereits hat. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Starte die KI-Engine, um den Speicher deiner GPU zu sehen; angezeigt wird, was in 8 GB passt.
 	Starting ComfyUI… (the first start can take a minute)	ComfyUI wird gestartet… (der erste Start kann eine Minute dauern)
-	Starting image · {n}/{max}	Ausgangsbild · {n}/{max}
 	Starting {name}…	{name} wird gestartet…
 	Steps	Schritte
 	Stopped	Gestoppt
@@ -2472,7 +2466,6 @@
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Der Workflow hat keine Knoten mit den Titeln li:prompt, li:image, li:mask, li:seed oder li:output, daher kann Local Image ihn nicht befüllen. Benenne die Knoten in ComfyUI um und exportiere erneut.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Mit Tokens kann der Modell-Browser zugangsbeschränkte oder anmeldepflichtige Modelle herunterladen. Sie werden nur an die jeweilige Website gesendet.
 	Transparent PNG	Transparentes PNG
-	Transparent background	Transparenter Hintergrund
 	Trending	Angesagt
 	Trending this week	Diese Woche angesagt
 	Unknown family	Unbekannte Familie
@@ -2483,7 +2476,6 @@
 	Upscale {scale}×	{scale}× hochskalieren
 	Use	Verwenden
 	Use as Reference	Als Referenz verwenden
-	Variation strength	Variationsstärke
 	Waiting	Wartet
 	What should appear in the selection…	Was soll in der Auswahl erscheinen…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Mit deinem eigenen API-Schlüssel kann „Generieren“ auch Cloud-Modelle nutzen (sie erscheinen unter „Cloud“ in der Modellauswahl). Dein Prompt und deine Bilder gehen dann von diesem Computer an diesen Anbieter und werden deinem Konto berechnet; sonst wird nichts gesendet.
@@ -2517,14 +2509,11 @@
 	{size} · runs on the CPU · {licence}	{size} · läuft auf der CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: offline, Ergebnisse von {when}
 	{source}: the catalogue couldn't be read	{source}: Der Katalog konnte nicht gelesen werden
-	{why} Qwen Image 2.1 runs these.	{why} Qwen Image 2.1 führt diese aus.
 	Choose…	Auswählen…
 	Stop	Stoppen
 	Seed	Seed
 	Solid Color	Volltonfarbe
 	Strength	Stärke
-	Qwen AI · Compact	Qwen KI · kompakt
-	Qwen AI · Full	Qwen KI · voll
 	Standard (CPU)	Standard (CPU)
 	Templates	Vorlagen
 	Community	Community
@@ -2653,6 +2642,8 @@ ai	New	Neu
 	Float Panel Group	Panelgruppe lösen
 	Save and Return to Library	Sichern und zur Bibliothek zurückkehren
 	Added your new Develop edits as layer {name}	Ihre neuen Bearbeitungen im Entwickeln-Modul wurden als Ebene {name} hinzugefügt
+	The photo's crop or size changed in Develop, so {name} was not updated	Zuschnitt oder Größe des Fotos wurden im Entwickeln-Modul geändert, daher wurde {name} nicht aktualisiert
+	Its layers would no longer line up with the new photo, so it keeps the photo as it was.	Seine Ebenen würden nicht mehr zum neuen Foto passen, daher behält es das Foto, wie es war.
 	Open the Library to save into it	Öffnen Sie die Bibliothek, um darin zu sichern
 	The layers below are unchanged; hide or delete the new layer to go back.	Die darunterliegenden Ebenen sind unverändert; blenden Sie die neue Ebene aus oder löschen Sie sie, um zurückzugehen.
 # Attributions page (li-attributions)
@@ -3880,7 +3871,10 @@ ai	New	Neu
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	Alle Tastenkürzel in diesem Profil wurden auf die Standardwerte zurückgesetzt.
 	Editor	Editor
-	Library + Develop	Bibliothek + Entwickeln
+	Library & Develop	Bibliothek & Entwickeln
+	Library General	Bibliothek: Allgemein
+	Library Performance	Bibliothek: Leistung
+	Library Interface	Bibliothek: Benutzeroberfläche
 	Scope	Geltungsbereich
 	Colour	Farbe
 	Monochrome (default)	Monochrom (Standard)
@@ -3897,3 +3891,29 @@ ai	New	Neu
 	GPU Memory (MB, 0 = Automatic)	GPU-Speicher (MB, 0 = Automatisch)
 	{path} was saved over	{path} wurde überschrieben
 	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	„{doc}“ ist keiner Datei mehr zugeordnet und als ungespeichert markiert. Speichern Sie es unter einem neuen Namen, um es zu behalten.
+# Match Color source layer (PhotoCraft 26d79021)
+	Merged	Zusammengefügt
+# Black & White Auto tooltip (PhotoCraft 7e15585d)
+	A grey mix that spreads the image's tones	Eine Graumischung, die die Tonwerte des Bildes spreizt
+	File Type	Dateityp
+	Save as JPEG	Als JPEG speichern
+	Save as PSD	Als PSD speichern
+	Save as TIFF	Als TIFF speichern
+	Convert Profile to sRGB	Profil in sRGB konvertieren
+	LZW Compression	LZW-Komprimierung
+	Resize to Fit	In Größe einpassen
+	Run	Ausführen
+	You must save to at least one file type.	Speichern Sie in mindestens einem Dateityp.
+	Invalid numeric entry. A value between 1 and 12 is required. Previous value inserted.	Ungültige Zahleneingabe. Ein Wert zwischen 1 und 12 ist erforderlich. Der vorherige Wert wurde eingesetzt.
+	Invalid numeric entry. A value between 1 and 30000 is required. Previous value inserted.	Ungültige Zahleneingabe. Ein Wert zwischen 1 und 30000 ist erforderlich. Der vorherige Wert wurde eingesetzt.
+	A value between 1 and 12 is required. Closest value inserted.	Ein Wert zwischen 1 und 12 ist erforderlich. Der nächstliegende Wert wurde eingesetzt.
+	A value between 1 and 30000 is required. Closest value inserted.	Ein Wert zwischen 1 und 30000 ist erforderlich. Der nächstliegende Wert wurde eingesetzt.
+	Image Compression	Bildkomprimierung
+	Save Image Pyramid	Bildpyramide speichern
+	Save Transparency	Transparenz speichern
+	LZW	LZW
+	ZIP	ZIP
+	Open as Smart Object…	Als Smart-Objekt öffnen…
+# Object Selection Hard Edge option (PhotoCraft b8b7129c) and the last export folder preference (PhotoCraft 13f84218)
+	Hard Edge	Harte Kante
+	Last folder	Letzter Ordner

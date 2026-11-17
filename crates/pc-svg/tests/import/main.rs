@@ -27,6 +27,32 @@ fn flat(layers: &[Layer]) -> Vec<&Layer> {
 }
 
 #[test]
+fn a_clip_over_the_path_budget_is_dropped_with_a_warning_and_the_import_continues() {
+    // Every segment of the first clip path meets the centre, so their bounds all overlap.
+    let spokes: String = (0..2048)
+        .map(|i| {
+            let angle = std::f64::consts::TAU * f64::from(i) / 2048.0;
+            format!("L{:.4} {:.4}L50 50", 50.0 + 40.0 * angle.cos(), 50.0 + 40.0 * angle.sin())
+        })
+        .collect();
+    let source = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <clipPath id="crowded"><path d="M50 50{spokes}Z"/><rect x="1" y="1" width="9" height="9"/></clipPath>
+            <rect id="clipped" width="60" height="60" clip-path="url(#crowded)"/>
+            <rect id="plain" x="70" y="70" width="20" height="20"/>
+        </svg>"#
+    );
+
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+
+    let names: Vec<_> = flat(&scene.layers).iter().map(|layer| layer.name.as_str()).collect();
+    assert!(names.contains(&"clipped") && names.contains(&"plain"), "{names:?}");
+    assert!(flat(&scene.layers).iter().all(|layer| layer.vector.clip.is_none()));
+    let warning = scene.warnings.iter().find(|warning| warning.feature == "clip-too-complex").unwrap();
+    assert_eq!(warning.object.as_deref(), Some("crowded"));
+}
+
+#[test]
 fn editable_font_family_roundtrips_css_string_escapes() {
     use photocraft_doc::vector_design::exchange::ExportScope;
     use photocraft_svg::export::{ExportOptions, export};
@@ -894,4 +920,67 @@ fn svg_deep_nesting_and_backtracking_selectors_finish_quickly() {
     );
     let _ = photocraft_svg::import(svg.as_bytes(), &ImportOptions::default());
     assert!(start.elapsed().as_secs() < 20, "{:?}", start.elapsed());
+}
+
+/// Base64 of a uniform `w` x `h` JPEG whose EXIF orientation 6 turns it a quarter clockwise.
+fn turned_jpeg(w: u32, h: u32) -> String {
+    use base64::Engine as _;
+    let mut jpeg = Vec::new();
+    image::RgbImage::from_pixel(w, h, image::Rgb([200, 30, 30])).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+    let tiff = [
+        b"MM\0*".as_slice(),
+        &8u32.to_be_bytes(),
+        &1u16.to_be_bytes(),
+        &0x0112u16.to_be_bytes(),
+        &3u16.to_be_bytes(),
+        &1u32.to_be_bytes(),
+        &6u16.to_be_bytes(),
+        &[0, 0],
+        &0u32.to_be_bytes(),
+    ]
+    .concat();
+    let app1 = [b"Exif\0\0".as_slice(), &tiff].concat();
+    let segment = [[0xFF, 0xE1].as_slice(), &u16::try_from(app1.len() + 2).unwrap().to_be_bytes(), &app1].concat();
+    jpeg.splice(2..2, segment);
+    base64::engine::general_purpose::STANDARD.encode(&jpeg)
+}
+
+#[test]
+fn an_embedded_jpeg_follows_its_exif_orientation() {
+    // Stored 4 x 2, shown 2 x 4.
+    let data = turned_jpeg(4, 2);
+    let source = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="40"><image width="40" height="40" xlink:href="data:image/jpeg;base64,{data}"/></svg>"#
+    );
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+    let surface = flat(&scene.layers)
+        .into_iter()
+        .find_map(|l| match &l.content {
+            LayerContent::Raster(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let alpha = |x, y| {
+        let mut px = [0.0; 4];
+        surface.read_pixel(x, y, &mut px);
+        px[3]
+    };
+    // Fitted upright in the 40 x 40 box: 20 wide and 40 tall, centred.
+    assert!(alpha(20, 3) > 0.5 && alpha(20, 36) > 0.5, "the turned image fills the box's height");
+    assert!(alpha(3, 20) < 0.5 && alpha(36, 20) < 0.5, "and leaves its sides empty");
+}
+
+#[test]
+fn turning_embedded_rasters_stays_within_one_decode_allowance() {
+    // Turning this 2048 x 2048 RGB image takes 24 MiB: the decoded pixels and their turned copy.
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="10" height="10"><defs><image id="i" width="10" height="10" xlink:href="data:image/jpeg;base64,{}"/></defs>{}</svg>"##,
+        turned_jpeg(2048, 2048),
+        r##"<use xlink:href="#i"/>"##.repeat(256)
+    );
+    let mut opts = ImportOptions::default();
+    opts.limits.decompressed_bytes = 16 << 20;
+    let start = Instant::now();
+    assert!(matches!(photocraft_svg::import(svg.as_bytes(), &opts), Err(photocraft_svg::ImportError::Limit(_))));
+    assert!(start.elapsed() < Duration::from_secs(1), "{:?}", start.elapsed());
 }

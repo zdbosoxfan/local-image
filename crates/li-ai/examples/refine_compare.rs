@@ -16,11 +16,7 @@ const TEMPLATES: &[(&str, &[&str])] = &[
     ("sd15", &[]),
     ("sdxl", &["image_sdxl_simple"]),
     ("pony", &["image_sdxl_simple"]),
-    ("illustrious", &["image_sdxl_simple"]),
     ("sd35", &["sd3.5_simple_example"]),
-    ("flux1", &["flux_dev_full_text_to_image", "flux_schnell_full_text_to_image"]),
-    ("flux1-kontext", &["flux_kontext_dev_basic"]),
-    ("flux1-fill", &["flux_fill_inpaint_example"]),
     ("flux2", &["image_flux2"]),
     (
         "flux2-klein",
@@ -33,8 +29,6 @@ const TEMPLATES: &[(&str, &[&str])] = &[
     ),
     ("qwen-image", &["image_qwen_image", "image_qwen_Image_2512"]),
     ("qwen-edit", &["image_qwen_image_edit", "image_qwen_image_edit_2509", "image_qwen_image_edit_2511"]),
-    ("qwen-image-21", &["image_qwen_image_2_1_image_edit"]),
-    ("z-image", &["image_z_image_turbo", "image_z_image"]),
     ("ernie", &["image_ernie_image"]),
     ("hidream", &["hidream_i1_full", "hidream_i1_dev", "hidream_i1_fast"]),
 ];

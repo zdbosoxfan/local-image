@@ -313,6 +313,10 @@ pub(crate) fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
 fn engine(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut opts = vec![("auto".to_owned(), "Automatic"), ("lama".to_owned(), "On-device · LaMa")];
     opts.extend(crate::ai_ui::REMOVE_ENGINES.iter().map(|(k, label, _, _)| ((*k).to_owned(), *label)));
+    // a value this build doesn't offer (older preferences) shows as Automatic, which it runs as
+    if !opts.iter().any(|(k, _)| *k == app.ui.ai.remove_engine) {
+        app.ui.ai.remove_engine = "auto".into();
+    }
     widgets::dropdown(ui, "remove-engine", &mut app.ui.ai.remove_engine, &opts, 130.0);
 }
 
