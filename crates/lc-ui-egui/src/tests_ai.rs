@@ -19,7 +19,7 @@ struct Mock;
 
 impl AiHost for Mock {
     fn remove_engines(&self) -> Vec<RemoveEngine> {
-        vec![RemoveEngine { key: "mock".into(), label: "Mock Engine".into(), problem: None }]
+        vec![RemoveEngine { key: "mock".into(), label: "Mock Engine".into(), problem: None, on_device: false }]
     }
     fn remove(&self, req: &RemoveRequest, _: &JobCtl) -> Result<RemoveResult, String> {
         let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [0.98, 0.0, 0.98] } else { *c }).collect();
@@ -32,10 +32,22 @@ struct Down;
 
 impl AiHost for Down {
     fn remove_engines(&self) -> Vec<RemoveEngine> {
-        vec![RemoveEngine { key: "down".into(), label: "Down Engine".into(), problem: Some("The AI engine isn't running.".into()) }]
+        vec![RemoveEngine { key: "down".into(), label: "Down Engine".into(), problem: Some("The AI engine isn't running.".into()), on_device: false }]
     }
     fn remove(&self, _: &RemoveRequest, _: &JobCtl) -> Result<RemoveResult, String> {
         Err("The AI engine isn't running.".into())
+    }
+}
+
+/// Automatic while it picks the on-device engine, whose model isn't downloaded.
+struct NoModel;
+
+impl AiHost for NoModel {
+    fn remove_engines(&self) -> Vec<RemoveEngine> {
+        vec![RemoveEngine { key: "auto".into(), label: "Automatic".into(), problem: Some("Download AI Remove first.".into()), on_device: true }]
+    }
+    fn remove(&self, _: &RemoveRequest, _: &JobCtl) -> Result<RemoveResult, String> {
+        Err("Download AI Remove first.".into())
     }
 }
 
@@ -240,6 +252,19 @@ fn ai_remove_problem_opens_local_ai_setup() {
     click(&mut h, "button:removeSetUpAI");
     h.step();
     assert_eq!(h.app.open_shared_ai.as_deref(), Some("ai.connection"));
+}
+
+/// An engine that runs on this computer opens On-device Tools, where its model is downloaded.
+#[test]
+fn ai_remove_on_device_problem_opens_on_device_tools() {
+    let mut h = app_with(Arc::new(NoModel));
+    h.app.hosted_menus = true;
+    exec(&mut h, "panel.remove", json!({}));
+    click(&mut h, "button:removeMode-ai");
+    h.step();
+    click(&mut h, "button:removeSetUpAI");
+    h.step();
+    assert_eq!(h.app.open_shared_ai.as_deref(), Some("ai.tools"));
 }
 
 /// After an AI removal the Heal brush works over it: the brush keeps its own size, the old spot

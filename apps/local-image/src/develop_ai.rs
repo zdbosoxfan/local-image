@@ -80,13 +80,26 @@ impl AiHost for DevelopAi {
 
     fn remove_engines(&self) -> Vec<RemoveEngine> {
         let st = ai_ui::status();
-        let local = RemoveEngine { key: "lama".into(), label: "On-device · LaMa".into(), problem: ai_ui::remove_ready("lama").err() };
+        let local = RemoveEngine { key: "lama".into(), label: "On-device · LaMa".into(), problem: ai_ui::remove_ready("lama").err(), on_device: true };
         let mut engines: Vec<_> = ai_ui::REMOVE_ENGINES
             .iter()
-            .map(|(key, label, model, variant)| RemoveEngine { key: (*key).to_owned(), label: (*label).to_owned(), problem: st.ready(*model, variant).err() })
+            .map(|(key, label, model, variant)| RemoveEngine {
+                key: (*key).to_owned(),
+                label: (*label).to_owned(),
+                problem: st.ready(*model, variant).err(),
+                on_device: false,
+            })
             .collect();
         engines.insert(0, local);
-        engines.insert(0, RemoveEngine { key: "auto".into(), label: "Automatic".into(), problem: ai_ui::remove_ready("auto").err() });
+        engines.insert(
+            0,
+            RemoveEngine {
+                key: "auto".into(),
+                label: "Automatic".into(),
+                problem: ai_ui::remove_ready("auto").err(),
+                on_device: ai_ui::effective_remove_key("auto") == "lama",
+            },
+        );
         engines
     }
 

@@ -108,8 +108,8 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(problem).color(Tokens::get(ui.ctx()).caution).size(11.5));
                 if app.hosted_menus && text_button(ui, "removeSetUpAI", "Set Up Local AI…", false).clicked() {
-                    // the on-device engine is downloaded under On-device Tools, the others need the AI engine
-                    let section = if engine.key == "lama" { "ai.tools" } else { "ai.connection" };
+                    // an on-device engine's model is downloaded under On-device Tools, the others need the AI engine
+                    let section = if engine.on_device { "ai.tools" } else { "ai.connection" };
                     app.open_shared_ai = Some(section.into());
                 }
             });

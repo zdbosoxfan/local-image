@@ -29,6 +29,9 @@ pub struct RemoveEngine {
     pub label: String,
     /// Why it can't run now (the AI engine isn't running, a model is missing…); `None`: ready.
     pub problem: Option<String>,
+    /// Runs on this computer with a downloaded model rather than through the AI engine; for an
+    /// engine that picks one (Automatic), the one it picks now.
+    pub on_device: bool,
 }
 
 /// What an AI Remove engine gets: the area around the removal as encoded sRGB (0–1, float, no
