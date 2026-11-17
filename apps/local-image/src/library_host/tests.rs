@@ -729,7 +729,10 @@ fn host_with_round_trip(library: LightcraftApp, photo: lightcraft_catalog::Photo
         write: Some(Box::new(|path: &str, bytes: &[u8]| std::fs::write(path, bytes).map_err(|e| e.to_string()))),
         ..Default::default()
     };
-    let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), services));
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+    // The Library follows the shared Rendering Mode: keep it on the CPU, as `library` asks.
+    editor.session.prefs.edit(|p| p.performance.rendering_mode = photocraft_engine::prefs::RenderingMode::Cpu);
+    let mut host = Host::new(editor);
     host.editor.host_modes = true;
     // the photo's own settings, as the switch to Compositing passes them
     let settings = serde_json::to_value(&*library.session.catalog.photo(photo).unwrap().develop).unwrap();
