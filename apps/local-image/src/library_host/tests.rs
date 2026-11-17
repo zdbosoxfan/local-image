@@ -3799,7 +3799,7 @@ fn shared_shell_host_exact_save_keeps_sync_settings_and_module_shortcuts() {
     h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
     h.click("button:roundTripSave");
     h.wait_for(|host| !host.editor.has_unsaved());
-    assert!(dir.join("photo-Edit.psd").exists(), "exact host Save still publishes its layered copy");
+    assert!(dir.join("photo-Edit.psd").exists(), "the notice's Save still publishes its layered copy");
     h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
     assert_eq!(h.host.mode, Module::Compositing);
     h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
