@@ -127,7 +127,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 };
                 let estimate = group.and_then(|g| app.session.quick_seg_dir.as_ref().and_then(|dir| g.in_use(dir))).map(|m| m.cpu_estimate());
                 let allowed = estimate.is_none_or(|e| e.allowed());
-                let resp = if let Some(e) = estimate { resp.on_hover_text(e.label()) } else { resp };
+                let resp = match (estimate, group) {
+                    (Some(e), _) => resp.on_hover_text(e.label()),
+                    // no model installed: the mask falls back to the rough classical estimate
+                    (None, Some(_)) => resp.on_hover_text(li_i18n::library::t("Better with the on-device model: Preferences › AI › On-device Tools")),
+                    (None, None) => resp,
+                };
                 if resp.clicked() && allowed {
                     match *kind {
                         "colorRange" => {

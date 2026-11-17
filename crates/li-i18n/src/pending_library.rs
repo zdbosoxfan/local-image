@@ -302,4 +302,5 @@ pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
     "Compositing",
     "Photo ▸ Edit In… (⌘E) opens the photo in Compositing, linked to Develop. Name another application here (an app name on macOS, a program path elsewhere) to render a 16-bit TIFF copy, stack it with the original and open it there.",
     "Set Up Local AI…",
+    "Better with the on-device model: Preferences › AI › On-device Tools",
 ];
