@@ -315,7 +315,9 @@ fn short_path(p: &str) -> String {
 pub fn body(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) -> bool {
     let before = choices(dlg);
     let t = Tokens::get(ui.ctx());
-    let n = crate::control::export_targets(app).len();
+    let targets = crate::control::export_targets(app);
+    let n = targets.len();
+    let unsaved = targets.iter().filter(|id| app.host_composites.contains_key(id)).count();
     // Reserve the title, footer and margins measured from the complete window.
     let chrome = ui.ctx().data(|d| d.get_temp::<f32>(egui::Id::new("export-window-overhead"))).unwrap_or(260.0);
     let body_h = (ui.available_height() - 100.0).min(ui.ctx().content_rect().height() - chrome - 64.0).max(40.0);
@@ -365,9 +367,24 @@ pub fn body(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) -> bool {
     // pointer press and release when the conflict question first appears.
     ui.allocate_ui_with_layout(vec2(ui.available_width(), 88.0), Layout::top_down(Align::Min), |ui| {
         ui.set_min_height(88.0);
+        let asking = matches!(dlg, Dialog::Export { existing: Some(c), .. } if *c > 0);
+        if !asking && unsaved > 0 {
+            unsaved_composites_notice(ui, unsaved);
+        }
         existing_prompt(ui, dlg)
     })
     .inner
+}
+
+/// Photos the Library shows as their unsaved Compositing work export as the photo itself.
+fn unsaved_composites_notice(ui: &mut Ui, count: usize) {
+    let t = Tokens::get(ui.ctx());
+    let r = egui::Frame::new().fill(t.inset).corner_radius(4.0).inner_margin(8.0).show(ui, |ui| {
+        let what = if count == 1 { "1 photo has".to_string() } else { format!("{count} photos have") };
+        let why = li_i18n::library::t("unsaved Compositing work, which this export leaves out. Save it in Compositing first.");
+        ui.label(RichText::new(format!("{what} {why}")).color(t.caution));
+    });
+    register(ui.ctx(), "exportUnsavedComposites", r.response.rect);
 }
 
 /// Existing Files ▸ Ask what to do: files are already there; choose, then the export starts.

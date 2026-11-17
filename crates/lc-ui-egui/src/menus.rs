@@ -1024,6 +1024,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 app.host_composite_open = Some(id);
                 return Some(Ok(Value::Null));
             }
+            // The copy is rendered from the photo, not from what the Library shows of Compositing.
+            let unsaved = app.session.active().is_some_and(|id| app.host_composites.contains_key(&id));
             // render an edit copy (stacked on the original), then open it in the editor
             let mut params = p.clone();
             if !params.is_object() {
@@ -1043,7 +1045,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 app.toast(&ctx, format!("Couldn't open the editor: {e}"));
             }
             let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            app.toast(&ctx, format!("{name} opened for editing; it is stacked with the original"));
+            if unsaved {
+                app.toast(&ctx, format!("{name} opened for editing without the photo's unsaved Compositing work; it is stacked with the original"));
+            } else {
+                app.toast(&ctx, format!("{name} opened for editing; it is stacked with the original"));
+            }
             Ok(r)
         }
         "dialog.cull" => {
