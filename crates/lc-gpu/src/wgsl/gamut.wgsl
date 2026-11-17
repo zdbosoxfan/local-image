@@ -88,17 +88,19 @@ fn gamut_piece_count(p: vec4<f32>, hi: f32) -> u32 {
     return 3u;
 }
 
-// `Line::stays_inside`
+// `Line::stays_inside`. A flag, not an early return: a divergent return out of this nested loop
+// hangs NVIDIA 620.70.06 (Xid 109).
 fn gamut_stays_inside(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, hi: f32) -> bool {
+    var inside = true;
     for (var i = 0u; i < 3u; i++) {
         let c = gamut_face(m, l, d, i, 0u);
         let p = gamut_pieces(c, hi);
         let n = gamut_piece_count(p, hi);
         for (var k = 0u; k <= n; k++) {
-            if (gamut_horner(c, p[k]) < 0.0) { return false; }
+            if (gamut_horner(c, p[k]) < 0.0) { inside = false; }
         }
     }
-    return true;
+    return inside;
 }
 
 // `Line::extent`, with `sign_changes` inline.
