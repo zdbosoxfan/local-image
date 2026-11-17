@@ -622,7 +622,7 @@ fn final_review_checker_rejects_inventory_change_after_submission() {
 fn final_review_family_styles_are_preserved_or_rejected_explicitly() {
     let profile = crate::family::registry().family("sdxl").unwrap().clone();
     let recipe = Recipe::Family { profile: Box::new(profile), files: [(Role::Checkpoint, "sdxl.safetensors".into())].into(), denoise: 0.35 };
-    for (name, compatible) in [("sdxl_style.safetensors", true), ("unidentified.safetensors", true), ("flux1_style.safetensors", false)] {
+    for (name, compatible) in [("sdxl_style.safetensors", true), ("unidentified.safetensors", true), ("flux2_klein_style.safetensors", false)] {
         let loras = [LoraUse { name: name.into(), strength: 0.7 }];
         let p = Params { task: Task::Refine { denoise: 0.35 }, loras: &loras, ..Params::create("refine", 512, 288, 42, 20, 6.0) };
         let graph = recipe.graph(&p);

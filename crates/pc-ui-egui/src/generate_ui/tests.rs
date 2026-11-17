@@ -184,8 +184,7 @@ fn refine_model_groups_exclude_upscalers_tools_and_video() {
     assert_eq!(groups[1].0, "Image models — refine by denoise");
     let ids = |group: usize| groups[group].1.iter().map(|m| m.id).collect::<Vec<_>>();
     assert!(ids(0).contains(&ModelId::Klein9B));
-    assert!(ids(0).contains(&ModelId::Qwen));
-    assert!(ids(1).contains(&ModelId::ZImageTurbo));
+    assert!(ids(1).contains(&ModelId::Ernie));
     for excluded in [ModelId::SeedVr2, ModelId::KleinRemove, ModelId::intern("video:refine-picker-test"), ModelId::intern("upscale:refine-picker-test")] {
         assert!(!ids(0).contains(&excluded) && !ids(1).contains(&excluded), "{excluded:?}");
     }
@@ -233,12 +232,12 @@ fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
     for excluded in [ModelId::SeedVr2, ModelId::KleinRemove] {
         assert!(h.query_by_role_and_label(Role::Button, &excluded.info().label).is_none());
     }
-    h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
+    h.get_by_role_and_label(Role::Button, &ModelId::Ernie.info().label).click();
     h.run_steps(3);
     assert_eq!(h.state().ui.ai.generate.denoise, 0.35);
     h.get_by_label("Refines by denoise: lower keeps more of the image");
     h.state_mut().ui.ai.generate.denoise = 0.72;
-    h.get_by_value(&ModelId::ZImageTurbo.info().label).click();
+    h.get_by_value(&ModelId::Ernie.info().label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).click();
     h.run_steps(3);
@@ -255,7 +254,7 @@ fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
     h.state_mut().ui.ai.generate.refine_strength = 0.72;
     h.get_all_by_value(&ModelId::Klein9B.info().label).last().unwrap().click();
     h.run_steps(2);
-    h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
+    h.get_by_role_and_label(Role::Button, &ModelId::Ernie.info().label).click();
     h.run_steps(3);
     assert_eq!(h.state().ui.ai.generate.refine_strength, 0.35);
     h.get_by_label("Refines by denoise: lower keeps more of the image");
@@ -298,7 +297,7 @@ fn refine_with_lora_picker_and_precision_carry_the_second_pass_settings() {
     let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     li_ai::inventory::refresh(
         &li_ai::comfy::ObjectInfo(
-            json!({"LoraLoader": {"input": {"required": {"lora_name": [["qwen_image_2.1_style.safetensors", "flux_realism_lora.safetensors"]]}}}}),
+            json!({"LoraLoader": {"input": {"required": {"lora_name": [["flux-2-klein-style.safetensors", "sdxl_realism_lora.safetensors"]]}}}}),
         ),
         None,
     );
@@ -347,28 +346,21 @@ fn refine_with_lora_picker_and_precision_carry_the_second_pass_settings() {
     h.run_steps(2);
     h.get_by_value("Choose a model").click();
     h.run_steps(2);
-    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
+    h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Klein9B.info().label).click();
     h.run_steps(3);
-    let current_variant = h.state().ui.ai.generate.refine_variant.clone();
-    let current_label = catalog::presets_for(ModelId::Qwen).find(|p| p.variant == current_variant).unwrap().label.clone();
-    let alternate = catalog::presets_for(ModelId::Qwen).find(|p| p.variant != current_variant).unwrap();
-    h.get_all_by_value(&current_label).last().unwrap().click();
-    h.run_steps(2);
-    h.get_by_role_and_label(egui::accesskit::Role::Button, &alternate.label).click();
-    h.run_steps(2);
-    assert_eq!(h.state().ui.ai.generate.refine_variant, alternate.variant);
+    assert_eq!(h.state().ui.ai.generate.refine_variant, catalog::default_variant(ModelId::Klein9B));
     h.get_all_by_label("+ Add").last().unwrap().click();
     h.run_steps(2);
-    assert!(h.query_by_label("flux realism lora").is_none());
-    h.get_by_label("qwen image 2.1 style").click();
+    assert!(h.query_by_label("sdxl realism lora").is_none());
+    h.get_by_label("flux 2 klein style").click();
     h.run_steps(3);
     let s = &h.state().ui.ai.generate;
     assert!(s.loras.is_empty());
-    assert_eq!(s.refine_loras, vec![LoraPick { name: "qwen_image_2.1_style.safetensors".into(), strength: 0.8 }]);
+    assert_eq!(s.refine_loras, vec![LoraPick { name: "flux-2-klein-style.safetensors".into(), strength: 0.8 }]);
     let (req, _, _) = local_request(s, s.prompt.clone(), None, Vec::new()).unwrap();
     let refine = req.refine.unwrap();
-    assert_eq!(refine.variant, alternate.variant);
-    assert_eq!(refine.loras, vec![li_ai::workflows::LoraUse { name: "qwen_image_2.1_style.safetensors".into(), strength: 0.8 }]);
+    assert_eq!(refine.variant, catalog::default_variant(ModelId::Klein9B));
+    assert_eq!(refine.loras, vec![li_ai::workflows::LoraUse { name: "flux-2-klein-style.safetensors".into(), strength: 0.8 }]);
     let steps = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Refine steps").rect();
     h.hover_at(steps.center());
     h.event(egui::Event::PointerButton { pos: steps.center(), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
@@ -388,7 +380,7 @@ fn refine_with_lora_picker_and_precision_carry_the_second_pass_settings() {
     assert_eq!(req.refine.unwrap().steps, s.refine_steps);
     s.refine_strength = f32::NAN;
     let (req, _, _) = local_request(s, s.prompt.clone(), None, Vec::new()).unwrap();
-    assert_eq!(req.refine.unwrap().strength, catalog::refine_default_denoise(ModelId::Qwen), "a second-pass fallback follows its model");
+    assert_eq!(req.refine.unwrap().strength, catalog::refine_default_denoise(ModelId::Klein9B), "a second-pass fallback follows its model");
     let old: GenerateState = serde_json::from_value(json!({"refine": true})).unwrap();
     assert!(old.refine_loras.is_empty());
 }
@@ -418,7 +410,7 @@ fn upscale_offers_the_official_upscalers_first() {
     let official: Vec<&str> = catalog::catalog().models.iter().filter(|m| fits_mode_with(m, Mode::Upscale, false)).map(|m| m.id.key()).collect();
     assert_eq!(official, vec![ModelId::SeedVr2.key(), "realplksr-2x", "realplksr-4x", "bsrgan-2x", "bsrgan-4x"]);
     let any: Vec<ModelId> = catalog::catalog().models.iter().filter(|m| fits_mode_with(m, Mode::Upscale, true)).map(|m| m.id).collect();
-    assert!(any.contains(&ModelId::Klein4B) && any.contains(&ModelId::Qwen) && !any.contains(&ModelId::SeedVr2), "{any:?}");
+    assert!(any.contains(&ModelId::Klein4B) && !any.contains(&ModelId::SeedVr2), "{any:?}");
     // other modes never offer the upscaler
     for mode in [Mode::Create, Mode::Edit, Mode::Fill, Mode::Refine] {
         assert!(!fits_mode_with(ModelId::SeedVr2.info(), mode, false), "{mode:?}");
@@ -572,32 +564,14 @@ fn refine_lora_preset_roundtrip_and_invalid_step_limits() {
 }
 
 #[test]
-fn zimage_variety_settings_presets_and_requests_keep_old_defaults() {
-    let old: GenerateState = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
-    assert_eq!(old.variety, 0.0);
-    let old_draft: DraftRefineSettings = serde_json::from_value(json!({"draft":{"model":"z-image-turbo"}})).unwrap();
-    assert_eq!(old_draft.draft.variety, 0.0);
-    let mut s = GenerateState { variety: 75.0, ..old };
-    let restored: GenerateState = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
-    assert_eq!(restored.variety, 75.0);
-    assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 75.0);
-    s.variety = f32::NAN;
-    assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
-    s.variety = 75.0;
-    set_model(&mut s, ModelId::Ernie);
-    assert_eq!(s.variety, 0.0);
-    s.variety = 75.0;
-    assert_eq!(local_request(&s, "a fox".into(), None, Vec::new()).unwrap().0.variety, 0.0);
-    let old_preset: li_ai::presets::GenPreset = serde_json::from_value(json!({"model":"z-image-turbo"})).unwrap();
-    apply_preset(&mut s, &old_preset);
-    assert_eq!(s.variety, 0.0);
-    let preset = li_ai::presets::GenPreset { variety: Some(75.0), ..old_preset };
-    let restored: li_ai::presets::GenPreset = serde_json::from_value(serde_json::to_value(&preset).unwrap()).unwrap();
-    apply_preset(&mut s, &restored);
-    assert_eq!(s.variety, 75.0);
-    s.mode = Mode::Refine;
-    let source = RgbaImage::new(64, 64);
-    assert_eq!(local_request(&s, "a fox".into(), Some((photocraft_doc::DocId(1), source, None)), Vec::new()).unwrap().0.variety, 0.0);
+fn saved_z_image_settings_load_and_fall_back_to_klein() {
+    let old: GenerateState = serde_json::from_value(json!({"model":"z-image-turbo","variety":75.0})).unwrap();
+    assert_eq!(model_of(&old), ModelId::Klein4B);
+    assert_eq!(local_request(&old, "a fox".into(), None, Vec::new()).unwrap().0.model, ModelId::Klein4B);
+    let old_draft: DraftRefineSettings = serde_json::from_value(json!({"draft":{"model":"z-image-turbo","variety":75.0}})).unwrap();
+    assert_eq!(model_of(&old_draft.draft), ModelId::Klein4B);
+    let old_preset: li_ai::presets::GenPreset = serde_json::from_value(json!({"model":"z-image-turbo","variety":75.0})).unwrap();
+    assert_eq!(old_preset.model.as_deref(), Some("z-image-turbo"));
 }
 
 #[test]

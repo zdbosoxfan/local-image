@@ -419,24 +419,6 @@ fn krea2_turbo_creates_and_takes_style_references() {
 }
 
 #[test]
-fn qwen_21_turbo_runs_its_template_with_fixed_sigmas() {
-    let r = recipe_for("qwen_image_2.1_turbo_bf16.safetensors", "Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_bf16");
-    assert_eq!(sources(&r), [("create".into(), "image_qwen_image_2_1_turbo_t2i".into()), ("edit".into(), "image_qwen_image_2_1_turbo_image_edit".into())]);
-    assert!(r.controls.steps.is_none() && r.controls.guidance.is_none(), "8 fixed steps at cfg 1");
-    assert_eq!(binding(&r, "clip").used.as_deref(), Some("qwen3vl_8b_int8_convrot.safetensors"));
-    let g = built(&r, &create("a house"));
-    assert!(g.values().any(|n| n["class_type"] == "ManualSigmas") && g.values().any(|n| n["class_type"] == "SamplerCustomAdvanced"));
-    let refine = built(&r, &Params { task: Task::Refine { denoise: 0.4 }, ..create("a house") });
-    let split = refine.values().find(|n| n["class_type"] == "SplitSigmasDenoise").expect("fixed sigmas are split for the strength");
-    assert!((split["inputs"]["denoise"].as_f64().unwrap() - 0.4).abs() < 1e-6);
-    let edit = r.build(&Params { task: Task::Edit, references: 2, ..create("x") }, &owner_info()).unwrap();
-    let enc = edit.graph.as_object().unwrap().values().find(|n| n["class_type"] == "TextEncodeQwenImage21").unwrap();
-    for k in ["images.image_1", "images.image_2", "images.image_3"] {
-        assert!(enc["inputs"][k].is_array(), "{k}");
-    }
-}
-
-#[test]
 fn every_derived_graph_validates() {
     for (file, fixture) in [
         ("flux3-image-klein-bf16.safetensors", "owner__diffusion_models~flux3-image-klein-bf16"),

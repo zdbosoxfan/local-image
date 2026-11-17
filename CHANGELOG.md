@@ -129,6 +129,7 @@ All notable changes to Local Image are recorded here. The format follows
 - A Library photo opened in Compositing carries its Library title, caption, copyright, creator, keywords and location in the document's metadata, the saved `-Edit` file's Library entry gets the same title, caption, copyright, creator and location where the file has none of its own. Export As still starts with Metadata: None; choose All to embed them.
 - AI Denoise that can't use the GPU because AI work holds its memory now says so and points to waiting for AI jobs or to Eject in Compositing's status bar, instead of asking to retry after other GPU work finishes.
 - Compositing's File › Exit is now Quit Local Image, as in Library and Develop. Library and Develop messages and shortcut lists name Compositing and "Library & Develop" instead of "the editor" and "Library", and the Global shortcut F reads "Screen mode / Full Screen Preview".
+- Keyboard Shortcuts names its scopes Global, "Library & Develop" and Compositing, and the Global list calls the Ctrl/Cmd+Alt+1-3 switches the Library, Develop and Compositing modules instead of workspaces.
 - Blend modes in Develop's and the Library's Layers list read as in Compositing's Layers panel; German showed "Überlagerung" for Overlay instead of "Überlagern".
 - Remove Location Info refuses an Original export whose XMP packet is too large or too deeply nested to read, instead of copying it unchecked.
 - Remove Location Info refuses an Original export in any format the location check can't read, including HEIC, HEIF, HIF and JPEG XL, instead of copying it unchecked. The error names the format.
@@ -138,6 +139,55 @@ All notable changes to Local Image are recorded here. The format follows
 - Remove Location Info on an Original export is best-effort, not a guarantee. Corrupt Exif in a file other than PSD or PSB reads as no Exif, so a location inside it isn't seen and the file is copied. The same goes for JPEG data past the first scan, IPTC past the first JPEG APP13 block that holds it, PSD resources other than Exif and XMP, XMP or IPTC outside a TIFF's first directory, CR3 previews and PNG text chunks under other keywords. Export as JPEG or TIFF when the location must go.
 - Perspective Crop with no size set makes the canvas the rectangle the frame shows in perspective, so a façade or page shot at an angle keeps its proportions. It used the average length of the frame's opposite edges, which squashed it. A frame whose sides barely converge takes its longest edges.
 - HEIC, HEIF and AVIF photos import with the capture time, camera, lens, location and keywords in their Exif and XMP items. They used to import with none of it, dated by the file's modification time. Remove Location Info still refuses to copy these originals.
+
+### Removed
+
+- Qwen Image 2.1 and its Turbo version are no longer offered or downloaded: their licence does not
+  allow client use of the pictures they make. Saved settings that named it fall back to FLUX.2
+  Klein 4B, and an installed Qwen Image 2.1 file is no longer recognised as a known model. A file
+  you install yourself may still run through a matching ComfyUI workflow template.
+
+- The Qwen engines for AI Remove are gone. AI Remove offers Automatic, on-device LaMa and FLUX.2
+  Klein; a saved Qwen choice now runs as Automatic.
+
+- Remove Background (AI) and Select › Subject (AI) no longer use Qwen Image 2.1. Remove Background
+  uses the on-device Fast and Better Quality models (see Changed) everywhere (Layer › Layer Mask › Remove
+  Background (AI) now runs them too), and Select › Subject (AI) is gone: use Select › Subject. The
+  "Keep…" hint field went with the Qwen engine.
+
+- Transparent generation is gone: the Generate panel no longer offers "Transparent background"
+  and the "Alpha" tag no longer appears, because no remaining model makes real transparency.
+  Regenerating an older transparent result now makes an opaque picture.
+
+- FLUX.1 is no longer supported: dev, schnell, Kontext, Fill, Redux and the Canny/Depth control
+  models. Their licences do not allow client use of the pictures they make. Installed FLUX.1 files
+  and LoRAs are no longer recognised as a known model, and FLUX.1 LoRAs are not offered for other
+  models. A file you install yourself may still run through a matching ComfyUI workflow template.
+
+- Black Forest Labs is gone as a cloud provider, with its FLUX.1 Kontext [pro], FLUX1.1 [pro] and
+  FLUX.1 Fill [pro] models. A saved key is no longer used, and a saved choice of one of those
+  models falls back to FLUX.2 Klein 4B.
+
+- Illustrious and NoobAI are no longer offered: their profile and the "Anime (Illustrious)" style
+  preset are gone, because their licence does not allow client use of the pictures they make. An
+  installed Illustrious or NoobAI file is now treated as plain SDXL.
+
+- Z-Image and Z-Image Turbo are no longer offered or downloaded, and the Turbo-only Variety
+  control, the "Starting image" reference and its Variation strength slider went with them. Saved
+  settings that named Z-Image Turbo fall back to FLUX.2 Klein 4B, and an installed Z-Image file or
+  LoRA is no longer recognised as a known model. A file you install yourself may still run through
+  a matching ComfyUI workflow template.
+
+### Changed
+
+- The on-device background-removal models changed so their masks can be used for client work: Fast
+  is now InSPyReNet (395 MB) and Better Quality is the new BiRefNet lite (224 MB), both MIT
+  licensed. BRIA RMBG-1.4, whose licence is non-commercial, is removed and its file is no longer
+  used, so a new download is needed. Select › Subject and Remove Background use whichever of the
+  two is installed.
+
+- Generative Fill and Generate Background now run on FLUX.2 Klein 4B instead of Qwen Image 2.1.
+  Their old "engine" setting is ignored.
 
 ## [0.8.0-alpha] - 2026-10-29
 

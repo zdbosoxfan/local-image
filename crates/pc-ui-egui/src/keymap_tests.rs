@@ -61,9 +61,9 @@ fn capture(h: &mut Harness<'_, State>, id: &str, key_value: Key, modifiers: Modi
 #[test]
 fn keys_profiles_g3_widget_lifecycle_capture_global_and_cancel() {
     let mut h = harness();
-    h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Editor")).click();
+    h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Compositing")).click();
     h.run();
-    h.get_by_label("Library + Develop").click();
+    h.get_by_label("Library & Develop").click();
     h.run();
     h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Lightroom")).click();
     h.run();
@@ -249,9 +249,9 @@ fn keys_profiles_preferences_entry_and_malformed_draft_are_safe() {
 #[test]
 fn dsfix_shortcuts_ok_uses_selected_capture_one_defaults() {
     let mut h = harness();
-    h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Editor")).click();
+    h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Compositing")).click();
     h.run();
-    h.get_by_label("Library + Develop").click();
+    h.get_by_label("Library & Develop").click();
     h.run();
     h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Lightroom")).click();
     h.run();

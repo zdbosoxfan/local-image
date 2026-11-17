@@ -57,7 +57,7 @@ pub fn not_comfy(path: &str) -> bool {
 }
 
 /// The folder for a repository file of a `family` card: the folder its path names, else the
-/// role of a family component it is named as (a root `ae.safetensors` is FLUX.1's VAE), else the
+/// role of a family component it is named as (a root `ae.safetensors` is HiDream's VAE), else the
 /// family's main model folder.
 pub fn file_folder(reg: &Registry, family: Option<&str>, path: &str) -> &'static str {
     if let Some(f) = folder_from_path(path) {
@@ -129,7 +129,7 @@ pub fn default_variant(item: &Item, blackwell: bool, vram: Option<u64>) -> Optio
 }
 
 /// Whether a file is a template's prompt enhancer (an LLM that rewrites the prompt: an
-/// "upsampler", Qwen Image 2.1's `_pe_` models), which is never installed unless asked for.
+/// "upsampler", a `_pe_` model), which is never installed unless asked for.
 pub fn is_prompt_enhancer(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     n.contains("upsampler") || n.contains("enhancer") || n.split(['_', '-', '.']).any(|t| t == "pe")
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(folder_from_path("split_files/text_encoders/qwen_3_4b.safetensors"), Some("text_encoders"));
         assert_eq!(folder_from_path("split_files/diffusion_models/flux-2-klein-4b.safetensors"), Some("diffusion_models"));
         assert_eq!(folder_from_path("clip/t5xxl_fp8.safetensors"), Some("text_encoders"));
-        assert_eq!(folder_from_path("flux1-dev.safetensors"), None);
+        assert_eq!(folder_from_path("flux2_dev_fp8mixed.safetensors"), None);
         for diffusers in [
             "transformer/diffusion_pytorch_model-00001-of-00003.safetensors",
             "text_encoder_2/model-00001-of-00002.safetensors",
@@ -214,7 +214,7 @@ mod tests {
         ] {
             assert!(not_comfy(diffusers), "{diffusers}");
         }
-        for comfy in ["flux1-dev.safetensors", "ae.safetensors", "split_files/vae/flux2-vae.safetensors", "model_card_image.safetensors"] {
+        for comfy in ["flux2_dev_fp8mixed.safetensors", "ae.safetensors", "split_files/vae/flux2-vae.safetensors", "model_card_image.safetensors"] {
             assert!(!not_comfy(comfy), "{comfy}");
         }
     }
@@ -275,14 +275,14 @@ mod tests {
             ..Default::default()
         };
         let item = Item {
-            files: vec![sized("flux1-dev-F16.gguf", 24), sized("flux1-dev-Q8_0.gguf", 13), sized("flux1-dev-Q4_K_S.gguf", 7), sized("flux1-dev-Q2_K.gguf", 4)],
+            files: vec![sized("flux2-dev-F16.gguf", 24), sized("flux2-dev-Q8_0.gguf", 13), sized("flux2-dev-Q4_K_S.gguf", 7), sized("flux2-dev-Q2_K.gguf", 4)],
             ..Default::default()
         };
-        assert_eq!(default_variant(&item, false, Some(24_000_000_000)).as_deref(), Some("flux1-dev-Q8_0.gguf"));
+        assert_eq!(default_variant(&item, false, Some(24_000_000_000)).as_deref(), Some("flux2-dev-Q8_0.gguf"));
         let names: Vec<&str> = variants(&item).iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, ["flux1-dev-F16.gguf", "flux1-dev-Q8_0.gguf", "flux1-dev-Q4_K_S.gguf", "flux1-dev-Q2_K.gguf"]);
-        let iq = Item { files: vec![sized("flux1-dev-IQ2_XS.gguf", 4), sized("flux1-dev-IQ4_XS.gguf", 7)], ..Default::default() };
-        assert_eq!(default_variant(&iq, false, Some(24_000_000_000)).as_deref(), Some("flux1-dev-IQ4_XS.gguf"));
+        assert_eq!(names, ["flux2-dev-F16.gguf", "flux2-dev-Q8_0.gguf", "flux2-dev-Q4_K_S.gguf", "flux2-dev-Q2_K.gguf"]);
+        let iq = Item { files: vec![sized("flux2-dev-IQ2_XS.gguf", 4), sized("flux2-dev-IQ4_XS.gguf", 7)], ..Default::default() };
+        assert_eq!(default_variant(&iq, false, Some(24_000_000_000)).as_deref(), Some("flux2-dev-IQ4_XS.gguf"));
     }
 
     #[test]
@@ -293,13 +293,12 @@ mod tests {
             approx_bytes: Some(gb * 1_000_000_000),
             ..Default::default()
         };
-        let item =
-            Item { files: vec![sized("qwen_image_2.1_bf16.safetensors", 28), sized("qwen_image_2.1_int8_convrot.safetensors", 14)], ..Default::default() };
+        let item = Item { files: vec![sized("acme_image_bf16.safetensors", 28), sized("acme_image_int8_convrot.safetensors", 14)], ..Default::default() };
         let gb = |n: u64| Some(n * 1_000_000_000);
-        assert_eq!(default_variant(&item, true, gb(48)).as_deref(), Some("qwen_image_2.1_bf16.safetensors"));
-        assert_eq!(default_variant(&item, true, gb(24)).as_deref(), Some("qwen_image_2.1_int8_convrot.safetensors"));
-        assert_eq!(default_variant(&item, true, gb(8)).as_deref(), Some("qwen_image_2.1_int8_convrot.safetensors"), "the smallest when none fits");
-        assert!(is_prompt_enhancer("qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors"));
+        assert_eq!(default_variant(&item, true, gb(48)).as_deref(), Some("acme_image_bf16.safetensors"));
+        assert_eq!(default_variant(&item, true, gb(24)).as_deref(), Some("acme_image_int8_convrot.safetensors"));
+        assert_eq!(default_variant(&item, true, gb(8)).as_deref(), Some("acme_image_int8_convrot.safetensors"), "the smallest when none fits");
+        assert!(is_prompt_enhancer("qwen3.5_9b_acme_image_pe_t2i.int8_convrot.safetensors"));
         assert!(!is_prompt_enhancer("qwen3.5_9b_bf16.safetensors") && !is_prompt_enhancer("qwen3vl_8b_int8_convrot.safetensors"));
     }
 }

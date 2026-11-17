@@ -133,7 +133,7 @@ fn shared_shell_library_capture_is_same_editor_and_scoped_collision() {
     assert_eq!(fields["overrides"][&key], "Cmd+Alt+3");
     assert!(fields["message"].as_str().unwrap().contains("Conflict with Global"));
     assert!(fields["message"].as_str().unwrap().contains("ignored"));
-    assert_eq!(crate::keymaps::global_conflict("Cmd+Alt+3"), Some("Editor workspace"));
+    assert_eq!(crate::keymaps::global_conflict("Cmd+Alt+3"), Some("Compositing module"));
     fields.insert("capture".into(), json!(true));
 
     draw(vec![egui::Event::Key { key: egui::Key::N, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }], &mut fields);

@@ -1,5 +1,5 @@
 //! Develop's AI services, provided by the app: Compositing's AI Remove engines (on-device LaMa,
-//! FLUX.2 Klein and Qwen through ComfyUI, `li-ai`), handed to the Library's engine as its
+//! FLUX.2 Klein through ComfyUI, `li-ai`), handed to the Library's engine as its
 //! [`AiHost`] — so the `lc-*` crates depend on neither ComfyUI nor the editor. Removals stay in
 //! float; only a ComfyUI engine's PNG is 8-bit.
 
@@ -22,8 +22,6 @@ impl DevelopAi {
 fn engine(key: &str) -> li_ai::RemoveEngine {
     match ai_ui::effective_remove_key(key) {
         "lama" => li_ai::RemoveEngine::Lama { models_dir: photocraft_engine::seg::models_dir() },
-        "qwen-bf16" => li_ai::RemoveEngine::Qwen { variant: "bf16".into() },
-        "qwen-int8" => li_ai::RemoveEngine::Qwen { variant: "int8".into() },
         _ => li_ai::RemoveEngine::Klein,
     }
 }
@@ -80,13 +78,26 @@ impl AiHost for DevelopAi {
 
     fn remove_engines(&self) -> Vec<RemoveEngine> {
         let st = ai_ui::status();
-        let local = RemoveEngine { key: "lama".into(), label: "On-device · LaMa".into(), problem: ai_ui::remove_ready("lama").err() };
+        let local = RemoveEngine { key: "lama".into(), label: "On-device · LaMa".into(), problem: ai_ui::remove_ready("lama").err(), on_device: true };
         let mut engines: Vec<_> = ai_ui::REMOVE_ENGINES
             .iter()
-            .map(|(key, label, model, variant)| RemoveEngine { key: (*key).to_owned(), label: (*label).to_owned(), problem: st.ready(*model, variant).err() })
+            .map(|(key, label, model, variant)| RemoveEngine {
+                key: (*key).to_owned(),
+                label: (*label).to_owned(),
+                problem: st.ready(*model, variant).err(),
+                on_device: false,
+            })
             .collect();
         engines.insert(0, local);
-        engines.insert(0, RemoveEngine { key: "auto".into(), label: "Automatic".into(), problem: ai_ui::remove_ready("auto").err() });
+        engines.insert(
+            0,
+            RemoveEngine {
+                key: "auto".into(),
+                label: "Automatic".into(),
+                problem: ai_ui::remove_ready("auto").err(),
+                on_device: ai_ui::effective_remove_key("auto") == "lama",
+            },
+        );
         engines
     }
 
@@ -150,7 +161,7 @@ mod tests {
         let engines = DevelopAi.remove_engines();
         assert_eq!(engines[0].key, "auto");
         assert!(engines.iter().any(|e| e.key == "lama"));
-        assert!(engines.iter().any(|e| e.key == "qwen-int8"));
+        assert!(engines.iter().any(|e| e.key == "klein"));
     }
     #[test]
     fn ds2_upscale_rejects_overflow_and_zero_dimensions() {

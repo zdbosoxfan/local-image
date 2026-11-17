@@ -42,6 +42,11 @@ pub trait HostPreferencesPages {
     /// Validate and reserve the host draft without changing live settings. Publication must be
     /// infallible: the shell calls it only after every fallible part of the transaction succeeds.
     fn prepare(&self, draft: &Value) -> Result<Box<dyn FnOnce() + '_>, String>;
+    /// `draft` with `section`'s settings back at their defaults (Reset Section), or `None` when
+    /// the page has nothing to reset.
+    fn reset(&self, _section: &str, _draft: &Value) -> Option<Value> {
+        None
+    }
 }
 
 /// Shell runtime state for preferences, autosave and snapping (not serialised).

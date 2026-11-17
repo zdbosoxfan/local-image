@@ -36,7 +36,6 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Magic Wand | PhotoCraft + Photoshop/Compositor **Sample Size** (point to 101×101 average) | 🔧 |
 | Quick Selection | PhotoCraft graph cut + **highlight-aware edges**: specular highlights (dichromatic model: body colour + white) enclosed by the painted colours are filled from their surroundings before the cut, so it no longer stops at them, while a real hole showing the background stays out; **Subject Assist** adds the installed U²-Net/IS-Net map as a weak prior | ✅ |
 | Object Selection | PhotoCraft rectangle mode (excellent) + **click mode** from the local segmentation model (OmaPhoto's flood of the 320² probability map) | 🔧 |
-| **Select › Subject (AI)** | Qwen Image 2.1 matte via ComfyUI → **closed-form matting** of the edge band | ✅ |
 | Select › Subject | **Local U²-Net / IS-Net** on the CPU (`li-seg`, tract, pure Rust) when installed, PhotoCraft heuristic otherwise | 🔧 |
 | Select and Mask | PhotoCraft guided-filter refine + **Refine: Matting** (closed-form, He et al. 2010 matrix-free CG; Germer 2020 foreground colours) | 🔧 |
 | Color Range, Feather/Expand/Contract/Smooth/Border | PhotoCraft (audit: work well) | ✅ |
@@ -45,7 +44,7 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 
 | Tool | Implementation | Status |
 | --- | --- | --- |
-| **AI Remove brush** (R) | FLUX.2 Klein + object-removal LoRA or Qwen via ComfyUI; red-outline input, Poisson blend; repair on its own layer | ✅ |
+| **AI Remove brush** (R) | FLUX.2 Klein + object-removal LoRA via ComfyUI, or on-device LaMa; red-outline input, Poisson blend; repair on its own layer | ✅ |
 | Content-Aware Fill | PhotoCraft PatchMatch/EM, **fixed**: full EM up to 400 px holes (was 96), re-synthesis from the upsampled match field each level, sharp final vote (low-cost quantile + spatial falloff), **Poisson seam correction**. Audit showed blurry fills with hard seams before | 🔧 |
 | Spot Healing | Same engine; **sampling context widened** to 3× brush (was brush + 8 px, which pasted unrelated texture) | 🔧 |
 | Healing Brush, Patch | PhotoCraft (audit: seamless) | ✅ |
@@ -98,18 +97,18 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Feature | Source | Status |
 | --- | --- | --- |
 | Generate panel: Create, Edit, Fill, Refine, Upscale with any installed model; presets; LoRAs; Draft → Refine | Krita AI Diffusion (ported), Photoshop names | ✅ |
-| Family profiles as data (SD 1.5, SDXL, Pony, Illustrious, SD 3.5, FLUX.1/Kontext/Fill, FLUX.2, Klein, Qwen Image/Edit/2.1, Z-Image, ERNIE, HiDream) with live updates | Krita's per-architecture rules, ComfyUI templates | ✅ |
+| Family profiles as data (SD 1.5, SDXL, Pony, SD 3.5, FLUX.2, Klein, Qwen Image/Edit, ERNIE, HiDream) with live updates | Krita's per-architecture rules, ComfyUI templates | ✅ |
 | Installed-model detection from `/object_info` and safetensors/GGUF headers | Krita's and ComfyUI's model detection, safetensors spec | ✅ |
 | Inpaint geometry (grow, feather, context crop, blur pre-fill, green-fill instruction) | Krita AI Diffusion (ported) | ✅ |
 | Custom workflows (`li:` markers; editor or API format, subgraphs flattened) and official templates with basic controls | Krita's custom workflows, ComfyUI templates | ✅ |
 | Model Browser (Hugging Face, Civitai, templates, ComfyUI-Manager list; verified installs) | SwarmUI and InvokeAI model managers (ideas) | ✅ |
 | Library tab (0.7-compatible generated library) | Local Image 0.7 | ✅ |
-| AI Cutout tool: Remove Background (AI or Quick CPU), refine Erase/Restore, Add Background (colour, image, generated) | Local Image 0.7, PhotoCraft | ✅ |
+| AI Cutout tool: Remove Background (on-device Fast / Better Quality), refine Erase/Restore, Add Background (colour, image, generated) | Local Image 0.7, PhotoCraft | ✅ |
 | Generative Fill, Generate Background, AI Enhance (SeedVR2) | Local Image 0.7 | ✅ |
 | Batch Remove Backgrounds | Local Image 0.7 | ✅ |
-| Cloud generation with your own API key (OpenAI GPT Image, Google Gemini image, Black Forest Labs FLUX pro, Stability AI) | Provider APIs; fills composite through the feathered selection | ✅ |
+| Cloud generation with your own API key (OpenAI GPT Image, Google Gemini image, Stability AI) | Provider APIs; fills composite through the feathered selection | ✅ |
 | Contextual Task Bar under a new selection or closed pen path: **Remove (AI)**, Generative Fill, Invert, Mask, Deselect | Photoshop | ✅ |
-| Remove Background: the editor's own (CPU) and Qwen AI side by side (Cutout tool, Properties › Quick Actions) | PhotoCraft + Local Image | ✅ |
+| Remove Background: the editor's own on-device models, Fast and Better Quality (Cutout tool, Properties) | PhotoCraft + Local Image | ✅ |
 
 ## Cataloguing
 
@@ -145,7 +144,7 @@ What the open model system takes from each source (notices in `licenses/model-sy
 | Source | Licence | How it is used | Where |
 | --- | --- | --- | --- |
 | ComfyUI | GPL-3.0 | The engine, over HTTP: `/object_info` (nodes, file lists, input order), `/prompt`, `/history`, `/view`, `/upload/image`, `/templates` | `comfy.rs`, `ops.rs` |
-| Krita AI Diffusion | GPL-3.0 | Ported: workflow construction per architecture, inpaint geometry and green fill, Pony/Illustrious prompt rules, style presets, editor-to-API conversion through `/object_info` | `builders.rs`, `inpaint.rs`, `custom.rs`, `presets.rs`, `families/*.json` |
+| Krita AI Diffusion | GPL-3.0 | Ported: workflow construction per architecture, inpaint geometry and green fill, Pony prompt rules, style presets, editor-to-API conversion through `/object_info` | `builders.rs`, `inpaint.rs`, `custom.rs`, `presets.rs`, `families/*.json` |
 | ComfyUI workflow templates | MIT | Per-model graphs and their required files (`properties.models`); unknown families run through them with basic controls; ten are test fixtures | `browser.rs`, `custom.rs`, `tests/fixtures/templates` |
 | Hugging Face Hub API | service terms | Search (`/api/models`), file trees with LFS SHA-256 and sizes, `resolve` downloads; optional token | `browser.rs`, `download.rs` |
 | Civitai API | service terms | Search (`/api/v1/models`), published SHA-256, size checked against the download's headers, downloads through its R2/B2 delivery; optional key | `browser.rs`, `download.rs` |

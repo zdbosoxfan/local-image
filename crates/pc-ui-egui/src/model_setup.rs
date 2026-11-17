@@ -644,8 +644,7 @@ fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) -
         && let Ok(x) = task.lock()
     {
         ui.horizontal(|ui| {
-            let (r, _) = ui.allocate_exact_size(vec2(160.0, 6.0), egui::Sense::hover());
-            li_ui_kit::progress::bar(ui, r, x.progress.map(|(d, n)| d as f32 / n.max(1) as f32), t);
+            li_ui_kit::progress::bar_with_percent(ui, 160.0, x.progress.and_then(|(d, n)| li_ui_kit::progress::fraction(d, n)), t);
             ui.label(RichText::new(&x.label).color(t.text_dim));
             if (x.progress.is_some() || !x.verifying.is_empty()) && widgets::secondary_button_translated(ui, tl!("Cancel"), 0.0).clicked() {
                 out.push(Action::Cancel);

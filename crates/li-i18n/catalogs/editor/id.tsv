@@ -2575,7 +2575,6 @@ cameraRaw	Blending	Pembauran
 	Remove Background (AI)	Hapus Latar Belakang (AI)
 	Remove Backgrounds (AI)…	Hapus Latar Belakang (AI)…
 	Set Up AI…	Siapkan AI…
-	Subject (AI)	Subjek (AI)
 	The AI engine isn't running.	Mesin AI tidak berjalan.
 	Contextual task bar	Bilah tugas kontekstual
 	Tool presets	Preset alat
@@ -2678,7 +2677,6 @@ cameraRaw	Blending	Pembauran
 	Could not save settings: {error}	Tidak dapat menyimpan pengaturan: {error}
 	Couldn't save: {error}	Tidak dapat menyimpan: {error}
 	Couldn't update profiles: {error}	Tidak dapat memperbarui profil: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Memotong subjek setiap gambar dengan Qwen Image 2.1 dan menyimpan PNG. Berkas asli tidak pernah diubah.
 	Delete from Library	Hapus dari Pustaka
 	Describe details to add (optional)…	Jelaskan detail yang ingin ditambahkan (opsional)…
 	Describe the change, e.g. “make it golden hour”…	Jelaskan perubahannya, mis. “jadikan golden hour”…
@@ -2739,7 +2737,6 @@ cameraRaw	Blending	Pembauran
 	Installation:	Instalasi:
 	Installed	Terpasang
 	Keep	Pertahankan
-	Keep… (optional)	Pertahankan… (opsional)
 	Licence	Lisensi
 	Licence gate	Perlu lisensi
 	Licence: see its page	Lisensi: lihat halamannya
@@ -2784,8 +2781,6 @@ cameraRaw	Blending	Pembauran
 	Precision	Presisi
 	Preset name	Nama preset
 	Previous image ({key})	Gambar sebelumnya ({key})
-	Qwen Compact	Qwen Ringkas
-	Qwen Full	Qwen Penuh
 	RESULTS	HASIL
 	Read the licence	Baca lisensi
 	Ready	Siap
@@ -2832,7 +2827,6 @@ cameraRaw	Blending	Pembauran
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Mulai mesin AI terlebih dahulu: Local Image memeriksa apa yang sudah dimiliki ComfyUI. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Mulai mesin AI untuk melihat memori GPU Anda; menampilkan yang muat di 8 GB.
 	Starting ComfyUI… (the first start can take a minute)	Memulai ComfyUI… (mulai pertama kali bisa memakan waktu satu menit)
-	Starting image · {n}/{max}	Gambar awal · {n}/{max}
 	Starting {name}…	Memulai {name}…
 	Steps	Langkah
 	Stopped	Dihentikan
@@ -2850,7 +2844,6 @@ cameraRaw	Blending	Pembauran
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Alur kerja tidak memiliki node berjudul li:prompt, li:image, li:mask, li:seed, atau li:output, sehingga Local Image tidak dapat mengisinya. Ganti nama node di ComfyUI lalu ekspor lagi.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Token memungkinkan Penjelajah Model mengunduh model yang dibatasi atau yang memerlukan masuk. Token hanya dikirim ke situsnya sendiri.
 	Transparent PNG	PNG transparan
-	Transparent background	Latar belakang transparan
 	Trending	Tren
 	Trending this week	Tren minggu ini
 	Unknown family	Keluarga tidak dikenal
@@ -2861,7 +2854,6 @@ cameraRaw	Blending	Pembauran
 	Upscale {scale}×	Perbesar {scale}×
 	Use	Gunakan
 	Use as Reference	Gunakan sebagai Referensi
-	Variation strength	Kekuatan variasi
 	Waiting	Menunggu
 	What should appear in the selection…	Apa yang harus muncul di seleksi…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Dengan kunci API Anda sendiri, Buat juga dapat memakai model cloud (muncul di bagian Cloud pada pemilih model). Prompt dan gambar Anda lalu dikirim dari komputer ini ke penyedia tersebut dan ditagihkan ke akun Anda; tidak ada data lain yang dikirim ke mana pun.
@@ -2895,12 +2887,9 @@ cameraRaw	Blending	Pembauran
 	{size} · runs on the CPU · {licence}	{size} · berjalan di CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: offline, menampilkan hasil dari {when}
 	{source}: the catalogue couldn't be read	{source}: katalog tidak dapat dibaca
-	{why} Qwen Image 2.1 runs these.	{why} Fitur ini dijalankan oleh Qwen Image 2.1.
 	Seed	Seed
 	Solid Color	Warna Solid
 	Strength	Kekuatan
-	Qwen AI · Compact	Qwen AI · Ringkas
-	Qwen AI · Full	Qwen AI · Penuh
 	Standard (CPU)	Standar (CPU)
 	Templates	Templat
 	Community	Komunitas
@@ -3893,7 +3882,10 @@ ai	New	Baru
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	Semua pintasan dalam profil ini telah diatur ulang ke nilai default.
 	Editor	Editor
-	Library + Develop	Pustaka + Pengembangan
+	Library & Develop	Pustaka & Pengembangan
+	Library General	Pustaka: Umum
+	Library Performance	Pustaka: Performa
+	Library Interface	Pustaka: Antarmuka
 	Scope	Cakupan
 	Colour	Warna
 	Monochrome (default)	Monokrom (default)

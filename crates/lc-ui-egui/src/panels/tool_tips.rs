@@ -518,7 +518,8 @@ fn draw(ui: &egui::Ui, resp: &Response, tool: StripTool) {
         Some(k) => format!("{title} ({k})\n{blurb}"),
         None => format!("{title}\n{blurb}"),
     };
-    let group = tool.group().iter().filter(|t| **t != tool).map(|t| li_i18n::library::t(t.title())).collect::<Vec<_>>();
+    let group =
+        tool.group().iter().filter(|t| **t != tool && super::masking::offered(t.id())).map(|t| li_i18n::library::t(t.title())).collect::<Vec<_>>();
     let group = (!group.is_empty()).then(|| format!("{} {}", li_i18n::library::t("Also in this group:"), group.join(", ")));
     for h in &how {
         text.push('\n');

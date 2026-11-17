@@ -19,7 +19,7 @@ If the behaviour changes, this page changes with it.
 
 ### Cloud AI providers (only when you add a key and use a cloud model)
 
-Providers: OpenAI, Google (Gemini image), Black Forest Labs (FLUX) and Stability AI. Each one is
+Providers: OpenAI, Google (Gemini image) and Stability AI. Each one is
 used only if you enter its API key in Local AI settings and then choose one of its models in
 the Generate panel. The Generate panel names the provider that will receive your input.
 
@@ -41,7 +41,7 @@ file (EXIF, GPS location, XMP, and similar) is not forwarded. Pixel content is s
 location or a face that is visible in the picture is visible to the provider.
 
 Keys: each key is sent only to its own provider, in a request header: a bearer token for OpenAI
-and Stability AI, `x-goog-api-key` for Google, and `x-key` for Black Forest Labs.
+and Stability AI, and `x-goog-api-key` for Google.
 
 What the provider does with the prompt and images, how long it keeps them, and whether it uses
 them for training are governed by that provider's terms and privacy policy. This project does

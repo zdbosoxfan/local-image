@@ -205,8 +205,9 @@ pub struct LightcraftApp {
     pub open_shared_shortcuts: bool,
     /// The host owns the read-only update worker/window.
     pub open_shared_updates: bool,
-    /// Open the host's shared AI resource preferences from Library or Develop.
-    pub open_shared_ai: bool,
+    /// Open the host's shared AI preferences from Library or Develop, on this section
+    /// (`ai.connection`, `ai.tools`…).
+    pub open_shared_ai: Option<String>,
     /// Hosted Preferences request (legacy command/tab ids are unchanged).
     pub open_shared_preferences: Option<String>,
     /// Legacy language commands update the shared Interface preference when hosted.
@@ -340,7 +341,7 @@ impl LightcraftApp {
             shared_shortcuts: false,
             open_shared_shortcuts: false,
             open_shared_updates: false,
-            open_shared_ai: false,
+            open_shared_ai: None,
             open_shared_preferences: None,
             open_shared_language: None,
             host_modal: false,

@@ -2,8 +2,8 @@ use image::{GrayImage, Luma, RgbaImage};
 use li_ai::ops::new_seed;
 use li_ai::{GenerateMode, GenerateRequest, ModelId};
 
-fn qwen_request(prompt: &str) -> GenerateRequest {
-    GenerateRequest::new(ModelId::Qwen, prompt)
+fn klein_request(prompt: &str) -> GenerateRequest {
+    GenerateRequest::new(ModelId::Klein4B, prompt)
 }
 
 fn rgba_1x1() -> RgbaImage {
@@ -30,15 +30,14 @@ fn new_seed_varies() {
 
 #[test]
 fn request_new_sets_defaults() {
-    let req = qwen_request("hello");
-    assert_eq!(req.model, ModelId::Qwen);
+    let req = klein_request("hello");
+    assert_eq!(req.model, ModelId::Klein4B);
     assert!(!req.variant.is_empty());
     assert_eq!(req.mode, GenerateMode::Create);
     assert_eq!(req.prompt, "hello");
     assert_eq!(req.negative, "");
     assert_eq!(req.width, 1024);
     assert_eq!(req.height, 1024);
-    assert!(!req.transparent);
     assert_eq!(req.denoise, 0.6);
     assert!(req.source.is_none());
     assert!(req.mask.is_none());
@@ -53,7 +52,7 @@ fn request_new_sets_defaults() {
 
 #[test]
 fn empty_prompt_is_rejected() {
-    let req = qwen_request("");
+    let req = klein_request("");
     let err = req.validate().unwrap_err();
     assert!(err.to_string().contains("Describe the image first."));
 }
@@ -61,14 +60,14 @@ fn empty_prompt_is_rejected() {
 #[test]
 fn overlong_prompt_is_rejected() {
     let long = "x".repeat(4001);
-    let req = qwen_request(&long);
+    let req = klein_request(&long);
     let err = req.validate().unwrap_err();
     assert!(err.to_string().contains("longer than 4000"));
 }
 
 #[test]
 fn edit_without_source_is_rejected() {
-    let mut req = qwen_request("edit me");
+    let mut req = klein_request("edit me");
     req.mode = GenerateMode::Edit;
     let err = req.validate().unwrap_err();
     assert!(err.to_string().contains("Open an image first."));
@@ -76,7 +75,7 @@ fn edit_without_source_is_rejected() {
 
 #[test]
 fn inpaint_without_mask_is_rejected() {
-    let mut req = qwen_request("fill this");
+    let mut req = klein_request("fill this");
     req.mode = GenerateMode::Inpaint;
     req.source = Some(rgba_1x1());
     let err = req.validate().unwrap_err();
@@ -85,7 +84,7 @@ fn inpaint_without_mask_is_rejected() {
 
 #[test]
 fn mask_size_mismatch_is_rejected() {
-    let mut req = qwen_request("fill this");
+    let mut req = klein_request("fill this");
     req.mode = GenerateMode::Inpaint;
     req.source = Some(RgbaImage::from_pixel(2, 2, image::Rgba([0, 0, 0, 255])));
     req.mask = Some(gray_1x1_white());
@@ -96,7 +95,7 @@ fn mask_size_mismatch_is_rejected() {
 /// Steps have no built-in range (ComfyUI checks its own limits); only zero is refused.
 #[test]
 fn steps_beyond_the_model_recommendation_are_accepted_and_zero_is_rejected() {
-    let mut req = qwen_request("a cat");
+    let mut req = klein_request("a cat");
     req.steps = 500;
     req.validate().unwrap();
     req.steps = 0;
@@ -106,7 +105,7 @@ fn steps_beyond_the_model_recommendation_are_accepted_and_zero_is_rejected() {
 
 #[test]
 fn too_many_references_is_rejected() {
-    let mut req = qwen_request("a cat");
+    let mut req = klein_request("a cat");
     req.references = (0..20).map(|_| rgba_1x1()).collect();
     let err = req.validate().unwrap_err();
     assert!(err.to_string().contains("reference"));
@@ -114,7 +113,7 @@ fn too_many_references_is_rejected() {
 
 #[test]
 fn valid_edit_request_passes_validation() {
-    let mut req = qwen_request("edit this");
+    let mut req = klein_request("edit this");
     req.mode = GenerateMode::Edit;
     req.source = Some(rgba_1x1());
     assert!(req.validate().is_ok());
@@ -122,7 +121,7 @@ fn valid_edit_request_passes_validation() {
 
 #[test]
 fn valid_inpaint_request_passes_validation() {
-    let mut req = qwen_request("fill this");
+    let mut req = klein_request("fill this");
     req.mode = GenerateMode::Inpaint;
     req.source = Some(rgba_1x1());
     req.mask = Some(gray_1x1_white());
@@ -131,7 +130,7 @@ fn valid_inpaint_request_passes_validation() {
 
 #[test]
 fn refine_without_source_is_rejected() {
-    let mut req = qwen_request("");
+    let mut req = klein_request("");
     req.mode = GenerateMode::Refine;
     let err = req.validate().unwrap_err();
     assert!(err.to_string().contains("Open an image first."));
@@ -139,7 +138,7 @@ fn refine_without_source_is_rejected() {
 
 #[test]
 fn edit_uses_first_reference_as_source() {
-    let mut req = qwen_request("edit");
+    let mut req = klein_request("edit");
     req.mode = GenerateMode::Edit;
     req.source = None;
     req.references = vec![rgba_1x1()];
@@ -148,7 +147,7 @@ fn edit_uses_first_reference_as_source() {
 
 #[test]
 fn validate_does_not_panic_on_extreme_values() {
-    let mut req = qwen_request("a cat");
+    let mut req = klein_request("a cat");
     req.width = 0;
     req.height = 0;
     req.guidance = f32::NAN;

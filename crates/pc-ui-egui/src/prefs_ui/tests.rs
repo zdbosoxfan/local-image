@@ -711,6 +711,43 @@ fn failed_ai_save_keeps_core_host_history_and_preferences_drafts_atomic() {
     }
 }
 
+/// A host page that can reset offers Reset Section, which puts its defaults into the draft.
+#[test]
+fn host_preference_page_reset_section_replaces_its_draft() {
+    use egui_kittest::{Harness, kittest::Queryable};
+    struct HostReset;
+    impl HostPreferencesPages for HostReset {
+        fn pages(&self) -> &'static [(&'static str, &'static str)] {
+            &[("library.reset", "Resettable"), ("library.fixed", "Fixed")]
+        }
+        fn values(&self) -> Value {
+            json!({"enabled": true})
+        }
+        fn body(&mut self, _: &mut egui::Ui, _: &str, _: &mut Value) {}
+        fn prepare(&self, _: &Value) -> Result<Box<dyn FnOnce() + '_>, String> {
+            Ok(Box::new(|| {}))
+        }
+        fn reset(&self, section: &str, _: &Value) -> Option<Value> {
+            (section == "library.reset").then(|| json!({"enabled": false}))
+        }
+    }
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.run("prefs.set", json!({"values": {"interface.language": "en"}})).unwrap();
+    app.host_preferences_pages = HostReset.pages();
+    app.host_preferences = Some(Box::new(HostReset));
+    let mut h = Harness::builder().with_size(vec2(1200., 900.)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+    PhotocraftApp::setup_context(&h.ctx, Default::default());
+    open_preferences(h.state_mut(), "library.fixed");
+    h.run_steps(3);
+    assert!(h.query_by_label("Reset Section").is_none(), "a page with nothing to reset has no button");
+    let id = open_preferences(h.state_mut(), "library.reset");
+    h.run_steps(3);
+    h.get_by_label("Reset Section").click();
+    h.run_steps(2);
+    let dialog = h.state().ui.dialogs.iter().find(|dialog| dialog.id == id).unwrap();
+    assert_eq!(dialog.fields["hostValues"], json!({"enabled": false}));
+}
+
 #[test]
 fn preferences_apply_button_saves_without_closing_and_cancel_keeps_applied_values() {
     use egui_kittest::{
@@ -1149,9 +1186,9 @@ mod shifted_symbol_conflict_tests {
         ];
         h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("host-shortcut-catalog"), items));
         h.run_steps(4);
-        h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Editor")).click();
+        h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Compositing")).click();
         h.run();
-        h.get_by_label("Library + Develop").click();
+        h.get_by_label("Library & Develop").click();
         h.run();
         let pos = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("shortcut-capture", "library::view.maskOverlay")))).unwrap().center();
         h.event(egui::Event::PointerMoved(pos));

@@ -33,7 +33,6 @@ the end of this file.
 | `crates/lc-merge/src/pixelshift.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/pixelshift.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-14 | Independent Rust noise-aware repeated-green motion comparison; measured/profiled variance and first-shot fallback. |
 | `crates/lc-merge/src/pixelshift.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/denoiseprofile.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-14 | Documented normalized sensor variance a×signal+b for motion thresholds. |
 | `crates/lc-merge/src/pixelshift.rs` | [make_arq](https://github.com/agriggio/make_arq) | `make_arq.py` | `912069a8e6d3c6738cd76ba0fe6c62ed4d314fe3` | GPL-3.0-or-later | 2026-10-14 | Sony source shot displacement and half-pixel phase ordering (independent Rust reconstruction/motion implementation). |
-| `crates/li-ai/src/builders.rs`, `crates/li-ai/examples/zimage_variety_check.rs` | [SplitMix64](https://github.com/svaarala/duktape) | `misc/splitmix64.c` | `84131700dfd32d9d1063f99b5b0a900f5935a613` | CC0-1.0 | 2026-10-10 | Stable seed-derived alternate conditioning for Z-Image Turbo Variety. |
 
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date |
 |---|---|---|---|---|---|
@@ -2051,7 +2050,7 @@ Not ported: storytold/photocraft@`224dcdc936` (Fix content-aware crop targets an
 
 Not ported: storytold/photocraft@`0e421d6a33` (Replace Color: Add to Sample and Subtract from Sample, #6280). Our Replace Color has no sample points, Localized Color Clusters (#4477), dialog eyedropper (#6279) or shared Color Range matcher.
 
-Not ported: storytold/photocraft@`51b9454b71` (encode lossless JPEG XL using pure Rust). It adds a new dependency (zune-jpegxl); waits for the owner and a licence check.
+Not ported: storytold/photocraft@`51b9454b71` (encode lossless JPEG XL using pure Rust). Its new dependency, zune-jpegxl 0.5.2 (MIT OR Apache-2.0 OR Zlib, pure Rust, depends only on zune-core), passes `cargo deny --locked check`, `cargo xtask deps-pure` and `cargo xtask attributions` unchanged. The port waits for the owner because it makes `jxl` writable, which `registry_keeps_open_and_export_capabilities_separate` asserts it is not (`assert!(!write.contains(&"jxl"))`, `crates/pc-codecs/src/format.rs:459`).
 
 Not ported: storytold/photocraft@`aee67e8194` (expose JPEG XL Save As and Export As). The second half of `51b9454b71`; waits with it.
 

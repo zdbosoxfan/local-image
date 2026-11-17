@@ -62,6 +62,7 @@ pub fn estimate(id: &str, units: u64) -> Estimate {
         "clip-b32-laion" => 30.0,
         "yunet" | "sface" => 10.0,
         "inspyrenet" => 120.0,
+        "birefnet-lite" => 200.0,
         _ => 60.0,
     });
     Estimate { seconds: (units as f64 / 1_000_000.0 * core_seconds_per_mp / cores.sqrt()).max(0.1), measured: measured.is_some() }

@@ -1571,7 +1571,7 @@ pub struct AiPatch {
     pub source: String,
     /// Where the patch goes: `[x0, y0, x1, y1]`, normalized coordinates (as spots).
     pub rect: [f64; 4],
-    /// The AI engine (`klein`, `qwen-int8`, …) and seed that made it.
+    /// The AI engine (`klein`, `lama`, …) and seed that made it.
     pub engine: String,
     pub seed: u64,
     /// The photo's geometry (orientation, lens, perspective) when it was made; another one means

@@ -160,7 +160,8 @@ pub fn face_options(app: &mut LightcraftApp, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.label(li_i18n::library::t("Download face models (39 MB)"));
             if download.running {
-                ui.add(egui::ProgressBar::new(download.done as f32 / download.total.max(1) as f32).desired_width(180.0));
+                let kit = li_ui_kit::widgets::Profile::Library.tokens(ui.ctx());
+                li_ui_kit::progress::bar_with_percent(ui, 180.0, li_ui_kit::progress::fraction(download.done, download.total), &kit);
                 if button(ui, "smartSort:facesDownloadCancel", "Cancel download").clicked()
                     && let Some(f) = &app.services.download_models
                 {

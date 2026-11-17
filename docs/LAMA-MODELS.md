@@ -12,10 +12,10 @@ controls. No ComfyUI, Python, external inference runtime, GPU or internet connec
 is needed after installation. The model lives in the existing AI model folder's
 `segmentation/big-lama-fp32.onnx`; no new settings or catalog format are introduced.
 
-Compositing and Develop offer **Automatic**, **On-device · LaMa**, FLUX.2 Klein,
-and both Qwen precisions. Automatic uses LaMa when the background poller reports
-ComfyUI disconnected, and Klein when connected. Explicit engine selections persist;
-existing saved `klein`/`qwen-*` choices continue to load. Missing LaMa does not submit
+Compositing and Develop offer **Automatic**, **On-device · LaMa** and FLUX.2 Klein.
+Automatic uses LaMa when the background poller reports ComfyUI disconnected, and
+Klein when connected. Explicit engine selections persist; existing saved `klein`
+choices continue to load, and a saved `qwen-*` choice runs as Automatic. Missing LaMa does not submit
 or discard a painted mask: the user can open On-device Tools and download it.
 Painting, adding/subtracting and confirmation keep the existing workflow. Develop
 keeps its patch store, opacity, regeneration, deletion, copy/sync and undo; the
@@ -64,7 +64,7 @@ structures across independent tiles. This bounds inference memory on any hardwar
 but very large removals lose fine detail. Nearby edits should use small masks with
 adequate surrounding texture. The crop policy is an original adaptation for the
 fixed export, selected by a measured bake-off.
-LaMa can blur/reinvent hidden lines or texture; the available Qwen engine remains
+LaMa can blur/reinvent hidden lines or texture; the FLUX.2 Klein engine remains
 useful when semantic reconstruction is needed.
 
 ## Reproduce

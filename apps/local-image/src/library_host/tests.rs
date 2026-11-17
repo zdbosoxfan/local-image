@@ -729,7 +729,10 @@ fn host_with_round_trip(library: LightcraftApp, photo: lightcraft_catalog::Photo
         write: Some(Box::new(|path: &str, bytes: &[u8]| std::fs::write(path, bytes).map_err(|e| e.to_string()))),
         ..Default::default()
     };
-    let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), services));
+    let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+    // The Library follows the shared Rendering Mode: keep it on the CPU, as `library` asks.
+    editor.session.prefs.edit(|p| p.performance.rendering_mode = photocraft_engine::prefs::RenderingMode::Cpu);
+    let mut host = Host::new(editor);
     host.editor.host_modes = true;
     // the photo's own settings, as the switch to Compositing passes them
     let settings = serde_json::to_value(&*library.session.catalog.photo(photo).unwrap().develop).unwrap();
@@ -1190,6 +1193,28 @@ fn return_from_compositing_keeps_the_library_selection() {
     let selection = &catalog(&host).selection;
     assert_eq!(selection.ids, [copy, orig]);
     assert_eq!(selection.active, Some(orig));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A loupe left for Compositing is the loupe on the way straight back; a return through Develop
+/// still lands in the grid.
+#[test]
+fn return_from_compositing_keeps_the_library_loupe() {
+    use lightcraft_ui_egui::state::{RightPanel, ViewMode};
+    let (dir, path, lib, orig) = library_with_photo("return-keeps-loupe");
+    let mut host = host_with_round_trip(lib, orig, &path);
+    let ctx = egui::Context::default();
+    host.switch(&ctx, Module::Library);
+    host.library().run("view.detail", json!({})).unwrap();
+    host.library().ui.right = RightPanel::Info;
+    host.switch(&ctx, Module::Compositing);
+    host.switch(&ctx, Module::Library);
+    let ui = &host.library.as_ref().unwrap().ui;
+    assert_eq!((ui.view, ui.right), (ViewMode::Detail, RightPanel::Info));
+    host.switch(&ctx, Module::Compositing);
+    host.switch(&ctx, Module::Develop);
+    host.switch(&ctx, Module::Library);
+    assert_eq!(host.library.as_ref().unwrap().ui.view, ViewMode::PhotoGrid);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -2271,15 +2296,35 @@ fn roundtrip_notice_actions_keep_editing_retry_save_and_dismiss() {
     assert!(matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains("photo-Edit.psd") && msg.contains("stacked")));
     h.click("button:roundTripDismiss");
     assert!(h.host.round_trip_notice.is_none());
-    // Editing the saved PSD, saving the preview from Library with ⌘S, reloads in place.
+    // Editing the saved PSD, saving the preview from the Library's notice, reloads in place.
     h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
     h.host.editor.run("edit.fill", json!({"color": [0.0, 1.0, 0.0, 1.0]})).unwrap();
     h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
-    h.key(egui::Key::S, egui::Modifiers::COMMAND);
+    h.click("button:roundTripSave");
     assert!(!h.host.editor.has_unsaved());
     assert_eq!(catalog(&h.host).catalog.len(), 2);
     assert_eq!(catalog(&h.host).active(), Some(edit));
     assert!(matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains("updated") && msg.contains("photo-Edit.psd")));
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn library_save_shortcut_writes_metadata_even_with_unsaved_compositing_work() {
+    let (dir, path, lib, orig) = library_with_photo("library-save-metadata");
+    let host = host_with_round_trip(lib, orig, &path);
+    let mut h = RoundTripUi::new(host);
+    h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+    for _ in 0..4 {
+        h.step(vec![]);
+    }
+    assert!(matches!(h.host.round_trip_notice, Some(RoundTripNotice::Unsaved { .. })));
+    let sidecar = dir.join("photo.xmp");
+    assert!(!sidecar.exists());
+    h.key(egui::Key::S, egui::Modifiers::COMMAND);
+    assert!(sidecar.is_file(), "the Library's Save Metadata to File");
+    assert!(!dir.join("photo-Edit.psd").exists());
+    assert!(h.host.editor.has_unsaved());
     drop(h);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -2401,7 +2446,7 @@ fn generation_metadata_library_save_return_and_update_keep_settings() {
         })
         .unwrap();
     h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
-    h.key(egui::Key::S, egui::Modifiers::COMMAND);
+    h.click("button:roundTripSave");
     assert!(!h.host.editor.has_unsaved());
     assert_eq!(read().layers.iter().find_map(|layer| layer.generation.as_ref()), Some(&updated));
     drop(h);
@@ -2716,51 +2761,35 @@ fn library_workflow_lazy_palette_and_accent_warning_controls() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+/// A newly opened photo starts in Pixel/Move; coming back to it from Develop or the Library
+/// keeps the persona, tool and draft he was using.
 #[test]
-fn library_workflow_existing_photo_admission_runs_only_after_successful_focus() {
+fn library_workflow_returning_to_an_open_photo_keeps_its_persona_and_tool() {
     use photocraft_engine::toolsets::Persona;
     use photocraft_ui_egui::{state::Tool, toolsets_ui::persona};
     let (dir, mut host) = workflow_host("workflow-photo-admission");
     let photo = host.library.as_ref().unwrap().session.active().unwrap();
     let ctx = egui::Context::default();
-    // Finish setup admission before establishing the invalid-focus baseline.
     persona::frame(&mut host.editor, &ctx);
     assert!(host.editor.ui.photo_admission.is_none());
+    assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Pixel);
+    assert_eq!(host.editor.ui.tool, Tool::Move);
     persona::select(&mut host.editor, &ctx, Persona::Vector);
     persona::select_tool(&mut host.editor, &ctx, Tool::Pen);
     let document = host.editor.session.active().unwrap().doc.id;
     host.editor.ui.crop_rect = Some([1., 2., 20., 20.]);
     let draft = host.editor.ui.crop_rect;
     assert!(!host.focus_library_document(u64::MAX));
+    // back from Develop: the open document comes forward; from the Library: it is focused
+    let (id, path, settings, name) = host.active_photo().unwrap();
+    host.open_editor_photo(id, &path, &settings, &name).unwrap();
+    assert!(host.focus_library_document(photo.0));
     assert!(host.editor.ui.photo_admission.is_none());
     persona::frame(&mut host.editor, &ctx);
     assert_eq!(host.editor.session.active().unwrap().doc.id, document);
     assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector);
     assert_eq!(host.editor.ui.tool, Tool::Pen);
     assert_eq!(host.editor.ui.crop_rect, draft);
-    assert!(host.focus_library_document(photo.0));
-    assert_eq!(host.editor.ui.photo_admission, Some(document));
-    assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector, "admission is intentionally deferred");
-    persona::frame(&mut host.editor, &ctx);
-    assert!(host.editor.ui.photo_admission.is_none());
-    assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Pixel);
-    assert_eq!(host.editor.ui.tool, Tool::Move);
-    // A different document becoming active before the frame owns its own draft.
-    persona::select(&mut host.editor, &ctx, Persona::Vector);
-    persona::select_tool(&mut host.editor, &ctx, Tool::Pen);
-    assert!(host.focus_library_document(photo.0));
-    assert_eq!(host.editor.ui.photo_admission, Some(document));
-    let other = photocraft_doc::Document::new("Other", photocraft_doc::Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
-    let other_id = other.id;
-    host.editor.session.add_document(other, None);
-    host.editor.sync_views();
-    host.editor.ui.crop_rect = Some([3., 4., 12., 12.]);
-    persona::frame(&mut host.editor, &ctx);
-    assert!(host.editor.ui.photo_admission.is_none());
-    assert_eq!(host.editor.session.active().unwrap().doc.id, other_id);
-    assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector);
-    assert_eq!(host.editor.ui.tool, Tool::Pen);
-    assert_eq!(host.editor.ui.crop_rect, Some([3., 4., 12., 12.]));
     let previews = host.library.as_ref().unwrap().session.media.rendered.clone();
     drop(host);
     previews.retire();
@@ -3551,6 +3580,45 @@ fn ai_remove_engine_choice_is_shared_by_develop_and_compositing() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Develop's tool tips follow the shared Interface page; "Show tooltips" off turns them off.
+#[test]
+fn develop_tool_tips_follow_the_shared_interface_setting() {
+    use lightcraft_ui_egui::panels::tool_tips::ToolTipMode;
+    let (dir, host) = workflow_host("shared-tool-tips");
+    let mut h = RoundTripUi::new(host);
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Develop);
+    h.step(vec![]);
+    h.host.editor.session.edit_prefs(|prefs| prefs.interface.tool_tips = photocraft_engine::prefs::ToolTips::Simple);
+    h.step(vec![]);
+    assert_eq!(h.host.library.as_ref().unwrap().ui.settings.tool_tips, ToolTipMode::Simple);
+    h.host.editor.session.edit_prefs(|prefs| prefs.interface.show_tooltips = false);
+    h.step(vec![]);
+    assert_eq!(h.host.library.as_ref().unwrap().ui.settings.tool_tips, ToolTipMode::Off);
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// The Library uses the GPU as the shared Rendering Mode says, copied only when the mode changes
+/// so its own fallback to the CPU stays.
+#[test]
+fn library_rendering_follows_the_shared_rendering_mode_when_it_changes() {
+    use photocraft_engine::prefs::RenderingMode;
+    let (dir, host) = workflow_host("shared-rendering-mode");
+    let mut h = RoundTripUi::new(host);
+    h.host.editor.session.prefs.edit(|p| p.performance.rendering_mode = RenderingMode::Cpu);
+    h.step(vec![]);
+    assert!(!h.host.library.as_ref().unwrap().ui.settings.gpu);
+    h.host.editor.session.prefs.edit(|p| p.performance.rendering_mode = RenderingMode::Gpu);
+    h.step(vec![]);
+    assert!(h.host.library.as_ref().unwrap().ui.settings.gpu);
+    h.host.library.as_mut().unwrap().ui.settings.gpu = false;
+    h.step(vec![]);
+    assert!(!h.host.library.as_ref().unwrap().ui.settings.gpu, "an unchanged mode leaves the Library's fallback alone");
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn lrc_library_preferences_are_lenient_preserve_paths_and_unreadable_settings_block() {
     let (dir, mut host) = workflow_host("lrc-library-prefs");
@@ -3578,6 +3646,27 @@ fn lrc_library_preferences_are_lenient_preserve_paths_and_unreadable_settings_bl
     assert!(lib.session.library.is_none());
     drop(host);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Reset Section on a Library page puts back only that page's application settings; Import has
+/// only catalog settings, so it offers none.
+#[test]
+fn library_preference_pages_reset_only_their_own_settings() {
+    use photocraft_ui_egui::prefs_ui::HostPreferencesPages;
+    let pages = LibraryPreferencesPages(std::rc::Rc::new(std::cell::RefCell::new(None)));
+    let defaults = serde_json::to_value(lightcraft_ui_egui::panels::settings::PreferencesDraft::default()).unwrap();
+    let mut edited = defaults.clone();
+    for pointer in ["/autoAdvance", "/navigator", "/settings/gpu"] {
+        let flipped = !edited.pointer(pointer).and_then(serde_json::Value::as_bool).unwrap();
+        *edited.pointer_mut(pointer).unwrap() = json!(flipped);
+    }
+    let general = pages.reset("library.general", &edited).unwrap();
+    assert_eq!((&general["autoAdvance"], &general["navigator"]), (&defaults["autoAdvance"], &edited["navigator"]));
+    let interface = pages.reset("library.interface", &edited).unwrap();
+    assert_eq!((&interface["navigator"], &interface["settings"]["gpu"]), (&defaults["navigator"], &edited["settings"]["gpu"]));
+    let performance = pages.reset("library.performance", &edited).unwrap();
+    assert_eq!((&performance["settings"]["gpu"], &performance["autoAdvance"]), (&defaults["settings"]["gpu"], &edited["autoAdvance"]));
+    assert!(pages.reset("library.import", &edited).is_none());
 }
 
 #[test]
@@ -3705,9 +3794,12 @@ fn shared_shell_host_exact_save_keeps_sync_settings_and_module_shortcuts() {
     assert!(h.host.editor.has_unsaved());
     h.host.library.as_mut().unwrap().ui.dialog = None;
     h.step(vec![]);
-    h.key(egui::Key::S, egui::Modifiers::COMMAND);
+    // The layered save is the round-trip notice's, posted on the way back from Compositing.
+    h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+    h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+    h.click("button:roundTripSave");
     h.wait_for(|host| !host.editor.has_unsaved());
-    assert!(dir.join("photo-Edit.psd").exists(), "exact host Save still publishes its layered copy");
+    assert!(dir.join("photo-Edit.psd").exists(), "the notice's Save still publishes its layered copy");
     h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
     assert_eq!(h.host.mode, Module::Compositing);
     h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);

@@ -1,4 +1,4 @@
-//! Local segmentation on the CPU: BRIA RMBG-1.4 (Fast) or InSPyReNet (Better Quality) for the subject,
+//! Local segmentation on the CPU: InSPyReNet (Fast) or BiRefNet lite (Better Quality) for the subject,
 //! PP-MobileSeg for the sky, Depth Anything V2 Small for depth, run with `tract` (pure Rust, no
 //! GPU, no external runtime), or a custom `.onnx` file the user picks for a function. Powers
 //! Select › Subject and Sky, Remove Background (Fast / Better Quality), the Object Selection tool's click mode,
@@ -6,7 +6,7 @@
 //! AI server. Smart Sort uses a paired CLIP image/text bundle through [`Clip`].
 //!
 //! Pre-processing uses premultiplied square resize and the model's RGB mean/std. The new
-//! subject tiers use x/255 and clamped probabilities; custom IS-Net and U²-Net style
+//! subject tiers use x/255 and clamped probabilities (after a sigmoid for BiRefNet's logits); custom IS-Net and U²-Net style
 //! models use peak scaling and min–max output, after a sigmoid when they output logits (found
 //! when the model is added). Maps are bilinearly resized to the photo.
 #![expect(clippy::let_underscore_must_use, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
@@ -143,7 +143,7 @@ impl Group {
     /// The official model of this function.
     pub fn official(self) -> &'static ModelSpec {
         let id = match self {
-            Group::Subject => "rmbg-1.4",
+            Group::Subject => FAST_TIER,
             Group::Sky => "sky-mobileseg",
             Group::Depth => "depth-anything-v2-small",
             Group::Tagging => "clip-b32-laion",
@@ -300,26 +300,21 @@ pub enum Task {
     },
 }
 
+/// The background-removal tiers' model ids (Fast / Better Quality). Both licences allow
+/// commercial use of the masks.
+const FAST_TIER: &str = "inspyrenet";
+const BETTER_TIER: &str = "birefnet-lite";
+
+/// The model of a background-removal tier: `better` = Better Quality.
+pub fn tier_spec(better: bool) -> &'static ModelSpec {
+    spec(if better { BETTER_TIER } else { FAST_TIER }).expect("both tier models are in MODELS")
+}
+
 pub const MODELS: &[ModelSpec] = &[
     lama::MODEL,
     ModelSpec {
-        id: "rmbg-1.4",
-        label: "Fast · BRIA RMBG-1.4",
-        file: "rmbg-1.4.onnx",
-        companions: &[],
-        bytes: 176153355,
-        sha256: "8cafcf770b06757c4eaced21b1a88e57fd2b66de01b8045f35f01535ba742e0f",
-        url: "https://huggingface.co/briaai/RMBG-1.4/resolve/2ceba5a5efaec153162aedea169f76caf9b46cf8/onnx/model.onnx",
-        size: 1024,
-        isnet: true,
-        licence: "BRIA RMBG-1.4 licence · non-commercial (BRIA AI; commercial use requires a BRIA agreement)",
-        task: Task::Subject,
-        group: Some(Group::Subject),
-        about: "Fast subject masks, with clean hair, fur and glass. About 3 s per photo on CPU; no GPU or AI server needed.",
-    },
-    ModelSpec {
         id: "inspyrenet",
-        label: "Better Quality · InSPyReNet SwinB Plus-Ultra",
+        label: "Fast · InSPyReNet SwinB Plus-Ultra",
         file: "inspyrenet-swinb-plus-ultra.onnx",
         companions: &[],
         bytes: 395316574,
@@ -330,7 +325,22 @@ pub const MODELS: &[ModelSpec] = &[
         licence: "MIT (InSPyReNet, plemeri; community ONNX conversion by OS-Software)",
         task: Task::Subject,
         group: Some(Group::Subject),
-        about: "Fine hair, fur and branch detail. About 15 s per photo on CPU, including model load; no GPU or AI server needed.",
+        about: "Fine hair, fur and branch detail. About 8–15 s per photo on CPU, including model load; no GPU or AI server needed.",
+    },
+    ModelSpec {
+        id: "birefnet-lite",
+        label: "Better Quality · BiRefNet lite",
+        file: "birefnet-lite.onnx",
+        companions: &[],
+        bytes: 224005088,
+        sha256: "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
+        url: "https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/resolve/de15b22ba131738a16dff04aab8bdf8dc32e3ac1/onnx/model.onnx",
+        size: 1024,
+        isnet: false,
+        licence: "MIT (BiRefNet, ZhengPeng7; ONNX conversion by onnx-community)",
+        task: Task::Subject,
+        group: Some(Group::Subject),
+        about: "Cleaner edges around objects, and less of the background picked up. About 20–30 s per photo on CPU; no GPU or AI server needed.",
     },
     // Sky: PaddleSeg's PP-MobileSeg-Base trained on ADE20K (sky = class 2), ONNX opset 13.
     ModelSpec {
@@ -608,14 +618,14 @@ struct Config {
 
 impl Config {
     fn of_spec(spec: &ModelSpec) -> Self {
-        let tier = matches!(spec.id, "rmbg-1.4" | "inspyrenet");
+        let tier = matches!(spec.id, FAST_TIER | BETTER_TIER);
         Self {
             id: spec.id.to_owned(),
             size: spec.size,
             norm: if spec.isnet { Norm::IsNet } else { Norm::ImageNet },
             task: spec.task,
             post: if tier { Post::Probability } else { Post::MinMax },
-            activation: if matches!(spec.task, Task::Sky { .. }) { Activation::Logits } else { Activation::Probability },
+            activation: if matches!(spec.task, Task::Sky { .. }) || spec.id == BETTER_TIER { Activation::Logits } else { Activation::Probability },
             metric: false,
             keeps_aspect: spec.task == Task::Depth,
         }
@@ -1061,7 +1071,7 @@ impl ModelSnapshot {
     /// load or would take too long on this CPU.
     pub fn segmenter(&self) -> Result<Option<Segmenter>> {
         let slot = match self.cfg.task {
-            Task::Subject if self.cfg.id == "inspyrenet" => &BETTER,
+            Task::Subject if self.cfg.id == BETTER_TIER => &BETTER,
             Task::Subject => &SUBJECT,
             Task::Sky { .. } => &SKY,
             Task::Depth => &DEPTH,
@@ -1083,7 +1093,7 @@ fn active(group: Group, models_dir: &Path) -> Option<ModelSnapshot> {
     }
     let spec = if group == Group::Subject {
         // the chosen tier, else the other one when only it is installed
-        let tiers = if subject_quality(models_dir) { ["inspyrenet", "rmbg-1.4"] } else { ["rmbg-1.4", "inspyrenet"] };
+        let tiers = if subject_quality(models_dir) { [BETTER_TIER, FAST_TIER] } else { [FAST_TIER, BETTER_TIER] };
         tiers.into_iter().filter_map(spec).find(|s| installed_bytes(models_dir, s).is_some())?
     } else {
         group.official()
@@ -1143,7 +1153,7 @@ pub fn subject_quality(models_dir: &Path) -> bool {
 /// `Ok(None)`: no subject model is installed; `Err`: the one set failed to load.
 pub fn shared(models_dir: &Path) -> Result<Option<Segmenter>> {
     let Some(active) = active(Group::Subject, models_dir) else { return Ok(None) };
-    let slot = if active.cfg.id == "inspyrenet" { &BETTER } else { &SUBJECT };
+    let slot = if active.cfg.id == BETTER_TIER { &BETTER } else { &SUBJECT };
     cached(active, slot)
 }
 
@@ -1330,7 +1340,7 @@ pub fn init_executor() {
 
 /// Verified, cached tier model, also used by the single and batch cutout paths.
 pub fn shared_tier(models_dir: &Path, better: bool) -> Option<Segmenter> {
-    let spec = spec(if better { "inspyrenet" } else { "rmbg-1.4" })?;
+    let spec = tier_spec(better);
     if !spec.files().all(|file| file_installed(models_dir, file)) {
         return None;
     }

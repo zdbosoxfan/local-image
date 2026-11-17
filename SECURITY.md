@@ -54,7 +54,7 @@ In scope:
 - **File parsers.** RAW, PSD/PSB, TIFF, SVG, PDF, Affinity, `.pcraft` documents, HEIF and the
   other image decoders. Malformed input that causes memory corruption, unbounded resource use,
   writes outside the chosen destination, or code execution is in scope.
-- **Cloud AI adapters.** The OpenAI, Google, Black Forest Labs and Stability AI adapters. Requests
+- **Cloud AI adapters.** The OpenAI, Google and Stability AI adapters. Requests
   should go only to the provider's HTTPS hosts. API keys should not be sent anywhere else or
   written to logs. Details are in PRIVACY.md.
 - **Model downloads.** Downloads from Hugging Face, Civitai and GitHub, including the host

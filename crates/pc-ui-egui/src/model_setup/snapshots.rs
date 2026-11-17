@@ -20,7 +20,7 @@ pub fn snapshot_scene(scene: &str) -> Result<(), String> {
             presets: if matches!(scene, "empty" | "offline" | "loading") {
                 Default::default()
             } else {
-                li_ai::catalog::preset(li_ai::catalog::ModelId::Qwen, "bf16").map(|p| (p.id(), Ok(()))).into_iter().collect()
+                li_ai::catalog::preset(li_ai::catalog::ModelId::Klein4B, "bf16").map(|p| (p.id(), Ok(()))).into_iter().collect()
             },
             setup: li_ai::modelsetup::summary::summarise(Some(&scan.server), &[], Some("0.43.0")),
             ..Default::default()
@@ -29,7 +29,7 @@ pub fn snapshot_scene(scene: &str) -> Result<(), String> {
     if scene == "generate" {
         let mut installed = Vec::new();
         let mut templates = std::collections::BTreeMap::new();
-        for key in [FLUX3, KREA, TURBO] {
+        for key in [FLUX3, KREA, FLUX3_BASE] {
             let m = &scan.server.models[key];
             let arch = m.identity.as_ref().and_then(|id| id.arch.as_deref()).ok_or("fixture model has an architecture")?;
             let mut family = li_ai::family::registry().family(arch).cloned().ok_or("fixture architecture has a family")?;
@@ -67,14 +67,14 @@ pub fn snapshot_scene(scene: &str) -> Result<(), String> {
         return Ok(());
     }
     let (key, step) = match scene {
-        "ready-identify" | "new-identify" | "other-files" | "builtin-identify" => (if scene == "builtin-identify" { QWEN21 } else { FLUX3 }, Step::Identify),
+        "ready-identify" | "new-identify" | "other-files" | "builtin-identify" => (if scene == "builtin-identify" { KLEIN4B } else { FLUX3 }, Step::Identify),
         "ignored" => ("unet:old_test.safetensors", Step::Identify),
         "ready-check" | "companion-check" => (FLUX3, Step::Check),
         "ready-verify" | "running" => (FLUX3, Step::Verify),
         "ready-use" => (FLUX3, Step::Use),
         "blocked-check" | "remote-check" | "task-error" | "move" | "download" => (MOSS, Step::Check),
         "verified-verify" | "partial-verify" => (KREA, Step::Verify),
-        "failed-verify" => (TURBO, Step::Verify),
+        "failed-verify" => (FLUX3_BASE, Step::Verify),
         "needs-reverify-check" => (KLEIN9B, Step::Check),
         "missing-node-check" => (HIDREAM, Step::Check),
         "unmatched-check" | "template" => (MING, Step::Check),

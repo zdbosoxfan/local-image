@@ -2134,7 +2134,6 @@ cameraRaw	Blending	混合
 	Remove Background (AI)	移除背景 (AI)
 	Remove Backgrounds (AI)…	批次移除背景 (AI)…
 	Set Up AI…	設定 AI…
-	Subject (AI)	主體 (AI)
 	The AI engine isn't running.	AI 引擎未執行。
 	Contextual task bar	內容相關工作列
 	Tool presets	工具預設集
@@ -2244,7 +2243,6 @@ cameraRaw	Blending	混合
 	Could not save settings: {error}	無法儲存設定：{error}
 	Couldn't save: {error}	無法儲存：{error}
 	Couldn't update profiles: {error}	無法更新設定檔：{error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	使用 Qwen Image 2.1 為每張影像的主體去背並儲存為 PNG。原始影像永遠不會變更。
 	Delete from Library	從圖庫中刪除
 	Describe details to add (optional)…	描述要新增的細節（選用）…
 	Describe the change, e.g. “make it golden hour”…	描述變更，例如「變成黃金時刻」…
@@ -2305,7 +2303,6 @@ cameraRaw	Blending	混合
 	Installation:	安裝：
 	Installed	已安裝
 	Keep	保留
-	Keep… (optional)	保留…（選用）
 	Licence	授權條款
 	Licence gate	需接受授權條款
 	Licence: see its page	授權條款：請參閱其頁面
@@ -2350,8 +2347,6 @@ cameraRaw	Blending	混合
 	Precision	精度
 	Preset name	預設集名稱
 	Previous image ({key})	上一張影像（{key}）
-	Qwen Compact	Qwen 精簡版
-	Qwen Full	Qwen 完整版
 	RESULTS	結果
 	Read the licence	閱讀授權條款
 	Ready	就緒
@@ -2398,7 +2393,6 @@ cameraRaw	Blending	混合
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	請先啟動 AI 引擎：Local Image 會檢查 ComfyUI 中已有的內容。（{error}）
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	啟動 AI 引擎即可檢視 GPU 記憶體；目前顯示可在 8 GB 中執行的內容。
 	Starting ComfyUI… (the first start can take a minute)	正在啟動 ComfyUI…（首次啟動可能需要一分鐘）
-	Starting image · {n}/{max}	起始影像 · {n}/{max}
 	Starting {name}…	正在啟動 {name}…
 	Steps	步數
 	Stopped	已停止
@@ -2416,7 +2410,6 @@ cameraRaw	Blending	混合
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	該工作流程中沒有標題為 li:prompt、li:image、li:mask、li:seed 或 li:output 的節點，因此 Local Image 無法填入。請在 ComfyUI 中重新命名節點後再次匯出。
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	權杖可讓模型瀏覽器下載受限或需登入的模型。權杖只會傳送到各自的網站。
 	Transparent PNG	透明 PNG
-	Transparent background	透明背景
 	Trending	熱門
 	Trending this week	本週熱門
 	Unknown family	未知系列
@@ -2427,7 +2420,6 @@ cameraRaw	Blending	混合
 	Upscale {scale}×	放大 {scale}×
 	Use	使用
 	Use as Reference	用作參考圖
-	Variation strength	變化強度
 	Waiting	等待中
 	What should appear in the selection…	選取範圍中應出現的內容…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	使用你自己的 API 金鑰，產生功能也可以使用雲端模型（它們顯示在模型選擇器的「雲端」下）。此時你的提示詞和影像會從這台電腦傳送到該供應商，並記入你的帳戶；不會向任何地方傳送其他內容。
@@ -2461,14 +2453,11 @@ cameraRaw	Blending	混合
 	{size} · runs on the CPU · {licence}	{size} · 在 CPU 上執行 · {licence}
 	{source}: offline, showing results from {when}	{source}：離線，顯示 {when} 的結果
 	{source}: the catalogue couldn't be read	{source}：無法讀取目錄
-	{why} Qwen Image 2.1 runs these.	{why} 這些功能由 Qwen Image 2.1 執行。
 	Choose…	選擇…
 	Stop	停止
 	Seed	種子
 	Solid Color	純色
 	Strength	強度
-	Qwen AI · Compact	Qwen AI · 精簡版
-	Qwen AI · Full	Qwen AI · 完整版
 	Standard (CPU)	標準（CPU）
 	Templates	範本
 	Community	社群
@@ -3900,7 +3889,10 @@ ai	New	最新
 # Workspace shortcut profiles and color-control labels (clean-room).
 	All shortcuts in this profile reset to defaults.	已將此設定檔中的所有快捷鍵重設為預設值。
 	Editor	編輯器
-	Library + Develop	圖庫 + 顯影
+	Library & Develop	圖庫 & 顯影
+	Library General	圖庫：一般
+	Library Performance	圖庫：效能
+	Library Interface	圖庫：介面
 	Scope	範圍
 	Colour	彩色
 	Monochrome (default)	單色（預設）

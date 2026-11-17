@@ -224,7 +224,7 @@ pub(super) fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut
     if tab == 0 {
         ui.horizontal(|ui| {
             ui.label(RichText::new(tl!("Scope")).color(t.text_dim));
-            let scopes = [("global".to_string(), "Global"), ("library".to_string(), "Library + Develop"), ("editor".to_string(), "Editor")];
+            let scopes = [("global".to_string(), "Global"), ("library".to_string(), "Library & Develop"), ("editor".to_string(), "Compositing")];
             crate::widgets::dropdown(ui, "shortcut-module", &mut scope, &scopes, 180.0);
         });
         if scope != previous_scope {
@@ -234,7 +234,7 @@ pub(super) fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut
         }
         f.insert("shortcutScope".into(), json!(scope));
         if scope == "global" {
-            ui.label(RichText::new("Global shortcuts are fixed and take precedence in every workspace.").color(t.text_dim));
+            ui.label(RichText::new("Global shortcuts are fixed and take precedence in every module.").color(t.text_dim));
             for (_, label, key) in li_keys::GLOBAL_SHORTCUTS {
                 ui.horizontal(|ui| {
                     ui.label(*label);

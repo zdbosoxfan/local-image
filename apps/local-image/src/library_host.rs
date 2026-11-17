@@ -82,6 +82,9 @@ pub struct Host {
     /// The Library's active photo when Compositing was last left: coming back with the same photo
     /// returns to what was open there instead of bringing the photo forward again.
     left_compositing_with: Option<u64>,
+    /// The Library's active photo, view and right panel when it was left for Compositing: the way
+    /// straight back to the same photo restores them (a loupe stays a loupe).
+    library_view_left: Option<(Option<lightcraft_catalog::PhotoId>, lightcraft_ui_egui::state::ViewMode, lightcraft_ui_egui::state::RightPanel)>,
     /// Library develop settings last taken into, or turned down for, each photo's open documents:
     /// an undone update is not put back, and a turned-down one is not offered again.
     develop_sent: std::collections::HashMap<u64, DevelopSent>,
@@ -103,6 +106,9 @@ pub struct Host {
     /// The AI Remove engine Develop and Compositing last agreed on: the one that differs from it
     /// was just changed, and the other follows.
     remove_engine_seen: Option<String>,
+    /// The Rendering Mode last copied into the Library's GPU setting: copied again only when it
+    /// changes, so the Library's own fallback to the CPU after a GPU failure stays.
+    rendering_mode_seen: Option<photocraft_engine::prefs::RenderingMode>,
 }
 
 enum DevelopSent {
@@ -155,8 +161,13 @@ fn library_ui_value(prefs: &photocraft_engine::prefs::Preferences) -> Option<ser
     (prefs.library.contains_key("settings") || prefs.library.contains_key(crate::services::LIBRARY_UNREADABLE_KEY))
         .then(|| serde_json::to_value(&prefs.library).unwrap_or_default())
 }
-const LIBRARY_PREFS_PAGES: &[(&str, &str)] =
-    &[("library.general", "General"), ("library.import", "Import"), ("library.performance", "Performance"), ("library.interface", "Interface")];
+/// Named apart from the shared General, Performance and Interface pages listed above them.
+const LIBRARY_PREFS_PAGES: &[(&str, &str)] = &[
+    ("library.general", "Library General"),
+    ("library.import", "Import"),
+    ("library.performance", "Library Performance"),
+    ("library.interface", "Library Interface"),
+];
 struct LibraryPreferencesPages(std::rc::Rc<std::cell::RefCell<Option<LightcraftApp>>>);
 impl photocraft_ui_egui::prefs_ui::HostPreferencesPages for LibraryPreferencesPages {
     fn pages(&self) -> &'static [(&'static str, &'static str)] {
@@ -173,6 +184,9 @@ impl photocraft_ui_egui::prefs_ui::HostPreferencesPages for LibraryPreferencesPa
         if let Some(lib) = self.0.borrow_mut().as_mut() {
             lightcraft_ui_egui::panels::settings::shared_page(lib, ui, section.trim_start_matches("library."), draft);
         }
+    }
+    fn reset(&self, section: &str, draft: &serde_json::Value) -> Option<serde_json::Value> {
+        lightcraft_ui_egui::panels::settings::reset_page(section.trim_start_matches("library."), draft)
     }
     fn prepare(&self, draft: &serde_json::Value) -> Result<Box<dyn FnOnce() + '_>, String> {
         let values = serde_json::from_value::<lightcraft_ui_egui::panels::settings::PreferencesDraft>(draft.clone()).map_err(|e| e.to_string())?;
@@ -209,6 +223,7 @@ impl Host {
             preserve_library_vectorize_return: false,
             frames: 0,
             left_compositing_with: None,
+            library_view_left: None,
             develop_sent: Default::default(),
             library_seen: None,
             save_sources_seen: None,
@@ -220,6 +235,7 @@ impl Host {
             round_trip_notice: None,
             library_toasts_seen: 0,
             remove_engine_seen: None,
+            rendering_mode_seen: None,
         }
     }
 
@@ -322,6 +338,28 @@ impl Host {
             }
             self.remove_engine_seen = Some(compositing.clone());
         }
+        if let Some(lib) = self.library.as_mut() {
+            // One Tool tips setting: Develop's tips follow the shared Interface page, and
+            // "Show tooltips" off silences them too.
+            use lightcraft_ui_egui::panels::tool_tips::ToolTipMode;
+            use photocraft_engine::prefs::ToolTips;
+            let interface = &self.editor.session.prefs().interface;
+            lib.ui.settings.tool_tips = match interface.tool_tips {
+                _ if !interface.show_tooltips => ToolTipMode::Off,
+                ToolTips::Rich => ToolTipMode::Rich,
+                ToolTips::Simple => ToolTipMode::Simple,
+                ToolTips::Off => ToolTipMode::Off,
+            };
+        }
+        if let Some(lib) = self.library.as_mut() {
+            // One GPU setting: the shared Rendering Mode, at start and whenever it changes.
+            use photocraft_engine::prefs::RenderingMode;
+            let mode = self.editor.session.prefs().performance.rendering_mode;
+            if self.rendering_mode_seen != Some(mode) {
+                lib.ui.settings.gpu = mode != RenderingMode::Cpu;
+                self.rendering_mode_seen = Some(mode);
+            }
+        }
         if let Some(lib) = &self.library {
             self.editor.host_preferences_values =
                 serde_json::to_value(lightcraft_ui_egui::panels::settings::PreferencesDraft::from_ui(&lib.ui)).unwrap_or_default();
@@ -333,11 +371,12 @@ impl Host {
         if self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_updates)) {
             photocraft_ui_egui::updates_ui::start(&mut self.editor, ctx, true);
         }
-        if self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_ai)) {
-            if let Some(lib) = self.library.as_mut() {
-                lib.ui.dialog = None;
-            }
-            photocraft_ui_egui::ai_ui::open_local_ai(&mut self.editor);
+        if let Some(lib) = self.library.as_mut()
+            && let Some(section) = lib.open_shared_ai.take()
+        {
+            lib.ui.dialog = None;
+            photocraft_ui_egui::ai_ui::refresh();
+            photocraft_ui_egui::prefs_ui::open_preferences(&mut self.editor, &section);
         }
         photocraft_ui_egui::prefs_ui::set_host_shortcut_catalog(&mut self.editor, ctx, lightcraft_ui_egui::shortcuts::catalog::host_catalog());
         let request = self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_shortcuts));
@@ -665,15 +704,10 @@ impl Host {
     fn focus_library_document(&mut self, photo: u64) -> bool {
         let index = self.library.as_ref().and_then(|lib| document_of(&self.editor, &lib.session, lightcraft_catalog::PhotoId(photo)));
         if let Some(index) = index {
-            let Some(document) = self.editor.session.documents().get(index).map(|state| state.doc.id) else {
-                return false;
-            };
             if !self.editor.session.set_active(index) {
                 return false;
             }
             self.editor.sync_views();
-            // Supplied by the separately coordinated editor admission helper.
-            photocraft_ui_egui::toolsets_ui::persona::photo_admitted(&mut self.editor, document);
             true
         } else {
             false
@@ -893,22 +927,6 @@ impl Host {
                 // Keep Save / Keep Editing available after a failed write.
                 photocraft_ui_egui::notices::complete_file_result(&mut self.editor, None, "Couldn't save the layered copy".into(), e, true);
             }
-        }
-    }
-
-    /// Library's ⌘S saves its selected unsaved preview through the same editor save path.
-    fn preview_save_key(&mut self, ctx: &egui::Context) {
-        if self.mode != Module::Library || ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        let doc = self.library.as_ref().and_then(|lib| {
-            let id = lib.session.active()?;
-            unsaved_composites(&self.editor, &lib.session).into_iter().find(|(p, _, _)| *p == id).map(|(_, _, d)| d.id)
-        });
-        if let Some(doc) = doc
-            && consume_host_chord(ctx, egui::Modifiers::COMMAND, egui::Key::S)
-        {
-            self.save_preview(ctx, doc);
         }
     }
 
@@ -1224,6 +1242,10 @@ impl Host {
                 self.round_trip_notice = Some(RoundTripNotice::Unsaved { doc: active.doc.id, photo, destination });
             }
         }
+        let leaving = (from == Module::Library && to == Module::Compositing)
+            .then(|| self.library.as_ref().map(|lib| (lib.session.active(), lib.ui.view, lib.ui.right)))
+            .flatten();
+        let library_view = std::mem::replace(&mut self.library_view_left, leaving);
         self.mode = to;
         self.remember_module(to);
         match to {
@@ -1239,7 +1261,15 @@ impl Host {
                     lib.toast(ctx, "Updated the edits saved in Compositing");
                 }
                 if !preserve_library {
-                    set_library_view(lib, develop);
+                    // A save in Compositing makes its new file active; that one shows in the grid.
+                    let active = lib.session.active();
+                    match library_view.filter(|(left_with, _, _)| !develop && active.is_some() && *left_with == active) {
+                        Some((_, view, right)) => {
+                            lib.ui.view = view;
+                            lib.ui.right = if right.is_edit_tool() { lightcraft_ui_egui::state::RightPanel::None } else { right };
+                        }
+                        None => set_library_view(lib, develop),
+                    }
                 }
             }
             Module::Compositing => {
@@ -1399,7 +1429,6 @@ impl eframe::App for Host {
             if self.mode == Module::Compositing || library_keys_available {
                 self.module_keys(ctx);
             }
-            self.preview_save_key(ctx);
         }
         // The editor installs the fonts (a superset of the Library's) on its first frame.
         if self.frames == 1 || self.mode == Module::Compositing {

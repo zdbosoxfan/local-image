@@ -119,3 +119,28 @@ fn ds_finding_compositing_button_is_clipped_to_small_loupe() {
     }
     assert!(clicked);
 }
+
+/// Export and Edit In render the photo itself: when the Library shows a photo as its unsaved
+/// Compositing work, the Export dialog and the Edit In message say that work is left out.
+#[test]
+fn export_and_edit_in_say_they_leave_out_unsaved_compositing_work() {
+    let dir = std::env::temp_dir().join(format!("lc-ui-host-composite-export-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let services = Services { open_with: Some(Box::new(|_: &str, _: &str| Ok(()))), ..Default::default() };
+    let mut h = Headless::new(LightcraftApp::new(lightcraft_engine::Session::with_demo().with_fs(), services), [1400.0, 1100.0], 1.0);
+    let id = h.app.session.active().unwrap();
+    let ctx = h.view.ctx.clone();
+    host_composite::set(&mut h.app, &ctx, id, 7, 2, 2, &[255, 0, 0, 255].repeat(4), "Edited in Compositing · unsaved");
+    h.request("engine.execute", json!({"command": "dialog.export"}), T);
+    h.settle(T);
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "exportUnsavedComposites"), "the Export dialog names the unsaved work");
+    h.app.ui.dialog = None;
+    h.app.ui.settings.external_editor = "Other Editor".into();
+    let r = h.request("engine.execute", json!({"command": "photo.editInExternal", "params": {"dir": dir.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    let toasts: Vec<String> = h.app.ui.toast_history.history.iter().map(|n| n.title.clone()).collect();
+    assert!(toasts.iter().any(|t| t.contains("without the photo's unsaved Compositing work")), "{toasts:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+    h.settle(T);
+}

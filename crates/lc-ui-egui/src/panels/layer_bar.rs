@@ -137,6 +137,9 @@ pub fn new_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ("background", "AI Background"),
         ("depth", "Depth Range"),
     ] {
+        if !super::masking::offered(kind) {
+            continue;
+        }
         if text_button(ui, &format!("maskNew:{kind}"), label, false).clicked() {
             app.ui.layer_bar_collapsed = false;
             app.ui.mask_overlay = true;

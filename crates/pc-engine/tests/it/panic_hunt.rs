@@ -16,8 +16,6 @@ const DENIED: &[(&str, &str)] = &[
     ("file.print", "runs the system print spooler"),
     ("file.printOneCopy", "runs the system print spooler"),
     ("ai.remove", "submits work to ComfyUI"),
-    ("ai.removeBackground", "submits work to ComfyUI"),
-    ("ai.selectSubject", "submits work to ComfyUI"),
     ("ai.generativeFill", "submits work to ComfyUI"),
     ("ai.generateBackground", "submits work to ComfyUI"),
     ("ai.enhance", "submits work to ComfyUI"),

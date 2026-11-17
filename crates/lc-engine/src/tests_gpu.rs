@@ -319,7 +319,7 @@ struct Mock;
 
 impl crate::enhance::AiHost for Mock {
     fn remove_engines(&self) -> Vec<crate::enhance::RemoveEngine> {
-        vec![crate::enhance::RemoveEngine { key: "mock".into(), label: "Mock".into(), problem: None }]
+        vec![crate::enhance::RemoveEngine { key: "mock".into(), label: "Mock".into(), problem: None, on_device: false }]
     }
     fn remove(&self, req: &crate::enhance::RemoveRequest, _: &lightcraft_sysmem::JobCtl) -> Result<crate::enhance::RemoveResult, String> {
         let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [0.98, 0.0, 0.98] } else { *c }).collect();

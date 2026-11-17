@@ -96,7 +96,7 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
                 ui.label(RichText::new(details).color(t.text_faint).size(11.0));
                 let download_key = preset.id();
                 if let Some(d) = dls.get(&download_key).filter(|d| !d.finished) {
-                    ui.add(egui::ProgressBar::new(d.done as f32 / d.total.max(1) as f32));
+                    li_ui_kit::progress::bar_with_percent(ui, 160.0, li_ui_kit::progress::fraction(d.done, d.total), t);
                     if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
                         d.ctl.cancel();
                     }
@@ -156,7 +156,7 @@ pub(super) fn download_controls(ui: &mut egui::Ui, dls: &BTreeMap<String, Downlo
     let gpu = format!("{}:default", spec.id);
     if let Some(d) = dls.get(&gpu).filter(|d| !d.finished) {
         ui.label("GPU");
-        ui.add(egui::ProgressBar::new(d.done as f32 / d.total.max(1) as f32));
+        li_ui_kit::progress::bar_with_percent(ui, 160.0, li_ui_kit::progress::fraction(d.done, d.total), &Tokens::get(ui.ctx()));
         if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
             d.ctl.cancel();
         }
