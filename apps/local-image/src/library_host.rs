@@ -329,6 +329,19 @@ impl Host {
             }
             self.remove_engine_seen = Some(compositing.clone());
         }
+        if let Some(lib) = self.library.as_mut() {
+            // One Tool tips setting: Develop's tips follow the shared Interface page, and
+            // "Show tooltips" off silences them too.
+            use lightcraft_ui_egui::panels::tool_tips::ToolTipMode;
+            use photocraft_engine::prefs::ToolTips;
+            let interface = &self.editor.session.prefs().interface;
+            lib.ui.settings.tool_tips = match interface.tool_tips {
+                _ if !interface.show_tooltips => ToolTipMode::Off,
+                ToolTips::Rich => ToolTipMode::Rich,
+                ToolTips::Simple => ToolTipMode::Simple,
+                ToolTips::Off => ToolTipMode::Off,
+            };
+        }
         if let Some(lib) = &self.library {
             self.editor.host_preferences_values =
                 serde_json::to_value(lightcraft_ui_egui::panels::settings::PreferencesDraft::from_ui(&lib.ui)).unwrap_or_default();

@@ -3557,6 +3557,25 @@ fn ai_remove_engine_choice_is_shared_by_develop_and_compositing() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Develop's tool tips follow the shared Interface page; "Show tooltips" off turns them off.
+#[test]
+fn develop_tool_tips_follow_the_shared_interface_setting() {
+    use lightcraft_ui_egui::panels::tool_tips::ToolTipMode;
+    let (dir, host) = workflow_host("shared-tool-tips");
+    let mut h = RoundTripUi::new(host);
+    let ctx = h.view.ctx.clone();
+    h.host.switch(&ctx, Module::Develop);
+    h.step(vec![]);
+    h.host.editor.session.edit_prefs(|prefs| prefs.interface.tool_tips = photocraft_engine::prefs::ToolTips::Simple);
+    h.step(vec![]);
+    assert_eq!(h.host.library.as_ref().unwrap().ui.settings.tool_tips, ToolTipMode::Simple);
+    h.host.editor.session.edit_prefs(|prefs| prefs.interface.show_tooltips = false);
+    h.step(vec![]);
+    assert_eq!(h.host.library.as_ref().unwrap().ui.settings.tool_tips, ToolTipMode::Off);
+    drop(h);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn lrc_library_preferences_are_lenient_preserve_paths_and_unreadable_settings_block() {
     let (dir, mut host) = workflow_host("lrc-library-prefs");

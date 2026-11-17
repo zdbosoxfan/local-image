@@ -715,21 +715,22 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 // Interface
 
 fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
-    heading(ui, t, li_i18n::library::t("Tools"));
-    row(ui, t, li_i18n::library::t("Tool tips"), |ui| {
-        use crate::panels::tool_tips::ToolTipMode as M;
-        choices(
-            ui,
-            "settingsToolTips",
-            &[
-                (M::Rich, li_i18n::library::t("Rich")),
-                (M::Simple, li_i18n::library::t("Simple (name and shortcut)")),
-                (M::Off, li_i18n::library::t("Off")),
-            ],
-            &mut app.ui.settings.tool_tips,
-        );
-    });
+    // Hosted, the shared Interface page's Tool tips setting drives the Library's too.
     if !app.hosted_menus {
+        heading(ui, t, li_i18n::library::t("Tools"));
+        row(ui, t, li_i18n::library::t("Tool tips"), |ui| {
+            use crate::panels::tool_tips::ToolTipMode as M;
+            choices(
+                ui,
+                "settingsToolTips",
+                &[
+                    (M::Rich, li_i18n::library::t("Rich")),
+                    (M::Simple, li_i18n::library::t("Simple (name and shortcut)")),
+                    (M::Off, li_i18n::library::t("Off")),
+                ],
+                &mut app.ui.settings.tool_tips,
+            );
+        });
         row(ui, t, "Tool icons", |ui| {
             choices(ui, "settingsToolIcons", &[(false, "Monochrome (default)"), (true, "Colour")], &mut app.ui.settings.color_tool_icons);
         });
