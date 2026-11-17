@@ -79,15 +79,15 @@ fn known_files() -> BTreeSet<(String, String)> {
 
 fn hf_models() -> Value {
     json!([
-        {"id": "mock-org/z-image-turbo-mini", "author": "mock-org", "likes": 940, "downloads": 120000, "trendingScore": 88, "createdAt": "2026-09-30T10:00:00Z",
-         "tags": ["diffusers", "text-to-image", "base_model:Tongyi-MAI/Z-Image-Turbo", "license:apache-2.0"], "cardData": {"license": "apache-2.0"}, "gated": false,
-         "siblings": [{"rfilename": "split_files/diffusion_models/z_image_turbo_mini.safetensors"}, {"rfilename": "README.md"}]},
+        {"id": "mock-org/klein-4b-mini", "author": "mock-org", "likes": 940, "downloads": 120000, "trendingScore": 88, "createdAt": "2026-09-30T10:00:00Z",
+         "tags": ["diffusers", "text-to-image", "base_model:black-forest-labs/FLUX.2-klein-4B", "license:apache-2.0"], "cardData": {"license": "apache-2.0"}, "gated": false,
+         "siblings": [{"rfilename": "split_files/diffusion_models/flux-2-klein-4b-mini.safetensors"}, {"rfilename": "README.md"}]},
         {"id": "mock-org/sdxl-filmic", "author": "mock-org", "likes": 310, "downloads": 54000, "trendingScore": 12, "createdAt": "2026-06-02T10:00:00Z",
          "tags": ["text-to-image", "stable-diffusion-xl", "license:openrail++"], "cardData": {"license": "openrail++"}, "gated": false,
          "siblings": [{"rfilename": "sdxlFilmic_v2.safetensors"}, {"rfilename": "sdxlFilmic_v2.ckpt"}]},
-        {"id": "mock-labs/FLUX.1-mock-dev", "author": "mock-labs", "likes": 12000, "downloads": 2000000, "trendingScore": 40, "createdAt": "2025-08-01T10:00:00Z",
-         "tags": ["text-to-image", "flux", "license:other"], "cardData": {"license": "other", "license_name": "flux-1-dev-non-commercial-license"}, "gated": "auto",
-         "siblings": [{"rfilename": "flux1-mock-dev.safetensors"}]},
+        {"id": "mock-labs/gated-mock-dev", "author": "mock-labs", "likes": 12000, "downloads": 2000000, "trendingScore": 40, "createdAt": "2025-08-01T10:00:00Z",
+         "tags": ["text-to-image", "license:other"], "cardData": {"license": "other", "license_name": "mock-non-commercial-license"}, "gated": "auto",
+         "siblings": [{"rfilename": "gated-mock-dev.safetensors"}]},
         {"id": "mock-org/qwen-ink-lora", "author": "mock-org", "likes": 75, "downloads": 3100, "trendingScore": 30, "createdAt": "2026-09-12T10:00:00Z",
          "tags": ["lora", "base_model:adapter:Qwen/Qwen-Image", "license:apache-2.0"], "cardData": {"license": "apache-2.0"}, "gated": false,
          "siblings": [{"rfilename": "qwen_ink.safetensors"}]},
@@ -163,9 +163,6 @@ fn query(url: &str, key: &str) -> Vec<String> {
 
 // cloud APIs
 
-/// Images a mock BFL job produced, by id.
-static BFL_JOBS: std::sync::Mutex<Vec<(String, Vec<u8>)>> = std::sync::Mutex::new(Vec::new());
-
 /// A stand-in result: the source inverted (so edits are visible), or a gradient coloured by the
 /// prompt.
 fn cloud_image(prompt: &str, source: Option<image::RgbaImage>, w: u32, h: u32) -> Vec<u8> {
@@ -222,16 +219,11 @@ fn b64(b: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(b)
 }
 
-/// The mock cloud APIs (`/cloud/{openai,google,bfl,stability}/…`). `key` is the request's API
+/// The mock cloud APIs (`/cloud/{openai,google,stability}/…`). `key` is the request's API
 /// key header; `bad-key` is rejected the way the providers do.
-pub fn handle_cloud(host: &str, method: &str, url: &str, key: Option<&str>, body: &[u8]) -> Option<Reply> {
+pub fn handle_cloud(method: &str, url: &str, key: Option<&str>, body: &[u8]) -> Option<Reply> {
     let path = url.split('?').next().unwrap_or("");
     let rest = path.strip_prefix("/cloud/")?;
-    if let Some(id) = rest.strip_prefix("bfl/sample/") {
-        let id = id.trim_end_matches(".png");
-        let jobs = BFL_JOBS.lock().ok()?;
-        return Some(jobs.iter().find(|(j, _)| j == id).map(|(_, b)| Reply::Bytes(b.clone(), "image/png")).unwrap_or(Reply::NotFound));
-    }
     match key {
         None | Some("") => return Some(Reply::JsonStatus(401, json!({"error": {"message": "Missing API key"}}))),
         Some("bad-key") => return Some(Reply::JsonStatus(401, json!({"error": {"message": "Incorrect API key provided"}}))),
@@ -260,17 +252,6 @@ pub fn handle_cloud(host: &str, method: &str, url: &str, key: Option<&str>, body
             Some(Reply::Json(
                 json!({"candidates": [{"content": {"parts": [{"text": "Here you go"}, {"inlineData": {"mimeType": "image/png", "data": b64(&png)}}]}, "finishReason": "STOP"}]}),
             ))
-        }
-        ("POST", r) if r.starts_with("bfl/v1/") => {
-            let src = v["input_image"].as_str().or_else(|| v["image"].as_str()).and_then(unb64);
-            let id = uuid::Uuid::new_v4().simple().to_string();
-            let png = cloud_image(v["prompt"].as_str().unwrap_or(""), src, 1024, 1024);
-            BFL_JOBS.lock().ok()?.push((id.clone(), png));
-            Some(Reply::Json(json!({"id": id, "polling_url": format!("http://{host}/cloud/bfl/v1/get_result?id={id}")})))
-        }
-        ("GET", "bfl/v1/get_result") => {
-            let id = url.split("id=").nth(1).unwrap_or("");
-            Some(Reply::Json(json!({"id": id, "status": "Ready", "result": {"sample": format!("http://{host}/cloud/bfl/sample/{id}.png")}})))
         }
         ("POST", r) if r.starts_with("stability/v2beta/") => {
             let src = multipart_pngs(body).into_iter().next();
@@ -334,7 +315,7 @@ pub fn handle(host: &str, url: &str) -> Option<Reply> {
     if let Some(rest) = path.strip_prefix("/hf/") {
         let (_, tail) = rest.split_once("/resolve/")?;
         let (_, file) = tail.split_once('/')?;
-        if file.contains("FLUX.1-mock") || rest.starts_with("mock-labs/") {
+        if rest.starts_with("mock-labs/") {
             // A gated repository: the licence has to be accepted on the website first.
             return Some(Reply::Status(403));
         }

@@ -13,11 +13,11 @@ use super::*;
 pub(super) const FLUX3: &str = "unet:flux3-image-klein-bf16.safetensors";
 pub(super) const MOSS: &str = "unet:moss_image_sft_bf16.safetensors";
 pub(super) const KREA: &str = "unet:krea2_turbo_bf16.safetensors";
-pub(super) const TURBO: &str = "unet:qwen_image_2.1_turbo_bf16.safetensors";
+pub(super) const FLUX3_BASE: &str = "unet:flux3-image-klein-base-bf16.safetensors";
 pub(super) const KLEIN9B: &str = "unet:flux-2-klein-9b-fp8.safetensors";
 pub(super) const HIDREAM: &str = "ckpt:hidream_o1_image_bf16.safetensors";
 pub(super) const MING: &str = "unet:ming_image_0.1_design_bf16.safetensors";
-pub(super) const QWEN21: &str = "unet:qwen_image_2.1_bf16.safetensors";
+pub(super) const KLEIN4B: &str = "unet:flux-2-klein-4b.safetensors";
 
 pub(super) fn snapshot(version: &str) -> Snapshot {
     Snapshot {
@@ -145,12 +145,12 @@ pub(super) fn fixture() -> Scan {
         ..Default::default()
     });
     models.insert(KREA.to_owned(), krea);
-    let mut turbo = model(TURBO, "Qwen Image 2.1 Turbo · BF16", Status::Failed, "qwen-image-21", Some("turbo"));
+    let mut base = model(FLUX3_BASE, "FLUX.3 Klein Base · BF16", Status::Failed, "flux3-klein", Some("base"));
     let mut caps = std::collections::BTreeMap::new();
     caps.insert("create".to_owned(), CapabilityResult { pass: false, seconds: 7.0, failure: Some("VerifyFailed:noise".into()), ..Default::default() });
-    turbo.verified = Some(Verified { at: "2026-10-24T14:10:00-04:00".into(), comfyui_version: "0.42.5".into(), capabilities: caps, ..Default::default() });
-    turbo.issues = vec![issue("VerifyFailed:noise", TURBO, &[("capability", "Create"), ("vae", "qwen_image_vae.safetensors")])];
-    models.insert(TURBO.to_owned(), turbo);
+    base.verified = Some(Verified { at: "2026-10-24T14:10:00-04:00".into(), comfyui_version: "0.42.5".into(), capabilities: caps, ..Default::default() });
+    base.issues = vec![issue("VerifyFailed:noise", FLUX3_BASE, &[("capability", "Create"), ("vae", "flux2-vae.safetensors")])];
+    models.insert(FLUX3_BASE.to_owned(), base);
     let mut klein = model(KLEIN9B, "FLUX.2 Klein 9B · FP8", Status::NeedsReverify, "flux2-klein", Some("9b"));
     klein.issues = vec![issue("ReverifyNeeded", KLEIN9B, &[("old", "0.42.5"), ("new", "0.43.0"), ("model", "FLUX.2 Klein 9B · FP8")])];
     models.insert(KLEIN9B.to_owned(), klein);
@@ -162,9 +162,9 @@ pub(super) fn fixture() -> Scan {
     ming.issues = vec![issue("NoTemplate", MING, &[("file", "ming_image_0.1_design_bf16.safetensors")]).fix(Fix::CheckOnline).fix(Fix::UpdateProfiles)];
     ming.capabilities.clear();
     models.insert(MING.to_owned(), ming);
-    let mut qwen = model(QWEN21, "Qwen Image 2.1 · BF16", Status::Builtin, "qwen-image-21", None);
-    qwen.engine = "builtin".into();
-    models.insert(QWEN21.to_owned(), qwen);
+    let mut klein4b = model(KLEIN4B, "FLUX.2 Klein 4B · BF16", Status::Builtin, "flux2-klein", Some("4b"));
+    klein4b.engine = "builtin".into();
+    models.insert(KLEIN4B.to_owned(), klein4b);
     models.insert("unet:old_test.safetensors".to_owned(), model("unet:old_test.safetensors", "Old test", Status::Ignored, "", None));
     Scan {
         snapshot: Some(snapshot("0.43.0")),

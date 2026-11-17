@@ -54,7 +54,6 @@
     "edit": true,
     "references": 6,
     "inpaint": true,
-    "transparent": false,
     "negative_prompt": false
   },
   "lora": {

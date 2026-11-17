@@ -112,7 +112,7 @@ fn placed_generate_results_offer_variations_with_their_saved_settings() {
     let mut h = harness(240, 160);
     h.state_mut().run("layer.new.layer", json!({})).unwrap();
     let layer = active(&h);
-    let g = json!({"command": "ai.generate", "model": "qwen", "variant": "int8", "prompt": "marble", "negative_prompt": "letters", "seed": 42,
+    let g = json!({"command": "ai.generate", "model": "flux2-klein-4b", "variant": "bf16", "prompt": "marble", "negative_prompt": "letters", "seed": 42,
         "mode": "fill", "width": 240, "height": 160, "steps": 8, "guidance": 3.0, "denoise": 0.75});
     let app = h.state_mut();
     app.run("select.rect", json!({"x": 10, "y": 10, "width": 40, "height": 40})).unwrap();
@@ -129,7 +129,7 @@ fn placed_generate_results_offer_variations_with_their_saved_settings() {
     let s = &h.state().ui.ai.generate;
     assert_eq!(s.prompt, "marble");
     assert_eq!(s.negative, "letters");
-    assert_eq!(s.variant, "int8");
+    assert_eq!(s.variant, "bf16");
     assert_eq!((s.width, s.height, s.steps), (240, 160, 8));
     assert_eq!(s.seed, None, "a fresh seed for the next variation");
     assert_eq!(s.mode, crate::generate_ui::Mode::Fill);
@@ -742,7 +742,7 @@ fn generation_metadata_saved_layers_regenerate_from_context_bar() {
         let new = st.doc.layer(st.active_layer.unwrap()).unwrap();
         let regenerated = new.generation.as_ref().unwrap();
         assert_eq!(regenerated["prompt"], settings["prompt"]);
-        assert_eq!(regenerated["engine"], settings["engine"]);
+        assert_eq!(regenerated["command"], settings["command"]);
         assert_eq!(regenerated["bounds"], settings["bounds"]);
         assert_ne!(regenerated["seed"], settings["seed"]);
         h.state_mut().run("edit.undo", json!({})).unwrap();

@@ -58,7 +58,6 @@
     "edit": true,
     "references": 4,
     "inpaint": true,
-    "transparent": false,
     "negative_prompt": false
   },
   "lora": {
@@ -295,7 +294,6 @@
         "edit": true,
         "references": 0,
         "inpaint": true,
-        "transparent": false,
         "negative_prompt": false
       },
       "presets": [

@@ -37,7 +37,6 @@
     "edit": false,
     "references": 1,
     "inpaint": false,
-    "transparent": false,
     "negative_prompt": false,
     "upscale": true
   },

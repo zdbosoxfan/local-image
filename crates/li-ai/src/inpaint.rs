@@ -12,7 +12,7 @@
 //! - **Pre-fill** for regenerating from scratch: the masked area is filled with a blur of its
 //!   surroundings (normalised convolution), so the model starts from plausible colours;
 //!   instruction-edit models get it painted green with "fill the green area" (Krita's convention
-//!   for FLUX.2 Klein and Qwen Image 2.1).
+//!   for FLUX.2 Klein).
 
 use image::{GrayImage, Luma, Rgb, RgbImage, imageops};
 

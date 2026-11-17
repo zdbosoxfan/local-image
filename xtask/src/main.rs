@@ -772,7 +772,6 @@ fn upstream_repo(project: &str) -> Option<&'static str> {
         "libraw" => Some("https://github.com/LibRaw/LibRaw"),
         "exiftool" => Some("https://github.com/exiftool/exiftool"),
         "make_arq" => Some("https://github.com/agriggio/make_arq"),
-        "splitmix64" => Some("https://github.com/svaarala/duktape"),
         "darktable-ai" => Some("https://github.com/darktable-org/darktable-ai"),
         "opencv" => Some("https://github.com/opencv/opencv"),
         "lensfun" => Some("https://github.com/lensfun/lensfun"),

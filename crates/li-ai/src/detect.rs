@@ -34,7 +34,6 @@ fn flux_generation(n: &str) -> Gen {
             continue;
         }
         return match digits.as_str() {
-            "1" => Gen::Known("flux1"),
             "2" => Gen::Known("flux2"),
             d => Gen::Unknown(format!("FLUX generation {d}")),
         };
@@ -70,7 +69,7 @@ fn qwen_image_generation(n: &str) -> Gen {
             let tail = &rest[digits.len()..];
             let minor: String = tail.strip_prefix(['.', '_']).map(|t| t.chars().take_while(char::is_ascii_digit).collect()).unwrap_or_default();
             return match (digits.as_str(), minor.as_str()) {
-                ("2", "1") | ("21", "") => Gen::Known("qwen-image-21"),
+                ("2", "1") | ("21", "") => Gen::Unknown("Qwen Image 2.1".into()),
                 (d, _) if d.len() == 4 => Gen::Known("qwen-image"),
                 (d, "") => Gen::Unknown(format!("Qwen Image {d}")),
                 (d, m) => Gen::Unknown(format!("Qwen Image {d}.{m}")),
@@ -257,7 +256,7 @@ pub fn by_name(reg: &Registry, name: &str) -> Option<Match> {
     })
 }
 
-/// A variant the family's name rules give (MOSS SFT/Base, Krea-2 Turbo/Raw, Qwen 2.1 Turbo).
+/// A variant the family's name rules give (MOSS SFT/Base, Krea-2 Turbo/Raw).
 pub fn name_variant(reg: &Registry, id: &str, name: &str) -> Option<String> {
     let mut sources: Vec<&Detect> = reg.family(id).and_then(|f| f.detect.as_ref()).into_iter().collect();
     sources.extend(reg.families.iter().filter_map(|f| f.detect.as_ref()).filter(|d| d.refines.as_deref() == Some(id)));
@@ -324,7 +323,7 @@ mod tests {
     fn lora_name_prefixes_match_whole_tokens_in_the_basename() {
         let raw = crate::family::EMBEDDED.iter().map(|(id, text)| ((*id).to_owned(), serde_json::from_str(text).unwrap())).collect();
         let reg = Registry { families: crate::family::build(&raw).unwrap(), ..Default::default() };
-        assert_eq!(lora_by_name(&reg, "flux_3d_style_lora.safetensors").unwrap().id, "flux1");
+        assert!(lora_by_name(&reg, "flux_3d_style_lora.safetensors").is_none_or(|m| m.id != "flux3-klein"));
         assert!(lora_by_name(&reg, "mossy_forest_lora.safetensors").is_none_or(|m| m.id != "moss-image"));
         assert_eq!(lora_by_name(&reg, "flux3_klein_style_lora").unwrap().id, "flux3-klein");
         assert_eq!(lora_by_name(&reg, "moss_image_lora").unwrap().id, "moss-image");
@@ -339,7 +338,7 @@ mod tests {
     fn generations_in_names_and_metadata() {
         assert_eq!(generation("flux3-image-klein-bf16.safetensors"), Gen::Unknown("FLUX generation 3".into()));
         assert_eq!(generation("flux-3-image-klein-Q4_K_M.gguf"), Gen::Unknown("FLUX generation 3".into()));
-        assert_eq!(generation("flux1-dev.safetensors"), Gen::Known("flux1"));
+        assert_eq!(generation("flux1-dev.safetensors"), Gen::Unknown("FLUX generation 1".into()));
         assert_eq!(generation("flux-2-klein-4b"), Gen::Known("flux2"));
         assert_eq!(generation("flux.2_dev"), Gen::Known("flux2"));
         assert_eq!(generation("flux_3d_style_lora.safetensors"), Gen::None);
@@ -347,8 +346,8 @@ mod tests {
         assert_eq!(generation("hidream_i1_full_fp8"), Gen::Known("hidream"));
         assert_eq!(generation("hidream_e1_1"), Gen::Known("hidream"));
         assert_eq!(generation("hidream_o1_image_bf16"), Gen::Unknown("HiDream O1".into()));
-        assert_eq!(generation("qwen_image_2.1_bf16"), Gen::Known("qwen-image-21"));
-        assert_eq!(generation("qwen-image-2_1-turbo"), Gen::Known("qwen-image-21"));
+        assert_eq!(generation("qwen_image_2.1_bf16"), Gen::Unknown("Qwen Image 2.1".into()));
+        assert_eq!(generation("qwen-image-2_1-turbo"), Gen::Unknown("Qwen Image 2.1".into()));
         assert_eq!(generation("qwen_image_edit_2511_bf16"), Gen::Known("qwen-image"));
         assert_eq!(generation("qwen_image_2512"), Gen::Known("qwen-image"));
         assert_eq!(generation("qwen_image_2"), Gen::Unknown("Qwen Image 2".into()));

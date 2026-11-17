@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn unscanned_installed_models_without_a_builder_are_new() {
         let reg = crate::family::registry();
-        let cat = crate::catalog::build(reg, &[installed("mystery.safetensors", ""), installed("flux1-dev-fp8.safetensors", "flux1")]);
+        let cat = crate::catalog::build(reg, &[installed("mystery.safetensors", ""), installed("flux2_dev_fp8mixed.safetensors", "flux2")]);
         let s = summarise(None, &cat.models, Some("0.42.5"));
         assert_eq!(s.new, ["unet:mystery.safetensors"], "a builder family runs without setup");
         assert_eq!(s.status("unet:mystery.safetensors"), Some(Status::New));
@@ -154,12 +154,14 @@ mod tests {
         server.models.insert("unet:a".into(), stored(Status::Blocked, vec![info.clone(), warn.clone(), block.clone()]));
         server.models.insert("unet:b".into(), stored(Status::NeedsReverify, vec![info, warn.clone()]));
         server.models.insert("unet:c".into(), stored(Status::Failed, Vec::new()));
-        server.models.insert("unet:d".into(), ModelState { status: Status::Builtin, catalog_id: "qwen-image-21".into(), ..Default::default() });
-        server.models.insert("unet:e".into(), ModelState { status: Status::Ready, catalog_id: "qwen".into(), variant: "bf16".into(), ..Default::default() });
+        server.models.insert("unet:d".into(), ModelState { status: Status::Builtin, catalog_id: "flux2-klein-9b".into(), ..Default::default() });
+        server
+            .models
+            .insert("unet:e".into(), ModelState { status: Status::Ready, catalog_id: "flux2-klein-4b".into(), variant: "bf16".into(), ..Default::default() });
         let s = summarise(Some(&server), &[], Some("0.43.0"));
         assert_eq!(s.models["unet:a"].issue.as_ref().map(|i| i.code.as_str()), Some("NodeMissing"));
         assert_eq!(s.models["unet:b"].issue.as_ref().map(|i| i.code.as_str()), Some("QuantSlow"));
-        assert_eq!(s.status("qwen-image-21"), Some(Status::Builtin), "curated models are found by their catalogue key");
+        assert_eq!(s.status("flux2-klein-9b"), Some(Status::Builtin), "curated models are found by their catalogue key");
         assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (3, 1, 4));
         assert_eq!(s.updated, Some(("0.42.5".into(), "0.43.0".into())));
     }
@@ -167,32 +169,38 @@ mod tests {
     #[test]
     fn each_precision_of_a_curated_model_keeps_its_own_status() {
         let mut server = ServerState { comfyui_version: "0.42.5".into(), ..Default::default() };
-        let preset = |status, variant: &str| ModelState { status, catalog_id: "qwen".into(), variant: variant.into(), ..Default::default() };
-        server.models.insert("unet:qwen_image_2.1_bf16.safetensors".into(), preset(Status::Verified, "bf16"));
-        server.models.insert("unet:qwen_image_2.1_int8_convrot.safetensors".into(), preset(Status::Builtin, "int8"));
+        let preset = |status, variant: &str| ModelState { status, catalog_id: "flux2-klein-4b".into(), variant: variant.into(), ..Default::default() };
+        // The other precision's file sorts first, so the default preset has to win the model's key.
+        server.models.insert("unet:a_flux-2-klein-4b-fp8.safetensors".into(), preset(Status::Verified, "fp8"));
+        server.models.insert("unet:flux-2-klein-4b.safetensors".into(), preset(Status::Builtin, "bf16"));
         let s = summarise(Some(&server), &[], Some("0.42.5"));
-        assert_eq!(s.status_for("qwen", "bf16"), Some(Status::Verified));
-        assert_eq!(s.status_for("qwen", "int8"), Some(Status::Builtin));
-        assert_eq!(s.status("qwen"), Some(Status::Builtin), "the model's key is its default preset, {}", crate::catalog::default_variant(ModelId::Qwen));
+        assert_eq!(s.status_for("flux2-klein-4b", "fp8"), Some(Status::Verified));
+        assert_eq!(s.status_for("flux2-klein-4b", "bf16"), Some(Status::Builtin));
+        assert_eq!(
+            s.status("flux2-klein-4b"),
+            Some(Status::Builtin),
+            "the model's key is its default preset, {}",
+            crate::catalog::default_variant(ModelId::Klein4B)
+        );
     }
     #[test]
     fn file_counts_ignore_catalogue_and_precision_aliases() {
         let mut server = ServerState::default();
         for (key, status, variant) in [("unet:a", Status::NeedsReverify, "bf16"), ("unet:b", Status::Ready, "int8")] {
-            server.models.insert(key.into(), ModelState { status, catalog_id: "qwen".into(), variant: variant.into(), ..Default::default() });
+            server.models.insert(key.into(), ModelState { status, catalog_id: "flux2-klein-4b".into(), variant: variant.into(), ..Default::default() });
         }
         let s = summarise(Some(&server), &[], None);
         assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (1, 1, 2));
         assert_eq!(s.new, ["unet:b"]);
         assert_eq!(s.status("unet:b"), Some(Status::Ready));
-        assert_eq!(s.status_for("qwen", "bf16"), Some(Status::NeedsReverify));
+        assert_eq!(s.status_for("flux2-klein-4b", "bf16"), Some(Status::NeedsReverify));
         let catalogue = crate::catalog::build(crate::family::registry(), &[installed("c", "")]);
         let model = catalogue.models.iter().find(|m| m.id.key() == "unet:c").unwrap();
         let duplicated = [model.clone(), model.clone()];
         let s = summarise(Some(&server), &duplicated, None);
         assert_eq!(s.new, ["unet:b", "unet:c"]);
         assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (1, 1, 3));
-        assert_eq!(s.models["qwen#bf16"].file_key, "unet:a");
+        assert_eq!(s.models["flux2-klein-4b#bf16"].file_key, "unet:a");
     }
     #[test]
     fn a_scanned_update_keeps_the_actionable_version_context() {

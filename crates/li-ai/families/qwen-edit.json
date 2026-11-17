@@ -30,7 +30,6 @@
     "edit": true,
     "references": 3,
     "inpaint": true,
-    "transparent": false,
     "negative_prompt": true
   },
   "civitai_base_models": [
@@ -57,7 +56,6 @@
         "edit": true,
         "references": 1,
         "inpaint": true,
-        "transparent": false,
         "negative_prompt": true
       }
     }

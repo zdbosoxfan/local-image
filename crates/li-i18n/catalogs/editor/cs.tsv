@@ -2157,7 +2157,6 @@ cameraRaw	Color	Barvy
 	Remove Background (AI)	Odstranit pozadí (AI)
 	Remove Backgrounds (AI)…	Odstranit pozadí (AI) hromadně…
 	Set Up AI…	Nastavit AI…
-	Subject (AI)	Objekt (AI)
 	The AI engine isn't running.	Modul AI není spuštěn.
 	Contextual task bar	Kontextový panel úloh
 	Tool presets	Přednastavení nástroje
@@ -2267,7 +2266,6 @@ cameraRaw	Color	Barvy
 	Could not save settings: {error}	Nastavení nelze uložit: {error}
 	Couldn't save: {error}	Uložení se nezdařilo: {error}
 	Couldn't update profiles: {error}	Profily nelze aktualizovat: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Vyřízne objekt z každého obrázku pomocí Qwen Image 2.1 a uloží soubory PNG. Originály se nikdy nemění.
 	Delete from Library	Odstranit z knihovny
 	Describe details to add (optional)…	Popište detaily, které přidat (volitelné)…
 	Describe the change, e.g. “make it golden hour”…	Popište změnu, např. „ať je zlatá hodina“…
@@ -2328,7 +2326,6 @@ cameraRaw	Color	Barvy
 	Installation:	Instalace:
 	Installed	Nainstalováno
 	Keep	Zachovat
-	Keep… (optional)	Zachovat… (volitelné)
 	Licence	Licence
 	Licence gate	Vyžaduje licenci
 	Licence: see its page	Licence: viz jeho stránku
@@ -2373,8 +2370,6 @@ cameraRaw	Color	Barvy
 	Precision	Přesnost
 	Preset name	Název přednastavení
 	Previous image ({key})	Předchozí obrázek ({key})
-	Qwen Compact	Qwen kompaktní
-	Qwen Full	Qwen plná
 	RESULTS	VÝSLEDKY
 	Read the licence	Přečíst licenci
 	Ready	Připraveno
@@ -2421,7 +2416,6 @@ cameraRaw	Color	Barvy
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Nejprve spusťte modul AI: Local Image zkontroluje, co už ComfyUI má. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Spusťte modul AI, abyste viděli paměť své GPU; zobrazuje se, co se vejde do 8 GB.
 	Starting ComfyUI… (the first start can take a minute)	Spouští se ComfyUI… (první spuštění může trvat minutu)
-	Starting image · {n}/{max}	Výchozí obrázek · {n}/{max}
 	Starting {name}…	Spouští se {name}…
 	Steps	Kroky
 	Stopped	Zastaveno
@@ -2439,7 +2433,6 @@ cameraRaw	Color	Barvy
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Pracovní postup nemá žádné uzly s názvem li:prompt, li:image, li:mask, li:seed ani li:output, takže jej Local Image nemůže vyplnit. Přejmenujte uzly v ComfyUI a exportujte znovu.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Tokeny umožňují Prohlížeči modelů stahovat modely s omezeným přístupem nebo vyžadující přihlášení. Odesílají se jen na jejich vlastní web.
 	Transparent PNG	Průhledný PNG
-	Transparent background	Průhledné pozadí
 	Trending	Populární
 	Trending this week	Populární tento týden
 	Unknown family	Neznámá rodina
@@ -2450,7 +2443,6 @@ cameraRaw	Color	Barvy
 	Upscale {scale}×	Zvětšit {scale}×
 	Use	Použít
 	Use as Reference	Použít jako referenci
-	Variation strength	Síla variace
 	Waiting	Čeká
 	What should appear in the selection…	Co se má objevit ve výběru…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	S vlastním klíčem API může generování používat i cloudové modely (zobrazí se v sekci Cloud ve výběru modelu). Vaše zadání a obrázky pak putují z tohoto počítače k danému poskytovateli a účtují se na váš účet; nic jiného se nikam neodesílá.
@@ -2484,14 +2476,11 @@ cameraRaw	Color	Barvy
 	{size} · runs on the CPU · {licence}	{size} · běží na CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: offline, zobrazují se výsledky z doby {when}
 	{source}: the catalogue couldn't be read	{source}: katalog nelze přečíst
-	{why} Qwen Image 2.1 runs these.	{why} Tyto funkce používají Qwen Image 2.1.
 	Choose…	Vybrat…
 	Stop	Zastavit
 	Seed	Semeno
 	Solid Color	Plná barva
 	Strength	Síla
-	Qwen AI · Compact	Qwen AI · kompaktní
-	Qwen AI · Full	Qwen AI · plná
 	Standard (CPU)	Standardní (CPU)
 	Templates	Šablony
 	Community	Komunita

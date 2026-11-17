@@ -149,12 +149,9 @@ pub struct GenerateState {
     pub aspect_locked: bool,
     pub width: u32,
     pub height: u32,
-    pub transparent: bool,
     pub count: u32,
     pub steps: u32,
     pub guidance: f32,
-    /// Z-Image Turbo Create conditioning variety; old settings default to Off.
-    pub variety: f32,
     /// Fixed seed (🔒), else a new one each time.
     pub seed: Option<u64>,
     /// Strength for Edit (non-edit models), Fill, Refine and Upscale.
@@ -203,11 +200,9 @@ impl Default for GenerateState {
             aspect_locked: true,
             width: 1024,
             height: 1024,
-            transparent: false,
             count: 1,
             steps: m.info().steps.default as u32,
             guidance: m.info().guidance.default,
-            variety: 0.0,
             seed: None,
             denoise: 0.35,
             refine_defaults: [true; 3],
@@ -566,7 +561,6 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.label(RichText::new(&info.best_for).color(t.text_faint).size(11.0));
             });
-            model_variety_note(ui, m);
         }
         // Prompt.
         let wants_prompt = !upscaler && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Prompt));
@@ -604,9 +598,6 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
         let custom_size = custom.as_ref().is_some_and(|w| w.has(&li_ai::custom::FieldKind::Width));
         if (s.mode == Mode::Create && custom.is_none()) || custom_size {
             size_controls(ui, s);
-        }
-        if s.mode == Mode::Create && info.transparent && custom.is_none() && cloud.is_none() {
-            widgets::checkbox(ui, &mut s.transparent, tl!("Transparent background"));
         }
         if let Some(c) = cloud
             && s.mode == Mode::Create
@@ -656,7 +647,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
             (Some(w), _) => w.images(),
             (None, Some(c)) => c.max_refs as usize,
             (None, None) => {
-                let adapter = matches!(info.resolved.pipeline.reference, li_ai::family::RefMethod::IpAdapter | li_ai::family::RefMethod::Redux);
+                let adapter = info.resolved.pipeline.reference == li_ai::family::RefMethod::IpAdapter;
                 match s.mode {
                     Mode::Create if adapter => 4,
                     Mode::Create => info.max_references,
@@ -668,7 +659,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
         };
         if ref_slots > 0 {
             let style = custom.is_none() && cloud.is_none() && info.recipe.as_ref().is_some_and(|r| r.style.is_some() && r.edit.is_none());
-            references_ui(app, ui, ref_slots, info.init_image && custom.is_none() && cloud.is_none(), style);
+            references_ui(app, ui, ref_slots, style);
         }
         let s = &mut app.ui.ai.generate;
         // LoRAs.
@@ -765,12 +756,6 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
                     let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| l.cfg);
                     let recommended = (custom.is_none()).then(|| range_hint(cfg_range.min, cfg_range.max, cfg_range.default, 1));
                     guidance_row(ui, &mut s.guidance, lo, hi, recommended);
-                }
-            }
-            if info.init_image && custom.is_none() && cloud.is_none() && s.mode == Mode::Create {
-                let mut pct = s.denoise * 100.0;
-                if widgets::slider_row(ui, tl!("Variation strength"), &mut pct, 5.0..=100.0, "%", None).changed() {
-                    s.denoise = pct / 100.0;
                 }
             }
             if custom.is_none() && cloud.is_none() && info.resolved.pipeline.sampler == li_ai::family::SamplerStyle::Ksampler {
@@ -939,7 +924,6 @@ fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
         s.guidance = v;
         s.refine_defaults[1] = false;
     }
-    s.variety = p.variety.filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 100.0);
     if let Some((a, b)) = &p.sampler {
         s.sampler = a.clone();
         s.scheduler = b.clone();
@@ -968,7 +952,6 @@ fn save_preset(s: &mut GenerateState, name: &str) {
         negative: s.negative.clone(),
         steps: Some(s.steps),
         cfg: Some(s.guidance),
-        variety: Some(s.variety),
         sampler: (!s.sampler.is_empty()).then(|| (s.sampler.clone(), if s.scheduler.is_empty() { "simple".into() } else { s.scheduler.clone() })),
         loras: s.loras.iter().map(|l| li_ai::presets::PresetLora { name: l.name.clone(), strength: l.strength }).collect(),
         refine_model: s.refine.then(|| s.refine_model.clone()),
@@ -1065,19 +1048,13 @@ pub fn import_workflow_path(path: &std::path::Path) -> Result<String, String> {
     Ok(w.name)
 }
 
-/// The reference images: a starting image (Z-Image), style references (a template model whose
-/// references set the style, Krea 2) or semantic references.
-fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_image: bool, style: bool) {
+/// The reference images: style references (a template model whose references set the style,
+/// Krea 2) or semantic references.
+fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, style: bool) {
     let t = Tokens::get(ui.ctx());
     let n = rt(|r| r.references.len());
     ui.horizontal(|ui| {
-        let heading = if init_image {
-            tl!("Starting image · {n}/{max}")
-        } else if style {
-            tl!("Style references · {n}/{max}")
-        } else {
-            tl!("References · {n}/{max}")
-        };
+        let heading = if style { tl!("Style references · {n}/{max}") } else { tl!("References · {n}/{max}") };
         label(ui, &li_i18n::fmt(heading, &[("n", &n.to_string()), ("max", &max.to_string())]));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let full = n >= max;
@@ -1169,12 +1146,10 @@ pub(crate) fn regenerate_layer(app: &mut PhotocraftApp, ctx: &egui::Context, lay
     s.aspect = "custom".into();
     s.steps = uint("steps").unwrap_or(s.steps);
     s.guidance = g["guidance"].as_f64().map_or(s.guidance, |v| v as f32);
-    s.variety = g["variety"].as_f64().filter(|v| v.is_finite()).map_or(0.0, |v| v.clamp(0.0, 100.0) as f32);
     s.denoise = g["denoise"].as_f64().map_or(s.denoise, |v| v as f32);
     s.refine_defaults = [false; 3];
     s.sampler = g["sampler"].as_str().unwrap_or("").into();
     s.scheduler = g["scheduler"].as_str().unwrap_or("").into();
-    s.transparent = g["transparent"].as_bool().unwrap_or(false);
     s.loras = serde_json::from_value(g["loras"].clone()).unwrap_or_default();
     if let Some(refine) = g["refine"].as_object() {
         s.refine = true;

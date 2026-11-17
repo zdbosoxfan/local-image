@@ -241,15 +241,8 @@ pub const FIXTURE_CHECKPOINTS: &[&str] = &[
     "novaAnimeXL_ilV125.safetensors",
     "sd3.5_large_fp8_scaled.safetensors",
 ];
-pub const FIXTURE_UNETS: &[&str] = &[
-    "flux1-dev-fp8.safetensors",
-    "flux1-dev-kontext_fp8_scaled.safetensors",
-    "flux1-fill-dev.safetensors",
-    "qwen_image_fp8_e4m3fn.safetensors",
-    "qwen_image_edit_2511_bf16.safetensors",
-    "hidream_i1_dev_fp8.safetensors",
-    "flux2_dev_Q4_K_M.gguf",
-];
+pub const FIXTURE_UNETS: &[&str] =
+    &["qwen_image_fp8_e4m3fn.safetensors", "qwen_image_edit_2511_bf16.safetensors", "hidream_i1_dev_fp8.safetensors", "flux2_dev_Q4_K_M.gguf"];
 const FIXTURE_CLIPS: &[&str] = &[
     "clip_l.safetensors",
     "clip_g.safetensors",
@@ -262,7 +255,7 @@ const FIXTURE_CLIPS: &[&str] = &[
 ];
 const FIXTURE_VAES: &[&str] = &["ae.safetensors", "qwen_image_vae.safetensors"];
 const FIXTURE_LORAS: &[&str] =
-    &["local-image/qwen-watercolor.safetensors", "pony_style_v2.safetensors", "flux_realism_lora.safetensors", "sdxl_detail_tweaker.safetensors"];
+    &["local-image/klein-watercolor.safetensors", "pony_style_v2.safetensors", "flux2_klein_realism_lora.safetensors", "sdxl_detail_tweaker.safetensors"];
 
 /// Everything Local Image asks for: every node class the family graphs use, every model file.
 pub fn object_info() -> Value {
@@ -448,7 +441,6 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
         "PreviewImage",
         "LoadImage",
         "JoinImageWithAlpha",
-        "QwenImage21Cache",
         "LoraLoader",
         "LoraLoaderModelOnly",
         "SeedVR2Preprocess",
@@ -681,10 +673,10 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             let key = req
                 .headers()
                 .iter()
-                .find(|h| ["authorization", "x-goog-api-key", "x-key"].iter().any(|k| h.field.equiv(k)))
+                .find(|h| ["authorization", "x-goog-api-key"].iter().any(|k| h.field.equiv(k)))
                 .map(|h| h.value.as_str().trim_start_matches("Bearer ").to_owned());
             let reply = if path.starts_with("/cloud/") {
-                crate::mock_hub::handle_cloud(&host, m, &url, key.as_deref(), &body)
+                crate::mock_hub::handle_cloud(m, &url, key.as_deref(), &body)
             } else if m == "POST" {
                 None
             } else {
@@ -744,9 +736,8 @@ fn hash_color(s: &str) -> [u8; 3] {
 }
 
 fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
-    let prompt = input_of(graph, "TextEncodeQwenImage21")
+    let prompt = input_of(graph, "TextEncodeQwenImageEditPlus")
         .and_then(|i| i["prompt"].as_str())
-        .or_else(|| input_of(graph, "TextEncodeQwenImageEditPlus").and_then(|i| i["prompt"].as_str()))
         .or_else(|| input_of(graph, "CLIPTextEncode").and_then(|i| i["text"].as_str()))
         .unwrap_or("")
         .to_owned();
@@ -770,18 +761,6 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         }
         return png(&img);
     }
-    // Background removal: keep what differs from the border colour.
-    if prompt.starts_with("Remove the background")
-        && let Some(src) = uploaded(graph, uploads, 0)
-    {
-        let b = src.get_pixel(0, 0).0;
-        let out = RgbaImage::from_fn(src.width(), src.height(), |x, y| {
-            let p = src.get_pixel(x, y).0;
-            let d: i32 = (0..3).map(|k| (p[k] as i32 - b[k] as i32).abs()).sum();
-            Rgba([p[0], p[1], p[2], if d > 60 { 255 } else { 0 }])
-        });
-        return png(&out);
-    }
     // Enlargement uses the checkpoint's native scale. Original-resolution restoration
     // continues through the tint fixture below, even though it uses the same core nodes.
     if input_of(graph, "ImageUpscaleWithModel").is_some()
@@ -800,9 +779,7 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         }
     }
     // Instruction edits and upscales: return the (first) input, tinted slightly.
-    if (input_of(graph, "ImageUpscaleWithModel").is_some()
-        || input_of(graph, "SeedVR2Preprocess").is_some()
-        || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))
+    if (input_of(graph, "ImageUpscaleWithModel").is_some() || input_of(graph, "SeedVR2Preprocess").is_some())
         && let Some(mut src) = uploaded(graph, uploads, 0)
     {
         let tint = hash_color(&prompt);
@@ -840,13 +817,11 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         .or_else(|| uploaded(graph, uploads, 0).map(|i| i.dimensions()))
         .unwrap_or((1024, 1024));
     let c = hash_color(&prompt);
-    let transparent = prompt.contains("fully transparent background");
     let img = RgbaImage::from_fn(size.0, size.1, |x, y| {
         let (fx, fy) = (x as f32 / size.0 as f32, y as f32 / size.1 as f32);
         let r = ((fx - 0.5).powi(2) + (fy - 0.55).powi(2)).sqrt();
-        let a = if transparent && r > 0.35 { 0 } else { 255 };
         let shade = 1.0 - 0.6 * r;
-        Rgba([(c[0] as f32 * shade + 40.0 * fy) as u8, (c[1] as f32 * shade) as u8, (c[2] as f32 * shade + 50.0 * fx) as u8, a])
+        Rgba([(c[0] as f32 * shade + 40.0 * fy) as u8, (c[1] as f32 * shade) as u8, (c[2] as f32 * shade + 50.0 * fx) as u8, 255])
     });
     png(&img)
 }
@@ -864,7 +839,7 @@ mod tests {
     use lightcraft_sysmem::jobs::Cancelled;
 
     #[test]
-    fn generate_edit_remove_cutout_upscale_against_the_mock() {
+    fn generate_edit_remove_upscale_against_the_mock() {
         let server = MockComfy::start().unwrap();
         server.delay_ms.store(20, Ordering::SeqCst);
         let ai = Ai::new(server.host());
@@ -875,22 +850,18 @@ mod tests {
         req.height = 512;
         let img = ai.generate(&req, &ctl).unwrap();
         assert_eq!(img.dimensions(), (768, 512));
-        // Transparent Qwen output keeps alpha.
-        let mut req = GenerateRequest::new(ModelId::Qwen, "a shield");
-        req.transparent = true;
-        let t = ai.generate(&req, &ctl).unwrap();
-        assert!(t.pixels().any(|p| p[3] == 0) && t.pixels().any(|p| p[3] == 255));
         // Edit keeps the source size.
         let src = RgbaImage::from_pixel(300, 200, Rgba([200, 30, 30, 255]));
-        let mut req = GenerateRequest::new(ModelId::Qwen, "make it blue");
+        let mut req = GenerateRequest::new(ModelId::Klein4B, "make it blue");
         req.mode = GenerateMode::Edit;
         req.references = vec![src.clone()];
         assert_eq!(ai.generate(&req, &ctl).unwrap().dimensions(), (300, 200));
         // LoRA names are resolved against the inventory.
-        let mut req = GenerateRequest::new(ModelId::Qwen, "styled");
-        req.loras = vec![crate::workflows::LoraUse { name: "local-image/qwen-watercolor.safetensors".into(), strength: 0.7 }];
+        let mut req = GenerateRequest::new(ModelId::Klein4B, "styled");
+        req.loras = vec![crate::workflows::LoraUse { name: "local-image/klein-watercolor.safetensors".into(), strength: 0.7 }];
         ai.generate(&req, &ctl).unwrap();
-        assert!(server.prompts().last().unwrap().get("100").is_some());
+        let graph = server.prompts().last().unwrap().clone();
+        assert!(graph.as_object().unwrap().values().any(|n| n["inputs"]["lora_name"] == "local-image/klein-watercolor.safetensors"));
         req.loras[0].name = "missing.safetensors".into();
         assert!(ai.generate(&req, &ctl).unwrap_err().to_string().contains("not installed"));
         // AI Remove: only the selection changes.
@@ -904,19 +875,12 @@ mod tests {
         let out = ai.remove_objects(&photo, &mask, &RemoveEngine::Klein, 1, &ctl).unwrap();
         assert_eq!(out.get_pixel(10, 10), photo.get_pixel(10, 10));
         assert!(out.enumerate_pixels().filter(|(x, y, _)| mask.get_pixel(*x, *y)[0] > 0).any(|(x, y, p)| p != photo.get_pixel(x, y)));
-        // Qwen removal path too.
-        ai.remove_objects(&photo, &mask, &RemoveEngine::Qwen { variant: "int8".into() }, 1, &ctl).unwrap();
-        // Cutout returns a matte the size of the input.
         let subject =
             RgbaImage::from_fn(
                 200,
                 160,
                 |x, y| if (60..140).contains(&x) && (40..120).contains(&y) { Rgba([250, 200, 0, 255]) } else { Rgba([20, 20, 20, 255]) },
             );
-        let matte = ai.cutout(&subject, "int8", "", 3, &ctl).unwrap();
-        assert_eq!(matte.dimensions(), (200, 160));
-        assert_eq!(matte.get_pixel(100, 80)[0], 255);
-        assert_eq!(matte.get_pixel(5, 5)[0], 0);
         // Upscale.
         let up = ai.upscale(&subject, 400, 320, 1, &ctl).unwrap();
         assert_eq!(up.dimensions(), (400, 320));
@@ -927,7 +891,7 @@ mod tests {
         let server = MockComfy::start().unwrap();
         let ai = Ai::new(server.host());
         server.fail_next();
-        let err = ai.generate(&GenerateRequest::new(ModelId::ZImageTurbo, "x"), &JobControl::new()).unwrap_err();
+        let err = ai.generate(&GenerateRequest::new(ModelId::Klein4B, "x"), &JobControl::new()).unwrap_err();
         assert!(err.to_string().contains("ran out of memory"), "{err}");
         server.delay_ms.store(3000, Ordering::SeqCst);
         let ctl = JobControl::new();
@@ -936,12 +900,12 @@ mod tests {
             std::thread::sleep(Duration::from_millis(300));
             c2.cancel();
         });
-        let err = ai.generate(&GenerateRequest::new(ModelId::ZImageTurbo, "x"), &ctl).unwrap_err();
+        let err = ai.generate(&GenerateRequest::new(ModelId::Klein4B, "x"), &ctl).unwrap_err();
         assert!(err.is::<Cancelled>(), "{err:#}");
         // Unreachable server: a clear, quick error.
         let gone = Ai::new("127.0.0.1:9");
         let t = std::time::Instant::now();
-        let err = gone.generate(&GenerateRequest::new(ModelId::ZImageTurbo, "x"), &JobControl::new()).unwrap_err();
+        let err = gone.generate(&GenerateRequest::new(ModelId::Klein4B, "x"), &JobControl::new()).unwrap_err();
         assert!(err.to_string().contains("Cannot reach ComfyUI"), "{err}");
         assert!(t.elapsed() < Duration::from_secs(5));
     }
@@ -956,7 +920,7 @@ mod tests {
         assert_eq!(server.interrupts(), 0);
         server.delay_ms.store(5000, Ordering::SeqCst);
         let host = server.host().to_owned();
-        let job = std::thread::spawn(move || Ai::new(host).generate(&GenerateRequest::new(ModelId::ZImageTurbo, "x"), &JobControl::new()));
+        let job = std::thread::spawn(move || Ai::new(host).generate(&GenerateRequest::new(ModelId::Klein4B, "x"), &JobControl::new()));
         let t = std::time::Instant::now();
         while crate::comfy::our_prompts(server.host()).is_empty() && t.elapsed() < Duration::from_secs(5) {
             std::thread::sleep(Duration::from_millis(20));
@@ -980,7 +944,7 @@ mod tests {
         let _inventory = INVENTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let server = MockComfy::start().unwrap();
         server.delay_ms.store(1, Ordering::SeqCst);
-        // Official Qwen uses the model-only loader; the checkpoint pass uses LoraLoader.
+        // The checkpoint pass uses LoraLoader.
         crate::inventory::refresh(&crate::comfy::ObjectInfo(object_info()), None);
         let sdxl = ModelId::from_key("ckpt:juggernautXL_v9.safetensors").unwrap();
         let ai = Ai::new(server.host());
@@ -1011,7 +975,7 @@ mod tests {
         assert_eq!(sampler["inputs"]["steps"], 31);
         assert_eq!(sampler["inputs"]["cfg"], 7.5);
         let mut invalid = step.clone();
-        invalid.loras[0].name = "flux_realism_lora.safetensors".into();
+        invalid.loras[0].name = "flux2_klein_realism_lora.safetensors".into();
         req.refine = Some(invalid);
         let before = server.prompts().len();
         assert!(ai.generate(&req, &ctl).unwrap_err().to_string().contains("incompatible"));
@@ -1024,24 +988,6 @@ mod tests {
         old.as_object_mut().unwrap().remove("loras");
         let old: crate::ops::RefineStep = serde_json::from_value(old).unwrap();
         assert!(old.loras.is_empty());
-        // The Qwen special instruction-refine path must receive the second pass's styles too.
-        req.refine = Some(crate::ops::RefineStep {
-            model: ModelId::Qwen,
-            variant: crate::catalog::default_variant(ModelId::Qwen).into(),
-            strength: 0.35,
-            default_strength: false,
-            steps: None,
-            guidance: None,
-            scale: 1.0,
-            loras: vec![crate::workflows::LoraUse { name: "local-image/qwen-watercolor.safetensors".into(), strength: 0.45 }],
-        });
-        ai.generate(&req, &ctl).unwrap();
-        let graph = server.prompts().last().unwrap().clone();
-        let loader = graph.as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoaderModelOnly").unwrap();
-        assert_eq!(loader["inputs"]["lora_name"], "local-image/qwen-watercolor.safetensors");
-        assert!((loader["inputs"]["strength_model"].as_f64().unwrap() - 0.45).abs() < 1e-6);
-        let sampler = graph.as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
-        assert!((sampler["inputs"]["denoise"].as_f64().unwrap() - 0.35).abs() < 1e-6);
         crate::catalog::set_installed(Vec::new());
     }
 
@@ -1075,12 +1021,7 @@ mod tests {
         let g = server.prompts().last().unwrap().clone();
         assert!(g.as_object().unwrap().values().any(|n| n["inputs"]["text"].as_str().is_some_and(|t| t.starts_with("score_9"))));
         // Every installed family creates an image.
-        for k in [
-            "unet:flux1-dev-fp8.safetensors",
-            "unet:qwen_image_fp8_e4m3fn.safetensors",
-            "unet:hidream_i1_dev_fp8.safetensors",
-            "ckpt:sd3.5_large_fp8_scaled.safetensors",
-        ] {
+        for k in ["unet:qwen_image_fp8_e4m3fn.safetensors", "unet:hidream_i1_dev_fp8.safetensors", "ckpt:sd3.5_large_fp8_scaled.safetensors"] {
             let m = key(k);
             let mut req = GenerateRequest::new(m, "a teapot");
             req.variant = "installed".into();
@@ -1112,7 +1053,7 @@ mod tests {
                 mask.put_pixel(x, y, Luma([255]));
             }
         }
-        for k in ["ckpt:juggernautXL_v9.safetensors", "unet:flux1-fill-dev.safetensors", "unet:qwen_image_edit_2511_bf16.safetensors"] {
+        for k in ["ckpt:juggernautXL_v9.safetensors", "unet:qwen_image_edit_2511_bf16.safetensors"] {
             let mut req = GenerateRequest::new(key(k), "a stone");
             req.variant = "installed".into();
             req.mode = GenerateMode::Inpaint;

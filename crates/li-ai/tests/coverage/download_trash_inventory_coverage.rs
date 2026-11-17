@@ -79,10 +79,10 @@ fn sdxl_header() -> serde_json::Value {
     })
 }
 
-fn flux_lora_header() -> serde_json::Value {
+fn klein_lora_header() -> serde_json::Value {
     json!({
-        "double_blocks.18.img_attn.qkv.lora_A.weight": {"dtype": "F16", "shape": [16, 3072], "data_offsets": [0, 0]},
-        "double_blocks.18.img_attn.qkv.lora_B.weight": {"dtype": "F16", "shape": [9216, 16], "data_offsets": [0, 0]}
+        "double_blocks.4.img_attn.qkv.lora_A.weight": {"dtype": "F16", "shape": [16, 3072], "data_offsets": [0, 0]},
+        "single_blocks.19.linear1.lora_A.weight": {"dtype": "F16", "shape": [16, 3072], "data_offsets": [0, 0]}
     })
 }
 
@@ -96,13 +96,11 @@ fn write_safetensors(dir: &Path, relative: &str, header: &serde_json::Value) -> 
 fn info() -> ObjectInfo {
     ObjectInfo(json!({
         "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["juggernautXL_v9.safetensors", "dreamshaper_8.safetensors", "mystery.safetensors", "sdxl_detail_LoRA.safetensors"]]}}},
-        "UNETLoader": {"input": {"required": {"unet_name": [["flux1-dev-fp8.safetensors", "qwen_image_edit_2511_bf16.safetensors", "flux-2-klein-4b.safetensors", "flux_realism_lora.safetensors", "loras/qwen_style.safetensors", "flux_ink.safetensors"]]}}},
+        "UNETLoader": {"input": {"required": {"unet_name": [["flux2_dev_fp8mixed.safetensors", "qwen_image_edit_2511_bf16.safetensors", "flux-2-klein-4b.safetensors", "flux2_klein_realism_lora.safetensors", "loras/qwen_style.safetensors", "flux_ink.safetensors"]]}}},
         "CLIPLoader": {"input": {"required": {"clip_name": [["qwen_2.5_vl_7b_fp8_scaled.safetensors", "qwen_3_4b.safetensors", "clip_l.safetensors", "t5xxl_fp8_e4m3fn_scaled.safetensors"]]}}},
         "DualCLIPLoader": {"input": {"required": {"clip_name1": [["clip_l.safetensors", "t5xxl_fp8_e4m3fn_scaled.safetensors"]]}}},
         "VAELoader": {"input": {"required": {"vae_name": [["ae.safetensors", "qwen_image_vae.safetensors", "flux2-vae.safetensors"]]}}},
-        "LoraLoader": {"input": {"required": {"lora_name": [["pony_style.safetensors", "flux_realism.safetensors", "misc.safetensors", "flux_realism_lora.safetensors"]]}}},
-        "CLIPVisionLoader": {"input": {"required": {"clip_name": [["sigclip_vision_patch14_384.safetensors"]]}}},
-        "StyleModelLoader": {"input": {"required": {"style_model_name": [["redux.safetensors"]]}}},
+        "LoraLoader": {"input": {"required": {"lora_name": [["pony_style.safetensors", "flux_realism.safetensors", "misc.safetensors", "flux2_klein_realism_lora.safetensors"]]}}},
         "UpscaleModelLoader": {"input": {"required": {"model_name": [["RealESRGAN_x4.pth"]]}}}
     }))
 }
@@ -395,10 +393,10 @@ fn resolve_components_finds_by_exact_then_shortest_pattern() {
     let info = info();
     let reg = li_ai::family::registry();
 
-    let flux = resolve_components(reg.family("flux1").unwrap(), &info);
-    assert!(flux.contains(&(FamilyRole::Clip, "clip_l.safetensors".to_owned())));
-    assert!(flux.contains(&(FamilyRole::Clip2, "t5xxl_fp8_e4m3fn_scaled.safetensors".to_owned())));
-    assert!(flux.contains(&(FamilyRole::Vae, "ae.safetensors".to_owned())));
+    let hidream = resolve_components(reg.family("hidream").unwrap(), &info);
+    assert!(hidream.contains(&(FamilyRole::Clip, "clip_l.safetensors".to_owned())));
+    assert!(hidream.contains(&(FamilyRole::Clip3, "t5xxl_fp8_e4m3fn_scaled.safetensors".to_owned())));
+    assert!(hidream.contains(&(FamilyRole::Vae, "ae.safetensors".to_owned())));
 
     let qwen = resolve_components(reg.family("qwen-edit").unwrap(), &info);
     assert!(qwen.contains(&(FamilyRole::Vae, "qwen_image_vae.safetensors".to_owned())));
@@ -431,19 +429,19 @@ fn family_of_prefers_header_then_name_and_rejects_lora_as_model() {
     assert_eq!(by_name.0, "sdxl");
     assert_eq!(by_name.1, "file name");
 
-    let lora_p = write_safetensors(dir.path(), "diffusion_models/flux_ink.safetensors", &flux_lora_header());
+    let lora_p = write_safetensors(dir.path(), "diffusion_models/flux_ink.safetensors", &klein_lora_header());
     assert_eq!(family_of("flux_ink.safetensors", FileKind::DiffusionModel, Some(&lora_p), None), None);
     let as_lora = family_of("flux_ink.safetensors", FileKind::Lora, Some(&lora_p), None).unwrap();
-    assert_eq!(as_lora.0, "flux1");
+    assert_eq!(as_lora.0, "flux2-klein");
 }
 
 #[test]
 fn listed_as_model_but_lora_detects_by_name_or_header() {
     assert!(listed_as_model_but_lora("sdxl_detail_LoRA.safetensors", None));
-    assert!(!listed_as_model_but_lora("flux1-dev-fp8.safetensors", None));
+    assert!(!listed_as_model_but_lora("flux2_dev_fp8mixed.safetensors", None));
 
     let dir = temp_dir("lora-as-model");
-    let lora_p = write_safetensors(dir.path(), "diffusion_models/flux_ink.safetensors", &flux_lora_header());
+    let lora_p = write_safetensors(dir.path(), "diffusion_models/flux_ink.safetensors", &klein_lora_header());
     assert!(listed_as_model_but_lora("flux_ink.safetensors", Some(&lora_p)));
 
     let sdxl_p = write_safetensors(dir.path(), "checkpoints/mystery.safetensors", &sdxl_header());
@@ -456,7 +454,7 @@ fn scan_finds_models_and_loras_by_name() {
     let fam = |k: &str| models.iter().find(|m| m.key == k).map(|m| m.family.clone());
 
     assert_eq!(fam("ckpt:juggernautXL_v9.safetensors").as_deref(), Some("sdxl"));
-    assert_eq!(fam("unet:flux1-dev-fp8.safetensors").as_deref(), Some("flux1"));
+    assert_eq!(fam("unet:flux2_dev_fp8mixed.safetensors").as_deref(), Some("flux2"));
     assert_eq!(fam("unet:qwen_image_edit_2511_bf16.safetensors").as_deref(), Some("qwen-edit"));
     assert_eq!(fam("ckpt:mystery.safetensors").as_deref(), Some(""));
     assert!(fam("ckpt:sdxl_detail_LoRA.safetensors").is_none());
@@ -468,20 +466,20 @@ fn scan_finds_models_and_loras_by_name() {
 fn scan_skips_loras_in_model_folders() {
     let dir = temp_dir("scan-lora");
     std::fs::create_dir_all(dir.path().join("diffusion_models")).unwrap();
-    let lora_p = write_safetensors(dir.path(), "diffusion_models/flux_ink.safetensors", &flux_lora_header());
+    let lora_p = write_safetensors(dir.path(), "diffusion_models/flux_ink.safetensors", &klein_lora_header());
 
     let info = ObjectInfo(json!({
         "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["juggernautXL_v9.safetensors", "sdxl_detail_LoRA.safetensors"]]}}},
-        "UNETLoader": {"input": {"required": {"unet_name": [["flux1-dev-fp8.safetensors", "flux_realism_lora.safetensors", "loras/qwen_style.safetensors", "flux_ink.safetensors"]]}}},
-        "LoraLoader": {"input": {"required": {"lora_name": [["flux_realism_lora.safetensors"]]}}}
+        "UNETLoader": {"input": {"required": {"unet_name": [["flux2_dev_fp8mixed.safetensors", "flux2_klein_realism_lora.safetensors", "loras/qwen_style.safetensors", "flux_ink.safetensors"]]}}},
+        "LoraLoader": {"input": {"required": {"lora_name": [["flux2_klein_realism_lora.safetensors"]]}}}
     }));
 
     let (models, loras) = scan(&info, Some(dir.path()), li_ai::family::registry());
     let keys: Vec<&str> = models.iter().map(|m| m.key.as_str()).collect();
-    assert_eq!(keys, vec!["ckpt:juggernautXL_v9.safetensors", "unet:flux1-dev-fp8.safetensors"], "{keys:?}");
+    assert_eq!(keys, vec!["ckpt:juggernautXL_v9.safetensors", "unet:flux2_dev_fp8mixed.safetensors"], "{keys:?}");
 
     assert_eq!(loras.len(), 1);
-    assert_eq!(loras[0].family.as_deref(), Some("flux1"));
+    assert_eq!(loras[0].family.as_deref(), Some("flux2-klein"));
 
     assert!(listed_as_model_but_lora("flux_ink.safetensors", Some(&lora_p)));
 }

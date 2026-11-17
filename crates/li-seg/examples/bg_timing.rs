@@ -1,9 +1,9 @@
 //! Background-removal timing on the production `Segmenter::predict` path:
-//! `cargo run --offline -p li-seg --example bg_timing -- <dir with rmbg-1.4.onnx and
-//! inspyrenet-swinb-plus-ultra.onnx> <photo> [warm runs]`.
+//! `cargo run --offline -p li-seg --example bg_timing -- <dir with inspyrenet-swinb-plus-ultra.onnx
+//! and birefnet-lite.onnx> <photo> [warm runs]`.
 //!
 //! Prints the model load time, the first (cold) run and the median of the warm runs for Fast
-//! (RMBG-1.4) and Better (InSPyReNet). `BENCH_POOL=<n>` builds the rayon global pool with `n`
+//! (InSPyReNet) and Better (BiRefNet lite). `BENCH_POOL=<n>` builds the rayon global pool with `n`
 //! threads first (as the app does at start-up with the computed compute budget); without it rayon
 //! picks one thread per logical CPU. `LOCAL_IMAGE_SEG_THREADS=1` measures tract on one thread.
 use std::time::Instant;
@@ -19,8 +19,9 @@ fn main() -> anyhow::Result<()> {
     let img = image::open(&photo)?.to_rgba8();
     let (w, h) = (img.width() as usize, img.height() as usize);
     println!("photo {photo} {w}x{h}; rayon pool {} threads", rayon::current_num_threads());
-    for id in ["rmbg-1.4", "inspyrenet"] {
-        let spec = li_seg::spec(id).ok_or_else(|| anyhow::anyhow!("unknown model {id}"))?;
+    for better in [false, true] {
+        let spec = li_seg::tier_spec(better);
+        let id = spec.id;
         let t = Instant::now();
         let seg = li_seg::Segmenter::load(spec, &dir.join(spec.file))?;
         let load = t.elapsed().as_secs_f64();

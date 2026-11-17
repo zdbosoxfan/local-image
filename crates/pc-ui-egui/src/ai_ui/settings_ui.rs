@@ -146,7 +146,7 @@ fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens, settings: &AiSe
     for group in li_seg::Group::ALL {
         let (title, about) = function(group);
         let spec = if group == li_seg::Group::Subject && app.ui.ai.cutout_engine == "better" {
-            catalog::on_device_spec("inspyrenet").unwrap_or(catalog::on_device_default(group))
+            catalog::on_device_spec(li_seg::tier_spec(true).id).unwrap_or(catalog::on_device_default(group))
         } else {
             catalog::on_device_default(group)
         };
@@ -444,7 +444,7 @@ fn family_name(label: &str) -> String {
     if name == "auto-detect" {
         return tl!("Other installed models").into();
     }
-    for (prefix, family) in [("flux", "FLUX"), ("qwen", "Qwen Image"), ("z-image", "Z-Image"), ("ernie", "ERNIE"), ("seedvr", "SeedVR2")] {
+    for (prefix, family) in [("flux", "FLUX"), ("qwen", "Qwen Image"), ("ernie", "ERNIE"), ("seedvr", "SeedVR2")] {
         if name.starts_with(prefix) {
             return family.into();
         }

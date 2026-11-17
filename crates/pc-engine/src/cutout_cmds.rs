@@ -66,8 +66,8 @@ impl BackgroundOutput {
     }
 }
 
-/// Apply a matte and its output within the caller's single document edit. Both CPU and Qwen
-/// commands share this path, including cancellation and sibling placement inside groups.
+/// Apply a matte and its output within the caller's single document edit, including cancellation
+/// and sibling placement inside groups.
 pub fn apply_output(doc: &mut Document, id: LayerId, mask: Surface, output: &BackgroundOutput, ctx: &JobCtl) -> Result<LayerId> {
     let bounds = doc.bounds();
     let original = doc.layer(id).ok_or(EngineError::NoLayer(id))?.clone();

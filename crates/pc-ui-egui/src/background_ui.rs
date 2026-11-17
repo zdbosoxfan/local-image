@@ -1,29 +1,23 @@
 //! Shared Remove Background settings and dispatch for all three editor surfaces.
 
 use egui::vec2;
-use li_ai::catalog::ModelId;
 use serde_json::{Value, json};
 
 use crate::{PhotocraftApp, widgets};
 
-pub(crate) const MODELS: [(&str, &str); 4] =
-    [("fast", "Fast"), ("better", "Better Quality"), ("qwen-int8", "Qwen AI · Compact"), ("qwen-bf16", "Qwen AI · Full")];
+pub(crate) const MODELS: [(&str, &str); 2] = [("fast", "Fast"), ("better", "Better Quality")];
 
-fn cpu(engine: &str) -> bool {
-    matches!(engine, "fast" | "better")
+/// The tier a saved engine runs: anything but `better` (older or hand-edited values) is Fast.
+fn better(engine: &str) -> bool {
+    engine == "better"
 }
 
-fn tier(ai: &crate::ai_ui::AiOptions) -> Option<&'static li_seg::ModelSpec> {
-    if cpu(&ai.cutout_engine) { li_seg::spec(if ai.cutout_engine == "better" { "inspyrenet" } else { "rmbg-1.4" }) } else { None }
+fn tier(ai: &crate::ai_ui::AiOptions) -> &'static li_seg::ModelSpec {
+    li_seg::tier_spec(better(&ai.cutout_engine))
 }
 
 fn tooltip(engine: &str) -> String {
-    if cpu(engine) {
-        let id = if engine == "better" { "inspyrenet" } else { "rmbg-1.4" };
-        li_seg::estimate::estimate(id, 1024 * 1024).label()
-    } else {
-        "Needs a capable NVIDIA GPU and ComfyUI; does not run on a Mac. About 30–120 s per photo, depending on GPU and image size.".into()
-    }
+    li_seg::estimate::estimate(li_seg::tier_spec(better(engine)).id, 1024 * 1024).label()
 }
 // Shared option metadata follows the model catalogue's dynamic help-text pattern.
 // Reuse translated field names; new explanatory prose keeps the English fallback
@@ -42,9 +36,8 @@ const OUTPUTS: [(&str, &str); 6] = [
 
 /// Build the same command request regardless of which surface initiated removal.
 pub(crate) fn request(ai: &crate::ai_ui::AiOptions, layer: Option<u64>) -> (&'static str, Value) {
-    let standard = cpu(&ai.cutout_engine);
     let mut p = json!({
-        "engine": if standard { "learned" } else { &ai.cutout_engine },
+        "engine": "learned",
         "output": ai.cutout_output,
         "refine": ai.cutout_refine,
         "refineEdges": ai.cutout_refine,
@@ -54,15 +47,12 @@ pub(crate) fn request(ai: &crate::ai_ui::AiOptions, layer: Option<u64>) -> (&'st
     if let Some(layer) = layer {
         p["layer"] = json!(layer);
     }
-    if !standard {
-        p["hint"] = json!(ai.cutout_hint);
-    }
     match ai.cutout_output.as_str() {
         "color" => p["color"] = json!(ai.cutout_color),
         "blur" => p["amount"] = json!(ai.cutout_blur),
         _ => {}
     }
-    (if standard { "layer.removeBackground" } else { "ai.removeBackground" }, p)
+    ("layer.removeBackground", p)
 }
 
 pub(crate) fn run(app: &mut PhotocraftApp, layer: Option<u64>) -> Result<Value, String> {
@@ -76,9 +66,7 @@ pub(crate) fn run(app: &mut PhotocraftApp, layer: Option<u64>) -> Result<Value, 
     if !can_remove(app) {
         return Err("Select an unlocked pixel layer and install the selected model first.".into());
     }
-    if cpu(&app.ui.ai.cutout_engine) {
-        li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
-    }
+    li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), better(&app.ui.ai.cutout_engine));
     let options = app.ui.ai.clone();
     let state = app.session.active().ok_or("No document open")?;
     let id = layer.map(photocraft_doc::LayerId).or(state.active_layer).ok_or("No layer selected")?;
@@ -96,18 +84,19 @@ pub(crate) fn run(app: &mut PhotocraftApp, layer: Option<u64>) -> Result<Value, 
 }
 
 pub(crate) fn model_ready(ai: &crate::ai_ui::AiOptions) -> bool {
-    if let Some(spec) = tier(ai) {
-        li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec) == Some(spec.bytes)
-    } else {
-        crate::ai_ui::status().ready(ModelId::Qwen, if ai.cutout_engine == "qwen-bf16" { "bf16" } else { "int8" }).is_ok()
+    #[cfg(test)]
+    if let Some(ready) = tests::TIER_READY.with(std::cell::Cell::get) {
+        return ready;
     }
+    let spec = tier(ai);
+    li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec) == Some(spec.bytes)
 }
 
 pub(crate) fn can_remove(app: &PhotocraftApp) -> bool {
-    let cmd = if cpu(&app.ui.ai.cutout_engine) { "layer.removeBackground" } else { "ai.removeBackground" };
+    let spec = tier(&app.ui.ai);
     model_ready(&app.ui.ai)
-        && tier(&app.ui.ai).is_none_or(|spec| li_seg::estimate::estimate(spec.id, (spec.size * spec.size) as u64).allowed())
-        && app.session.is_enabled(cmd)
+        && li_seg::estimate::estimate(spec.id, (spec.size * spec.size) as u64).allowed()
+        && app.session.is_enabled("layer.removeBackground")
         && app.session.active().and_then(|d| d.active_layer.map(|id| d.doc.effective_locks(id))).is_some_and(|locks| !locks.pixels && !locks.all)
 }
 
@@ -139,19 +128,15 @@ pub(crate) fn tier_download(ui: &mut egui::Ui, spec: &'static li_seg::ModelSpec)
             ui.label(egui::RichText::new(error).color(t.danger).size(11.5));
         }
     }
-    if widgets::secondary_button(ui, &format!("Download {} ({})", spec.label, li_ai::download::human_bytes(spec.bytes)), 0.0).clicked() {
+    if widgets::secondary_button(ui, tl!("Download"), 0.0).clicked() {
         crate::ai_ui::start_seg_download(spec);
     }
 }
 
 pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    if let Some(spec) = tier(&app.ui.ai) {
-        widgets::cpu_estimate(ui, li_seg::estimate::estimate(spec.id, (spec.size * spec.size) as u64));
-        tier_download(ui, spec);
-    } else {
-        let variant = if app.ui.ai.cutout_engine == "qwen-bf16" { "bf16" } else { "int8" };
-        crate::ai_ui::readiness(app, ui, ModelId::Qwen, variant);
-    }
+    let spec = tier(&app.ui.ai);
+    widgets::cpu_estimate(ui, li_seg::estimate::estimate(spec.id, (spec.size * spec.size) as u64));
+    tier_download(ui, spec);
 }
 
 /// Inline controls for the options bar; field rows for Properties and the task-bar popup.
@@ -167,20 +152,10 @@ pub(crate) fn settings(app: &mut PhotocraftApp, ui: &mut egui::Ui, inline: bool)
         row(ui, inline, tl!("Model"), |ui, width| {
             let previous = app.ui.ai.cutout_engine.clone();
             widgets::dropdown_with_tooltips(ui, "cutout-model", &mut app.ui.ai.cutout_engine, &models, width);
-            if previous != app.ui.ai.cutout_engine && cpu(&app.ui.ai.cutout_engine) {
-                li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
+            if previous != app.ui.ai.cutout_engine {
+                li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), better(&app.ui.ai.cutout_engine));
             }
         });
-        if !cpu(&app.ui.ai.cutout_engine) {
-            row(ui, inline, tl!("Keep…"), |ui, width| {
-                let r = ui.add(egui::TextEdit::singleline(&mut app.ui.ai.cutout_hint).hint_text(tl!("Keep… (optional)")).desired_width(width));
-                r.widget_info(|| {
-                    let mut info = egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, ui.is_enabled(), tl!("Keep… (optional)"));
-                    info.current_text_value = Some(app.ui.ai.cutout_hint.clone());
-                    info
-                });
-            });
-        }
         widgets::checkbox(ui, &mut app.ui.ai.cutout_refine, EDGE_REFINEMENT.0).on_hover_text(tl!(EDGE_REFINEMENT.1));
         widgets::checkbox(ui, &mut app.ui.ai.cutout_decontaminate, COLOUR_CLEANUP.0).on_hover_text(tl!(COLOUR_CLEANUP.1));
         row(ui, inline, tl!("Output"), |ui, width| {
@@ -215,9 +190,7 @@ pub(crate) fn menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     for (key, label) in MODELS {
         if ui.selectable_label(app.ui.ai.cutout_engine == key, tl!(label)).on_hover_text(tooltip(key)).clicked() {
             app.ui.ai.cutout_engine = key.into();
-            if cpu(key) {
-                li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), key == "better");
-            }
+            li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), better(key));
             ui.close();
         }
     }
@@ -289,14 +262,8 @@ pub(crate) fn apply_cutout(
     layer.visible = true;
     layer.opacity = 1.0;
     let img = ai_cmds::selected_layer_rgba(doc, &layer, bounds)?;
-    let variant = match options.cutout_engine.as_str() {
-        "qwen-bf16" => "bf16",
-        "qwen-int8" => "int8",
-        "better" => "better",
-        _ => "fast",
-    };
-    let hint = options.cutout_hint.chars().take(500).collect::<String>();
-    let mut alpha = ai_cmds::bridged(ctx, |ctl| li_ai::service().cutout(&img, variant, &hint, li_ai::ops::new_seed(), ctl))?;
+    let dir = li_ai::AiSettings::cached_model_dir();
+    let mut alpha = ai_cmds::bridged(ctx, |ctl| li_ai::ops::cpu_cutout(&img, better(&options.cutout_engine), &dir, ctl))?;
     ctx.check()?;
     if options.cutout_refine {
         ctx.report(0.9, "Refining edges");

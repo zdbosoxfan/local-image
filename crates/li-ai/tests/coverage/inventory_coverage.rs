@@ -35,11 +35,11 @@ impl Drop for TempDir {
 fn info() -> ObjectInfo {
     ObjectInfo(json!({
         "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["juggernautXL_v9.safetensors", "dreamshaper_8.safetensors", "mystery.safetensors"]]}}},
-        "UNETLoader": {"input": {"required": {"unet_name": [["flux1-dev-fp8.safetensors", "qwen_image_edit_2511_bf16.safetensors", "flux-2-klein-4b.safetensors"]]}}},
+        "UNETLoader": {"input": {"required": {"unet_name": [["flux2_dev_fp8mixed.safetensors", "qwen_image_edit_2511_bf16.safetensors", "flux-2-klein-4b.safetensors"]]}}},
         "CLIPLoader": {"input": {"required": {"clip_name": [["qwen_2.5_vl_7b_fp8_scaled.safetensors", "qwen_3_4b.safetensors", "clip_l.safetensors", "t5xxl_fp8_e4m3fn_scaled.safetensors"]]}}},
         "DualCLIPLoader": {"input": {"required": {"clip_name1": [["clip_l.safetensors", "t5xxl_fp8_e4m3fn_scaled.safetensors"]]}}},
         "VAELoader": {"input": {"required": {"vae_name": [["ae.safetensors", "qwen_image_vae.safetensors", "flux2-vae.safetensors"]]}}},
-        "LoraLoader": {"input": {"required": {"lora_name": [["pony_style.safetensors", "flux_realism.safetensors", "misc.safetensors"]]}}}
+        "LoraLoader": {"input": {"required": {"lora_name": [["pony_style.safetensors", "flux2_klein_realism.safetensors", "misc.safetensors"]]}}}
     }))
 }
 
@@ -64,7 +64,7 @@ fn pattern_matches_star_parts_are_all_required_and_empty_parts_are_ignored() {
 #[test]
 fn label_for_strips_path_and_extension_and_normalizes_separators() {
     assert_eq!(label_for("subdir\\juggernaut_XL-v9.safetensors"), "juggernaut XL v9");
-    assert_eq!(label_for("flux1-dev-fp8.safetensors"), "flux1 dev fp8");
+    assert_eq!(label_for("flux2_dev_fp8mixed.safetensors"), "flux2 dev fp8mixed");
     assert_eq!(label_for("plain_model"), "plain model");
     assert_eq!(label_for("noext"), "noext");
 }
@@ -72,8 +72,8 @@ fn label_for_strips_path_and_extension_and_normalizes_separators() {
 #[test]
 fn resolve_components_returns_no_duplicate_roles() {
     let reg = li_ai::family::registry();
-    let flux = reg.family("flux1").expect("flux1 family");
-    let comps = resolve_components(flux, &info());
+    let hidream = reg.family("hidream").expect("hidream family");
+    let comps = resolve_components(hidream, &info());
 
     for i in 0..comps.len() {
         for j in i + 1..comps.len() {
@@ -85,9 +85,9 @@ fn resolve_components_returns_no_duplicate_roles() {
 #[test]
 fn resolve_components_empty_info_is_empty() {
     let reg = li_ai::family::registry();
-    let flux = reg.family("flux1").expect("flux1 family");
+    let hidream = reg.family("hidream").expect("hidream family");
     let empty = ObjectInfo(json!({}));
-    let comps = resolve_components(flux, &empty);
+    let comps = resolve_components(hidream, &empty);
 
     assert!(comps.is_empty());
 }
@@ -125,13 +125,13 @@ fn refresh_publishes_loras() {
     let _guard = GLOBAL_LOCK.lock().unwrap();
 
     let info = ObjectInfo(json!({
-        "LoraLoader": {"input": {"required": {"lora_name": [["pony_style.safetensors", "flux_realism.safetensors", "misc.safetensors"]]}}}
+        "LoraLoader": {"input": {"required": {"lora_name": [["pony_style.safetensors", "flux2_klein_realism.safetensors", "misc.safetensors"]]}}}
     }));
     refresh(&info, None);
 
     let got = loras();
     assert!(got.iter().any(|l| l.name.as_str() == "pony_style.safetensors" && l.family.as_deref() == Some("pony")));
-    assert!(got.iter().any(|l| l.name.as_str() == "flux_realism.safetensors" && l.family.as_deref() == Some("flux1")));
+    assert!(got.iter().any(|l| l.name.as_str() == "flux2_klein_realism.safetensors" && l.family.as_deref() == Some("flux2-klein")));
     assert!(got.iter().any(|l| l.name.as_str() == "misc.safetensors" && l.family.is_none()));
 }
 
@@ -140,17 +140,17 @@ fn loras_for_filters_by_family_and_includes_unknown() {
     let _guard = GLOBAL_LOCK.lock().unwrap();
 
     let info = ObjectInfo(json!({
-        "LoraLoader": {"input": {"required": {"lora_name": [["pony_style.safetensors", "flux_realism.safetensors", "misc.safetensors"]]}}}
+        "LoraLoader": {"input": {"required": {"lora_name": [["pony_style.safetensors", "flux2_klein_realism.safetensors", "misc.safetensors"]]}}}
     }));
     refresh(&info, None);
 
     let reg = li_ai::family::registry();
-    let flux = reg.family("flux1").expect("flux1 family");
-    let matches = loras_for(flux);
+    let klein = reg.family("flux2-klein").expect("flux2-klein family");
+    let matches = loras_for(klein);
 
     let names: Vec<(&str, bool)> = matches.iter().map(|(l, matched)| (l.name.as_str(), *matched)).collect();
 
-    assert!(names.contains(&("flux_realism.safetensors", true)));
+    assert!(names.contains(&("flux2_klein_realism.safetensors", true)));
     assert!(names.contains(&("misc.safetensors", false)));
     assert!(!names.iter().any(|(name, _)| *name == "pony_style.safetensors"));
 }

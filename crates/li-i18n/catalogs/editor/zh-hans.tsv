@@ -2165,7 +2165,6 @@ cameraRaw	Blending	混合
 	Remove Background (AI)	移除背景 (AI)
 	Remove Backgrounds (AI)…	批量移除背景 (AI)…
 	Set Up AI…	设置 AI…
-	Subject (AI)	主体 (AI)
 	The AI engine isn't running.	AI 引擎未运行。
 	Contextual task bar	上下文任务栏
 	Tool presets	工具预设
@@ -2275,7 +2274,6 @@ cameraRaw	Blending	混合
 	Could not save settings: {error}	无法保存设置：{error}
 	Couldn't save: {error}	无法存储：{error}
 	Couldn't update profiles: {error}	无法更新配置文件：{error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	使用 Qwen Image 2.1 抠出每张图像的主体并保存为 PNG。原图永远不会被更改。
 	Delete from Library	从图库中删除
 	Describe details to add (optional)…	描述要添加的细节（可选）…
 	Describe the change, e.g. “make it golden hour”…	描述更改，例如“变成黄金时刻”…
@@ -2336,7 +2334,6 @@ cameraRaw	Blending	混合
 	Installation:	安装：
 	Installed	已安装
 	Keep	保留
-	Keep… (optional)	保留…（可选）
 	Licence	许可证
 	Licence gate	需接受许可证
 	Licence: see its page	许可证：请参阅其页面
@@ -2381,8 +2378,6 @@ cameraRaw	Blending	混合
 	Precision	精度
 	Preset name	预设名称
 	Previous image ({key})	上一张图像（{key}）
-	Qwen Compact	Qwen 精简版
-	Qwen Full	Qwen 完整版
 	RESULTS	结果
 	Read the licence	阅读许可证
 	Ready	就绪
@@ -2429,7 +2424,6 @@ cameraRaw	Blending	混合
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	请先启动 AI 引擎：Local Image 会检查 ComfyUI 中已有的内容。（{error}）
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	启动 AI 引擎即可查看 GPU 显存；当前显示可在 8 GB 中运行的内容。
 	Starting ComfyUI… (the first start can take a minute)	正在启动 ComfyUI…（首次启动可能需要一分钟）
-	Starting image · {n}/{max}	起始图像 · {n}/{max}
 	Starting {name}…	正在启动 {name}…
 	Steps	步数
 	Stopped	已停止
@@ -2447,7 +2441,6 @@ cameraRaw	Blending	混合
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	该工作流中没有标题为 li:prompt、li:image、li:mask、li:seed 或 li:output 的节点，因此 Local Image 无法填充它。请在 ComfyUI 中重命名节点后重新导出。
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	令牌可让模型浏览器下载受限或需登录的模型。令牌只会发送到各自的网站。
 	Transparent PNG	透明 PNG
-	Transparent background	透明背景
 	Trending	热门
 	Trending this week	本周热门
 	Unknown family	未知系列
@@ -2458,7 +2451,6 @@ cameraRaw	Blending	混合
 	Upscale {scale}×	放大 {scale}×
 	Use	使用
 	Use as Reference	用作参考图
-	Variation strength	变化强度
 	Waiting	等待中
 	What should appear in the selection…	选区中应出现的内容…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	使用你自己的 API 密钥，生成功能也可以使用云端模型（它们显示在模型选择器的“云端”下）。此时你的提示词和图像会从这台电脑发送到该提供商，并记入你的账户；不会向任何地方发送其他内容。
@@ -2492,14 +2484,11 @@ cameraRaw	Blending	混合
 	{size} · runs on the CPU · {licence}	{size} · 在 CPU 上运行 · {licence}
 	{source}: offline, showing results from {when}	{source}：离线，显示 {when} 的结果
 	{source}: the catalogue couldn't be read	{source}：无法读取目录
-	{why} Qwen Image 2.1 runs these.	{why} 这些功能由 Qwen Image 2.1 运行。
 	Choose…	选择…
 	Stop	停止
 	Seed	种子
 	Solid Color	纯色
 	Strength	强度
-	Qwen AI · Compact	Qwen AI · 精简版
-	Qwen AI · Full	Qwen AI · 完整版
 	Standard (CPU)	标准（CPU）
 	Templates	模板
 	Community	社区

@@ -1,5 +1,5 @@
-//! Cloud generation with the user's own API key: OpenAI (GPT Image), Google (Gemini image),
-//! Black Forest Labs (FLUX pro) and Stability AI. Optional and off until a key is entered in
+//! Cloud generation with the user's own API key: OpenAI (GPT Image), Google (Gemini image) and
+//! Stability AI. Optional and off until a key is entered in
 //! Local AI settings; every request goes straight from this computer to the provider (no relay),
 //! and the Generate panel says which provider receives the prompt and images.
 //!
@@ -25,17 +25,15 @@ use crate::settings::AiSettings;
 pub enum Provider {
     OpenAi,
     Google,
-    Bfl,
     Stability,
 }
 
 impl Provider {
-    pub const ALL: [Provider; 4] = [Provider::OpenAi, Provider::Google, Provider::Bfl, Provider::Stability];
+    pub const ALL: [Provider; 3] = [Provider::OpenAi, Provider::Google, Provider::Stability];
     pub fn label(self) -> &'static str {
         match self {
             Provider::OpenAi => "OpenAI",
             Provider::Google => "Google",
-            Provider::Bfl => "Black Forest Labs",
             Provider::Stability => "Stability AI",
         }
     }
@@ -44,7 +42,6 @@ impl Provider {
         match self {
             Provider::OpenAi => "openai_api_key",
             Provider::Google => "google_api_key",
-            Provider::Bfl => "bfl_api_key",
             Provider::Stability => "stability_api_key",
         }
     }
@@ -53,7 +50,6 @@ impl Provider {
         match self {
             Provider::OpenAi => "https://platform.openai.com/api-keys",
             Provider::Google => "https://aistudio.google.com/apikey",
-            Provider::Bfl => "https://dashboard.bfl.ai/",
             Provider::Stability => "https://platform.stability.ai/account/keys",
         }
     }
@@ -61,7 +57,6 @@ impl Provider {
         match self {
             Provider::OpenAi => "https://api.openai.com",
             Provider::Google => "https://generativelanguage.googleapis.com",
-            Provider::Bfl => "https://api.bfl.ai",
             Provider::Stability => "https://api.stability.ai",
         }
     }
@@ -69,7 +64,6 @@ impl Provider {
         match self {
             Provider::OpenAi => "openai",
             Provider::Google => "google",
-            Provider::Bfl => "bfl",
             Provider::Stability => "stability",
         }
     }
@@ -84,7 +78,7 @@ impl Provider {
 
 static BASE_OVERRIDE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// Sends every provider's requests to `base/{openai,google,bfl,stability}` (the mock server).
+/// Sends every provider's requests to `base/{openai,google,stability}` (the mock server).
 #[doc(hidden)]
 pub fn set_test_base(base: Option<String>) {
     if let Ok(mut b) = BASE_OVERRIDE.lock() {
@@ -134,42 +128,6 @@ pub const MODELS: &[CloudModel] = &[
         max_refs: 3,
         negative: false,
         best_for: "Fast conversational edits and consistent characters",
-    },
-    CloudModel {
-        key: "bfl:flux-kontext-pro",
-        provider: Provider::Bfl,
-        model: "flux-kontext-pro",
-        label: "FLUX.1 Kontext [pro]",
-        create: true,
-        edit: true,
-        fill: true,
-        max_refs: 0,
-        negative: false,
-        best_for: "Precise local edits that keep the rest of the image",
-    },
-    CloudModel {
-        key: "bfl:flux-pro-1.1",
-        provider: Provider::Bfl,
-        model: "flux-pro-1.1",
-        label: "FLUX1.1 [pro]",
-        create: true,
-        edit: false,
-        fill: false,
-        max_refs: 0,
-        negative: false,
-        best_for: "High-quality images from a description",
-    },
-    CloudModel {
-        key: "bfl:flux-pro-1.0-fill",
-        provider: Provider::Bfl,
-        model: "flux-pro-1.0-fill",
-        label: "FLUX.1 Fill [pro]",
-        create: false,
-        edit: false,
-        fill: true,
-        max_refs: 0,
-        negative: false,
-        best_for: "Filling a selection with a native mask",
     },
     CloudModel {
         key: "stability:sd3.5-large",
@@ -267,17 +225,17 @@ impl CloudRequest {
 
 // transport
 
-const HOSTS: &[&str] = &["api.openai.com", "generativelanguage.googleapis.com", "api.bfl.ai", "api.stability.ai"];
+const HOSTS: &[&str] = &["api.openai.com", "generativelanguage.googleapis.com", "api.stability.ai"];
 
-/// Requests go only to the providers (and BFL's result delivery hosts), over HTTPS; plain HTTP
-/// only to an allowed test host (the mock).
+/// Requests go only to the providers, over HTTPS; plain HTTP only to an allowed test host (the
+/// mock).
 pub fn host_allowed(url: &str) -> bool {
     if url.starts_with("http://") {
         return crate::download::host_allowed(url);
     }
     let Some(rest) = url.strip_prefix("https://") else { return false };
     let host = rest.split(['/', '?', '#', ':']).next().unwrap_or("").to_ascii_lowercase();
-    HOSTS.contains(&host.as_str()) || host.ends_with(".bfl.ai")
+    HOSTS.contains(&host.as_str())
 }
 
 fn agent() -> ureq::Agent {
@@ -359,16 +317,11 @@ fn retry_delay(status: Option<u16>, retry_after: Option<&str>, attempt: u32, jit
 }
 
 /// Whether a request that failed in transport can be sent again without risking a second charge:
-/// the connection never came up, or (for a read-only GET) any timeout. A POST that timed out
-/// waiting for the reply may already have been accepted and billed, so it is not repeated.
-fn transport_retryable(e: &ureq::Error, post: bool) -> bool {
+/// only when the connection never came up. A request that timed out waiting for the reply may
+/// already have been accepted and billed, so it is not repeated.
+fn transport_retryable(e: &ureq::Error) -> bool {
     use ureq::{Error, Timeout};
-    match e {
-        Error::ConnectionFailed | Error::HostNotFound => true,
-        Error::Timeout(Timeout::Resolve | Timeout::Connect | Timeout::SendRequest) => true,
-        Error::Timeout(_) => !post,
-        _ => false,
-    }
+    matches!(e, Error::ConnectionFailed | Error::HostNotFound | Error::Timeout(Timeout::Resolve | Timeout::Connect | Timeout::SendRequest))
 }
 
 /// Sleeps in short slices so a cancel is noticed promptly (and shortened under test).
@@ -389,7 +342,6 @@ fn pause(ctl: &JobControl, d: Duration) -> Result<()> {
 fn send_retrying(
     p: Provider,
     ctl: &JobControl,
-    post: bool,
     mut attempt: impl FnMut() -> std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>,
 ) -> Result<Vec<u8>> {
     let mut n = 1;
@@ -404,7 +356,7 @@ fn send_retrying(
                     None => return read(p, r),
                 }
             }
-            Err(e) if transport_retryable(&e, post) => match retry_delay(None, None, n, jitter) {
+            Err(e) if transport_retryable(&e) => match retry_delay(None, None, n, jitter) {
                 Some(wait) => wait,
                 None => return Err(e).with_context(|| format!("Could not reach {}", p.label())),
             },
@@ -418,7 +370,7 @@ fn send_retrying(
 fn post_json(p: Provider, url: &str, headers: &[(&str, String)], body: &Value, ctl: &JobControl) -> Result<Vec<u8>> {
     check(url)?;
     let body = serde_json::to_vec(body)?;
-    send_retrying(p, ctl, true, || {
+    send_retrying(p, ctl, || {
         let mut req = agent().post(url).header("Content-Type", "application/json");
         for (k, v) in headers {
             req = req.header(*k, v);
@@ -457,23 +409,12 @@ impl Multipart {
 fn post_multipart(p: Provider, url: &str, headers: &[(&str, String)], form: Multipart, ctl: &JobControl) -> Result<Vec<u8>> {
     check(url)?;
     let (ctype, body) = form.finish();
-    send_retrying(p, ctl, true, || {
+    send_retrying(p, ctl, || {
         let mut req = agent().post(url).header("Content-Type", &ctype);
         for (k, v) in headers {
             req = req.header(*k, v);
         }
         req.send(body.as_slice())
-    })
-}
-
-fn get(p: Provider, url: &str, headers: &[(&str, String)], ctl: &JobControl) -> Result<Vec<u8>> {
-    check(url)?;
-    send_retrying(p, ctl, false, || {
-        let mut req = agent().get(url);
-        for (k, v) in headers {
-            req = req.header(*k, v);
-        }
-        req.call()
     })
 }
 
@@ -521,7 +462,6 @@ fn openai_size(w: u32, h: u32) -> &'static str {
 }
 
 const GOOGLE_RATIOS: &[&str] = &["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
-const BFL_RATIOS: &[&str] = &["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "9:21", "21:9"];
 const STABILITY_RATIOS: &[&str] = &["1:1", "2:3", "3:2", "4:5", "5:4", "9:16", "16:9", "9:21", "21:9"];
 
 /// What the image being edited or filled is sent as: the source (the green-filled source for
@@ -650,61 +590,6 @@ fn google(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaIma
     Ok(out)
 }
 
-fn bfl(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaImage>> {
-    let base = Provider::Bfl.base();
-    let auth = [("x-key", key.to_owned())];
-    let model = req.model.model;
-    let mut out = Vec::new();
-    for i in 0..req.count.clamp(1, 4) {
-        ctl.check()?;
-        let seed = req.seed.wrapping_add(i as u64) % 4_294_967_295;
-        let mut body = json!({ "prompt": prompt_for(req, model != "flux-pro-1.0-fill"), "seed": seed, "output_format": "png" });
-        let (w, h) = req.source.as_ref().map(|s| s.dimensions()).unwrap_or((req.width, req.height));
-        match model {
-            "flux-pro-1.0-fill" => {
-                let s = prepared_source(req, 2048, false).context("Open an image first.")?;
-                let m = shrink_gray(req.mask.as_ref().context("Make a selection to fill.")?, s.width(), s.height());
-                body["image"] = json!(b64(&png(&s)?));
-                body["mask"] = json!(b64(&png_gray(&m)?));
-            }
-            "flux-pro-1.1" => {
-                let k = (1024.0 * 1024.0 / (w.max(1) as f32 * h.max(1) as f32)).sqrt();
-                let snap = |v: f32| (((v * k) / 32.0).round() as u32 * 32).clamp(256, 1440);
-                body["width"] = json!(snap(w as f32));
-                body["height"] = json!(snap(h as f32));
-            }
-            _ => {
-                body["aspect_ratio"] = json!(nearest_ratio(w, h, BFL_RATIOS));
-                if let Some(s) = prepared_source(req, 2048, req.mode == CloudMode::Fill) {
-                    body["input_image"] = json!(b64(&png(&s)?));
-                }
-            }
-        }
-        let v: Value = serde_json::from_slice(&post_json(Provider::Bfl, &format!("{base}/v1/{model}"), &auth, &body, ctl)?)?;
-        let poll = v["polling_url"]
-            .as_str()
-            .map(str::to_owned)
-            .or_else(|| v["id"].as_str().map(|id| format!("{base}/v1/get_result?id={id}")))
-            .context("Black Forest Labs didn't return a job")?;
-        let start = Instant::now();
-        let sample = loop {
-            ctl.check()?;
-            if start.elapsed() > Duration::from_secs(300) {
-                bail!("Black Forest Labs took too long.");
-            }
-            std::thread::sleep(Duration::from_millis(if cfg!(test) { 20 } else { 800 }));
-            let r: Value = serde_json::from_slice(&get(Provider::Bfl, &poll, &auth, ctl)?)?;
-            match r["status"].as_str().unwrap_or("") {
-                "Ready" => break r["result"]["sample"].as_str().context("no result URL")?.to_owned(),
-                "Pending" | "Queued" | "Processing" | "Task not found" => {}
-                other => bail!("Black Forest Labs: {other}"),
-            }
-        };
-        out.push(crate::imaging::decode_rgba(&get(Provider::Bfl, &sample, &[], ctl)?)?);
-    }
-    Ok(out)
-}
-
 fn stability(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaImage>> {
     let base = Provider::Stability.base();
     let auth = [("Authorization", format!("Bearer {key}")), ("Accept", "image/*".to_owned())];
@@ -757,7 +642,6 @@ pub fn generate(req: &CloudRequest, settings: &AiSettings, ctl: &JobControl) -> 
     let raw = match p {
         Provider::OpenAi => openai(req, &key, ctl)?,
         Provider::Google => google(req, &key, ctl)?,
-        Provider::Bfl => bfl(req, &key, ctl)?,
         Provider::Stability => stability(req, &key, ctl)?,
     };
     let Some(src) = req.source.as_ref().filter(|_| req.mode != CloudMode::Create) else { return Ok(raw) };
@@ -799,7 +683,6 @@ pub fn describe_size(m: &CloudModel, w: u32, h: u32) -> String {
     match m.provider {
         Provider::OpenAi => openai_size(w, h).replace('x', " × "),
         Provider::Google => nearest_ratio(w, h, GOOGLE_RATIOS).to_owned(),
-        Provider::Bfl => nearest_ratio(w, h, BFL_RATIOS).to_owned(),
         Provider::Stability => nearest_ratio(w, h, STABILITY_RATIOS).to_owned(),
     }
 }
@@ -813,9 +696,8 @@ mod tests {
         assert_eq!(openai_size(1920, 1080), "1536x1024");
         assert_eq!(openai_size(800, 1200), "1024x1536");
         assert_eq!(nearest_ratio(1920, 1080, GOOGLE_RATIOS), "16:9");
-        assert_eq!(nearest_ratio(1000, 1000, BFL_RATIOS), "1:1");
         assert!(host_allowed("https://api.openai.com/v1/images/generations"));
-        assert!(host_allowed("https://delivery-eu1.bfl.ai/results/x.png"));
+        assert!(!host_allowed("https://api.bfl.ai/v1/flux-pro-1.1"));
         assert!(!host_allowed("https://evil.example/v1"));
         assert!(!host_allowed("http://api.openai.com/v1"));
         assert!(MODELS.iter().all(|m| m.create || m.edit || m.fill));
@@ -823,7 +705,7 @@ mod tests {
 
     #[test]
     fn requests_are_validated() {
-        let m = model("bfl:flux-pro-1.0-fill").unwrap();
+        let m = model("stability:inpaint").unwrap();
         let r = CloudRequest {
             model: m,
             mode: CloudMode::Create,
@@ -957,12 +839,11 @@ mod tests {
     #[test]
     fn post_timeouts_are_not_repeated_but_connection_failures_are() {
         use ureq::{Error, Timeout};
-        assert!(transport_retryable(&Error::ConnectionFailed, true));
-        assert!(transport_retryable(&Error::Timeout(Timeout::Connect), true));
-        assert!(!transport_retryable(&Error::Timeout(Timeout::RecvResponse), true));
-        assert!(!transport_retryable(&Error::Timeout(Timeout::Global), true));
-        assert!(transport_retryable(&Error::Timeout(Timeout::RecvResponse), false));
-        assert!(!transport_retryable(&Error::BodyExceedsLimit(1), false));
+        assert!(transport_retryable(&Error::ConnectionFailed));
+        assert!(transport_retryable(&Error::Timeout(Timeout::Connect)));
+        assert!(!transport_retryable(&Error::Timeout(Timeout::RecvResponse)));
+        assert!(!transport_retryable(&Error::Timeout(Timeout::Global)));
+        assert!(!transport_retryable(&Error::BodyExceedsLimit(1)));
     }
 
     #[test]
@@ -1010,7 +891,7 @@ mod tests {
         ]);
         crate::download::allow_test_host(&host);
         let url = format!("http://{host}/x");
-        assert_eq!(get(Provider::Bfl, &url, &[], &ctl).unwrap(), b"fine");
+        assert_eq!(post_json(Provider::OpenAi, &url, &[], &json!({}), &ctl).unwrap(), b"fine");
         assert_eq!(seen.load(Ordering::SeqCst), 3);
 
         // Out of attempts: the last status is reported.

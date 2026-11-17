@@ -13,8 +13,8 @@
 //!
 //! `--comfy-0.42.5` serves ComfyUI 0.42.5's nodes and official templates instead, and fills an
 //! empty model folder with header-only copies of an RTX 5090 workstation's models (FLUX.3 Klein,
-//! MOSS-Image, Krea 2, Qwen Image 2.1, FLUX.2 Klein 9B and their text encoders and VAEs), so Set
-//! Up Models has real files to identify, match and check.
+//! MOSS-Image, Krea 2, FLUX.2 Klein 9B and their text encoders and VAEs), so Set Up Models has
+//! real files to identify, match and check.
 
 /// `folder/file` ← header fixture (`tests/fixtures/headers`).
 const WORKSTATION: &[(&str, &str)] = &[
@@ -22,15 +22,12 @@ const WORKSTATION: &[(&str, &str)] = &[
     ("diffusion_models/flux3-image-klein-base-bf16.safetensors", "owner__diffusion_models~flux3-image-klein-base-bf16"),
     ("diffusion_models/moss_image_sft_bf16.safetensors", "owner__diffusion_models~moss_image_sft_bf16"),
     ("diffusion_models/krea2_turbo_bf16.safetensors", "Comfy-Org_Krea-2__diffusion_models~krea2_turbo_bf16"),
-    ("diffusion_models/qwen_image_2.1_bf16.safetensors", "local__diffusion_models~qwen_image_2.1_bf16"),
     ("diffusion_models/flux-2-klein-9b-fp8.safetensors", "local__diffusion_models~flux-2-klein-9b-fp8"),
     ("diffusion_models/ming_image_0.1_design_bf16.safetensors", "Comfy-Org_Ming-Image__diffusion_models~ming_image_0.1_design_bf16"),
     ("text_encoders/qwen3vl_4b_bf16.safetensors", "Comfy-Org_Krea-2__text_encoders~qwen3vl_4b_bf16"),
-    ("text_encoders/qwen3vl_8b_bf16.safetensors", "local__text_encoders~qwen3vl_8b_bf16"),
     ("text_encoders/qwen_3_8b_fp8mixed.safetensors", "local__text_encoders~qwen_3_8b_fp8mixed"),
     ("vae/flux2-vae.safetensors", "local__vae~flux2-vae"),
     ("vae/qwen_image_vae.safetensors", "Comfy-Org_Krea-2__vae~qwen_image_vae"),
-    ("vae/qwen_image_2.1_vae_bf16.safetensors", "local__vae~qwen_image_2.1_vae_bf16"),
 ];
 
 fn main() {

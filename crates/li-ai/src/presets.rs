@@ -28,7 +28,6 @@ pub struct GenPreset {
     pub negative: String,
     pub steps: Option<u32>,
     pub cfg: Option<f32>,
-    pub variety: Option<f32>,
     pub sampler: Option<(String, String)>,
     pub loras: Vec<PresetLora>,
     /// Draft → Refine: refine with this model at this strength.
@@ -85,14 +84,6 @@ pub fn built_in() -> Vec<GenPreset> {
             None,
         ),
         p("Product Shot", None, "studio product photograph of {prompt}, soft box lighting, clean background, high detail", "", None, None),
-        p(
-            "Anime (Illustrious)",
-            Some("illustrious"),
-            "{prompt}, masterpiece, best quality, newest, absurdres, highres",
-            "worst quality, worst aesthetic, bad quality, average quality, oldest, old, displeasing",
-            Some(24),
-            Some(5.0),
-        ),
         p(
             "Photo (SDXL)",
             Some("sdxl"),

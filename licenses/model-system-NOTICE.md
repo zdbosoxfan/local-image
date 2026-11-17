@@ -12,7 +12,7 @@ Ported to Rust (no Python is shipped): the per-architecture workflow constructio
 model sampling, guidance, reference and inpaint methods per family), the inpaint geometry (mask
 grow and feather from the selection's size, context padding, blur pre-fill, compositing back through
 the feathered mask), the "fill the green area" instruction form for instruction-edit models, the
-prompt conventions of Pony and Illustrious, the built-in style presets, and the approach of
+prompt conventions of Pony, the built-in style presets, and the approach of
 converting editor-format ComfyUI workflows with the server's `/object_info`.
 Used in `crates/li-ai/src/{builders,inpaint,custom,presets}.rs` and `crates/li-ai/families/*.json`.
 

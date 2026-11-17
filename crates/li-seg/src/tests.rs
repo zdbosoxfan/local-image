@@ -178,7 +178,7 @@ fn one_official_model_per_function() {
         assert_eq!(m.group, Some(g));
         assert_eq!(MODELS.iter().filter(|x| x.group == Some(g)).count(), if matches!(g, Group::Faces | Group::Subject) { 2 } else { 1 }, "{g:?}");
         assert!(m.about.len() > 60 && !g.about().is_empty() && !g.label().is_empty());
-        // Match size units, not the letters inside the RMBG model's name.
+        // Match size units, not letters inside a model's name.
         let size_label = m
             .label
             .split_whitespace()
@@ -187,7 +187,7 @@ fn one_official_model_per_function() {
         assert!(g.in_use(Path::new("/nonexistent")).is_none());
         assert!(!available(g, Path::new("/nonexistent")));
     }
-    assert_eq!(Group::Subject.official().id, "rmbg-1.4");
+    assert_eq!(Group::Subject.official().id, "inspyrenet");
     assert_eq!(Group::Sky.official().id, "sky-mobileseg");
     assert_eq!(Group::Depth.official().id, "depth-anything-v2-small");
     assert_eq!(Group::Subject.official().task, Task::Subject);
@@ -205,17 +205,17 @@ fn one_official_model_per_function() {
 #[test]
 fn remove_deletes_only_that_model_and_reports_the_size() {
     let dir = temp_models();
-    let (isnet, sky) = (spec("rmbg-1.4").unwrap(), spec("sky-mobileseg").unwrap());
+    let (subject, sky) = (spec("inspyrenet").unwrap(), spec("sky-mobileseg").unwrap());
     std::fs::write(model_path(&dir, sky), vec![1u8; 1234]).unwrap();
-    std::fs::write(model_path(&dir, isnet), vec![2u8; 99]).unwrap();
-    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(isnet)));
+    std::fs::write(model_path(&dir, subject), vec![2u8; 99]).unwrap();
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(subject)));
     assert_eq!(installed_bytes(&dir, sky), Some(1234));
-    assert_eq!(remove(&dir, isnet).unwrap(), 99);
-    assert!(!model_path(&dir, isnet).exists());
+    assert_eq!(remove(&dir, subject).unwrap(), 99);
+    assert!(!model_path(&dir, subject).exists());
     assert!(model_path(&dir, sky).exists(), "other models stay");
     assert!(Group::Subject.in_use(&dir).is_none());
     // removing a model that isn't installed is a no-op
-    assert_eq!(remove(&dir, isnet).unwrap(), 0);
+    assert_eq!(remove(&dir, subject).unwrap(), 0);
     // a custom disposer (the Trash) gets the file instead
     let moved = dir.join("trashed.onnx");
     let freed = remove_with(&dir, sky, &|p| std::fs::rename(p, &moved)).unwrap();
@@ -844,9 +844,9 @@ fn the_custom_list_survives_odd_names_and_bad_lines() {
 /// Runs the official subject model on a synthetic subject when it's available (downloaded by the
 /// developer to `LI_SEG_TEST_MODELS`).
 #[test]
-fn isnet_finds_a_centred_subject() {
+fn the_fast_tier_finds_a_centred_subject() {
     let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
-    let spec = spec("rmbg-1.4").unwrap();
+    let spec = tier_spec(false);
     let path = Path::new(&dir).join(spec.file);
     if !path.is_file() {
         return;
@@ -1141,15 +1141,13 @@ fn custom_denoisers_are_checked_against_the_gpu_graph_that_runs_them() {
 fn bg_tier_tiny_smoke_preserves_probabilities_and_no_subject() {
     let dir = temp_models();
     let path = picked(&dir, "sigmoid.onnx", Some((8, 8)), Out::Map);
-    for id in ["rmbg-1.4", "inspyrenet"] {
-        let model = ModelSpec { size: 8, ..*spec(id).unwrap() };
-        let seg = Segmenter::load(&model, &path).unwrap();
-        let bright = vec![255u8; 4 * 4 * 4];
-        let p = seg.predict(&bright, 4, 4).unwrap().expect("bright subject");
-        assert!(p.iter().all(|v| *v > 0.5 && *v < 1.0), "constant probabilities must not become zero via min–max");
-        let dark: Vec<_> = (0..16).flat_map(|_| [0, 0, 0, 255]).collect();
-        assert!(seg.predict(&dark, 4, 4).unwrap().is_none());
-    }
+    let model = ModelSpec { size: 8, ..*tier_spec(false) };
+    let seg = Segmenter::load(&model, &path).unwrap();
+    let bright = vec![255u8; 4 * 4 * 4];
+    let p = seg.predict(&bright, 4, 4).unwrap().expect("bright subject");
+    assert!(p.iter().all(|v| *v > 0.5 && *v < 1.0), "constant probabilities must not become zero via min–max");
+    let dark: Vec<_> = (0..16).flat_map(|_| [0, 0, 0, 255]).collect();
+    assert!(seg.predict(&dark, 4, 4).unwrap().is_none());
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -1157,10 +1155,27 @@ fn bg_tier_tiny_smoke_preserves_probabilities_and_no_subject() {
 fn bg_tier_input_uses_255_not_image_peak() {
     let dir = temp_models();
     let path = picked(&dir, "sigmoid.onnx", Some((8, 8)), Out::Map);
-    let model = ModelSpec { size: 8, ..*spec("rmbg-1.4").unwrap() };
+    let model = ModelSpec { size: 8, ..*tier_spec(false) };
     let seg = Segmenter::load(&model, &path).unwrap();
     let rgba: Vec<_> = (0..16).flat_map(|_| [64, 64, 64, 255]).collect();
     assert!(seg.predict(&rgba, 4, 4).unwrap().is_none(), "dark image must not be peak-scaled to white");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn the_better_tier_reads_birefnet_logits_through_a_sigmoid() {
+    let dir = temp_models();
+    let s = 32usize;
+    // mild logits, so a missing sigmoid (clamped to 0 and 1) is told apart
+    let subject = |i: usize| (8..24).contains(&(i % s)) && (8..24).contains(&(i / s));
+    let logits: Vec<f32> = (0..s * s).map(|i| if subject(i) { 2.0 } else { -2.0 }).collect();
+    let path = picked_bytes(&dir, "birefnet-lite.onnx", &constant_onnx(s as u64, 1, &logits, None));
+    let model = ModelSpec { size: s, ..*tier_spec(true) };
+    let p = Segmenter::load(&model, &path).unwrap().predict(&synthetic(s, s), s, s).unwrap().expect("a clear subject");
+    for (i, v) in p.iter().enumerate() {
+        let want = if subject(i) { sigmoid(2.0) } else { sigmoid(-2.0) };
+        assert!((v - want).abs() < 0.02, "{v} at {i}, want {want}");
+    }
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -1172,12 +1187,12 @@ fn bg_real_model_compatibility() {
         ("isnet-general-use.onnx", 1024, true, Task::Subject),
         ("u2netp.onnx", 320, false, Task::Subject),
         ("modnet.onnx", 512, false, Task::Subject),
-        ("rmbg-1.4.onnx", 1024, true, Task::Subject),
         ("inspyrenet-swinb-plus-ultra.onnx", 1024, false, Task::Subject),
+        ("birefnet-lite.onnx", 1024, false, Task::Subject),
         ("pp_mobileseg_base_ade20k_512.onnx", 512, false, spec("sky-mobileseg").unwrap().task),
         ("depth_anything_v2_vits_dynamic.onnx", 518, false, Task::Depth),
     ] {
-        let model = ModelSpec { id: file, file, size, isnet, task, ..*spec("rmbg-1.4").unwrap() };
+        let model = ModelSpec { id: file, file, size, isnet, task, ..*tier_spec(false) };
         Segmenter::load(&model, &dir.join(file)).unwrap_or_else(|e| panic!("{file}: {e:#}"));
     }
 }
@@ -1185,21 +1200,20 @@ fn bg_real_model_compatibility() {
 #[test]
 fn bg_subject_group_uses_chosen_tier_for_all_callers() {
     let dir = temp_models();
-    for id in ["rmbg-1.4", "inspyrenet"] {
-        let model = spec(id).unwrap();
-        std::fs::write(model_path(&dir, model), b"installed").unwrap();
+    for better in [false, true] {
+        std::fs::write(model_path(&dir, tier_spec(better)), b"installed").unwrap();
     }
-    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("rmbg-1.4").unwrap())));
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(tier_spec(false))));
     set_subject_quality(&dir, true);
-    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("inspyrenet").unwrap())));
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(tier_spec(true))));
     set_subject_quality(&dir, false);
-    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("rmbg-1.4").unwrap())));
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(tier_spec(false))));
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
 fn the_subject_function_uses_whichever_tier_is_installed() {
-    let (fast, better) = (spec("rmbg-1.4").unwrap(), spec("inspyrenet").unwrap());
+    let (fast, better) = (tier_spec(false), tier_spec(true));
     for (installed, chosen) in [(better, false), (fast, true)] {
         let dir = temp_models();
         std::fs::write(model_path(&dir, installed), b"installed").unwrap();
@@ -1212,15 +1226,15 @@ fn the_subject_function_uses_whichever_tier_is_installed() {
 #[test]
 fn the_subject_tier_choice_is_kept_in_the_models_folder() {
     let dir = temp_models();
-    for model in ["rmbg-1.4", "inspyrenet"] {
-        std::fs::write(model_path(&dir, spec(model).unwrap()), b"installed").unwrap();
+    for better in [false, true] {
+        std::fs::write(model_path(&dir, tier_spec(better)), b"installed").unwrap();
     }
     set_subject_quality(&dir, true);
     assert_eq!(std::fs::read_to_string(dir.join("segmentation/subject-tier.txt")).unwrap(), "better");
     // a later run (nothing remembered in memory) reads it back
     SUBJECT_QUALITY.lock().unwrap().retain(|(d, _)| *d != dir);
     assert!(subject_quality(&dir));
-    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("inspyrenet").unwrap())));
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(tier_spec(true))));
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -1280,7 +1294,7 @@ fn conv_segmenter(dir: &Path, s: u64, channels: u64, layers: usize) -> Segmenter
     let p = dir.join("picked").join(format!("conv-{s}-{channels}-{layers}.onnx"));
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
     std::fs::write(&p, conv_onnx(s, channels, layers)).unwrap();
-    let model = ModelSpec { size: s as usize, ..*spec("rmbg-1.4").unwrap() };
+    let model = ModelSpec { size: s as usize, ..*tier_spec(false) };
     Segmenter::load(&model, &p).unwrap()
 }
 

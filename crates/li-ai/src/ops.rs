@@ -8,7 +8,7 @@ use li_raster::RgbFrame;
 use crate::builders::{self, Params, Slot, Task};
 use crate::catalog::{self, Availability, ModelId};
 use crate::comfy::{ComfyClient, JobControl, ObjectInfo, Stage};
-use crate::family::{Encode, Family, InpaintMethod, RefMethod, Role};
+use crate::family::{Family, InpaintMethod, RefMethod, Role};
 use crate::imaging::{self, Rect};
 use crate::workflows::{self, LoraUse};
 
@@ -65,8 +65,6 @@ pub enum RemoveEngine {
     Lama { models_dir: std::path::PathBuf },
     /// Klein when connected; on-device LaMa when ComfyUI is unreachable.
     Auto { models_dir: std::path::PathBuf },
-    /// Qwen Image 2.1 instruction edit, composited through the selection.
-    Qwen { variant: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -114,10 +112,7 @@ pub struct GenerateRequest {
     pub seed: u64,
     pub steps: u32,
     pub guidance: f32,
-    /// Seeded conditioning variety for Z-Image Turbo Create (0..100; 0 = Off).
-    pub variety: f32,
-    pub transparent: bool,
-    /// Strength for Refine, Inpaint, Upscale-refine and starting images (0.05..1).
+    /// Strength for Refine, Inpaint and Upscale-refine (0.05..1).
     pub denoise: f32,
     /// Resolve [steps, guidance, denoise] from the verified refine recipe. Numeric values
     /// otherwise remain explicit, including values equal to nominal model defaults.
@@ -154,8 +149,6 @@ impl GenerateRequest {
             seed: new_seed(),
             steps: info.steps.default as u32,
             guidance: info.guidance.default,
-            variety: 0.0,
-            transparent: false,
             denoise: 0.6,
             refine_defaults: [false; 3],
             source: None,
@@ -184,9 +177,6 @@ impl GenerateRequest {
     }
 
     fn validate_with(&self, model: Option<&catalog::ModelInfo>) -> Result<()> {
-        if !(0.0..=100.0).contains(&self.variety) {
-            bail!("Variety must be between 0 and 100.");
-        }
         let info = model.or_else(|| self.model.try_info()).with_context(|| format!("The model {} is not installed or known.", self.model.key()))?;
         let f = &info.resolved;
         let (source, refs) = self.source_and_refs();
@@ -209,13 +199,10 @@ impl GenerateRequest {
         {
             bail!("The selection does not match the image size.");
         }
-        let adapter = matches!(f.pipeline.reference, RefMethod::IpAdapter | RefMethod::Redux);
+        let adapter = f.pipeline.reference == RefMethod::IpAdapter;
         let max_refs = if adapter { 4 } else { info.max_references.saturating_sub(usize::from(self.mode == GenerateMode::Edit && f.capabilities.edit)) };
         if refs.len() > max_refs {
             bail!("{} takes at most {} reference image{}.", info.label, max_refs, if max_refs == 1 { "" } else { "s" });
-        }
-        if self.transparent && !info.transparent {
-            bail!("{} cannot make transparent images; choose Qwen Image 2.1.", info.label);
         }
         // No built-in step range: the model's numbers are recommendations, and ComfyUI checks its own limits.
         if self.steps == 0 {
@@ -398,7 +385,6 @@ impl Ai {
         match engine {
             RemoveEngine::Lama { .. } => unreachable!(),
             RemoveEngine::Auto { .. } | RemoveEngine::Klein => self.remove_klein(image, &mask, seed, &info, ctl),
-            RemoveEngine::Qwen { variant } => self.remove_qwen(image, &mask, variant, seed, &info, ctl, patch),
         }
     }
 
@@ -440,35 +426,9 @@ impl Ai {
         Ok(current)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn remove_qwen(&self, image: &RgbFrame, mask: &GrayImage, variant: &str, seed: u64, info: &ObjectInfo, ctl: &JobControl, patch: bool) -> Result<RgbFrame> {
-        let instruction = "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the unwanted object or area to remove and black marks the area to keep. Remove the selected object completely and reconstruct a natural empty continuation of the surrounding background in its place. Match the surrounding texture, perspective, lighting and color. Do not insert any new objects, people, text or symbols. Do not draw the mask in the result. Keep the original composition and all other areas unchanged. ";
-        let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
-        let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let a = self.resolve(ModelId::Qwen, variant, info)?;
-        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], info, ctl, None)?;
-        let edited = RgbFrame::from_rgb8(&image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8());
-        // Match the surrounding colour while preserving generated gradients, as Klein does.
-        let blended = imaging::poisson_blend_frame(image, &edited, mask);
-        if patch {
-            return Ok(blended);
-        }
-        Ok(RgbFrame::from_fn(image.width, image.height, |x, y| {
-            let m = mask.get_pixel(x as u32, y as u32)[0] as f32 / 255.0;
-            let (a, b) = (image.get(x, y), blended.get(x, y));
-            [0, 1, 2].map(|k| a[k] * (1.0 - m) + b[k] * m)
-        }))
-    }
-
-    /// Generative fill: changes only the selected area according to `prompt` (Qwen edit with the
-    /// selection as a second reference, composited through the selection). 8-bit adapter of
-    /// [`Self::fill_frame`].
-    pub fn fill(&self, image: &RgbImage, mask: &GrayImage, prompt: &str, variant: &str, seed: u64, ctl: &JobControl) -> Result<RgbImage> {
-        Ok(self.fill_frame(&RgbFrame::from_rgb8(image), mask, prompt, variant, seed, ctl)?.to_rgb8())
-    }
-
-    /// [`Self::fill`] on normalized encoded RGB; unselected pixels keep their full precision.
-    pub fn fill_frame(&self, image: &RgbFrame, mask: &GrayImage, prompt: &str, variant: &str, seed: u64, ctl: &JobControl) -> Result<RgbFrame> {
+    /// Generative fill: regenerates only the selected area according to `prompt` with FLUX.2
+    /// Klein 4B; unselected pixels keep their full precision.
+    pub fn fill_frame(&self, image: &RgbFrame, mask: &GrayImage, prompt: &str, seed: u64, ctl: &JobControl) -> Result<RgbFrame> {
         if image.dimensions() != (mask.width() as usize, mask.height() as usize) {
             bail!("The selection does not match the image size.");
         }
@@ -478,113 +438,29 @@ impl Ai {
         if imaging::bbox(mask, 0).is_none() {
             bail!("Make a selection first.");
         }
-        ctl.set_stage(Stage::Preparing);
-        let info = self.inventory()?;
-        let instruction = format!(
-            "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the area to change and black marks the area to keep. In the white area only: {}. Blend it naturally with the surrounding light, perspective and colour. Do not draw the mask in the result. Keep all other areas unchanged.",
-            prompt.trim()
-        );
-        let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
-        let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let a = self.resolve(ModelId::Qwen, variant, &info)?;
-        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
-        let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
+        let mut req = GenerateRequest::new(ModelId::Klein4B, prompt.trim());
+        req.mode = GenerateMode::Inpaint;
+        req.source = Some(image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8());
+        req.mask = Some(mask.clone());
+        req.seed = seed;
+        let edited = self.generate(&req, ctl)?;
         Ok(RgbFrame::from_fn(image.width, image.height, |x, y| {
             let p = edited.get_pixel(x as u32, y as u32);
-            if mask.get_pixel(x as u32, y as u32)[0] > 0 { p.0.map(|v| v as f32 / 255.0) } else { image.get(x, y) }
+            if mask.get_pixel(x as u32, y as u32)[0] > 0 { [0, 1, 2].map(|k| p[k] as f32 / 255.0) } else { image.get(x, y) }
         }))
     }
 
-    /// Qwen "edit" with the resolved files `a` of model `f` (a curated preset or an installed Qwen
-    /// Image 2.1 file): the output follows reference 1 and is resized back to its size.
-    #[allow(clippy::too_many_arguments)]
-    fn qwen_edit(
-        &self,
-        refs: &[RgbaImage],
-        prompt: &str,
-        negative: &str,
-        (a, f): (&Availability, &Family),
-        seed: u64,
-        steps: u32,
-        cfg: f32,
-        denoise: f32,
-        loras: &[LoraUse],
-        info: &ObjectInfo,
-        ctl: &JobControl,
-        sampler: Option<&(String, String)>,
-    ) -> Result<RgbaImage> {
-        let loras = Self::validate_lora_names(info, loras, "LoraLoaderModelOnly")?;
-        let qwen = &f.pipeline;
-        let (ow, oh) = refs[0].dimensions();
-        let pngs = refs
-            .iter()
-            .map(|r| {
-                let (w, h) = imaging::qwen_canvas_size(r.width(), r.height());
-                imaging::encode_png(&li_raster::resize_rgba8(r, w, h, li_raster::Filter::Lanczos3))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let mut built = workflows::qwen(
-            &a.files,
-            &workflows::QwenParams {
-                sampler_name: &qwen.sampler_name,
-                scheduler: &qwen.scheduler,
-                prompt,
-                negative,
-                width: 0,
-                height: 0,
-                seed,
-                steps,
-                cfg,
-                denoise,
-                references: refs.len(),
-                use_cache: info.has_node("QwenImage21Cache"),
-                loras: &loras,
-            },
-        );
-        set_qwen_sampler(&mut built, sampler);
-        let images: Vec<(String, Vec<u8>)> = built.image_nodes.iter().cloned().zip(pngs).collect();
-        let out = imaging::decode_rgba(&self.run(built.graph, &images, ctl)?)?;
-        Ok(if out.dimensions() != (ow, oh) { li_raster::resize_rgba8(&out, ow, oh, li_raster::Filter::Lanczos3) } else { out })
-    }
-
-    /// Background removal with Qwen: returns an alpha matte the size of `image`. Callers apply it
-    /// as a layer mask so the subject keeps its original pixels.
-    pub fn cutout(&self, image: &RgbaImage, variant: &str, hint: &str, seed: u64, ctl: &JobControl) -> Result<GrayImage> {
-        ctl.check()?;
-        if matches!(variant, "fast" | "quick" | "better") {
-            let dir = crate::AiSettings::cached_model_dir();
-            return cpu_cutout(image, variant == "better", &dir, ctl);
-        }
-        ctl.set_stage(Stage::Preparing);
-        let info = self.inventory()?;
+    /// An empty background plate for compositing behind a cutout (FLUX.2 Klein 4B).
+    pub fn generate_background(&self, description: &str, width: u32, height: u32, seed: u64, ctl: &JobControl) -> Result<RgbaImage> {
         let prompt = format!(
-            "Remove the background from <image1> and preserve the subject exactly. Return an RGBA PNG with a transparent background and a real alpha channel. Keep the original subject position, scale, details and colors. {}",
-            hint.trim()
-        );
-        let a = self.resolve(ModelId::Qwen, variant, &info)?;
-        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
-        imaging::finish_cutout(&out)
-    }
-
-    /// An empty background plate for compositing behind a cutout.
-    pub fn generate_background(&self, description: &str, width: u32, height: u32, variant: &str, seed: u64, ctl: &JobControl) -> Result<RgbaImage> {
-        let prompt = format!(
-            "Create an empty photographic background plate for compositing. Leave the central foreground and supporting surface clear, with generous empty space for a subject to be placed later. Show only the environment, lighting and surfaces. Do not include people, animals, products, foreground subjects, text, logos or watermarks. Return a fully opaque image. Background description: {}",
+            "Create an empty photographic background plate for compositing. Leave the central foreground and supporting surface clear, with generous empty space for a subject to be placed later. Show only the environment, lighting and surfaces. Do not include people, animals, products, foreground subjects, furniture in the foreground, text, logos or watermarks. Return a fully opaque image. Background description: {}",
             if description.trim().is_empty() { "A simple studio cyclorama with soft natural light." } else { description.trim() }
         );
-        let mut req = GenerateRequest::new(ModelId::Qwen, prompt);
-        req.variant = variant.to_owned();
-        req.negative = "people, person, human, animal, product, foreground object, subject, furniture in the foreground, text, logo, watermark".into();
+        let mut req = GenerateRequest::new(ModelId::Klein4B, prompt);
         req.width = width;
         req.height = height;
         req.seed = seed;
-        req.steps = 25;
-        req.validate()?;
-        ctl.check()?;
-        ctl.set_stage(Stage::Preparing);
-        let info = self.inventory()?;
-        let availability = self.resolve(req.model, &req.variant, &info)?;
-        self.qwen21_generate(&req, &availability, &[], &info, ctl, true)
+        self.generate(&req, ctl)
     }
 
     /// Generates with any model: Create, Edit, Refine, Inpaint or Upscale-refine, then the
@@ -659,7 +535,6 @@ impl Ai {
         let (sampler, scheduler) = req.sampler.clone().unwrap_or_else(|| (family.pipeline.sampler_name.clone(), family.pipeline.scheduler.clone()));
         // Report the actual latent strength, including full-noise text/reference creation.
         let denoise = match req.mode {
-            GenerateMode::Create if family.pipeline.reference == RefMethod::InitImage && !req.references.is_empty() => req.denoise,
             GenerateMode::Create => 1.0,
             GenerateMode::Edit if family.capabilities.edit => 1.0,
             _ => req.denoise,
@@ -718,7 +593,6 @@ impl Ai {
             return recipe.run(&self.client, source, &p, ctl);
         }
         let f = &m.resolved;
-        // Resolved before the Qwen 2.1 branch: a template-engine Qwen file never takes it.
         let engine = match &m.recipe {
             Some(recipe) => Engine::Template { recipe, family: f },
             None => Engine::Builder { family: f, files: &a.files },
@@ -726,9 +600,6 @@ impl Ai {
         let loras = Self::validate_loras(info, &req.loras, f)?;
         let (prompt, negative) = prompt_rules(f, &req.prompt, &req.negative);
         let (source, refs) = req.source_and_refs();
-        if m.recipe.is_none() && f.pipeline.encode == Encode::QwenImage21 && matches!(req.mode, GenerateMode::Create | GenerateMode::Edit) {
-            return self.qwen21_generate(req, a, &loras, info, ctl, false);
-        }
         let sampler = req.sampler.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
         let base = Params {
             task: Task::Create,
@@ -743,14 +614,12 @@ impl Ai {
             loras: &loras,
             batch: 1,
             sampler,
-            variety: req.variety,
-            init_denoise: req.denoise,
             enhance: req.enhance && m.recipe.as_ref().is_some_and(|r| r.enhancer_ready()),
         };
         match req.mode {
             GenerateMode::Create => {
                 let (w, h) = imaging::snap_size(req.width, req.height, f.sizes.multiple.max(8));
-                let refs = prepare_refs(f, refs, w, h)?;
+                let refs = prepare_refs(f, refs)?;
                 let p = Params { width: w, height: h, references: refs.len(), ..base };
                 let out = self.run_built(engine.build(&p, info)?, None, None, &refs, ctl)?;
                 Ok(imaging::over_white(&out))
@@ -759,7 +628,7 @@ impl Ai {
                 let src = source.context("Open an image to edit.")?;
                 let (w, h) = crate::inpaint::work_size(src.width(), src.height(), f.sizes.native, f.sizes.max, f.sizes.multiple);
                 let png = imaging::encode_png(&li_raster::resize_rgba8(&imaging::over_white(src), w, h, li_raster::Filter::Lanczos3))?;
-                let refs = prepare_refs(f, refs, w, h)?;
+                let refs = prepare_refs(f, refs)?;
                 let p = Params { task: Task::Edit, width: w, height: h, references: refs.len(), ..base };
                 let out = self.run_built(engine.build(&p, info)?, Some(png), None, &refs, ctl)?;
                 Ok(resize_to(&imaging::over_white(&out), src.width(), src.height()))
@@ -767,7 +636,7 @@ impl Ai {
             GenerateMode::Edit | GenerateMode::Refine => {
                 let src = source.context("Open an image first.")?;
                 let denoise = req.denoise;
-                self.refine_image(src, &engine, info, Params { task: Task::Refine { denoise }, ..base }, prepare_refs(f, refs, 1024, 1024)?, ctl)
+                self.refine_image(src, &engine, info, Params { task: Task::Refine { denoise }, ..base }, prepare_refs(f, refs)?, ctl)
             }
             GenerateMode::Inpaint => {
                 let src = source.context("Open an image first.")?;
@@ -834,16 +703,12 @@ impl Ai {
         let nmask = inpaint::noise_mask(mask, &plan);
         let (w, h) = inpaint::work_size(crop.width(), crop.height(), f.sizes.native, f.sizes.max, f.sizes.multiple);
         let scaled = |img: &RgbImage| li_raster::resize_rgb8(img, w, h, li_raster::Filter::Lanczos3);
-        let refs_png = prepare_refs(f, refs, w, h)?;
+        let refs_png = prepare_refs(f, refs)?;
         let prompt_owned;
         let (task, source_img, mask_png) = match f.pipeline.inpaint {
             InpaintMethod::Instruction => {
                 prompt_owned = format!("{} {}", inpaint::GREEN_INSTRUCTION, base.prompt);
                 (Task::Edit, inpaint::green_fill(&crop, &nmask), None)
-            }
-            InpaintMethod::ModelConditioning => {
-                prompt_owned = base.prompt.to_owned();
-                (Task::Inpaint { denoise: 1.0 }, crop.clone(), Some(nmask.clone()))
             }
             InpaintMethod::NoiseMask | InpaintMethod::None => {
                 prompt_owned = base.prompt.to_owned();
@@ -974,93 +839,6 @@ impl Ai {
         recipe.run(&self.client, &src, &p, ctl)
     }
 
-    /// Qwen Image 2.1 create / edit, as in 0.7 (transparent output, reference canvas rules).
-    fn qwen21_generate(
-        &self,
-        req: &GenerateRequest,
-        a: &Availability,
-        loras: &[LoraUse],
-        info: &ObjectInfo,
-        ctl: &JobControl,
-        background: bool,
-    ) -> Result<RgbaImage> {
-        let (source, refs) = req.source_and_refs();
-        if req.mode == GenerateMode::Edit {
-            let mut all = vec![source.context("Open an image to edit.")?.clone()];
-            all.extend(refs.iter().cloned());
-            let out = self.qwen_edit(
-                &all,
-                &req.prompt,
-                &req.negative,
-                (a, &req.model.info().resolved),
-                req.seed,
-                req.steps,
-                req.guidance,
-                1.0,
-                loras,
-                info,
-                ctl,
-                req.sampler.as_ref(),
-            )?;
-            return Ok(imaging::over_white(&out));
-        }
-        let grid = if refs.is_empty() { 16 } else { 32 };
-        let (w, h) = imaging::snap_size(req.width, req.height, grid);
-        let mut prompt = req.prompt.trim().to_owned();
-        prompt.push_str(if req.transparent {
-            "\nCreate the subject on a fully transparent background with real RGBA alpha. Do not draw a checkerboard or an opaque backdrop. Preserve fine subject edges."
-        } else {
-            "\nReturn a fully opaque image with a complete background."
-        });
-        let pngs = refs
-            .iter()
-            .enumerate()
-            .map(|(i, r)| {
-                if i == 0 {
-                    imaging::encode_png(&imaging::pad_to(r, w, h))
-                } else {
-                    let (rw, rh) = imaging::qwen_canvas_size(r.width(), r.height());
-                    imaging::encode_png(&li_raster::resize_rgba8(r, rw, rh, li_raster::Filter::Lanczos3))
-                }
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let pipeline = &req.model.info().resolved.pipeline;
-        let mut built = workflows::qwen(
-            &a.files,
-            &workflows::QwenParams {
-                sampler_name: &pipeline.sampler_name,
-                scheduler: &pipeline.scheduler,
-                prompt: &prompt,
-                negative: &req.negative,
-                width: w,
-                height: h,
-                seed: req.seed,
-                steps: req.steps,
-                cfg: req.guidance,
-                denoise: 1.0,
-                references: pngs.len(),
-                use_cache: info.has_node("QwenImage21Cache"),
-                loras,
-            },
-        );
-        set_qwen_sampler(&mut built, req.sampler.as_ref());
-        let images: Vec<_> = built.image_nodes.iter().cloned().zip(pngs).collect();
-        let out = imaging::decode_rgba(&self.run(built.graph, &images, ctl)?)?;
-        if background {
-            return imaging::finish_background(&out);
-        }
-        if req.transparent {
-            let alpha = imaging::finish_cutout(&out)?;
-            let mut out = out;
-            for (x, y, p) in out.enumerate_pixels_mut() {
-                p[3] = alpha.get_pixel(x, y)[0];
-            }
-            Ok(out)
-        } else {
-            Ok(imaging::over_white(&out))
-        }
-    }
-
     /// Runs an imported custom workflow: its marked fields get `inputs`; `images` fills its
     /// `li:image…` inputs in order, `mask` its `li:mask`.
     pub fn run_custom(
@@ -1165,15 +943,8 @@ fn resize_to(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
     if img.dimensions() == (w, h) { img.clone() } else { li_raster::resize_rgba8(img, w, h, li_raster::Filter::Lanczos3) }
 }
 
-/// The family's prompt conventions: Pony's score tags and Illustrious' quality tags are added
+/// The family's prompt conventions: Pony's score tags are added
 /// when the prompt doesn't already start with them; its default negative fills an empty one.
-fn set_qwen_sampler(built: &mut workflows::Built, sampler: Option<&(String, String)>) {
-    if let Some((sampler, scheduler)) = sampler {
-        built.graph["6"]["inputs"]["sampler_name"] = serde_json::json!(sampler);
-        built.graph["6"]["inputs"]["scheduler"] = serde_json::json!(scheduler);
-    }
-}
-
 pub fn prompt_rules(f: &Family, prompt: &str, negative: &str) -> (String, String) {
     let prefix = f.prompt.prefix.trim();
     let first = prefix.split(',').next().unwrap_or("").trim();
@@ -1187,13 +958,12 @@ pub fn prompt_rules(f: &Family, prompt: &str, negative: &str) -> (String, String
 }
 
 /// Reference images as PNGs, sized for how the family takes them.
-fn prepare_refs(f: &Family, refs: &[RgbaImage], w: u32, h: u32) -> Result<Vec<Vec<u8>>> {
+fn prepare_refs(f: &Family, refs: &[RgbaImage]) -> Result<Vec<Vec<u8>>> {
     refs.iter()
         .map(|r| {
             let white = imaging::over_white(r);
             let img = match f.pipeline.reference {
-                RefMethod::InitImage => imaging::over_white(&imaging::fit_cover(r, w, h)),
-                RefMethod::IpAdapter | RefMethod::Redux => {
+                RefMethod::IpAdapter => {
                     let k = (512.0 / white.width().max(white.height()) as f32).min(1.0);
                     li_raster::resize_rgba8(
                         &white,
@@ -1249,26 +1019,6 @@ fn ds2_refinement_request_rejects_nonfinite_and_out_of_range_parameters() {
     assert!(r.validate().is_ok());
 }
 
-#[cfg(test)]
-#[test]
-fn final_review_qwen_remove_blends_the_boundary_and_preserves_unmasked_pixels() {
-    let server = crate::mock::MockComfy::start().unwrap();
-    server.delay_ms.store(1, std::sync::atomic::Ordering::SeqCst);
-    let ai = Ai::new(server.host());
-    let info = ai.inventory().unwrap();
-    let src = RgbImage::from_pixel(64, 48, image::Rgb([105, 166, 205]));
-    let mask = GrayImage::from_fn(64, 48, |x, y| Luma([if (16..48).contains(&x) && (12..36).contains(&y) { 255 } else { 0 }]));
-    let out = ai.remove_qwen(&RgbFrame::from_rgb8(&src), &mask, "int8", 42, &info, &JobControl::new(), false).unwrap().to_rgb8();
-    let boundary_jump = out.get_pixel(16, 20).0.into_iter().zip(src.get_pixel(15, 20).0).map(|(a, b)| a.abs_diff(b)).max().unwrap();
-    assert!(boundary_jump < 12, "Qwen repair must meet the surrounding colour: jump {boundary_jump}");
-    for (x, y, p) in out.enumerate_pixels() {
-        if mask.get_pixel(x, y)[0] == 0 {
-            assert_eq!(p, src.get_pixel(x, y));
-        }
-    }
-    assert_eq!(out.dimensions(), src.dimensions());
-}
-
 /// CPU cutout on the real service path. No ComfyUI inventory or GPU is involved.
 pub fn cpu_cutout(image: &RgbaImage, better: bool, dir: &std::path::Path, ctl: &JobControl) -> Result<GrayImage> {
     ctl.check()?;
@@ -1293,30 +1043,13 @@ pub fn cutout_seconds(better: bool) -> Option<f32> {
 mod cutout_tier_tests {
     use super::*;
     #[test]
-    fn bg_cutout_cancelled_tiers_never_contact_comfy_or_load_models() {
-        let ai = Ai::new("127.0.0.1:1");
+    fn bg_cutout_cancelled_tiers_never_load_models() {
         let ctl = JobControl::new();
         ctl.cancel();
-        for variant in ["fast", "quick", "better", "int8", "bf16"] {
-            let error = ai.cutout(&RgbaImage::new(4, 4), variant, "", 1, &ctl).unwrap_err();
+        for better in [false, true] {
+            let error = cpu_cutout(&RgbaImage::new(4, 4), better, std::path::Path::new("/not-a-local-image-model-directory"), &ctl).unwrap_err();
             assert!(error.is::<lightcraft_sysmem::jobs::Cancelled>());
         }
-    }
-    #[test]
-    #[ignore = "opt-in real NVIDIA GPU and idle ComfyUI, BGREMOVE_PHOTO"]
-    fn bg_cutout_real_qwen_gpu() {
-        let ai = crate::service();
-        let stats = ai.client.system_stats().expect("live ComfyUI");
-        assert!(stats["devices"].as_array().unwrap().iter().any(|d| d["type"] == "cuda" && d["name"].as_str().is_some_and(|n| n.contains("NVIDIA"))));
-        let queue = ai.client.queue_state().unwrap();
-        assert!(queue["queue_running"].as_array().unwrap().is_empty() && queue["queue_pending"].as_array().unwrap().is_empty(), "shared queue must be idle");
-        let image = image::open(std::env::var_os("BGREMOVE_PHOTO").expect("CC0 photo path")).unwrap().to_rgba8();
-        // Use a small, grid-aligned photograph at the model's usable spatial scale.
-        // A 128-pixel probe produced an almost-zero matte (alpha 0..3) on the real GPU.
-        let image = li_raster::resize_rgba8(&image, 512, 320, li_raster::Filter::Lanczos3);
-        let alpha = ai.cutout(&image, "int8", "", 1, &JobControl::new()).unwrap();
-        assert_eq!(alpha.dimensions(), image.dimensions());
-        assert!(alpha.pixels().any(|p| p[0] < 128) && alpha.pixels().any(|p| p[0] > 128));
     }
     #[test]
     fn bg_cutout_cpu_missing_model_is_local_error() {

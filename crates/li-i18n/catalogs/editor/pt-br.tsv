@@ -2595,7 +2595,6 @@ cameraRaw	Whites	Brancos
 	Remove Background (AI)	Remover plano de fundo (IA)
 	Remove Backgrounds (AI)…	Remover planos de fundo (IA)…
 	Set Up AI…	Configurar IA…
-	Subject (AI)	Assunto (IA)
 	The AI engine isn't running.	O mecanismo de IA não está em execução.
 	Contextual task bar	Barra de tarefas contextual
 	Tool presets	Predefinições de ferramenta
@@ -2698,7 +2697,6 @@ cameraRaw	Whites	Brancos
 	Could not save settings: {error}	Não foi possível salvar as configurações: {error}
 	Couldn't save: {error}	Não foi possível salvar: {error}
 	Couldn't update profiles: {error}	Não foi possível atualizar os perfis: {error}
-	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Recorta o assunto de cada imagem com o Qwen Image 2.1 e salva PNGs. Os originais nunca são alterados.
 	Delete from Library	Excluir da biblioteca
 	Describe details to add (optional)…	Descreva os detalhes a adicionar (opcional)…
 	Describe the change, e.g. “make it golden hour”…	Descreva a alteração, por ex. “deixe na hora dourada”…
@@ -2759,7 +2757,6 @@ cameraRaw	Whites	Brancos
 	Installation:	Instalação:
 	Installed	Instalado
 	Keep	Manter
-	Keep… (optional)	Manter… (opcional)
 	Licence	Licença
 	Licence gate	Requer licença
 	Licence: see its page	Licença: veja a página
@@ -2804,8 +2801,6 @@ cameraRaw	Whites	Brancos
 	Precision	Precisão
 	Preset name	Nome da predefinição
 	Previous image ({key})	Imagem anterior ({key})
-	Qwen Compact	Qwen compacto
-	Qwen Full	Qwen completo
 	RESULTS	RESULTADOS
 	Read the licence	Ler a licença
 	Ready	Pronto
@@ -2852,7 +2847,6 @@ cameraRaw	Whites	Brancos
 	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Inicie primeiro o mecanismo de IA: o Local Image verifica o que o ComfyUI já tem. ({error})
 	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Inicie o mecanismo de IA para ver a memória da sua GPU; mostrando o que cabe em 8 GB.
 	Starting ComfyUI… (the first start can take a minute)	Iniciando o ComfyUI… (a primeira inicialização pode levar um minuto)
-	Starting image · {n}/{max}	Imagem inicial · {n}/{max}
 	Starting {name}…	Iniciando {name}…
 	Steps	Etapas
 	Stopped	Parado
@@ -2870,7 +2864,6 @@ cameraRaw	Whites	Brancos
 	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	O fluxo de trabalho não tem nós com os títulos li:prompt, li:image, li:mask, li:seed ou li:output, então o Local Image não consegue preenchê-lo. Renomeie os nós no ComfyUI e exporte novamente.
 	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Os tokens permitem que o Navegador de modelos baixe modelos restritos ou que exigem login. Eles são enviados apenas ao próprio site.
 	Transparent PNG	PNG transparente
-	Transparent background	Plano de fundo transparente
 	Trending	Em alta
 	Trending this week	Em alta nesta semana
 	Unknown family	Família desconhecida
@@ -2881,7 +2874,6 @@ cameraRaw	Whites	Brancos
 	Upscale {scale}×	Ampliar {scale}×
 	Use	Usar
 	Use as Reference	Usar como referência
-	Variation strength	Intensidade da variação
 	Waiting	Aguardando
 	What should appear in the selection…	O que deve aparecer na seleção…
 	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Com sua própria chave de API, Gerar também pode usar modelos na nuvem (eles aparecem em Nuvem no seletor de modelos). Seu prompt e suas imagens vão então deste computador para esse provedor e são cobrados na sua conta; nada mais é enviado para lugar nenhum.
@@ -2915,12 +2907,9 @@ cameraRaw	Whites	Brancos
 	{size} · runs on the CPU · {licence}	{size} · roda na CPU · {licence}
 	{source}: offline, showing results from {when}	{source}: offline, mostrando resultados de {when}
 	{source}: the catalogue couldn't be read	{source}: não foi possível ler o catálogo
-	{why} Qwen Image 2.1 runs these.	{why} Estes recursos usam o Qwen Image 2.1.
 	Seed	Semente
 	Solid Color	Cor sólida
 	Strength	Intensidade
-	Qwen AI · Compact	Qwen IA · compacto
-	Qwen AI · Full	Qwen IA · completo
 	Standard (CPU)	Padrão (CPU)
 	Templates	Modelos
 	Community	Comunidade

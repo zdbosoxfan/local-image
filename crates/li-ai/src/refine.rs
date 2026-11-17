@@ -147,8 +147,7 @@ impl Recipe {
             Self::Family { profile, .. } => matches!(profile.pipeline.reference, RefMethod::ReferenceLatent | RefMethod::TextEncoder),
             Self::Template { workflow, .. } => workflow.graph.as_object().is_some_and(|g| {
                 g.values().any(|n| {
-                    n["class_type"] == "ReferenceLatent"
-                        || n["class_type"].as_str().is_some_and(|c| c.starts_with("TextEncode") && (c.contains("Edit") || c.contains("QwenImage21")))
+                    n["class_type"] == "ReferenceLatent" || n["class_type"].as_str().is_some_and(|c| c.starts_with("TextEncode") && c.contains("Edit"))
                 })
             }),
             Self::Universal { .. } => false,

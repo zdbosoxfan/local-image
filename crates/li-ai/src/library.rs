@@ -21,8 +21,8 @@ pub struct Entry {
     pub created_at: f64,
     pub width: u32,
     pub height: u32,
-    /// `{model, variant, prompt, negative_prompt, width, height, seed, transparent, steps,
-    /// guidance, denoise, reference_count, loras}`, or null.
+    /// `{model, variant, prompt, negative_prompt, width, height, seed, steps, guidance, denoise,
+    /// reference_count, loras}`, or null.
     #[serde(default)]
     pub generation: Option<Value>,
     #[serde(default)]

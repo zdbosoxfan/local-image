@@ -146,16 +146,16 @@ fn family_from_modelspec_normalizes_common_architectures() {
         ("sd-1", Some("sd15")),
         ("stable-diffusion-v3-medium", Some("sd35")),
         ("SD3", Some("sd35")),
-        ("flux-1-dev", Some("flux1")),
+        ("flux-1-dev", None),
         ("flux-2", Some("flux2")),
         ("qwen-image-edit", Some("qwen-edit")),
         ("qwen_image", Some("qwen-image")),
         ("hidream-i1", Some("hidream")),
-        ("z-image-turbo", Some("z-image")),
+        ("z-image-turbo", None),
         ("ernie-4.5", Some("ernie")),
         ("pony", Some("pony")),
-        ("illustrious", Some("illustrious")),
-        ("flux-1-dev/lora", Some("flux1")),
+        ("illustrious", None),
+        ("flux-1-dev/lora", None),
         ("some-unknown-arch", None),
     ];
     for (input, expected) in cases {
@@ -240,9 +240,9 @@ fn name_looks_like_lora_detects_words_and_camel_case() {
 #[test]
 fn guess_from_name_recognizes_families_and_priorities() {
     assert_eq!(guess_from_name("qwen_image_edit_2511_bf16.safetensors", FileKind::DiffusionModel).as_deref(), Some("qwen-edit"));
-    assert_eq!(guess_from_name("a_qwen_image_2.1_x.safetensors", FileKind::DiffusionModel).as_deref(), Some("qwen-image-21"));
+    assert_eq!(guess_from_name("a_qwen_image_2.1_x.safetensors", FileKind::DiffusionModel), None);
     assert_eq!(guess_from_name("flux2-klein.safetensors", FileKind::DiffusionModel).as_deref(), Some("flux2-klein"));
-    assert_eq!(guess_from_name("some_flux_model.safetensors", FileKind::DiffusionModel).as_deref(), Some("flux1"));
+    assert_eq!(guess_from_name("some_flux_model.safetensors", FileKind::DiffusionModel), None);
     assert_eq!(guess_from_name("random.safetensors", FileKind::DiffusionModel), None);
 }
 
@@ -290,7 +290,7 @@ fn read_header_gguf_file_parses_metadata_and_tensors() {
 
     let d = classify(&h, "flux1-dev-Q4_K_S.gguf");
     assert_eq!(d.kind, FileKind::DiffusionModel);
-    assert_eq!(d.family.as_deref(), Some("flux1"));
+    assert_eq!(d.family, None);
 }
 
 #[test]
