@@ -5478,7 +5478,7 @@ version = "0.8.0-alpha"
 dependencies = [
  "base64 0.23.1",
  "cap-std",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "li-fs",
  "li-raster",
  "lightcraft-codecs",
