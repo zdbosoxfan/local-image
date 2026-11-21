@@ -5862,7 +5862,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simplecss",
- "svgtypes",
+ "svgtypes 0.16.2",
  "thiserror 2.0.21",
  "usvg",
 ]
@@ -5894,7 +5894,7 @@ dependencies = [
  "photocraft-vector",
  "resvg",
  "serde_json",
- "svgtypes",
+ "svgtypes 0.16.2",
 ]
 
 [[package]]
@@ -6701,7 +6701,7 @@ dependencies = [
  "log",
  "pico-args",
  "rgb",
- "svgtypes",
+ "svgtypes 0.15.3",
  "tiny-skia",
  "usvg",
 ]
@@ -7470,6 +7470,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68c7541fff44b35860c1a7a47a7cadf3e4a304c457b58f9870d9706ece028afc"
 dependencies = [
  "kurbo 0.11.3",
+ "siphasher",
+]
+
+[[package]]
+name = "svgtypes"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f12b12995e3638c70618c1facb1ce65302f6a6f706b675f07c58a5d7391120e"
+dependencies = [
+ "kurbo 0.13.1",
  "siphasher",
 ]
 
@@ -8299,7 +8309,7 @@ dependencies = [
  "simplecss",
  "siphasher",
  "strict-num",
- "svgtypes",
+ "svgtypes 0.15.3",
  "tiny-skia-path 0.11.4",
  "xmlwriter",
 ]
