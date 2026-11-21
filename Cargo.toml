@@ -21,7 +21,7 @@ photocraft-affinity = { path = "crates/pc-affinity" }
 photocraft-pdf = { path = "crates/pc-pdf" }
 photocraft-svg = { path = "crates/pc-svg" }
 kurbo = { version = "=0.13.1" }
-linesweeper = { version = "=0.4.0" }
+linesweeper = { version = "=0.5.0" }
 polycool = { version = "=0.4.0" }
 photocraft-pathops = { path = "crates/pc-pathops" }
 ab_glyph = { version = "0.2", default-features = false, features = ["std"] }
