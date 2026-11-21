@@ -36,7 +36,7 @@ dhat = { version = "0.3" }
 dirs = { version = "6" }
 eframe = { version = "0.36", default-features = false }
 egui = { version = "0.36" }
-egui_extras = { version = "0.36", default-features = false }
+egui_extras = { version = "0.37", default-features = false }
 egui_kittest = { version = "0.36" }
 flate2 = { version = "1", default-features = false, features = ["rust_backend", "zlib-rs", "runtime_detection"] }
 getrandom = { version = "0.3" }

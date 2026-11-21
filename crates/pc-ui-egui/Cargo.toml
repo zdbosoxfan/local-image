@@ -53,7 +53,7 @@ photocraft-codecs = { workspace = true }
 egui = { workspace = true }
 # The Attributions page (Settings / Preferences / About).
 li-attributions = { workspace = true }
-egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
